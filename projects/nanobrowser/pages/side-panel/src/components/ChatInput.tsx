@@ -13,9 +13,6 @@ interface ChatInputProps {
   showStopButton: boolean;
   setContent?: (setter: (text: string) => void) => void;
   isDarkMode?: boolean;
-  // Historical session ID - if provided, shows replay button instead of send button
-  historicalSessionId?: string | null;
-  onReplay?: (sessionId: string) => void;
 }
 
 // File attachment interface
@@ -35,8 +32,6 @@ export default function ChatInput({
   showStopButton,
   setContent,
   isDarkMode = false,
-  historicalSessionId,
-  onReplay,
 }: ChatInputProps) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
@@ -122,12 +117,6 @@ export default function ChatInput({
     },
     [handleSubmit],
   );
-
-  const handleReplay = useCallback(() => {
-    if (historicalSessionId && onReplay) {
-      onReplay(historicalSessionId);
-    }
-  }, [historicalSessionId, onReplay]);
 
   const handleFileSelect = useCallback(() => {
     fileInputRef.current?.click();
@@ -306,15 +295,6 @@ export default function ChatInput({
               onClick={onStopTask}
               className="rounded-md bg-red-500 px-3 py-1 text-white transition-colors hover:bg-red-600">
               {t('chat_buttons_stop')}
-            </button>
-          ) : historicalSessionId ? (
-            <button
-              type="button"
-              onClick={handleReplay}
-              disabled={!historicalSessionId}
-              aria-disabled={!historicalSessionId}
-              className={`rounded-md bg-green-500 px-3 py-1 text-white transition-colors hover:enabled:bg-green-600 ${!historicalSessionId ? 'cursor-not-allowed opacity-50' : ''}`}>
-              {t('chat_buttons_replay')}
             </button>
           ) : (
             <button

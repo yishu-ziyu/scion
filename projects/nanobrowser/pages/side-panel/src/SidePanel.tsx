@@ -4,7 +4,7 @@ import { RxDiscordLogo } from 'react-icons/rx';
 import { FiSettings } from 'react-icons/fi';
 import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
-import { type Message, Actors, chatHistoryStore, agentModelStore, generalSettingsStore } from '@extension/storage';
+import { type Message, Actors, chatHistoryStore, agentModelStore } from '@extension/storage';
 import favoritesStorage, { type FavoritePrompt } from '@extension/storage/lib/prompt/favorites';
 import { t } from '@extension/i18n';
 import MessageList from './components/MessageList';
@@ -36,10 +36,7 @@ const SidePanel = () => {
   const [hasConfiguredModels, setHasConfiguredModels] = useState<boolean | null>(null); // null = loading, false = no models, true = has models
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
-  const [isReplaying, setIsReplaying] = useState(false);
-  const [replayEnabled, setReplayEnabled] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
-  const isReplayingRef = useRef<boolean>(false);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -75,37 +72,23 @@ const SidePanel = () => {
     }
   }, []);
 
-  // Load general settings to check if replay is enabled
-  const loadGeneralSettings = useCallback(async () => {
-    try {
-      const settings = await generalSettingsStore.getSettings();
-      setReplayEnabled(settings.replayHistoricalTasks);
-    } catch (error) {
-      console.error('Error loading general settings:', error);
-      setReplayEnabled(false);
-    }
-  }, []);
-
   // Check model configuration on mount
   useEffect(() => {
     checkModelConfiguration();
-    loadGeneralSettings();
-  }, [checkModelConfiguration, loadGeneralSettings]);
+  }, [checkModelConfiguration]);
 
   // Re-check model configuration when the side panel becomes visible again
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        // Panel became visible, re-check configuration and settings
+        // Panel became visible, re-check configuration
         checkModelConfiguration();
-        loadGeneralSettings();
       }
     };
 
     const handleFocus = () => {
-      // Panel gained focus, re-check configuration and settings
+      // Panel gained focus, re-check configuration
       checkModelConfiguration();
-      loadGeneralSettings();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -115,15 +98,11 @@ const SidePanel = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [checkModelConfiguration, loadGeneralSettings]);
+  }, [checkModelConfiguration]);
 
   useEffect(() => {
     sessionIdRef.current = currentSessionId;
   }, [currentSessionId]);
-
-  useEffect(() => {
-    isReplayingRef.current = isReplaying;
-  }, [isReplaying]);
 
   const appendMessage = useCallback((newMessage: Message, sessionId?: string | null) => {
     // Don't save progress messages
@@ -165,20 +144,17 @@ const SidePanel = () => {
               setIsFollowUpMode(true);
               setInputEnabled(true);
               setShowStopButton(false);
-              setIsReplaying(false);
               break;
             case ExecutionState.TASK_FAIL:
               setIsFollowUpMode(true);
               setInputEnabled(true);
               setShowStopButton(false);
-              setIsReplaying(false);
               skip = false;
               break;
             case ExecutionState.TASK_CANCEL:
               setIsFollowUpMode(false);
               setInputEnabled(true);
               setShowStopButton(false);
-              setIsReplaying(false);
               skip = false;
               break;
             case ExecutionState.TASK_PAUSE:
@@ -232,7 +208,7 @@ const SidePanel = () => {
               }
               break;
             case ExecutionState.ACT_OK:
-              skip = !isReplayingRef.current;
+              skip = true;
               break;
             case ExecutionState.ACT_FAIL:
               skip = false;
@@ -397,98 +373,6 @@ const SidePanel = () => {
     [stopConnection],
   );
 
-  // Handle replay command
-  const handleReplay = async (historySessionId: string): Promise<void> => {
-    try {
-      // Check if replay is enabled in settings
-      if (!replayEnabled) {
-        appendMessage({
-          actor: Actors.SYSTEM,
-          content: t('chat_replay_disabled'),
-          timestamp: Date.now(),
-        });
-        return;
-      }
-
-      // Check if history exists using loadAgentStepHistory
-      const historyData = await chatHistoryStore.loadAgentStepHistory(historySessionId);
-      if (!historyData) {
-        appendMessage({
-          actor: Actors.SYSTEM,
-          content: t('chat_replay_noHistory', historySessionId.substring(0, 20)),
-          timestamp: Date.now(),
-        });
-        return;
-      }
-
-      // Get current tab ID
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const tabId = tabs[0]?.id;
-      if (!tabId) {
-        throw new Error('No active tab found');
-      }
-
-      // Clear messages if we're in a historical session
-      if (isHistoricalSession) {
-        setMessages([]);
-      }
-
-      // Create a new chat session for this replay task
-      const newSession = await chatHistoryStore.createSession(`Replay of ${historySessionId.substring(0, 20)}...`);
-      console.log('newSession for replay', newSession);
-
-      // Store the new session ID in both state and ref
-      const newTaskId = newSession.id;
-      setCurrentSessionId(newTaskId);
-      sessionIdRef.current = newTaskId;
-
-      // Send replay command to background
-      setInputEnabled(false);
-      setShowStopButton(true);
-
-      // Reset follow-up mode and historical session flags
-      setIsFollowUpMode(false);
-      setIsHistoricalSession(false);
-
-      const userMessage = {
-        actor: Actors.USER,
-        content: `/replay ${historySessionId}`,
-        timestamp: Date.now(),
-      };
-
-      // Add the user message to the new session
-      appendMessage(userMessage, sessionIdRef.current);
-
-      // Setup connection if not exists
-      if (!portRef.current) {
-        setupConnection();
-      }
-
-      // Send replay command to background with the task from history
-      portRef.current?.postMessage({
-        type: 'replay',
-        taskId: newTaskId,
-        tabId: tabId,
-        historySessionId: historySessionId,
-        task: historyData.task, // Add the task from history
-      });
-
-      appendMessage({
-        actor: Actors.SYSTEM,
-        content: t('chat_replay_starting', historyData.task),
-        timestamp: Date.now(),
-      });
-      setIsReplaying(true);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      appendMessage({
-        actor: Actors.SYSTEM,
-        content: t('chat_replay_failed', errorMessage),
-        timestamp: Date.now(),
-      });
-    }
-  };
-
   // Handle chat commands that start with /
   const handleCommand = async (command: string): Promise<boolean> => {
     try {
@@ -509,24 +393,6 @@ const SidePanel = () => {
         portRef.current?.postMessage({
           type: 'nohighlight',
         });
-        return true;
-      }
-
-      if (command.startsWith('/replay ')) {
-        // Parse replay command: /replay <historySessionId>
-        // Handle multiple spaces by filtering out empty strings
-        const parts = command.split(' ').filter(part => part.trim() !== '');
-        if (parts.length !== 2) {
-          appendMessage({
-            actor: Actors.SYSTEM,
-            content: t('chat_replay_invalidArgs'),
-            timestamp: Date.now(),
-          });
-          return true;
-        }
-
-        const historySessionId = parts[1];
-        await handleReplay(historySessionId);
         return true;
       }
 
@@ -1139,8 +1005,6 @@ const SidePanel = () => {
                           setInputTextRef.current = setter;
                         }}
                         isDarkMode={isDarkMode}
-                        historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
-                        onReplay={handleReplay}
                       />
                     </div>
                     <div className="flex-1 overflow-y-auto">
@@ -1177,8 +1041,6 @@ const SidePanel = () => {
                         setInputTextRef.current = setter;
                       }}
                       isDarkMode={isDarkMode}
-                      historicalSessionId={isHistoricalSession && replayEnabled ? currentSessionId : null}
-                      onReplay={handleReplay}
                     />
                   </div>
                 )}
