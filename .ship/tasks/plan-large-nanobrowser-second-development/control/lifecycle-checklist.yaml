@@ -1,0 +1,24 @@
+scope_mode: full
+checkpoints:
+  - { id: 0, name: product_type, status: required, when: pre_cycle }
+  - { id: 0b, name: scope_challenge, status: required, when: pre_cycle }
+  - { id: 1, name: brd, status: required, when: pre_cycle }
+  - { id: 2, name: mrd, status: required, when: pre_cycle }
+  - { id: 3, name: scenario_research, status: required, when: pre_cycle }
+  - { id: 4, name: current_state, status: required, when: pre_cycle }
+  - { id: 5, name: problem_summary, status: required, when: pre_cycle }
+  - { id: 6, name: solution_idea, status: required, when: pre_cycle }
+  - { id: 7, name: product_solution, status: required, when: pre_cycle }
+  - { id: 8, name: product_blueprint, status: required, when: pre_cycle }
+  - { id: 9, name: data_model, status: required, when: pre_cycle }
+  - { id: 10, name: flow_role, status: required, when: pre_cycle }
+  - { id: 11, name: interface_design, status: required, when: pre_cycle }
+  - { id: 12, name: report_design, status: optional, when: in_cycle, reason: "任务回执需要设计，通用报告系统不需要" }
+  - { id: 13, name: tracking, status: required, when: pre_cycle }
+  - { id: 14, name: permission, status: required, when: pre_cycle }
+  - { id: 15, name: prd, status: required, when: pre_cycle }
+  - { id: 16, name: technical_plan, status: required, when: pre_cycle }
+  - { id: 17, name: project_management, status: required, when: pre_cycle }
+  - { id: 18, name: delivery, status: required, when: in_cycle }
+  - { id: 19, name: operations, status: N/A, when: post_cycle, reason: "本任务不发布" }
+  - { id: 20, name: iteration_analytics, status: required, when: post_cycle, reason: "实现和真实使用后分析，不阻塞本次 pre_cycle handoff" }
