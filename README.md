@@ -1,17 +1,22 @@
-# oss-forks
+# scion
 
 Personal second-development (二开) lab for open-source tools.
 
-Maintainer: yishu-ziyu
+**scion** (接穗): the shoot grafted onto a rootstock.
+Upstream is the trunk; this repo holds the living grafts.
 
+Maintainer: yishu-ziyu
 
 ## Local path
 
 ```
-/Users/mahaoxuan/Desktop/AI产品经理/自研产品/oss-forks
+/Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion
 ```
 
-Symlink (compat): `~/projects/oss-forks` → this directory.
+Symlinks:
+
+- `~/projects/scion` → this directory (preferred)
+- `~/projects/oss-forks` → same path (compat alias)
 
 ## Layout
 
