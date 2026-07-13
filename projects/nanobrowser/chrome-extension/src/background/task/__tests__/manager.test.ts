@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TaskManager } from '../manager';
-import type { ExecutorDriver, ExecutorOutcome } from '../contracts';
+import type { ExecutorDriver, ExecutorInput, ExecutorOutcome } from '../contracts';
 
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
@@ -145,6 +145,106 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(1));
     await manager.interruptActive();
     await vi.waitFor(async () => expect(await manager.snapshot('task-1')).toMatchObject({ status: 'interrupted' }));
+  });
+
+  it('does not run an executor cancelled while it is being created', async () => {
+    let finishCreate!: (driver: ExecutorDriver) => void;
+    const driver = fakeDriver();
+    const manager = new TaskManager({
+      createExecutor: vi.fn(() => new Promise<ExecutorDriver>(resolve => (finishCreate = resolve))),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-1',
+      taskId: 'task-1',
+      instruction: 'open form',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(finishCreate).toBeTypeOf('function'));
+    await manager.dispatch({ type: 'cancel', commandId: 'cancel-1', taskId: 'task-1', expectedRevision: 1 });
+    finishCreate(driver);
+
+    await vi.waitFor(() => expect(driver.stop).toHaveBeenCalledTimes(1));
+    expect(driver.run).not.toHaveBeenCalled();
+    await expect(manager.snapshot('task-1')).resolves.toMatchObject({ status: 'cancelled' });
+  });
+
+  it('does not run an executor while its task remains paused during creation', async () => {
+    let finishCreate!: (driver: ExecutorDriver) => void;
+    const driver = fakeDriver();
+    const manager = new TaskManager({
+      createExecutor: vi.fn(() => new Promise<ExecutorDriver>(resolve => (finishCreate = resolve))),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-1',
+      taskId: 'task-1',
+      instruction: 'open form',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(finishCreate).toBeTypeOf('function'));
+    await manager.dispatch({ type: 'pause', commandId: 'pause-1', taskId: 'task-1', expectedRevision: 1 });
+    finishCreate(driver);
+
+    await vi.waitFor(() => expect(driver.stop).toHaveBeenCalledTimes(1));
+    expect(driver.run).not.toHaveBeenCalled();
+    await expect(manager.snapshot('task-1')).resolves.toMatchObject({ status: 'paused' });
+  });
+
+  it('replaces an executor when a follow-up changes the round during creation', async () => {
+    const pendingCreates: Array<(driver: ExecutorDriver) => void> = [];
+    const createdInputs: ExecutorInput[] = [];
+    const createExecutor = vi.fn((input: ExecutorInput) => {
+      createdInputs.push(input);
+      return new Promise<ExecutorDriver>(resolve => pendingCreates.push(resolve));
+    });
+    const firstDriver = fakeDriver();
+    const secondDriver = fakeDriver();
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-1',
+      taskId: 'task-1',
+      instruction: 'open form',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(pendingCreates).toHaveLength(1));
+    await manager.dispatch({
+      type: 'follow_up',
+      commandId: 'follow-1',
+      taskId: 'task-1',
+      expectedRevision: 1,
+      instruction: 'then pause it',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-2',
+    });
+    pendingCreates.shift()?.(firstDriver);
+
+    await vi.waitFor(() => expect(pendingCreates).toHaveLength(1));
+    expect(firstDriver.stop).toHaveBeenCalledTimes(1);
+    expect(firstDriver.run).not.toHaveBeenCalled();
+    expect(createExecutor).toHaveBeenCalledTimes(2);
+    expect(createdInputs[1]).toMatchObject({ instruction: 'then pause it' });
+
+    pendingCreates.shift()?.(secondDriver);
+    await vi.waitFor(() => expect(secondDriver.run).toHaveBeenCalledTimes(1));
   });
 
   it('applies a running driver outcome to the latest follow-up round', async () => {

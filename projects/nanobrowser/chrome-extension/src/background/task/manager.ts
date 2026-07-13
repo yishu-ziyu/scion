@@ -21,6 +21,7 @@ const TERMINAL_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled'];
 
 export class TaskManager {
   private readonly drivers = new Map<string, ExecutorDriver>();
+  private readonly launches = new Map<string, symbol>();
   private readonly instructions = new Map<string, string>();
   private readonly listeners = new Set<(event: TaskEvent) => void>();
   private transition: Promise<void> = Promise.resolve();
@@ -313,15 +314,30 @@ export class TaskManager {
   }
 
   private async runCurrentRound(taskId: string): Promise<void> {
+    if (this.launches.has(taskId)) return;
+    const launch = Symbol(taskId);
+    this.launches.set(taskId, launch);
+
     try {
       let task = await getTask(taskId);
       if (!task || task.status !== 'running') return;
-      const round = this.currentRound(task);
+      await this.deps.switchTab(task.activeTabId);
+
+      task = await getTask(taskId);
+      if (!task || task.status !== 'running' || this.launches.get(taskId) !== launch) return;
+      let round = this.currentRound(task);
       let instruction = this.instructions.get(taskId);
       if (!instruction && task.chatSessionId && round.instructionMessageId) {
         const { chatHistoryStore } = await import('@extension/storage/lib/chat');
         const session = await chatHistoryStore.getSession(task.chatSessionId);
         instruction = session?.messages.find(message => message.id === round.instructionMessageId)?.content;
+
+        task = await getTask(taskId);
+        if (!task || task.status !== 'running' || this.launches.get(taskId) !== launch) return;
+        round = this.currentRound(task);
+        instruction =
+          this.instructions.get(taskId) ??
+          session?.messages.find(message => message.id === round.instructionMessageId)?.content;
       }
       if (!instruction) {
         task.status = 'waiting_user';
@@ -332,22 +348,41 @@ export class TaskManager {
         return;
       }
 
-      await this.deps.switchTab(task.activeTabId);
+      const roundId = round.id;
       const driver = await this.deps.createExecutor(
-        { taskId, roundId: round.id, instruction, tabId: task.activeTabId },
+        { taskId, roundId, instruction, tabId: task.activeTabId },
         this.executorHooks(),
       );
+
+      task = await getTask(taskId);
+      if (
+        !task ||
+        task.status !== 'running' ||
+        this.launches.get(taskId) !== launch ||
+        task.currentRoundId !== roundId
+      ) {
+        driver.stop();
+        if (task?.status === 'running' && this.launches.get(taskId) === launch) {
+          this.launches.delete(taskId);
+          void this.runCurrentRound(taskId);
+        }
+        return;
+      }
+
       this.drivers.set(taskId, driver);
+      this.launches.delete(taskId);
       await this.runDriver(taskId, driver);
     } catch {
       await this.queueTransition(async () => {
         const task = await getTask(taskId);
-        if (!task || TERMINAL_STATUSES.includes(task.status)) return;
+        if (!task || task.status !== 'running') return;
         task.status = 'failed';
         this.currentRound(task).status = 'failed';
         task.revision += 1;
         await this.persist(task);
       });
+    } finally {
+      if (this.launches.get(taskId) === launch) this.launches.delete(taskId);
     }
   }
 
