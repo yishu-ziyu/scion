@@ -50,8 +50,7 @@ export class Action {
     public readonly hasIndex: boolean = false,
   ) {}
 
-  async call(input: unknown): Promise<ActionResult> {
-    // Validate input before calling the handler
+  parse(input: unknown): unknown {
     const schema = this.schema.schema;
 
     // check if the schema is schema: z.object({}), if so, ignore the input
@@ -60,7 +59,7 @@ export class Action {
       Object.keys((schema as z.ZodObject<Record<string, z.ZodTypeAny>>).shape || {}).length === 0;
 
     if (isEmptySchema) {
-      return await this.handler({});
+      return {};
     }
 
     const parsedArgs = this.schema.schema.safeParse(input);
@@ -68,7 +67,15 @@ export class Action {
       const errorMessage = parsedArgs.error.message;
       throw new InvalidInputError(errorMessage);
     }
-    return await this.handler(parsedArgs.data);
+    return parsedArgs.data;
+  }
+
+  async executeParsed(input: unknown): Promise<ActionResult> {
+    return await this.handler(input);
+  }
+
+  async call(input: unknown): Promise<ActionResult> {
+    return await this.executeParsed(this.parse(input));
   }
 
   name() {
