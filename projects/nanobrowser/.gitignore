@@ -1,0 +1,34 @@
+# dependencies
+**/node_modules
+
+# testing
+**/coverage
+
+# build
+**/dist
+**/build
+**/dist-zip
+
+# env
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
+**/.env
+
+# personal fork secrets (injected at build; never commit)
+chrome-extension/src/personal/secrets.local.ts
+
+# etc
+.DS_Store
+.idea
+**/.turbo
+
+# compiled
+chrome-extension/public/manifest.json
+**/tailwind-output.css
+
+.nanobrowser
+.vscode
+.cursor
+*.py
