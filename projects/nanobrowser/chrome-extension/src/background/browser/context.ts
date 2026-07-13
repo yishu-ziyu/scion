@@ -29,11 +29,6 @@ export default class BrowserContext {
     this._config = { ...this._config, ...config };
   }
 
-  public updateCurrentTabId(tabId: number): void {
-    // only update tab id, but don't attach it.
-    this._currentTabId = tabId;
-  }
-
   private _getAllowedTabUrl(tab?: chrome.tabs.Tab): string | undefined {
     const committedUrl = tab?.url;
     const url = tab?.pendingUrl || committedUrl;
@@ -48,6 +43,22 @@ export default class BrowserContext {
     return url;
   }
 
+  private async _waitForCommittedAllowedTab(tab: chrome.tabs.Tab): Promise<chrome.tabs.Tab> {
+    if (!tab.id || !this._getAllowedTabUrl(tab)) {
+      throw new URLNotAllowedError(`Tab URL: ${tab.url || tab.pendingUrl || ''} is not allowed`);
+    }
+    if (tab.url) {
+      return tab;
+    }
+
+    await this.waitForTabEvents(tab.id, { waitForActivation: false });
+    const committedTab = await chrome.tabs.get(tab.id);
+    if (!committedTab.url || !this._getAllowedTabUrl(committedTab)) {
+      throw new URLNotAllowedError(`Tab URL: ${committedTab.url || committedTab.pendingUrl || ''} is not allowed`);
+    }
+    return committedTab;
+  }
+
   private async _getOrCreatePage(tab: chrome.tabs.Tab, forceUpdate = false): Promise<Page> {
     if (!tab.id) {
       throw new Error('Tab ID is not available');
@@ -59,12 +70,45 @@ export default class BrowserContext {
       if (!forceUpdate) {
         return existingPage;
       }
-      // detach the page and remove it from the attached pages if forceUpdate is true
-      await existingPage.detachPuppeteer();
-      this._attachedPages.delete(tab.id);
+      await this._invalidatePage(tab.id);
     }
     logger.info('getOrCreatePage', tab.id, 'creating new page');
     return new Page(tab.id, tab.url || '', tab.title || '', this._config);
+  }
+
+  private async _invalidatePage(tabId: number, candidate?: Page): Promise<void> {
+    const page = candidate || this._attachedPages.get(tabId);
+    this._attachedPages.delete(tabId);
+    if (this._currentTabId === tabId) {
+      this._currentTabId = null;
+    }
+    await page?.detachPuppeteer();
+  }
+
+  private async _attachAllowedPage(tabId: number, forceUpdate = false): Promise<Page> {
+    let page: Page | undefined;
+    try {
+      const tab = await this._waitForCommittedAllowedTab(await chrome.tabs.get(tabId));
+      page = await this._getOrCreatePage(tab, forceUpdate);
+
+      if (this._attachedPages.get(tabId) !== page && !(await page.attachPuppeteer())) {
+        throw new Error(`Failed to attach to tab ${tabId}`);
+      }
+
+      const attachedTab = await chrome.tabs.get(tabId);
+      if (!attachedTab.url || !this._getAllowedTabUrl(attachedTab)) {
+        throw new URLNotAllowedError(
+          `Tab URL: ${attachedTab.url || attachedTab.pendingUrl || ''} is not allowed after attachment`,
+        );
+      }
+
+      this._attachedPages.set(tabId, page);
+      this._currentTabId = tabId;
+      return page;
+    } catch (error) {
+      await this._invalidatePage(tabId, page);
+      throw error;
+    }
   }
 
   public async cleanup(): Promise<void> {
@@ -78,29 +122,13 @@ export default class BrowserContext {
     this._currentTabId = null;
   }
 
-  public async attachPage(page: Page): Promise<boolean> {
-    // check if page is already attached
-    if (this._attachedPages.has(page.tabId)) {
-      logger.info('attachPage', page.tabId, 'already attached');
-      return true;
-    }
-
-    if (await page.attachPuppeteer()) {
-      logger.info('attachPage', page.tabId, 'attached');
-      // add page to managed pages
-      this._attachedPages.set(page.tabId, page);
-      return true;
-    }
-    return false;
+  public async detachPage(tabId: number): Promise<void> {
+    await this._invalidatePage(tabId);
   }
 
-  public async detachPage(tabId: number): Promise<void> {
-    // detach page
-    const page = this._attachedPages.get(tabId);
-    if (page) {
-      await page.detachPuppeteer();
-      // remove page from managed pages
-      this._attachedPages.delete(tabId);
+  public async handleTabUpdated(tab: chrome.tabs.Tab): Promise<void> {
+    if (tab.id && !this._getAllowedTabUrl(tab)) {
+      await this._invalidatePage(tab.id);
     }
   }
 
@@ -126,30 +154,19 @@ export default class BrowserContext {
         activeTab = tab;
       }
       logger.info('active tab', activeTab.id, activeTab.url, activeTab.title);
-      const page = await this._getOrCreatePage(activeTab);
-      await this.attachPage(page);
-      this._currentTabId = activeTab.id || null;
-      return page;
+      return await this._attachAllowedPage(activeTab.id!);
     }
 
     // 2. Revalidate the current tab before reusing or attaching it.
-    const tab = await chrome.tabs.get(this._currentTabId);
-    if (!this._getAllowedTabUrl(tab)) {
-      await this.detachPage(this._currentTabId);
-      this._currentTabId = null;
-      return this.getCurrentPage();
+    const currentTabId = this._currentTabId;
+    try {
+      return await this._attachAllowedPage(currentTabId);
+    } catch (error) {
+      if (error instanceof URLNotAllowedError) {
+        return this.getCurrentPage();
+      }
+      throw error;
     }
-
-    const existingPage = this._attachedPages.get(this._currentTabId);
-    if (!existingPage) {
-      const page = await this._getOrCreatePage(tab);
-      // set current tab id to null if the page is not attached successfully
-      await this.attachPage(page);
-      return page;
-    }
-
-    // 3. Return existing page from attachedPages
-    return existingPage;
   }
 
   /**
@@ -254,16 +271,7 @@ export default class BrowserContext {
     await chrome.tabs.update(tabId, { active: true });
     await this.waitForTabEvents(tabId, { waitForUpdate: false });
 
-    const updatedTab = await chrome.tabs.get(tabId);
-    if (!this._getAllowedTabUrl(updatedTab)) {
-      await this.detachPage(tabId);
-      throw new URLNotAllowedError(`Switch tab failed. URL: ${updatedTab.url || ''} is not allowed`);
-    }
-
-    const page = await this._getOrCreatePage(updatedTab);
-    await this.attachPage(page);
-    this._currentTabId = tabId;
-    return page;
+    return await this._attachAllowedPage(tabId);
   }
 
   public async navigateTo(url: string): Promise<void> {
@@ -291,9 +299,7 @@ export default class BrowserContext {
     await this.waitForTabEvents(tabId);
 
     // Reattach the page after navigation completes
-    const updatedPage = await this._getOrCreatePage(await chrome.tabs.get(tabId), true);
-    await this.attachPage(updatedPage);
-    this._currentTabId = tabId;
+    await this._attachAllowedPage(tabId, true);
   }
 
   public async openTab(url: string): Promise<Page> {
@@ -309,14 +315,7 @@ export default class BrowserContext {
     // Wait for tab events
     await this.waitForTabEvents(tab.id);
 
-    // Get updated tab information
-    const updatedTab = await chrome.tabs.get(tab.id);
-    // Create and attach the page after tab is fully loaded and activated
-    const page = await this._getOrCreatePage(updatedTab);
-    await this.attachPage(page);
-    this._currentTabId = tab.id;
-
-    return page;
+    return await this._attachAllowedPage(tab.id);
   }
 
   public async closeTab(tabId: number): Promise<void> {

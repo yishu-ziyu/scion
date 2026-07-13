@@ -1,15 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const tabsApi = vi.hoisted(() => ({
-  query: vi.fn(),
-  create: vi.fn(),
-  get: vi.fn(),
-  update: vi.fn(),
-  onActivated: {
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-  },
-}));
+const tabsApi = vi.hoisted(() => {
+  const updatedListeners = new Set<
+    (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void
+  >();
+
+  return {
+    query: vi.fn(),
+    create: vi.fn(),
+    get: vi.fn(),
+    update: vi.fn(),
+    onActivated: {
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    },
+    onUpdated: {
+      addListener: vi.fn(listener => updatedListeners.add(listener)),
+      removeListener: vi.fn(listener => updatedListeners.delete(listener)),
+    },
+    emitUpdated(tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) {
+      updatedListeners.forEach(listener => listener(tabId, changeInfo, tab));
+    },
+    resetListeners() {
+      updatedListeners.clear();
+    },
+  };
+});
 
 vi.hoisted(() => {
   Object.defineProperty(globalThis, 'chrome', {
@@ -23,6 +39,7 @@ vi.mock('../../services/analytics', () => ({
 }));
 
 import BrowserContext from '../context';
+import Page from '../page';
 import { URLNotAllowedError } from '../views';
 
 const extensionTab = {
@@ -70,13 +87,16 @@ const currentTabBecomesMixed = {
 
 describe('BrowserContext tab selection', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
+    tabsApi.resetListeners();
   });
 
   it('selects an allowed content tab when the active tab is an extension page', async () => {
     tabsApi.query.mockImplementation(async query => (query.active ? [extensionTab] : [extensionTab, contentTab]));
+    tabsApi.get.mockResolvedValue(contentTab);
     const context = new BrowserContext({});
-    vi.spyOn(context, 'attachPage').mockResolvedValue(true);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
 
     const page = await context.getCurrentPage();
 
@@ -102,8 +122,9 @@ describe('BrowserContext tab selection', () => {
     tabsApi.query.mockImplementation(async query =>
       query.active ? [pendingContentFromExtensionTab] : [pendingContentFromExtensionTab, contentTab],
     );
+    tabsApi.get.mockResolvedValue(contentTab);
     const context = new BrowserContext({});
-    vi.spyOn(context, 'attachPage').mockResolvedValue(true);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
 
     const page = await context.getCurrentPage();
 
@@ -116,9 +137,13 @@ describe('BrowserContext tab selection', () => {
       if (!currentTabChanged) return [contentTab];
       return query.active ? [currentTabBecomesMixed] : [currentTabBecomesMixed, fallbackContentTab];
     });
-    tabsApi.get.mockResolvedValue(currentTabBecomesMixed);
+    tabsApi.get
+      .mockResolvedValueOnce(contentTab)
+      .mockResolvedValueOnce(contentTab)
+      .mockResolvedValueOnce(currentTabBecomesMixed)
+      .mockResolvedValue(fallbackContentTab);
     const context = new BrowserContext({});
-    vi.spyOn(context, 'attachPage').mockResolvedValue(true);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
 
     expect((await context.getCurrentPage()).tabId).toBe(contentTab.id);
     currentTabChanged = true;
@@ -126,16 +151,53 @@ describe('BrowserContext tab selection', () => {
     expect((await context.getCurrentPage()).tabId).toBe(fallbackContentTab.id);
   });
 
-  it('selects an allowed pending URL before it commits', async () => {
+  it('waits for a pending URL to commit before attaching the page', async () => {
+    const committedTab = {
+      ...pendingContentTab,
+      url: 'https://example.com/final',
+      pendingUrl: undefined,
+      status: 'complete',
+      title: 'Committed page',
+    } as chrome.tabs.Tab;
     tabsApi.query.mockResolvedValue([pendingContentTab]);
-    tabsApi.create.mockResolvedValue({ ...contentTab, id: 99 });
+    tabsApi.get
+      .mockResolvedValueOnce(pendingContentTab)
+      .mockResolvedValueOnce(pendingContentTab)
+      .mockResolvedValue(committedTab);
+    const attachPuppeteer = vi.spyOn(Page.prototype, 'attachPuppeteer').mockImplementation(async function (this: Page) {
+      expect(this.url()).toBe(committedTab.url);
+      return true;
+    });
     const context = new BrowserContext({});
-    vi.spyOn(context, 'attachPage').mockResolvedValue(true);
 
-    const page = await context.getCurrentPage();
+    const pagePromise = context.getCurrentPage();
+    await vi.waitFor(() => expect(tabsApi.onUpdated.addListener).toHaveBeenCalled());
+
+    expect(attachPuppeteer).not.toHaveBeenCalled();
+
+    tabsApi.emitUpdated(
+      pendingContentTab.id!,
+      { url: committedTab.url, title: committedTab.title, status: 'complete' },
+      committedTab,
+    );
+    const page = await pagePromise;
 
     expect(page.tabId).toBe(pendingContentTab.id);
+    expect(page.url()).toBe(committedTab.url);
+    expect(attachPuppeteer).toHaveBeenCalledOnce();
     expect(tabsApi.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a cold target that becomes forbidden while attaching', async () => {
+    tabsApi.query.mockResolvedValue([contentTab]);
+    tabsApi.get.mockResolvedValueOnce(contentTab).mockResolvedValue(currentTabBecomesMixed);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const detachPuppeteer = vi.spyOn(Page.prototype, 'detachPuppeteer').mockResolvedValue();
+    const context = new BrowserContext({});
+
+    await expect(context.getCurrentPage()).rejects.toBeInstanceOf(URLNotAllowedError);
+
+    expect(detachPuppeteer).toHaveBeenCalledOnce();
   });
 
   it('rejects an extension page before switching tabs', async () => {
@@ -159,9 +221,92 @@ describe('BrowserContext tab selection', () => {
       .mockResolvedValueOnce(currentTabBecomesMixed);
     tabsApi.update.mockResolvedValue({ ...contentTab, active: true });
     const context = new BrowserContext({});
-    const attachPage = vi.spyOn(context, 'attachPage').mockResolvedValue(true);
+    const attachPuppeteer = vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
 
     await expect(context.switchTab(contentTab.id!)).rejects.toBeInstanceOf(URLNotAllowedError);
-    expect(attachPage).not.toHaveBeenCalled();
+    expect(attachPuppeteer).not.toHaveBeenCalled();
+  });
+
+  it('rejects a switched target that becomes forbidden while attaching', async () => {
+    const activeContentTab = { ...contentTab, active: true } as chrome.tabs.Tab;
+    tabsApi.get
+      .mockResolvedValueOnce(contentTab)
+      .mockResolvedValueOnce(activeContentTab)
+      .mockResolvedValueOnce(activeContentTab)
+      .mockResolvedValue(currentTabBecomesMixed);
+    tabsApi.update.mockResolvedValue(activeContentTab);
+    const attachPuppeteer = vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const detachPuppeteer = vi.spyOn(Page.prototype, 'detachPuppeteer').mockResolvedValue();
+    const context = new BrowserContext({});
+
+    await expect(context.switchTab(contentTab.id!)).rejects.toBeInstanceOf(URLNotAllowedError);
+
+    expect(attachPuppeteer).toHaveBeenCalledOnce();
+    expect(detachPuppeteer).toHaveBeenCalledOnce();
+  });
+
+  it('retries instead of selecting a page when attachment fails', async () => {
+    tabsApi.query.mockResolvedValue([contentTab]);
+    tabsApi.get.mockResolvedValue(contentTab);
+    const attachPuppeteer = vi
+      .spyOn(Page.prototype, 'attachPuppeteer')
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+    vi.spyOn(Page.prototype, 'detachPuppeteer').mockResolvedValue();
+    const context = new BrowserContext({});
+
+    await expect(context.getCurrentPage()).rejects.toThrow('Failed to attach to tab 2');
+    await expect(context.getCurrentPage()).resolves.toMatchObject({ tabId: contentTab.id });
+
+    expect(attachPuppeteer).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidates a managed page when its tab becomes forbidden', async () => {
+    tabsApi.query.mockResolvedValueOnce([contentTab]).mockResolvedValue([fallbackContentTab]);
+    tabsApi.get
+      .mockResolvedValueOnce(contentTab)
+      .mockResolvedValueOnce(contentTab)
+      .mockResolvedValue(fallbackContentTab);
+    const attachPuppeteer = vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const detachPuppeteer = vi.spyOn(Page.prototype, 'detachPuppeteer').mockResolvedValue();
+    const context = new BrowserContext({});
+
+    await context.getCurrentPage();
+    await context.handleTabUpdated(currentTabBecomesMixed);
+    const replacement = await context.getCurrentPage();
+
+    expect(replacement.tabId).toBe(fallbackContentTab.id);
+    expect(detachPuppeteer).toHaveBeenCalledOnce();
+    expect(attachPuppeteer).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let old-tab cleanup clear a newer switched tab', async () => {
+    const activeFallbackTab = { ...fallbackContentTab, active: true } as chrome.tabs.Tab;
+    let releaseOldDetach!: () => void;
+    const oldDetachGate = new Promise<void>(resolve => {
+      releaseOldDetach = resolve;
+    });
+    tabsApi.query.mockResolvedValue([contentTab]);
+    tabsApi.get
+      .mockResolvedValueOnce(contentTab)
+      .mockResolvedValueOnce(contentTab)
+      .mockResolvedValueOnce(fallbackContentTab)
+      .mockResolvedValue(activeFallbackTab);
+    tabsApi.update.mockResolvedValue(activeFallbackTab);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const detachPuppeteer = vi.spyOn(Page.prototype, 'detachPuppeteer').mockImplementation(function (this: Page) {
+      return this.tabId === contentTab.id ? oldDetachGate : Promise.resolve();
+    });
+    const context = new BrowserContext({});
+
+    await context.getCurrentPage();
+    const oldCleanup = context.handleTabUpdated(currentTabBecomesMixed);
+    await vi.waitFor(() => expect(detachPuppeteer).toHaveBeenCalledOnce());
+    await context.switchTab(fallbackContentTab.id!);
+    releaseOldDetach();
+    await oldCleanup;
+
+    await expect(context.getCurrentPage()).resolves.toMatchObject({ tabId: fallbackContentTab.id });
+    expect(detachPuppeteer).toHaveBeenCalledOnce();
   });
 });
