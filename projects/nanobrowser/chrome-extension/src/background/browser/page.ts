@@ -42,6 +42,7 @@ export interface ActionTargetObservation {
   nameDigest?: string;
   hasSemanticName: boolean;
   semanticCommit: boolean;
+  semanticNavigation: boolean;
 }
 
 export function build_initial_state(tabId?: number, url?: string, title?: string): PageState {
@@ -1374,6 +1375,7 @@ export default class Page {
         inForm: false,
         hasSemanticName: false,
         semanticCommit: false,
+        semanticNavigation: false,
       };
     }
     const args = parsedArgs && typeof parsedArgs === 'object' ? (parsedArgs as Record<string, unknown>) : {};
@@ -1387,8 +1389,10 @@ export default class Page {
     let inForm = this.hasFormAncestor(node);
     let activeTag: string | undefined;
     let semanticName: string | undefined = attributes['aria-label'] || attributes.name || attributes.title;
+    let semanticSource = [semanticName, attributes.href].filter(Boolean).join(' ');
     let hasSemanticName = Boolean(semanticName);
-    let semanticCommit = this.hasCommitSignal(`${semanticName ?? ''} ${attributes.href ?? ''}`);
+    let semanticCommit = this.hasCommitSignal(semanticSource);
+    let semanticNavigation = this.hasNavigationSignal(semanticSource);
     let structureSource = node?.xpath || undefined;
 
     if (node && this._puppeteerPage) {
@@ -1425,9 +1429,14 @@ export default class Page {
             htmlElement.getAttribute('title'),
           hasSemanticName: semanticText.length > 0,
           semanticCommit:
-            /(submit|send|buy|purchase|delete|remove|confirm|pay|publish|post|save|book|reserve|checkout|transfer|approve|accept|create|update|提交|发送|购买|删除|确认|支付|发布|保存|预订|转账|批准|接受|创建|更新)/i.test(
+            /(submit|send|buy|purchase|delete|remove|confirm|pay|publish|post|save|book|reserve|checkout|transfer|approve|accept|create|update|grant|revoke|enable|disable|cancel|unsubscribe|authorize|connect|disconnect|join|leave|follow|unfollow|提交|发送|购买|删除|确认|支付|发布|保存|预订|转账|批准|接受|创建|更新|授权|撤销|启用|禁用|取消|退订|连接|断开|加入|离开|关注|取关)/i.test(
               semanticText,
             ),
+          semanticNavigation:
+            /\b(home|favorites?|details?|learn more|next|previous|back)\b|主页|收藏|详情|下一|上一|返回/i.test(
+              semanticText,
+            ),
+          semanticSource: semanticText,
           structure: path.reverse().join('/'),
         };
       });
@@ -1438,6 +1447,8 @@ export default class Page {
       semanticName = live.name || undefined;
       hasSemanticName = live.hasSemanticName;
       semanticCommit = live.semanticCommit;
+      semanticNavigation = live.semanticNavigation;
+      semanticSource = live.semanticSource;
       structureSource = live.structure;
       if (live.autocomplete === 'current-password') type = 'password';
     }
@@ -1468,6 +1479,15 @@ export default class Page {
           inForm: Boolean(element?.closest('form')),
           name: element?.getAttribute('aria-label') || element?.getAttribute('name') || element?.getAttribute('title'),
           hasSemanticName: semanticText.length > 0,
+          semanticCommit:
+            /(submit|send|buy|purchase|delete|remove|confirm|pay|publish|post|save|book|reserve|checkout|transfer|approve|accept|create|update|grant|revoke|enable|disable|cancel|unsubscribe|authorize|connect|disconnect|join|leave|follow|unfollow|提交|发送|购买|删除|确认|支付|发布|保存|预订|转账|批准|接受|创建|更新|授权|撤销|启用|禁用|取消|退订|连接|断开|加入|离开|关注|取关)/i.test(
+              semanticText,
+            ),
+          semanticNavigation:
+            /\b(home|favorites?|details?|learn more|next|previous|back)\b|主页|收藏|详情|下一|上一|返回/i.test(
+              semanticText,
+            ),
+          semanticSource: semanticText,
           structure: path.reverse().join('/'),
         };
       });
@@ -1478,6 +1498,9 @@ export default class Page {
       inForm = active.inForm;
       semanticName = active.name || undefined;
       hasSemanticName = active.hasSemanticName;
+      semanticCommit = active.semanticCommit;
+      semanticNavigation = active.semanticNavigation;
+      semanticSource = active.semanticSource;
       structureSource = active.structure;
       if (active.autocomplete === 'current-password') type = 'password';
     }
@@ -1488,6 +1511,7 @@ export default class Page {
     const kind = index !== undefined || actionName === 'send_keys' ? 'element' : 'page';
     const pageDigest = await sha256(this.url());
     const structureDigest = structureSource ? await sha256(structureSource) : undefined;
+    const semanticDigest = semanticSource ? await sha256(semanticSource) : undefined;
     const digest = await sha256(
       JSON.stringify({
         tabId: this._tabId,
@@ -1500,6 +1524,10 @@ export default class Page {
         inForm,
         nameDigest,
         structureDigest,
+        semanticDigest,
+        hasSemanticName,
+        semanticCommit,
+        semanticNavigation,
       }),
     );
     return {
@@ -1519,13 +1547,18 @@ export default class Page {
       nameDigest,
       hasSemanticName,
       semanticCommit,
+      semanticNavigation,
     };
   }
 
   private hasCommitSignal(value: string): boolean {
-    return /(submit|send|buy|purchase|delete|remove|confirm|pay|publish|post|save|book|reserve|checkout|transfer|approve|accept|create|update|提交|发送|购买|删除|确认|支付|发布|保存|预订|转账|批准|接受|创建|更新)/i.test(
+    return /(submit|send|buy|purchase|delete|remove|confirm|pay|publish|post|save|book|reserve|checkout|transfer|approve|accept|create|update|grant|revoke|enable|disable|cancel|unsubscribe|authorize|connect|disconnect|join|leave|follow|unfollow|提交|发送|购买|删除|确认|支付|发布|保存|预订|转账|批准|接受|创建|更新|授权|撤销|启用|禁用|取消|退订|连接|断开|加入|离开|关注|取关)/i.test(
       value,
     );
+  }
+
+  private hasNavigationSignal(value: string): boolean {
+    return /\b(home|favorites?|details?|learn more|next|previous|back)\b|主页|收藏|详情|下一|上一|返回/i.test(value);
   }
 
   private hasFormAncestor(node: DOMElementNode | null): boolean {

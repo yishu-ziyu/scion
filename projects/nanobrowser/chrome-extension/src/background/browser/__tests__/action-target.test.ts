@@ -123,6 +123,50 @@ describe('Page action target observation', () => {
     expect(first.target.digest).not.toBe(second.target.digest);
   });
 
+  it('invalidates approval when live semantic text changes at the same structure', async () => {
+    const button = element('button', { type: 'button' });
+    const page = pageWithElement(button);
+    const evaluate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        tag: 'button',
+        type: 'button',
+        role: undefined,
+        autocomplete: undefined,
+        inForm: false,
+        name: undefined,
+        hasSemanticName: true,
+        semanticCommit: true,
+        semanticNavigation: false,
+        semanticSource: 'Pay $10',
+        structure: 'html:0/body:1/button:0',
+      })
+      .mockResolvedValueOnce({
+        tag: 'button',
+        type: 'button',
+        role: undefined,
+        autocomplete: undefined,
+        inForm: false,
+        name: undefined,
+        hasSemanticName: true,
+        semanticCommit: true,
+        semanticNavigation: false,
+        semanticSource: 'Pay $1000',
+        structure: 'html:0/body:1/button:0',
+      });
+    const handle = { evaluate };
+    (page as unknown as { _puppeteerPage: { url: () => string } })._puppeteerPage = {
+      url: () => 'https://example.test/form',
+    };
+    vi.spyOn(page, 'getElementByIndex').mockResolvedValue(handle as never);
+
+    const first = await page.observeActionTarget('click_element', { index: 4 }, 'before');
+    const second = await page.observeActionTarget('click_element', { index: 4 }, 'before');
+
+    expect(first.target.digest).not.toBe(second.target.digest);
+    expect(JSON.stringify([first, second])).not.toContain('Pay $');
+  });
+
   it('never retries a click after its outcome becomes unknown', async () => {
     vi.useFakeTimers();
     const button = element('button', { type: 'submit' });

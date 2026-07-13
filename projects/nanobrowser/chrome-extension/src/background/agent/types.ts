@@ -5,6 +5,7 @@ import type { DOMHistoryElement } from '../browser/dom/history/view';
 import type MessageManager from './messages/service';
 import type { EventManager } from './event/manager';
 import { type Actors, type ExecutionState, AgentEvent } from './event/types';
+import { redactRuntimeEventDetails } from './event/privacy';
 import { AgentStepHistory } from './history';
 
 export interface AgentOptions {
@@ -80,7 +81,7 @@ export class AgentContext {
       taskId: this.taskId,
       step: this.nSteps,
       maxSteps: this.options.maxSteps,
-      details: eventDetails,
+      details: redactRuntimeEventDetails(actor, state, eventDetails),
     });
     await this.eventManager.emit(event);
   }

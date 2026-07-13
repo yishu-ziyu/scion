@@ -21,6 +21,7 @@ import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import { TaskStatusCard } from './components/TaskStatusCard';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
+import { shouldPersistExecutionEvent } from './event-persistence';
 import './SidePanel.css';
 
 // Declare chrome API types
@@ -119,7 +120,12 @@ const SidePanel = () => {
   }, [currentSessionId]);
 
   const appendMessage = useCallback(
-    async (newMessage: Message, sessionId?: string | null, storedContent?: string): Promise<ChatMessage | null> => {
+    async (
+      newMessage: Message,
+      sessionId?: string | null,
+      storedContent?: string,
+      persist = true,
+    ): Promise<ChatMessage | null> => {
       const isProgressMessage = newMessage.content === progressMessage;
       setMessages(prev => {
         const filteredMessages = prev.filter(
@@ -129,7 +135,7 @@ const SidePanel = () => {
       });
 
       const effectiveSessionId = sessionId !== undefined ? sessionId : sessionIdRef.current;
-      if (!effectiveSessionId || isProgressMessage) return null;
+      if (!effectiveSessionId || isProgressMessage || !persist) return null;
       return chatHistoryStore.addMessage(effectiveSessionId, {
         ...newMessage,
         content: storedContent ?? newMessage.content,
@@ -235,16 +241,13 @@ const SidePanel = () => {
               displayProgress = false;
               break;
             case ExecutionState.ACT_START:
-              if (content !== 'cache_content') {
-                // skip to display caching content
-                skip = false;
-              }
+              // Action events are runtime telemetry and must never enter durable chat history.
               break;
             case ExecutionState.ACT_OK:
               skip = true;
               break;
             case ExecutionState.ACT_FAIL:
-              skip = false;
+              // Task/step failures surface durable user-facing errors without action arguments.
               break;
             default:
               console.error('Invalid action', state);
@@ -274,11 +277,16 @@ const SidePanel = () => {
       }
 
       if (!skip) {
-        appendMessage({
-          actor,
-          content: content || '',
-          timestamp: timestamp,
-        });
+        appendMessage(
+          {
+            actor,
+            content: content || '',
+            timestamp: timestamp,
+          },
+          undefined,
+          undefined,
+          shouldPersistExecutionEvent(state),
+        );
       }
 
       if (displayProgress) {

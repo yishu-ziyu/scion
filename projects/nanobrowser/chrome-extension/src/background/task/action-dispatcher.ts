@@ -19,10 +19,12 @@ interface EffectTarget {
   intent?: string;
   hasSemanticName?: boolean;
   semanticCommit?: boolean;
+  semanticNavigation?: boolean;
 }
 
 const COMMIT_SIGNAL =
-  /(submit|send|buy|purchase|delete|remove|confirm|pay|publish|post|save|book|reserve|checkout|transfer|approve|accept|create|update|提交|发送|购买|删除|确认|支付|发布|保存|预订|转账|批准|接受|创建|更新)/i;
+  /(submit|send|buy|purchase|delete|remove|confirm|pay|publish|post|save|book|reserve|checkout|transfer|approve|accept|create|update|grant|revoke|enable|disable|cancel|unsubscribe|authorize|connect|disconnect|join|leave|follow|unfollow|提交|发送|购买|删除|确认|支付|发布|保存|预订|转账|批准|接受|创建|更新|授权|撤销|启用|禁用|取消|退订|连接|断开|加入|离开|关注|取关)/i;
+const NAVIGATION_SIGNAL = /\b(home|favorites?|details?|learn more|next|previous|back)\b|主页|收藏|详情|下一|上一|返回/i;
 
 export function decideEffect(input: {
   actionName: string;
@@ -35,6 +37,7 @@ export function decideEffect(input: {
   const type = target.type?.toLowerCase();
   const keys = target.keys?.toLowerCase();
   const signalsCommit = target.semanticCommit === true || COMMIT_SIGNAL.test(target.intent ?? '');
+  const signalsNavigation = target.semanticNavigation === true || NAVIGATION_SIGNAL.test(target.intent ?? '');
 
   if (actionName === 'input_text' && type === 'password') {
     return { kind: 'block', reason: 'Sensitive inputs require direct user entry' };
@@ -43,7 +46,7 @@ export function decideEffect(input: {
     if (signalsCommit) {
       return { kind: 'approval', effect: 'external_commit', summary: 'Perform the requested external action' };
     }
-    if (tag === 'a' && !target.inForm && target.hasSemanticName === true) {
+    if (tag === 'a' && !target.inForm && signalsNavigation) {
       return { kind: 'allow', effect: 'reversible' };
     }
     if (tag === 'a' || tag === 'button' || target.role === 'button' || type === 'submit' || target.inForm || !tag) {
