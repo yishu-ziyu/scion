@@ -8,7 +8,7 @@ import {
 } from './views';
 import Page, { build_initial_state } from './page';
 import { createLogger } from '@src/background/log';
-import { isUrlAllowed } from './util';
+import { isNewTabPage, isUrlAllowed } from './util';
 import { analytics } from '../services/analytics';
 
 const logger = createLogger('BrowserContext');
@@ -85,13 +85,18 @@ export default class BrowserContext {
     await page?.detachPuppeteer();
   }
 
-  private async _attachAllowedPage(tabId: number, forceUpdate = false): Promise<Page> {
+  private async _attachAllowedPage(
+    tabId: number,
+    forceUpdate = false,
+    expectedCurrentTabId?: number | null,
+  ): Promise<Page> {
     let page: Page | undefined;
     try {
       const tab = await this._waitForCommittedAllowedTab(await chrome.tabs.get(tabId));
       page = await this._getOrCreatePage(tab, forceUpdate);
 
-      if (this._attachedPages.get(tabId) !== page && !(await page.attachPuppeteer())) {
+      const attached = this._attachedPages.get(tabId) === page || (await page.attachPuppeteer());
+      if (!attached && !isNewTabPage(tab.url || '')) {
         throw new Error(`Failed to attach to tab ${tabId}`);
       }
 
@@ -103,6 +108,9 @@ export default class BrowserContext {
       }
 
       this._attachedPages.set(tabId, page);
+      if (expectedCurrentTabId !== undefined && this._currentTabId !== expectedCurrentTabId) {
+        return this.getCurrentPage();
+      }
       this._currentTabId = tabId;
       return page;
     } catch (error) {
@@ -154,13 +162,13 @@ export default class BrowserContext {
         activeTab = tab;
       }
       logger.info('active tab', activeTab.id, activeTab.url, activeTab.title);
-      return await this._attachAllowedPage(activeTab.id!);
+      return await this._attachAllowedPage(activeTab.id!, false, null);
     }
 
     // 2. Revalidate the current tab before reusing or attaching it.
     const currentTabId = this._currentTabId;
     try {
-      return await this._attachAllowedPage(currentTabId);
+      return await this._attachAllowedPage(currentTabId, false, currentTabId);
     } catch (error) {
       if (error instanceof URLNotAllowedError) {
         return this.getCurrentPage();

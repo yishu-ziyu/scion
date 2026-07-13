@@ -80,6 +80,13 @@ const fallbackContentTab = {
   id: 6,
 } as chrome.tabs.Tab;
 
+const blankTab = {
+  id: 7,
+  active: true,
+  url: 'about:blank',
+  title: 'New Tab',
+} as chrome.tabs.Tab;
+
 const currentTabBecomesMixed = {
   ...pendingContentFromExtensionTab,
   id: contentTab.id,
@@ -261,6 +268,21 @@ describe('BrowserContext tab selection', () => {
     expect(attachPuppeteer).toHaveBeenCalledTimes(2);
   });
 
+  it('preserves about:blank as the unattached navigation bootstrap', async () => {
+    tabsApi.query.mockResolvedValue([extensionTab]);
+    tabsApi.create.mockResolvedValue(blankTab);
+    tabsApi.get.mockResolvedValue(blankTab);
+    const attachPuppeteer = vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(false);
+    const context = new BrowserContext({});
+
+    const page = await context.getCurrentPage();
+
+    expect(page.tabId).toBe(blankTab.id);
+    expect(page.url()).toBe(blankTab.url);
+    expect(page.attached).toBe(false);
+    expect(attachPuppeteer).toHaveBeenCalledOnce();
+  });
+
   it('invalidates a managed page when its tab becomes forbidden', async () => {
     tabsApi.query.mockResolvedValueOnce([contentTab]).mockResolvedValue([fallbackContentTab]);
     tabsApi.get
@@ -308,5 +330,33 @@ describe('BrowserContext tab selection', () => {
 
     await expect(context.getCurrentPage()).resolves.toMatchObject({ tabId: fallbackContentTab.id });
     expect(detachPuppeteer).toHaveBeenCalledOnce();
+  });
+
+  it('does not let a stale current-page read overwrite a newer switch', async () => {
+    const activeFallbackTab = { ...fallbackContentTab, active: true } as chrome.tabs.Tab;
+    let releaseStaleRead!: (tab: chrome.tabs.Tab) => void;
+    const staleFinalSnapshot = new Promise<chrome.tabs.Tab>(resolve => {
+      releaseStaleRead = resolve;
+    });
+    tabsApi.query.mockResolvedValue([contentTab]);
+    tabsApi.get
+      .mockResolvedValueOnce(contentTab)
+      .mockResolvedValueOnce(contentTab)
+      .mockResolvedValueOnce(contentTab)
+      .mockReturnValueOnce(staleFinalSnapshot)
+      .mockResolvedValueOnce(fallbackContentTab)
+      .mockResolvedValue(activeFallbackTab);
+    tabsApi.update.mockResolvedValue(activeFallbackTab);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const context = new BrowserContext({});
+
+    await context.getCurrentPage();
+    const staleRead = context.getCurrentPage();
+    await vi.waitFor(() => expect(tabsApi.get).toHaveBeenCalledTimes(4));
+    await context.switchTab(fallbackContentTab.id!);
+    releaseStaleRead(contentTab);
+
+    await expect(staleRead).resolves.toMatchObject({ tabId: fallbackContentTab.id });
+    await expect(context.getCurrentPage()).resolves.toMatchObject({ tabId: fallbackContentTab.id });
   });
 });
