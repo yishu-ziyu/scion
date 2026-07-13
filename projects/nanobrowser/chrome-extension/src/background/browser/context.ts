@@ -67,19 +67,20 @@ export default class BrowserContext {
     const existingPage = this._attachedPages.get(tab.id);
     if (existingPage) {
       logger.info('getOrCreatePage', tab.id, 'already attached');
-      if (!forceUpdate) {
+      const bootstrapBecameWebPage = isNewTabPage(existingPage.url()) && !isNewTabPage(tab.url || '');
+      if (!forceUpdate && !bootstrapBecameWebPage) {
         return existingPage;
       }
-      await this._invalidatePage(tab.id);
+      await this._invalidatePage(tab.id, undefined, true);
     }
     logger.info('getOrCreatePage', tab.id, 'creating new page');
     return new Page(tab.id, tab.url || '', tab.title || '', this._config);
   }
 
-  private async _invalidatePage(tabId: number, candidate?: Page): Promise<void> {
+  private async _invalidatePage(tabId: number, candidate?: Page, preserveCurrent = false): Promise<void> {
     const page = candidate || this._attachedPages.get(tabId);
     this._attachedPages.delete(tabId);
-    if (this._currentTabId === tabId) {
+    if (!preserveCurrent && this._currentTabId === tabId) {
       this._currentTabId = null;
     }
     await page?.detachPuppeteer();

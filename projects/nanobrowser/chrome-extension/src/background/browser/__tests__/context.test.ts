@@ -283,6 +283,32 @@ describe('BrowserContext tab selection', () => {
     expect(attachPuppeteer).toHaveBeenCalledOnce();
   });
 
+  it('reattaches when an about:blank bootstrap becomes an HTTP page', async () => {
+    const navigatedTab = {
+      ...contentTab,
+      id: blankTab.id,
+      active: true,
+    } as chrome.tabs.Tab;
+    tabsApi.query.mockResolvedValue([extensionTab]);
+    tabsApi.create.mockResolvedValue(blankTab);
+    tabsApi.get.mockResolvedValueOnce(blankTab).mockResolvedValueOnce(blankTab).mockResolvedValue(navigatedTab);
+    const attachPuppeteer = vi
+      .spyOn(Page.prototype, 'attachPuppeteer')
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+    vi.spyOn(Page.prototype, 'detachPuppeteer').mockResolvedValue();
+    const context = new BrowserContext({});
+
+    await context.getCurrentPage();
+    await context.handleTabUpdated(navigatedTab);
+    const page = await context.getCurrentPage();
+
+    expect(page.url()).toBe(navigatedTab.url);
+    expect(page.validWebPage).toBe(true);
+    expect(attachPuppeteer).toHaveBeenCalledTimes(2);
+    expect(tabsApi.create).toHaveBeenCalledOnce();
+  });
+
   it('invalidates a managed page when its tab becomes forbidden', async () => {
     tabsApi.query.mockResolvedValueOnce([contentTab]).mockResolvedValue([fallbackContentTab]);
     tabsApi.get
