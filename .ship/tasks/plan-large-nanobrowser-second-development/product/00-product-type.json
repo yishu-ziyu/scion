@@ -1,0 +1,28 @@
+{
+  "product_type": "C",
+  "primary_user": "希望用自然语言把网页操作整段委托给 Agent 的个人浏览器重度用户；Owner 是首个用户",
+  "buyer_or_user": "使用者本人",
+  "core_scene": "用户在 Chrome 侧边栏下达目标，Agent 复用当前登录态跨页面执行动作直到产生可验证结果，并接受绑定同一任务上下文的后续控制指令",
+  "workflow_weight": {
+    "strategy": "required",
+    "research": "required",
+    "data_model": "required",
+    "permission": "required",
+    "report": "optional",
+    "analytics": "required"
+  },
+  "skip_rules": [
+    {
+      "checkpoint": "enterprise_roles_and_collaboration",
+      "reason": "本周期是单用户 C 端浏览器 Agent，不做企业组织、团队协作和 RBAC"
+    },
+    {
+      "checkpoint": "standalone_browser_shell",
+      "reason": "目标是行动能力，不是替换 Chrome；沿用现有扩展可复用真实登录态并显著缩小范围"
+    },
+    {
+      "checkpoint": "growth_operations",
+      "reason": "本任务先完成产品与架构设计，发布和增长在实现验证后再进入下一周期"
+    }
+  ]
+}
