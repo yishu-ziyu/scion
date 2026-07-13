@@ -54,6 +54,16 @@ const pendingContentFromExtensionTab = {
   pendingUrl: pendingContentTab.pendingUrl,
 } as chrome.tabs.Tab;
 
+const fallbackContentTab = {
+  ...contentTab,
+  id: 6,
+} as chrome.tabs.Tab;
+
+const currentTabBecomesMixed = {
+  ...pendingContentFromExtensionTab,
+  id: contentTab.id,
+} as chrome.tabs.Tab;
+
 describe('BrowserContext tab selection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -94,6 +104,22 @@ describe('BrowserContext tab selection', () => {
     const page = await context.getCurrentPage();
 
     expect(page.tabId).toBe(contentTab.id);
+  });
+
+  it('revalidates the current tab before reusing it', async () => {
+    let currentTabChanged = false;
+    tabsApi.query.mockImplementation(async query => {
+      if (!currentTabChanged) return [contentTab];
+      return query.active ? [currentTabBecomesMixed] : [currentTabBecomesMixed, fallbackContentTab];
+    });
+    tabsApi.get.mockResolvedValue(currentTabBecomesMixed);
+    const context = new BrowserContext({});
+    vi.spyOn(context, 'attachPage').mockResolvedValue(true);
+
+    expect((await context.getCurrentPage()).tabId).toBe(contentTab.id);
+    currentTabChanged = true;
+
+    expect((await context.getCurrentPage()).tabId).toBe(fallbackContentTab.id);
   });
 
   it('selects an allowed pending URL before it commits', async () => {

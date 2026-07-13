@@ -132,10 +132,16 @@ export default class BrowserContext {
       return page;
     }
 
-    // 2. If _currentTabId is set but not in attachedPages, attach the tab
+    // 2. Revalidate the current tab before reusing or attaching it.
+    const tab = await chrome.tabs.get(this._currentTabId);
+    if (!this._getAllowedTabUrl(tab)) {
+      await this.detachPage(this._currentTabId);
+      this._currentTabId = null;
+      return this.getCurrentPage();
+    }
+
     const existingPage = this._attachedPages.get(this._currentTabId);
     if (!existingPage) {
-      const tab = await chrome.tabs.get(this._currentTabId);
       const page = await this._getOrCreatePage(tab);
       // set current tab id to null if the page is not attached successfully
       await this.attachPage(page);
