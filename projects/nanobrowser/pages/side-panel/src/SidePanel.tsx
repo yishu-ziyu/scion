@@ -137,7 +137,8 @@ const SidePanel = () => {
   useEffect(() => {
     if (!taskSnapshot) return;
     const busy = taskSnapshot.status === 'running' || taskSnapshot.status === 'waiting_approval';
-    setInputEnabled(!busy);
+    const requiresExplicitResume = taskSnapshot.status === 'interrupted' || taskSnapshot.status === 'inputs_required';
+    setInputEnabled(!busy && !requiresExplicitResume);
     setShowStopButton(busy);
     setIsFollowUpMode(['running', 'paused', 'waiting_user', 'completed'].includes(taskSnapshot.status));
   }, [taskSnapshot]);
