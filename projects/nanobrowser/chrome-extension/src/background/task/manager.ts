@@ -259,7 +259,6 @@ export class TaskManager {
     if (!['running', 'paused', 'waiting_user', 'completed'].includes(task.status) || !command.instruction.trim()) {
       return this.reject(task, command.commandId, 'invalid_transition');
     }
-    const previousStatus = task.status;
     const roundId = crypto.randomUUID();
     task.status = 'running';
     task.currentRoundId = roundId;
@@ -280,15 +279,13 @@ export class TaskManager {
     this.instructions.set(task.id, command.instruction);
     await this.persist(task);
     const driver = this.drivers.get(task.id);
-    if (!driver) {
-      void this.runCurrentRound(task.id);
-    } else {
-      driver.addFollowUp(command.instruction);
-      if (previousStatus === 'paused') driver.resume();
-      if (previousStatus === 'waiting_user' || previousStatus === 'completed') {
-        void this.runDriver(task.id, driver, roundId);
-      }
+    if (driver) {
+      this.drivers.delete(task.id);
+      this.dispatchers.get(task.id)?.interrupt();
+      this.dispatchers.delete(task.id);
+      driver.stop();
     }
+    void this.runCurrentRound(task.id);
     return ack;
   }
 
@@ -396,7 +393,7 @@ export class TaskManager {
     return round;
   }
 
-  private executorHooks(taskId: string): ExecutorHooks {
+  private executorHooks(taskId: string, roundId: string): ExecutorHooks {
     const dispatcher = new ActionDispatcher({
       now: this.deps.now,
       persistAttempt: attempt => this.persistAttempt(taskId, attempt),
@@ -414,17 +411,19 @@ export class TaskManager {
     });
     this.dispatchers.set(taskId, dispatcher);
     return {
-      onPlan: criteria => this.freezeCriteria(taskId, criteria),
+      onPlan: criteria => this.freezeCriteria(taskId, roundId, criteria),
       dispatchAction: async (action, rawArgs) => {
         const task = await getTask(taskId);
-        if (!task || task.status !== 'running') throw new Error('Task is not running');
+        if (!task || task.status !== 'running' || task.currentRoundId !== roundId) {
+          throw new Error('Task round is not running');
+        }
         const result = await dispatcher.dispatch({
           taskId,
-          roundId: task.currentRoundId,
+          roundId,
           action,
           rawArgs,
         });
-        if (result.targetRef) await this.persistTarget(taskId, result.targetRef);
+        if (result.targetRef) await this.persistTarget(taskId, roundId, result.targetRef);
         return result;
       },
     };
@@ -436,7 +435,8 @@ export class TaskManager {
       const task = await getTask(taskId);
       const round = task?.rounds.find(item => item.id === attempt.roundId);
       if (!task || !round) return;
-      if (attempt.state === 'executing' && task.status !== 'running') {
+      const isCurrentRound = task.currentRoundId === attempt.roundId;
+      if (attempt.state === 'executing' && (task.status !== 'running' || !isCurrentRound)) {
         throw new Error('Task is not running');
       }
       const index = round.attempts.findIndex(item => item.id === attempt.id);
@@ -446,7 +446,7 @@ export class TaskManager {
         const notBefore = attempt.executingAt ?? this.deps.now();
         for (const criterion of round.criteria) criterion.notBefore = Math.max(criterion.notBefore, notBefore);
       }
-      if (attempt.state === 'uncertain' && !TERMINAL_STATUSES.includes(task.status)) {
+      if (attempt.state === 'uncertain' && isCurrentRound && !TERMINAL_STATUSES.includes(task.status)) {
         task.status = 'waiting_user';
         round.status = 'waiting_user';
         round.waitReason = 'commit_outcome_uncertain';
@@ -461,13 +461,18 @@ export class TaskManager {
     }
   }
 
-  private async persistTarget(taskId: string, target: TaskSession['targetRefs'][number]): Promise<void> {
+  private async persistTarget(
+    taskId: string,
+    roundId: string,
+    target: TaskSession['targetRefs'][number],
+  ): Promise<void> {
     await this.queueTransition(async () => {
       const task = await getTask(taskId);
-      if (!task) return;
+      if (!task || task.currentRoundId !== roundId) return;
       const index = task.targetRefs.findIndex(item => item.id === target.id);
       if (index === -1) task.targetRefs.push(target);
       else task.targetRefs[index] = target;
+      task.activeTabId = target.tabId;
       task.revision += 1;
       await this.persist(task);
     });
@@ -568,7 +573,7 @@ export class TaskManager {
       const roundId = round.id;
       const driver = await this.deps.createExecutor(
         { taskId, roundId, instruction, tabId: task.activeTabId },
-        this.executorHooks(taskId),
+        this.executorHooks(taskId, roundId),
       );
 
       task = await getTask(taskId);
@@ -729,10 +734,14 @@ export class TaskManager {
     }
   }
 
-  private async freezeCriteria(taskId: string, drafts: CompletionCriterionDraft[]): Promise<void> {
+  private async freezeCriteria(
+    taskId: string,
+    expectedRoundId: string,
+    drafts: CompletionCriterionDraft[],
+  ): Promise<void> {
     await this.queueTransition(async () => {
       const task = await getTask(taskId);
-      if (!task || task.status !== 'running') return;
+      if (!task || task.status !== 'running' || task.currentRoundId !== expectedRoundId) return;
       const round = this.currentRound(task);
       if (round.criteria.length > 0 || drafts.length === 0) return;
       const frozenAt = this.deps.now();
@@ -742,10 +751,23 @@ export class TaskManager {
         drafts.slice(0, 8).map(draft => this.freezeCriterion(draft, round.id, targetRefId, frozenAt, userFieldValues)),
       );
       const baseline = await this.deps.observeCriteria(criteria);
+      const pageObservations = baseline.filter(
+        observation =>
+          observation.source === 'page' &&
+          observation.roundId === round.id &&
+          /^tab-\d+$/.test(observation.targetRefId),
+      );
+      const observedTargets = new Set(pageObservations.map(observation => observation.targetRefId));
       for (const criterion of criteria) {
-        const observation = baseline.find(item => item.criterionId === criterion.id);
+        const observation = pageObservations.find(item => item.criterionId === criterion.id);
+        if (observation) criterion.targetRefId = observation.targetRefId;
         criterion.baseline = observation?.value ?? false;
       }
+      if (observedTargets.size === 1) {
+        const observedTabId = Number([...observedTargets][0].slice(4));
+        if (Number.isSafeInteger(observedTabId)) task.activeTabId = observedTabId;
+      }
+      if (task.currentRoundId !== expectedRoundId) return;
       round.criteria = criteria;
       task.revision += 1;
       await this.persist(task);
@@ -824,12 +846,16 @@ export class TaskManager {
   ): Promise<CommandAck> {
     const round = task.rounds.find(item => item.id === command.roundId);
     const criterion = round?.criteria.find(item => item.id === command.criterionId);
+    const alreadyConfirmed = round?.evidence.some(
+      item => item.criterionId === command.criterionId && item.source === 'user' && item.passed,
+    );
     if (
       task.status !== 'waiting_user' ||
       task.currentRoundId !== command.roundId ||
       round?.waitReason !== 'proof_required' ||
       !criterion ||
-      criterion.kind !== 'user_confirmed'
+      criterion.kind !== 'user_confirmed' ||
+      alreadyConfirmed
     ) {
       return this.reject(task, command.commandId, 'invalid_transition');
     }
@@ -857,10 +883,14 @@ export class TaskManager {
       criteria: round.criteria,
       observations: [...priorObservations, observation],
     });
-    if (!checked.passed) return this.reject(task, command.commandId, 'invalid_transition');
-    round.evidence.push(...checked.evidence);
+    const confirmedEvidence = checked.evidence.find(
+      item => item.criterionId === criterion.id && item.source === 'user' && item.passed,
+    );
+    if (!confirmedEvidence) return this.reject(task, command.commandId, 'invalid_transition');
+    round.evidence.push(confirmedEvidence);
     const ack = this.accept(task, command.commandId);
-    await this.persistVerifiedReceipt(task, round, checked.evidence, false);
+    if (checked.passed) await this.persistVerifiedReceipt(task, round, checked.evidence, false);
+    else await this.persist(task);
     return ack;
   }
 
@@ -906,6 +936,8 @@ export class TaskManager {
       listener({
         type: 'task_completed_verified',
         taskId: task.id,
+        roundId: task.currentRoundId,
+        revision: task.revision,
         receiptId: round.receipt.id,
         snapshot,
       });
@@ -918,7 +950,15 @@ export class TaskManager {
     task.updatedAt = this.deps.now();
     await saveTask(task);
     const snapshot = structuredClone(task);
-    for (const listener of this.listeners) listener({ type: 'snapshot', taskId: task.id, snapshot });
+    for (const listener of this.listeners) {
+      listener({
+        type: 'snapshot',
+        taskId: task.id,
+        roundId: task.currentRoundId,
+        revision: task.revision,
+        snapshot,
+      });
+    }
   }
 
   private queueTransition(work: () => Promise<void>): Promise<void> {

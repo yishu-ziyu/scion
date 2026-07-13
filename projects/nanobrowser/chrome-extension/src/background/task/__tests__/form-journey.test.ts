@@ -188,6 +188,52 @@ describe('verified form journey', () => {
     expect(JSON.stringify(snapshot)).not.toContain('Replaced later');
   });
 
+  it('binds frozen criteria to the tab that produced the baseline', async () => {
+    const driver: ExecutorDriver = {
+      run: vi.fn(() => new Promise<never>(() => {})),
+      addFollowUp: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+    };
+    const manager = new TaskManager({
+      createExecutor: async (_input, hooks) => {
+        await hooks.onPlan([
+          { kind: 'url', operator: 'equals', expected: 'https://example.test/done', required: true },
+        ]);
+        return driver;
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: CompletionCriterion[]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: 'tab-8',
+          observedAt: 100,
+          source: 'page' as const,
+          value: 'https://example.test/start',
+        })),
+      ),
+      now: () => 100,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-live-target',
+      taskId: 'task-live-target',
+      tabId: 7,
+      instruction: 'finish on the current tab',
+      chatSessionId: 'chat-live-target',
+      instructionMessageId: 'message-live-target',
+    });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledOnce());
+
+    await expect(manager.snapshot('task-live-target')).resolves.toMatchObject({
+      activeTabId: 8,
+      rounds: [{ criteria: [{ targetRefId: 'tab-8', baseline: 'https://example.test/start' }] }],
+    });
+  });
+
   it('replaces a criterion copied from a user field value with dedicated confirmation', async () => {
     const driver: ExecutorDriver = {
       run: vi.fn(() => new Promise<never>(() => {})),
@@ -335,6 +381,82 @@ describe('verified form journey', () => {
     await expect(manager.snapshot('task-mixed')).resolves.toMatchObject({
       status: 'completed',
       rounds: [{ receipt: expect.any(Object) }],
+    });
+  });
+
+  it('persists each dedicated confirmation before completing the set', async () => {
+    const driver: ExecutorDriver = {
+      run: vi.fn().mockResolvedValue({ kind: 'candidate_complete', summary: 'needs two confirmations' }),
+      addFollowUp: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+    };
+    const manager = new TaskManager({
+      createExecutor: async (_input, hooks) => {
+        await hooks.onPlan([
+          { kind: 'user_confirmed', operator: 'equals', expected: true, required: true },
+          { kind: 'user_confirmed', operator: 'equals', expected: true, required: true },
+        ]);
+        return driver;
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 400,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-two-confirmations',
+      taskId: 'task-two-confirmations',
+      tabId: 7,
+      instruction: 'perform two outcomes that need confirmation',
+      chatSessionId: 'chat-two-confirmations',
+      instructionMessageId: 'message-two-confirmations',
+    });
+    await vi.waitFor(async () =>
+      expect((await manager.snapshot('task-two-confirmations'))?.status).toBe('waiting_user'),
+    );
+    const waiting = await manager.snapshot('task-two-confirmations');
+    const round = waiting?.rounds[0];
+    if (!waiting || !round || round.criteria.length !== 2) throw new Error('Expected two confirmation criteria');
+
+    const firstAck = await manager.dispatch({
+      type: 'confirm_completion',
+      commandId: 'confirm-first',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId: round.id,
+      criterionId: round.criteria[0].id,
+    });
+    expect(firstAck.accepted).toBe(true);
+    const partiallyConfirmed = await manager.snapshot(waiting.id);
+    expect(partiallyConfirmed).toMatchObject({
+      status: 'waiting_user',
+      rounds: [{ evidence: [expect.objectContaining({ criterionId: round.criteria[0].id, passed: true })] }],
+    });
+    if (!partiallyConfirmed) throw new Error('Expected partially confirmed task');
+
+    const secondAck = await manager.dispatch({
+      type: 'confirm_completion',
+      commandId: 'confirm-second',
+      taskId: waiting.id,
+      expectedRevision: partiallyConfirmed.revision,
+      roundId: round.id,
+      criterionId: round.criteria[1].id,
+    });
+    expect(secondAck.accepted).toBe(true);
+    await expect(manager.snapshot(waiting.id)).resolves.toMatchObject({
+      status: 'completed',
+      rounds: [
+        {
+          evidence: [
+            expect.objectContaining({ criterionId: round.criteria[0].id, passed: true }),
+            expect.objectContaining({ criterionId: round.criteria[1].id, passed: true }),
+          ],
+          receipt: expect.any(Object),
+        },
+      ],
     });
   });
 });

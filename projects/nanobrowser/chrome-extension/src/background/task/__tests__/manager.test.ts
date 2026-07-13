@@ -274,10 +274,19 @@ describe('TaskManager lifecycle', () => {
 
   it('does not apply an old running driver outcome to a follow-up round', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
-    const driver = fakeDriver();
-    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    let oldHooks!: ExecutorHooks;
+    const oldDriver = fakeDriver();
+    oldDriver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    const newDriver = fakeDriver();
+    const createExecutor = vi
+      .fn<(input: ExecutorInput, hooks: ExecutorHooks) => Promise<ExecutorDriver>>()
+      .mockImplementationOnce(async (_input, hooks) => {
+        oldHooks = hooks;
+        return oldDriver;
+      })
+      .mockResolvedValueOnce(newDriver);
     const manager = new TaskManager({
-      createExecutor: async () => driver,
+      createExecutor,
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
@@ -291,7 +300,7 @@ describe('TaskManager lifecycle', () => {
       instructionMessageId: 'message-1',
       tabId: 7,
     });
-    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(oldDriver.run).toHaveBeenCalledTimes(1));
     await manager.dispatch({
       type: 'follow_up',
       commandId: 'follow-1',
@@ -301,8 +310,11 @@ describe('TaskManager lifecycle', () => {
       chatSessionId: 'chat-1',
       instructionMessageId: 'message-2',
     });
+    await oldHooks.onPlan([{ kind: 'page_text', operator: 'present', expected: 'Old result', required: true }]);
+    await vi.waitFor(() => expect(newDriver.run).toHaveBeenCalledTimes(1));
     finish({ kind: 'candidate_complete', summary: 'done' });
-    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(2));
+    expect(oldDriver.stop).toHaveBeenCalledOnce();
+    expect(newDriver.run).toHaveBeenCalledOnce();
     await expect(manager.snapshot('task-1')).resolves.toMatchObject({
       status: 'running',
       currentRoundId: expect.any(String),
@@ -748,7 +760,7 @@ describe('TaskManager lifecycle', () => {
       rounds: [{ id: expect.any(String) }, { instructionMessageId: 'message-2' }],
     });
     expect(driver.resume).toHaveBeenCalledTimes(1);
-    expect(driver.addFollowUp).toHaveBeenCalledWith('then pause it');
-    expect(driver.stop).toHaveBeenCalledTimes(1);
+    expect(driver.addFollowUp).not.toHaveBeenCalled();
+    expect(driver.stop).toHaveBeenCalledTimes(2);
   });
 });

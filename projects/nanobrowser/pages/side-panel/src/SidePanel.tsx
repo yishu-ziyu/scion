@@ -22,6 +22,7 @@ import BookmarkList from './components/BookmarkList';
 import { TaskStatusCard } from './components/TaskStatusCard';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import { shouldPersistExecutionEvent } from './event-persistence';
+import { mergeTaskSnapshot } from './task-snapshot';
 import './SidePanel.css';
 
 // Declare chrome API types
@@ -56,6 +57,7 @@ const SidePanel = () => {
   const isMountedRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const setInputTextRef = useRef<((text: string) => void) | null>(null);
+  const pendingTaskIdRef = useRef<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<number | null>(null);
@@ -337,12 +339,17 @@ const SidePanel = () => {
         if (message && message.type === EventType.EXECUTION) {
           handleTaskState(message);
         } else if (message && message.type === 'task_snapshot') {
-          setTaskSnapshot(message.snapshot);
+          setTaskSnapshot(current =>
+            mergeTaskSnapshot(current, message.snapshot, undefined, pendingTaskIdRef.current),
+          );
           setTaskSnapshotLoaded(true);
         } else if (message && message.type === 'task_event') {
-          setTaskSnapshot(message.event.snapshot);
+          setTaskSnapshot(current =>
+            mergeTaskSnapshot(current, message.event.snapshot, message.event, pendingTaskIdRef.current),
+          );
           setTaskSnapshotLoaded(true);
         } else if (message && message.type === 'command_ack' && !message.ack.accepted) {
+          if (pendingTaskIdRef.current === message.ack.taskId) pendingTaskIdRef.current = null;
           void appendMessage({
             actor: Actors.SYSTEM,
             content: `Command rejected: ${message.ack.error}`,
@@ -455,7 +462,10 @@ const SidePanel = () => {
   );
 
   const sendTaskCommand = useCallback(
-    (command: TaskCommand) => sendMessage({ type: 'task_command', command }),
+    (command: TaskCommand) => {
+      if (command.type === 'start') pendingTaskIdRef.current = command.taskId;
+      sendMessage({ type: 'task_command', command });
+    },
     [sendMessage],
   );
 
@@ -630,6 +640,7 @@ const SidePanel = () => {
     setIsFollowUpMode(false);
     setIsHistoricalSession(false);
     setTaskSnapshot(null);
+    pendingTaskIdRef.current = null;
 
     // Disconnect any existing connection
     stopConnection();

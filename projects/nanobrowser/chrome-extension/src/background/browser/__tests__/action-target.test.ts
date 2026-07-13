@@ -11,6 +11,7 @@ import Page, { build_initial_state } from '../page';
 import { DOMElementNode, DOMTextNode } from '../dom/views';
 import { decideEffect } from '../../task/action-dispatcher';
 import { sha256 } from '../../task/digest';
+import { checkCompletion } from '../../task/completion';
 
 function element(tagName: string, attributes: Record<string, string>, parent: DOMElementNode | null = null) {
   return new DOMElementNode({
@@ -227,5 +228,28 @@ describe('Page action target observation', () => {
     ]);
     expect(JSON.stringify(observations)).not.toContain('SECRET');
     expect(JSON.stringify(observations)).not.toContain('Saved successfully');
+  });
+
+  it('reports the actual tab instead of echoing a stale completion target', async () => {
+    const page = new Page(8, 'https://example.test/success', 'Fixture');
+    const criterion = {
+      id: 'url-1',
+      kind: 'url' as const,
+      operator: 'equals' as const,
+      expected: 'https://example.test/success',
+      required: true,
+      roundId: 'round-1',
+      targetRefId: 'tab-7',
+      baseline: false,
+      frozenAt: 100,
+      notBefore: 100,
+      timeoutMs: Number.MAX_SAFE_INTEGER,
+    };
+    const observations = await page.observeCompletionCriteria([criterion]);
+
+    expect(observations[0]).toMatchObject({ targetRefId: 'tab-8' });
+    expect(
+      checkCompletion({ now: Date.now(), currentRoundId: 'round-1', criteria: [criterion], observations }),
+    ).toMatchObject({ passed: false, evidence: [{ reason: 'wrong_target' }] });
   });
 });

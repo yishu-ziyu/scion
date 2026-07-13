@@ -168,5 +168,12 @@ export interface TaskSession {
 
 export type TaskSnapshot = TaskSession;
 export type TaskEvent =
-  | { type: 'snapshot'; taskId: string; snapshot: TaskSnapshot }
-  | { type: 'task_completed_verified'; taskId: string; receiptId: string; snapshot: TaskSnapshot };
+  | { type: 'snapshot'; taskId: string; roundId: string; revision: number; snapshot: TaskSnapshot }
+  | {
+      type: 'task_completed_verified';
+      taskId: string;
+      roundId: string;
+      revision: number;
+      receiptId: string;
+      snapshot: TaskSnapshot;
+    };

@@ -1555,6 +1555,7 @@ export default class Page {
 
   async observeCompletionCriteria(criteria: CompletionCriterion[]): Promise<ProbeObservation[]> {
     const observedAt = Date.now();
+    const actualTargetRefId = `tab-${this._tabId}`;
     const normalizedUrl = this.normalizedUrl(this.url());
     const textDigests = criteria
       .filter((item): item is Extract<CompletionCriterion, { kind: 'page_text' }> => item.kind === 'page_text')
@@ -1588,7 +1589,7 @@ export default class Page {
         {
           criterionId: criterion.id,
           roundId: criterion.roundId,
-          targetRefId: criterion.targetRefId,
+          targetRefId: actualTargetRefId,
           observedAt,
           source: 'page' as const,
           value,
