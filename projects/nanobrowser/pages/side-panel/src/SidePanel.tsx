@@ -50,6 +50,9 @@ const SidePanel = () => {
   const sessionIdRef = useRef<string | null>(null);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const setupConnectionRef = useRef<(() => void) | null>(null);
+  const isMountedRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const setInputTextRef = useRef<((text: string) => void) | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -301,6 +304,14 @@ const SidePanel = () => {
     }
   }, []);
 
+  const scheduleReconnect = useCallback(() => {
+    if (!isMountedRef.current || reconnectTimeoutRef.current) return;
+    reconnectTimeoutRef.current = window.setTimeout(() => {
+      reconnectTimeoutRef.current = null;
+      setupConnectionRef.current?.();
+    }, 500);
+  }, []);
+
   // Setup connection management
   const setupConnection = useCallback(() => {
     // Only setup if no existing connection
@@ -368,6 +379,7 @@ const SidePanel = () => {
         setTaskSnapshotLoaded(false);
         setInputEnabled(true);
         setShowStopButton(false);
+        scheduleReconnect();
       });
 
       // Setup heartbeat interval
@@ -398,11 +410,22 @@ const SidePanel = () => {
       // Clear any references since connection failed
       portRef.current = null;
       setTaskSnapshotLoaded(false);
+      scheduleReconnect();
     }
-  }, [handleTaskState, appendMessage, stopConnection]);
+  }, [handleTaskState, appendMessage, scheduleReconnect, stopConnection]);
 
   useEffect(() => {
+    isMountedRef.current = true;
+    setupConnectionRef.current = setupConnection;
     setupConnection();
+    return () => {
+      isMountedRef.current = false;
+      setupConnectionRef.current = null;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+    };
   }, [setupConnection]);
 
   // Add safety check for message sending
