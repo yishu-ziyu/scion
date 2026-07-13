@@ -893,5 +893,11 @@
   },
   "options_tabs_analytics": {
     "message": "分析"
-  }
+  },
+  "chat_skills_save": { "message": "Save as Skill" },
+  "chat_skills_saveConfirm": { "message": "Save Skill" },
+  "chat_skills_run": { "message": "Run Skill" },
+  "chat_skills_runConfirm": { "message": "Run" },
+  "chat_skills_titlePlaceholder": { "message": "Skill title" },
+  "chat_skills_templatePlaceholder": { "message": "Instruction template, for example: Fill {{name}}" }
 }

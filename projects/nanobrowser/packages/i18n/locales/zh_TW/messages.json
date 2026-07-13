@@ -893,5 +893,11 @@
   },
   "options_tabs_analytics": {
     "message": "分析"
-  }
+  },
+  "chat_skills_save": { "message": "儲存為 Skill" },
+  "chat_skills_saveConfirm": { "message": "儲存 Skill" },
+  "chat_skills_run": { "message": "執行 Skill" },
+  "chat_skills_runConfirm": { "message": "執行" },
+  "chat_skills_titlePlaceholder": { "message": "Skill 名稱" },
+  "chat_skills_templatePlaceholder": { "message": "指令範本，例如：填寫 {{name}}" }
 }

@@ -893,5 +893,11 @@
   },
   "options_tabs_analytics": {
     "message": "分析"
-  }
+  },
+  "chat_skills_save": { "message": "保存为 Skill" },
+  "chat_skills_saveConfirm": { "message": "保存 Skill" },
+  "chat_skills_run": { "message": "运行 Skill" },
+  "chat_skills_runConfirm": { "message": "运行" },
+  "chat_skills_titlePlaceholder": { "message": "Skill 名称" },
+  "chat_skills_templatePlaceholder": { "message": "指令模板，例如：填写 {{name}}" }
 }

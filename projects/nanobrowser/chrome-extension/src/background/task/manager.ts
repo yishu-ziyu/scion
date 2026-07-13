@@ -1,4 +1,10 @@
 import { getActiveTask, getTask, saveTask } from '@extension/storage/lib/task';
+import favoritesStorage, {
+  assertExactSkillInputs,
+  compileSkillTemplate,
+  createSkillDefinition,
+  type CompletionCriterionTemplate,
+} from '@extension/storage/lib/prompt/favorites';
 import type {
   CommandAck,
   ActionAttempt,
@@ -52,6 +58,8 @@ export class TaskManager {
   private readonly launches = new Map<string, symbol>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
   private readonly instructions = new Map<string, string>();
+  private readonly criterionTemplates = new Map<string, CompletionCriterionTemplate[]>();
+  private readonly lockedCriteriaRounds = new Set<string>();
   private readonly listeners = new Set<(event: TaskEvent) => void>();
   private transition: Promise<void> = Promise.resolve();
 
@@ -149,6 +157,11 @@ export class TaskManager {
       return this.start(command);
     }
 
+    if (command.type === 'run_skill') {
+      if (existing) return this.reject(existing, command.commandId, 'invalid_transition');
+      return this.runSkill(command);
+    }
+
     if (!existing) {
       return {
         accepted: false,
@@ -159,7 +172,6 @@ export class TaskManager {
       };
     }
 
-    if (command.type === 'run_skill') return this.reject(existing, command.commandId, 'invalid_transition');
     if (command.expectedRevision !== existing.revision) {
       return this.reject(existing, command.commandId, 'stale_revision');
     }
@@ -179,8 +191,8 @@ export class TaskManager {
         return this.decideApproval(existing, command, false);
       case 'confirm_completion':
         return this.confirmCompletion(existing, command);
-      default:
-        return this.reject(existing, command.commandId, 'invalid_transition');
+      case 'save_skill':
+        return this.saveSkill(existing, command);
     }
   }
 
@@ -232,6 +244,121 @@ export class TaskManager {
     await this.persist(task);
     void this.runCurrentRound(task.id);
     return ack;
+  }
+
+  private async saveSkill(
+    task: TaskSession,
+    command: Extract<TaskCommand, { type: 'save_skill' }>,
+  ): Promise<CommandAck> {
+    const round = task.rounds.find(item => item.id === command.roundId);
+    const templates = this.criterionTemplates.get(this.roundKey(task.id, command.roundId));
+    if (
+      task.status !== 'completed' ||
+      task.currentRoundId !== command.roundId ||
+      !round?.receipt ||
+      !templates ||
+      templates.length === 0
+    ) {
+      return this.reject(task, command.commandId, 'invalid_transition');
+    }
+
+    try {
+      const definition = createSkillDefinition({
+        title: command.title,
+        instructionTemplate: command.instructionTemplate,
+        criteria: templates,
+        sourceTaskId: task.id,
+      });
+      await favoritesStorage.addSkill(definition);
+    } catch {
+      return this.reject(task, command.commandId, 'invalid_input');
+    }
+
+    const ack = this.accept(task, command.commandId);
+    await this.persist(task);
+    return ack;
+  }
+
+  private async runSkill(command: Extract<TaskCommand, { type: 'run_skill' }>): Promise<CommandAck> {
+    if (command.tabId < 0) return this.commandError(command, 'invalid_input');
+    const active = await getActiveTask();
+    if (active && !TERMINAL_STATUSES.includes(active.status)) {
+      return this.commandError(command, 'invalid_transition');
+    }
+
+    const skill = await favoritesStorage.getSkill(command.skillId);
+    if (!skill) return this.commandError(command, 'not_found');
+
+    let renderedInstruction = '';
+    try {
+      assertExactSkillInputs(skill.inputs, command.values);
+      renderedInstruction = compileSkillTemplate(skill.instructionTemplate, command.values);
+    } catch {
+      return this.commandError(command, 'invalid_input');
+    }
+
+    if (active) await this.stopTaskRuntime(active.id);
+    await this.deps.switchTab(command.tabId);
+
+    const now = this.deps.now();
+    const roundId = crypto.randomUUID();
+    let criteria: CompletionCriterion[];
+    try {
+      criteria = await this.freezeSkillCriteria(skill.criteria, roundId, command.tabId);
+    } catch {
+      renderedInstruction = '';
+      return this.commandError(command, 'invalid_input');
+    }
+    const ack: CommandAck = {
+      accepted: true,
+      commandId: command.commandId,
+      taskId: command.taskId,
+      revision: 1,
+    };
+    const task: TaskSession = {
+      id: command.taskId,
+      goalSummary: `Run Skill: ${skill.title}`,
+      sourceSkillId: skill.id,
+      status: 'running',
+      revision: 1,
+      activeTabId: command.tabId,
+      currentRoundId: roundId,
+      targetRefs: [],
+      rounds: [
+        {
+          id: roundId,
+          instructionSummary: `Run Skill: ${skill.title}`,
+          status: 'running',
+          commandAcks: { [command.commandId]: ack },
+          criteria,
+          attempts: [],
+          approvals: [],
+          evidence: [],
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.instructions.set(task.id, renderedInstruction);
+    renderedInstruction = '';
+    this.criterionTemplates.set(this.roundKey(task.id, roundId), structuredClone(skill.criteria));
+    this.lockedCriteriaRounds.add(this.roundKey(task.id, roundId));
+    await this.persist(task);
+    void this.runCurrentRound(task.id);
+    return ack;
+  }
+
+  private commandError(
+    command: Extract<TaskCommand, { type: 'run_skill' }>,
+    error: 'not_found' | 'invalid_transition' | 'invalid_input',
+  ): CommandAck {
+    return {
+      accepted: false,
+      commandId: command.commandId,
+      taskId: command.taskId,
+      revision: 0,
+      error,
+    };
   }
 
   private async pause(task: TaskSession, commandId: string): Promise<CommandAck> {
@@ -443,7 +570,11 @@ export class TaskManager {
         if (!task || task.status !== 'running' || task.currentRoundId !== roundId) {
           throw new StaleTaskRoundError();
         }
-        await this.freezeCriteria(taskId, roundId, criteria);
+        if (!this.lockedCriteriaRounds.has(this.roundKey(taskId, roundId))) {
+          await this.freezeCriteria(taskId, roundId, criteria);
+        } else if (this.currentRound(task).criteria.length === 0) {
+          throw new Error('Locked Skill criteria are missing');
+        }
         task = await getTask(taskId);
         if (!task || task.status !== 'running' || task.currentRoundId !== roundId) {
           throw new StaleTaskRoundError();
@@ -669,6 +800,10 @@ export class TaskManager {
     const driver = this.drivers.get(taskId);
     this.drivers.delete(taskId);
     this.dispatchers.delete(taskId);
+    this.instructions.delete(taskId);
+    for (const key of this.lockedCriteriaRounds) {
+      if (key.startsWith(`${taskId}:`)) this.lockedCriteriaRounds.delete(key);
+    }
     if (driver) await driver.stop();
   }
 
@@ -708,10 +843,16 @@ export class TaskManager {
       }
 
       const roundId = round.id;
-      const driver = await this.deps.createExecutor(
-        { taskId, roundId, instruction, tabId: task.activeTabId },
-        this.executorHooks(taskId),
-      );
+      const isSkillRun = task.sourceSkillId !== undefined;
+      let driver: ExecutorDriver;
+      try {
+        driver = await this.deps.createExecutor(
+          { taskId, roundId, instruction, tabId: task.activeTabId },
+          this.executorHooks(taskId),
+        );
+      } finally {
+        if (isSkillRun) this.instructions.delete(taskId);
+      }
 
       task = await getTask(taskId);
       if (
@@ -933,15 +1074,17 @@ export class TaskManager {
       const latestMediaTarget = [...task.targetRefs].reverse().find(target => target.kind === 'media');
       const userFieldValues = this.extractUserFieldValues(this.instructions.get(taskId) ?? '');
       const criteria = await Promise.all(
-        drafts.slice(0, 8).map(draft =>
-          this.freezeCriterion(
-            draft,
-            round.id,
-            draft.kind === 'media_state' && latestMediaTarget ? latestMediaTarget.id : tabTargetRefId,
-            frozenAt,
-            userFieldValues,
+        drafts
+          .slice(0, 8)
+          .map(draft =>
+            this.freezeCriterion(
+              draft,
+              round.id,
+              draft.kind === 'media_state' && latestMediaTarget ? latestMediaTarget.id : tabTargetRefId,
+              frozenAt,
+              userFieldValues,
+            ),
           ),
-        ),
       );
       const baseline = await this.deps.observeCriteria(criteria);
       const pageObservations = baseline.filter(
@@ -966,7 +1109,95 @@ export class TaskManager {
       round.criteria = criteria;
       task.revision += 1;
       await this.persist(task);
+      this.criterionTemplates.set(this.roundKey(task.id, round.id), this.templatesFromCriteria(drafts, criteria));
     });
+  }
+
+  private async freezeSkillCriteria(
+    templates: CompletionCriterionTemplate[],
+    roundId: string,
+    tabId: number,
+  ): Promise<CompletionCriterion[]> {
+    if (templates.length === 0 || templates.some(template => JSON.stringify(template).includes('{{'))) {
+      throw new Error('invalid_skill_criterion');
+    }
+    const drafts = templates.map(template => this.skillTemplateDraft(template));
+    const frozenAt = this.deps.now();
+    const criteria = await Promise.all(
+      drafts.map(draft => this.freezeCriterion(draft, roundId, `tab-${tabId}`, frozenAt, new Set())),
+    );
+    const baseline = await this.deps.observeCriteria(criteria);
+    const observations = baseline.filter(
+      observation =>
+        observation.source === 'page' &&
+        observation.roundId === roundId &&
+        /^(?:tab-\d+|media:[a-f0-9]{64})$/.test(observation.targetRefId),
+    );
+    for (const criterion of criteria) {
+      const observation = observations.find(item => item.criterionId === criterion.id);
+      if (observation) criterion.targetRefId = observation.targetRefId;
+      criterion.baseline = observation?.value ?? false;
+    }
+    return criteria;
+  }
+
+  private skillTemplateDraft(template: CompletionCriterionTemplate): CompletionCriterionDraft {
+    switch (template.kind) {
+      case 'url':
+      case 'page_text':
+        return { ...template, expected: template.expectedTemplate };
+      case 'element_state':
+      case 'media_state':
+      case 'user_confirmed':
+        return template;
+    }
+  }
+
+  private templatesFromCriteria(
+    drafts: CompletionCriterionDraft[],
+    criteria: CompletionCriterion[],
+  ): CompletionCriterionTemplate[] {
+    return criteria.map((criterion, index) => {
+      const draft = drafts[index];
+      switch (criterion.kind) {
+        case 'url':
+          return {
+            kind: 'url',
+            operator: criterion.operator,
+            expectedTemplate: criterion.expected,
+            required: criterion.required,
+          };
+        case 'page_text': {
+          if (draft?.kind !== 'page_text') throw new Error('Page-text criterion draft is missing');
+          return {
+            kind: 'page_text',
+            operator: criterion.operator,
+            expectedTemplate: draft.expected.replace(/\s+/g, ' ').trim(),
+            required: criterion.required,
+          };
+        }
+        case 'element_state':
+          return {
+            kind: 'element_state',
+            operator: criterion.operator,
+            expected: criterion.expected,
+            required: criterion.required,
+          };
+        case 'media_state':
+          return {
+            kind: 'media_state',
+            operator: criterion.operator,
+            expected: criterion.expected,
+            required: criterion.required,
+          };
+        case 'user_confirmed':
+          return { kind: 'user_confirmed', operator: 'equals', expected: true, required: criterion.required };
+      }
+    });
+  }
+
+  private roundKey(taskId: string, roundId: string): string {
+    return `${taskId}:${roundId}`;
   }
 
   private async freezeCriterion(
@@ -1125,6 +1356,7 @@ export class TaskManager {
     task.status = 'completed';
     round.status = 'completed';
     round.waitReason = undefined;
+    this.lockedCriteriaRounds.delete(this.roundKey(task.id, round.id));
     if (incrementRevision) task.revision += 1;
     await this.persist(task);
     const snapshot = structuredClone(task);

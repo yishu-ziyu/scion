@@ -1,4 +1,6 @@
 import type { TaskCommand, TaskSnapshot } from '@extension/storage';
+import { t } from '@extension/i18n';
+import { useState } from 'react';
 
 export interface TaskStatusCardProps {
   snapshot: TaskSnapshot;
@@ -6,6 +8,9 @@ export interface TaskStatusCardProps {
 }
 
 export function TaskStatusCard({ snapshot, send }: TaskStatusCardProps) {
+  const [showSkillForm, setShowSkillForm] = useState(false);
+  const [skillTitle, setSkillTitle] = useState('');
+  const [skillTemplate, setSkillTemplate] = useState('');
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
   const approval = round?.approvals.find(item => item.status === 'pending');
   const confirmations =
@@ -20,6 +25,47 @@ export function TaskStatusCard({ snapshot, send }: TaskStatusCardProps) {
   return (
     <section data-testid="task-status" data-status={snapshot.status} className="flex items-center gap-2 p-2 text-sm">
       <span>{snapshot.status}</span>
+      {round?.receipt && !showSkillForm && (
+        <button type="button" data-testid="skill-save" onClick={() => setShowSkillForm(true)}>
+          {t('chat_skills_save')}
+        </button>
+      )}
+      {round?.receipt && showSkillForm && (
+        <div className="flex flex-col gap-2">
+          <input
+            data-testid="skill-title"
+            value={skillTitle}
+            onChange={event => setSkillTitle(event.target.value)}
+            placeholder={t('chat_skills_titlePlaceholder')}
+          />
+          <textarea
+            data-testid="skill-template"
+            value={skillTemplate}
+            onChange={event => setSkillTemplate(event.target.value)}
+            placeholder={t('chat_skills_templatePlaceholder')}
+          />
+          <button
+            type="button"
+            data-testid="skill-save-confirm"
+            disabled={!skillTitle.trim() || !skillTemplate.trim()}
+            onClick={() => {
+              send({
+                type: 'save_skill',
+                commandId: crypto.randomUUID(),
+                taskId: snapshot.id,
+                expectedRevision: snapshot.revision,
+                roundId: round.id,
+                title: skillTitle,
+                instructionTemplate: skillTemplate,
+              });
+              setShowSkillForm(false);
+              setSkillTitle('');
+              setSkillTemplate('');
+            }}>
+            {t('chat_skills_saveConfirm')}
+          </button>
+        </div>
+      )}
       {snapshot.status === 'waiting_approval' && round && approval && (
         <>
           <button

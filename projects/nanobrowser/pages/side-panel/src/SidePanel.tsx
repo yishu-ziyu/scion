@@ -13,7 +13,7 @@ import {
   chatHistoryStore,
   agentModelStore,
 } from '@extension/storage';
-import favoritesStorage, { type FavoritePrompt } from '@extension/storage/lib/prompt/favorites';
+import favoritesStorage, { type FavoriteItem, type FavoriteSkill } from '@extension/storage/lib/prompt/favorites';
 import { t } from '@extension/i18n';
 import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
@@ -43,7 +43,7 @@ const SidePanel = () => {
   const [isFollowUpMode, setIsFollowUpMode] = useState(false);
   const [isHistoricalSession, setIsHistoricalSession] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [favoritePrompts, setFavoritePrompts] = useState<FavoritePrompt[]>([]);
+  const [favoritePrompts, setFavoritePrompts] = useState<FavoriteItem[]>([]);
   const [hasConfiguredModels, setHasConfiguredModels] = useState<boolean | null>(null); // null = loading, false = no models, true = has models
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
@@ -339,9 +339,7 @@ const SidePanel = () => {
         if (message && message.type === EventType.EXECUTION) {
           handleTaskState(message);
         } else if (message && message.type === 'task_snapshot') {
-          setTaskSnapshot(current =>
-            mergeTaskSnapshot(current, message.snapshot, undefined, pendingTaskIdRef.current),
-          );
+          setTaskSnapshot(current => mergeTaskSnapshot(current, message.snapshot, undefined, pendingTaskIdRef.current));
           setTaskSnapshotLoaded(true);
         } else if (message && message.type === 'task_event') {
           setTaskSnapshot(current =>
@@ -463,7 +461,7 @@ const SidePanel = () => {
 
   const sendTaskCommand = useCallback(
     (command: TaskCommand) => {
-      if (command.type === 'start') pendingTaskIdRef.current = command.taskId;
+      if (command.type === 'start' || command.type === 'run_skill') pendingTaskIdRef.current = command.taskId;
       sendMessage({ type: 'task_command', command });
     },
     [sendMessage],
@@ -733,6 +731,32 @@ const SidePanel = () => {
     }
   };
 
+  const handleSkillRun = async (skill: FavoriteSkill, values: Record<string, string>) => {
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tabId = tabs[0]?.id;
+      if (!tabId) throw new Error('No active tab found');
+      setInputEnabled(false);
+      setShowStopButton(true);
+      sendTaskCommand({
+        type: 'run_skill',
+        commandId: crypto.randomUUID(),
+        taskId: crypto.randomUUID(),
+        skillId: skill.id,
+        values,
+        tabId,
+      });
+    } catch (error) {
+      setInputEnabled(true);
+      setShowStopButton(false);
+      void appendMessage({
+        actor: Actors.SYSTEM,
+        content: error instanceof Error ? error.message : String(error),
+        timestamp: Date.now(),
+      });
+    }
+  };
+
   const handleBookmarkUpdateTitle = async (id: number, title: string) => {
     try {
       await favoritesStorage.updatePromptTitle(id, title);
@@ -781,7 +805,8 @@ const SidePanel = () => {
       }
     };
 
-    loadFavorites();
+    void loadFavorites();
+    return favoritesStorage.subscribe(() => void loadFavorites());
   }, []);
 
   // Cleanup on unmount
@@ -1094,9 +1119,10 @@ const SidePanel = () => {
             {/* Show normal chat interface when models are configured */}
             {hasConfiguredModels === true && (
               <>
-                {taskSnapshot && currentSessionId === taskSnapshot.chatSessionId && (
-                  <TaskStatusCard snapshot={taskSnapshot} send={sendTaskCommand} />
-                )}
+                {taskSnapshot &&
+                  (currentSessionId === taskSnapshot.chatSessionId || taskSnapshot.sourceSkillId !== undefined) && (
+                    <TaskStatusCard snapshot={taskSnapshot} send={sendTaskCommand} />
+                  )}
                 {messages.length === 0 && (
                   <>
                     <div
@@ -1119,6 +1145,7 @@ const SidePanel = () => {
                       <BookmarkList
                         bookmarks={favoritePrompts}
                         onBookmarkSelect={handleBookmarkSelect}
+                        onSkillRun={handleSkillRun}
                         onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
                         onBookmarkDelete={handleBookmarkDelete}
                         onBookmarkReorder={handleBookmarkReorder}

@@ -2,16 +2,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { FaTrash, FaPen, FaCheck, FaTimes } from 'react-icons/fa';
 import { t } from '@extension/i18n';
-
-interface Bookmark {
-  id: number;
-  title: string;
-  content: string;
-}
+import type { FavoriteItem, FavoriteSkill } from '@extension/storage/lib/prompt/favorites';
 
 interface BookmarkListProps {
-  bookmarks: Bookmark[];
+  bookmarks: FavoriteItem[];
   onBookmarkSelect: (content: string) => void;
+  onSkillRun: (skill: FavoriteSkill, values: Record<string, string>) => void;
   onBookmarkUpdateTitle?: (id: number, title: string) => void;
   onBookmarkDelete?: (id: number) => void;
   onBookmarkReorder?: (draggedId: number, targetId: number) => void;
@@ -21,6 +17,7 @@ interface BookmarkListProps {
 const BookmarkList: React.FC<BookmarkListProps> = ({
   bookmarks,
   onBookmarkSelect,
+  onSkillRun,
   onBookmarkUpdateTitle,
   onBookmarkDelete,
   onBookmarkReorder,
@@ -29,11 +26,19 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState<string>('');
   const [draggedId, setDraggedId] = useState<number | null>(null);
+  const [runningSkillId, setRunningSkillId] = useState<number | null>(null);
+  const [skillValues, setSkillValues] = useState<Record<string, string>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleEditClick = (bookmark: Bookmark) => {
+  const handleEditClick = (bookmark: FavoriteItem) => {
     setEditingId(bookmark.id);
     setEditTitle(bookmark.title);
+  };
+
+  const handleRunSkill = (skill: FavoriteSkill) => {
+    onSkillRun(skill, skillValues);
+    setRunningSkillId(null);
+    setSkillValues({});
   };
 
   const handleSaveEdit = (id: number) => {
@@ -133,21 +138,67 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
               </div>
             ) : (
               <>
-                <div className="flex items-center">
-                  <button
-                    type="button"
-                    onClick={() => onBookmarkSelect(bookmark.content)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        onBookmarkSelect(bookmark.content);
-                      }
-                    }}
-                    className="w-full text-left">
-                    <div
-                      className={`truncate pr-10 text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-                      {bookmark.title}
-                    </div>
-                  </button>
+                <div className="flex flex-col gap-2">
+                  {bookmark.kind === 'skill' ? (
+                    <>
+                      <div
+                        className={`truncate pr-10 text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                        {bookmark.title}
+                      </div>
+                      {runningSkillId === bookmark.id ? (
+                        <>
+                          {bookmark.inputs.map(input => (
+                            <label key={input.name} className="flex flex-col gap-1 text-xs">
+                              {input.label}
+                              <input
+                                data-testid={`skill-input-${input.name}`}
+                                value={skillValues[input.name] ?? ''}
+                                onChange={event =>
+                                  setSkillValues(values => ({ ...values, [input.name]: event.target.value }))
+                                }
+                                className={`rounded border px-2 py-1 ${
+                                  isDarkMode
+                                    ? 'border-slate-600 bg-slate-700 text-gray-200'
+                                    : 'border-sky-100 bg-white text-gray-700'
+                                }`}
+                              />
+                            </label>
+                          ))}
+                          <button
+                            type="button"
+                            data-testid="skill-run-confirm"
+                            onClick={() => handleRunSkill(bookmark)}
+                            className="rounded bg-sky-600 px-2 py-1 text-xs text-white">
+                            {t('chat_skills_runConfirm')}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          data-testid="skill-run"
+                          onClick={() => {
+                            setRunningSkillId(bookmark.id);
+                            setSkillValues({});
+                          }}
+                          className="rounded bg-sky-600 px-2 py-1 text-xs text-white">
+                          {t('chat_skills_run')}
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onBookmarkSelect(bookmark.content)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') onBookmarkSelect(bookmark.content);
+                      }}
+                      className="w-full text-left">
+                      <div
+                        className={`truncate pr-10 text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                        {bookmark.title}
+                      </div>
+                    </button>
+                  )}
                 </div>
               </>
             )}

@@ -893,5 +893,11 @@
   },
   "options_tabs_analytics": {
     "message": "Analytics"
-  }
+  },
+  "chat_skills_save": { "message": "Salvar como Skill" },
+  "chat_skills_saveConfirm": { "message": "Salvar Skill" },
+  "chat_skills_run": { "message": "Executar Skill" },
+  "chat_skills_runConfirm": { "message": "Executar" },
+  "chat_skills_titlePlaceholder": { "message": "Título da Skill" },
+  "chat_skills_templatePlaceholder": { "message": "Modelo de instrução, por exemplo: Preencha {{name}}" }
 }
