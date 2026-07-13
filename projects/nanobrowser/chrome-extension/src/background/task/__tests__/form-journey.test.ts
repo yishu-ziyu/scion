@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompletionCriterion } from '@extension/storage/lib/task';
 import { TaskManager, type ExecutorDriver } from '../manager';
+import type { ProbeObservation } from '../contracts';
 import { sha256 } from '../digest';
 
 const store = vi.hoisted(() => ({
@@ -197,6 +198,95 @@ describe('verified form journey', () => {
     expect(driver.stop).not.toHaveBeenCalled();
     expect(driver.addFollowUp).toHaveBeenCalledWith('continue with the same context');
     expect(driver.run).toHaveBeenNthCalledWith(2, followedUp?.currentRoundId);
+  });
+
+  it('hands a follow-up to the same runner when the old completion probe is pending', async () => {
+    let finishProbe!: (observations: ProbeObservation[]) => void;
+    const driver: ExecutorDriver = {
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({ kind: 'candidate_complete', summary: 'candidate from old round' })
+        .mockImplementation(() => new Promise<never>(() => {})),
+      addFollowUp: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+    };
+    let probeCall = 0;
+    const observeCriteria = vi.fn(async (criteria: CompletionCriterion[]) => {
+      probeCall += 1;
+      if (probeCall === 1) {
+        return criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 360,
+          source: 'page' as const,
+          value: 'https://example.test/start',
+        }));
+      }
+      return new Promise<ProbeObservation[]>(resolve => (finishProbe = resolve));
+    });
+    const createExecutor = vi.fn(async (input, hooks) => {
+      await hooks.onPlan(input.roundId, [
+        { kind: 'url', operator: 'equals', expected: 'https://example.test/done', required: true },
+      ]);
+      return driver;
+    });
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 360,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-probe-handoff',
+      taskId: 'task-probe-handoff',
+      tabId: 7,
+      instruction: 'finish, then continue',
+      chatSessionId: 'chat-probe-handoff',
+      instructionMessageId: 'message-probe-handoff-1',
+    });
+    await vi.waitFor(() => expect(finishProbe).toBeTypeOf('function'));
+    const probing = await manager.snapshot('task-probe-handoff');
+    if (!probing) throw new Error('Expected probing task');
+    const oldRoundId = probing.currentRoundId;
+    const oldCriterion = probing.rounds.find(item => item.id === oldRoundId)?.criteria[0];
+    if (!oldCriterion) throw new Error('Expected old completion criterion');
+
+    await manager.dispatch({
+      type: 'follow_up',
+      commandId: 'follow-probe-handoff',
+      taskId: probing.id,
+      expectedRevision: probing.revision,
+      instruction: 'continue in the new round',
+      chatSessionId: 'chat-probe-handoff',
+      instructionMessageId: 'message-probe-handoff-2',
+    });
+    expect(driver.run).toHaveBeenCalledOnce();
+    expect(driver.addFollowUp).toHaveBeenCalledWith('continue in the new round');
+
+    finishProbe([
+      {
+        criterionId: oldCriterion.id,
+        roundId: oldRoundId,
+        targetRefId: oldCriterion.targetRefId,
+        observedAt: 360,
+        source: 'page',
+        value: 'https://example.test/done',
+      },
+    ]);
+
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(2));
+    const followedUp = await manager.snapshot(probing.id);
+    expect(createExecutor).toHaveBeenCalledOnce();
+    expect(driver.run).toHaveBeenNthCalledWith(2, followedUp?.currentRoundId);
+    expect(followedUp).toMatchObject({
+      status: 'running',
+      rounds: [{ evidence: [] }, { status: 'running', criteria: [], evidence: [] }],
+    });
   });
 
   it('freezes one redacted baseline before execution and ignores later proposals', async () => {

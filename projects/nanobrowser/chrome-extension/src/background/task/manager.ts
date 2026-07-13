@@ -637,35 +637,55 @@ export class TaskManager {
     }
   }
 
-  private async runDriver(taskId: string, driver: ExecutorDriver, runRoundId: string): Promise<void> {
+  private async runDriver(taskId: string, driver: ExecutorDriver, initialRoundId: string): Promise<void> {
+    let runRoundId = initialRoundId;
     let verificationRetries = 0;
     for (;;) {
       const outcome = await driver.run(runRoundId);
       const task = await getTask(taskId);
       if (!this.canApplyDriverOutcome(task, taskId, driver)) return;
       if (task.currentRoundId !== runRoundId) {
-        void this.runDriver(taskId, driver, task.currentRoundId);
-        return;
+        runRoundId = task.currentRoundId;
+        verificationRetries = 0;
+        continue;
       }
       if (outcome.kind !== 'candidate_complete') {
+        let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
           const current = await getTask(taskId);
           if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
-          if (current.currentRoundId !== runRoundId) return;
+          if (current.currentRoundId !== runRoundId) {
+            handoffRoundId = current.currentRoundId;
+            return;
+          }
           await this.persistTerminalOrWaiting(current, outcome);
         });
+        if (handoffRoundId) {
+          runRoundId = handoffRoundId;
+          verificationRetries = 0;
+          continue;
+        }
         return;
       }
 
       const round = task.rounds.find(item => item.id === runRoundId);
       if (!round) return;
       if (round.criteria.length === 0) {
+        let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
           const current = await getTask(taskId);
           if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
-          if (current.currentRoundId !== runRoundId) return;
+          if (current.currentRoundId !== runRoundId) {
+            handoffRoundId = current.currentRoundId;
+            return;
+          }
           await this.persistWaitingUser(current, this.currentRound(current), 'proof_required');
         });
+        if (handoffRoundId) {
+          runRoundId = handoffRoundId;
+          verificationRetries = 0;
+          continue;
+        }
         return;
       }
       if (round.criteria.some(item => item.kind === 'user_confirmed')) {
@@ -685,13 +705,23 @@ export class TaskManager {
             observations,
           }).evidence;
         }
+        let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
           const current = await getTask(taskId);
-          if (!this.canApplyDriverOutcome(current, taskId, driver) || current.currentRoundId !== runRoundId) return;
+          if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+          if (current.currentRoundId !== runRoundId) {
+            handoffRoundId = current.currentRoundId;
+            return;
+          }
           const currentRound = this.currentRound(current);
           currentRound.evidence.push(...automaticEvidence);
           await this.persistWaitingUser(current, currentRound, 'proof_required');
         });
+        if (handoffRoundId) {
+          runRoundId = handoffRoundId;
+          verificationRetries = 0;
+          continue;
+        }
         return;
       }
 
@@ -708,9 +738,14 @@ export class TaskManager {
         observations,
       });
       let retry = false;
+      let handoffRoundId: string | undefined;
       await this.queueTransition(async () => {
         const current = await getTask(taskId);
-        if (!this.canApplyDriverOutcome(current, taskId, driver) || current.currentRoundId !== round.id) return;
+        if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+        if (current.currentRoundId !== round.id) {
+          handoffRoundId = current.currentRoundId;
+          return;
+        }
         const currentRound = this.currentRound(current);
         currentRound.evidence.push(...checked.evidence);
         if (checked.passed) {
@@ -725,7 +760,19 @@ export class TaskManager {
         await this.persist(current);
         retry = true;
       });
+      if (handoffRoundId) {
+        runRoundId = handoffRoundId;
+        verificationRetries = 0;
+        continue;
+      }
       if (!retry) return;
+      const latest = await getTask(taskId);
+      if (!this.canApplyDriverOutcome(latest, taskId, driver)) return;
+      if (latest.currentRoundId !== runRoundId) {
+        runRoundId = latest.currentRoundId;
+        verificationRetries = 0;
+        continue;
+      }
       verificationRetries += 1;
       driver.addFollowUp('Completion was not verified; inspect the current page and continue.');
     }
