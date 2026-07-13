@@ -643,7 +643,12 @@ export class TaskManager {
         return;
       }
 
-      const observations = await this.deps.observeCriteria(round.criteria);
+      let observations: ProbeObservation[] = [];
+      try {
+        observations = await this.deps.observeCriteria(round.criteria);
+      } catch {
+        observations = [];
+      }
       const checked = checkCompletion({
         now: this.deps.now(),
         currentRoundId: round.id,

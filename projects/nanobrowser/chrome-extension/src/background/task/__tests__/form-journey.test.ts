@@ -225,4 +225,51 @@ describe('verified form journey', () => {
     ]);
     expect(JSON.stringify(snapshot)).not.toContain('FIELD_SENTINEL_8472');
   });
+
+  it('retries one failed probe without completing early', async () => {
+    const driver: ExecutorDriver = {
+      run: vi.fn().mockResolvedValue({ kind: 'candidate_complete', summary: 'submitted' }),
+      addFollowUp: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+    };
+    let call = 0;
+    const observeCriteria = vi.fn(async (criteria: CompletionCriterion[]) => {
+      call += 1;
+      if (call === 2) throw new Error('probe unavailable');
+      return criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: 200,
+        source: 'page' as const,
+        value: call >= 3,
+      }));
+    });
+    const manager = new TaskManager({
+      createExecutor: async (_input, hooks) => {
+        await hooks.onPlan([{ kind: 'page_text', operator: 'present', expected: 'Saved', required: true }]);
+        return driver;
+      },
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 200,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-retry',
+      taskId: 'task-retry',
+      tabId: 7,
+      instruction: 'submit the form',
+      chatSessionId: 'chat-retry',
+      instructionMessageId: 'message-retry',
+    });
+
+    await vi.waitFor(async () => expect((await manager.snapshot('task-retry'))?.status).toBe('completed'));
+    expect(driver.run).toHaveBeenCalledTimes(2);
+    expect(driver.addFollowUp).toHaveBeenCalledOnce();
+    expect(observeCriteria).toHaveBeenCalledTimes(3);
+  });
 });
