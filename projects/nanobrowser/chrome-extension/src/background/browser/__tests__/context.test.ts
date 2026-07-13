@@ -48,6 +48,12 @@ const pendingExtensionTab = {
   pendingUrl: extensionTab.url,
 } as chrome.tabs.Tab;
 
+const pendingContentFromExtensionTab = {
+  ...extensionTab,
+  id: 5,
+  pendingUrl: pendingContentTab.pendingUrl,
+} as chrome.tabs.Tab;
+
 describe('BrowserContext tab selection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -70,6 +76,24 @@ describe('BrowserContext tab selection', () => {
     await expect(new BrowserContext({}).getTabInfos()).resolves.toEqual([
       { id: contentTab.id, url: contentTab.url, title: contentTab.title },
     ]);
+  });
+
+  it('omits a tab until its pending web navigation replaces a forbidden committed page', async () => {
+    tabsApi.query.mockResolvedValue([pendingContentFromExtensionTab]);
+
+    await expect(new BrowserContext({}).getTabInfos()).resolves.toEqual([]);
+  });
+
+  it('does not select a pending web navigation while an extension page remains committed', async () => {
+    tabsApi.query.mockImplementation(async query =>
+      query.active ? [pendingContentFromExtensionTab] : [pendingContentFromExtensionTab, contentTab],
+    );
+    const context = new BrowserContext({});
+    vi.spyOn(context, 'attachPage').mockResolvedValue(true);
+
+    const page = await context.getCurrentPage();
+
+    expect(page.tabId).toBe(contentTab.id);
   });
 
   it('selects an allowed pending URL before it commits', async () => {

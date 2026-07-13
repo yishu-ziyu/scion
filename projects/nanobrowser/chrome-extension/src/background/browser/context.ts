@@ -34,9 +34,18 @@ export default class BrowserContext {
     this._currentTabId = tabId;
   }
 
-  private _isTabAllowed(tab?: chrome.tabs.Tab): boolean {
-    const url = tab?.pendingUrl || tab?.url;
-    return Boolean(tab?.id && url && isUrlAllowed(url, this._config.allowedUrls, this._config.deniedUrls));
+  private _getAllowedTabUrl(tab?: chrome.tabs.Tab): string | undefined {
+    const committedUrl = tab?.url;
+    const url = tab?.pendingUrl || committedUrl;
+    if (
+      !tab?.id ||
+      !url ||
+      !isUrlAllowed(url, this._config.allowedUrls, this._config.deniedUrls) ||
+      (committedUrl && !isUrlAllowed(committedUrl, this._config.allowedUrls, this._config.deniedUrls))
+    ) {
+      return undefined;
+    }
+    return url;
   }
 
   private async _getOrCreatePage(tab: chrome.tabs.Tab, forceUpdate = false): Promise<Page> {
@@ -100,10 +109,10 @@ export default class BrowserContext {
     if (!this._currentTabId) {
       let activeTab: chrome.tabs.Tab;
       let tab: chrome.tabs.Tab | undefined = (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
-      if (!this._isTabAllowed(tab)) {
+      if (!this._getAllowedTabUrl(tab)) {
         const tabs = await chrome.tabs.query({ currentWindow: true });
         // ponytail: first allowed tab is the fallback; track last allowed activation if multi-tab precision matters.
-        tab = tabs.find(candidate => this._isTabAllowed(candidate));
+        tab = tabs.find(candidate => this._getAllowedTabUrl(candidate));
       }
       if (!tab?.id) {
         // open a new tab with blank page
@@ -232,7 +241,7 @@ export default class BrowserContext {
     logger.info('switchTab', tabId);
 
     const tab = await chrome.tabs.get(tabId);
-    if (!this._isTabAllowed(tab)) {
+    if (!this._getAllowedTabUrl(tab)) {
       throw new URLNotAllowedError(`Switch tab failed. URL: ${tab.url || ''} is not allowed`);
     }
 
@@ -324,10 +333,11 @@ export default class BrowserContext {
     const tabInfos: TabInfo[] = [];
 
     for (const tab of tabs) {
-      if (this._isTabAllowed(tab) && tab.id && tab.url && tab.title) {
+      const url = this._getAllowedTabUrl(tab);
+      if (tab.id && url && tab.title) {
         tabInfos.push({
           id: tab.id,
-          url: tab.url,
+          url,
           title: tab.title,
         });
       }
