@@ -597,7 +597,10 @@ export class TaskManager {
       }
       const index = task.targetRefs.findIndex(item => item.id === target.id);
       if (index === -1) task.targetRefs.push(target);
-      else task.targetRefs[index] = target;
+      else if (target.kind === 'media') {
+        task.targetRefs.splice(index, 1);
+        task.targetRefs.push(target);
+      } else task.targetRefs[index] = target;
       task.activeTabId = target.tabId;
       task.revision += 1;
       await this.persist(task);
@@ -926,10 +929,19 @@ export class TaskManager {
       const round = this.currentRound(task);
       if (round.criteria.length > 0 || drafts.length === 0) return;
       const frozenAt = this.deps.now();
-      const targetRefId = `tab-${task.activeTabId}`;
+      const tabTargetRefId = `tab-${task.activeTabId}`;
+      const latestMediaTarget = [...task.targetRefs].reverse().find(target => target.kind === 'media');
       const userFieldValues = this.extractUserFieldValues(this.instructions.get(taskId) ?? '');
       const criteria = await Promise.all(
-        drafts.slice(0, 8).map(draft => this.freezeCriterion(draft, round.id, targetRefId, frozenAt, userFieldValues)),
+        drafts.slice(0, 8).map(draft =>
+          this.freezeCriterion(
+            draft,
+            round.id,
+            draft.kind === 'media_state' && latestMediaTarget ? latestMediaTarget.id : tabTargetRefId,
+            frozenAt,
+            userFieldValues,
+          ),
+        ),
       );
       const baseline = await this.deps.observeCriteria(criteria);
       const pageObservations = baseline.filter(
@@ -996,8 +1008,9 @@ export class TaskManager {
       case 'user_confirmed':
         return { ...base, kind: 'user_confirmed', operator: 'equals', expected: true };
       case 'element_state':
-      case 'media_state':
         return { ...base, kind: 'user_confirmed', operator: 'equals', expected: true };
+      case 'media_state':
+        return { ...base, kind: 'media_state', operator: draft.operator, expected: draft.expected };
     }
   }
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TaskManager } from '../manager';
-import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome } from '../contracts';
+import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome, ObserveCriteria } from '../contracts';
 import { Action } from '../../agent/actions/builder';
 import { clickElementActionSchema, controlMediaActionSchema, waitActionSchema } from '../../agent/actions/schemas';
 import { ActionResult } from '../../agent/types';
@@ -522,6 +522,133 @@ describe('TaskManager lifecycle', () => {
       activeTabId: 7,
       targetRefs: [{ id: 'media:media-1', kind: 'media', digest: 'media-1' }],
     });
+  });
+
+  it('rebinds an omitted media digest to the most recently controlled target', async () => {
+    let hooks!: ExecutorHooks;
+    const firstDigest = 'a'.repeat(64);
+    const secondDigest = 'b'.repeat(64);
+    store.observeMedia.mockImplementation(async (targetDigest?: string) => ({
+      kind: 'bound' as const,
+      targetDigest: targetDigest ?? firstDigest,
+      state: 'paused' as const,
+    }));
+    const executeMedia = vi.fn(async () => new ActionResult({ success: true }));
+    const action = new Action(executeMedia, controlMediaActionSchema);
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-media-recency',
+      taskId: 'task-media-recency',
+      instruction: 'control several media elements',
+      chatSessionId: 'chat-media',
+      instructionMessageId: 'message-media',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-media-recency');
+
+    for (const targetDigest of [firstDigest, secondDigest, firstDigest]) {
+      await hooks.dispatchAction(roundId, action, {
+        command: 'pause',
+        intent: 'pause the selected media',
+        target_digest: targetDigest,
+      });
+    }
+
+    await expect(manager.snapshot('task-media-recency')).resolves.toMatchObject({
+      targetRefs: [{ digest: secondDigest }, { digest: firstDigest }],
+    });
+
+    await hooks.dispatchAction(roundId, action, {
+      command: 'pause',
+      intent: 'pause the most recently controlled media',
+    });
+    expect(executeMedia).toHaveBeenLastCalledWith(
+      expect.objectContaining({ command: 'pause', target_digest: firstDigest }),
+    );
+  });
+
+  it('freezes follow-up media completion against the latest bound digest', async () => {
+    let hooks!: ExecutorHooks;
+    const digest = 'a'.repeat(64);
+    const driver = fakeDriver();
+    store.observeMedia.mockImplementation(async (targetDigest?: string) => ({
+      kind: 'bound' as const,
+      targetDigest: targetDigest ?? digest,
+      state: 'playing' as const,
+    }));
+    const observeCriteria: ObserveCriteria = vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+      criteria.map(criterion => ({
+        criterionId: criterion.id,
+        roundId: criterion.roundId,
+        targetRefId: criterion.targetRefId,
+        observedAt: 100,
+        source: 'page' as const,
+        value: 'playing',
+      })),
+    );
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      },
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-media-criterion',
+      taskId: 'task-media-criterion',
+      instruction: 'play the video',
+      chatSessionId: 'chat-media',
+      instructionMessageId: 'message-media-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const firstRoundId = await taskRoundId(manager, 'task-media-criterion');
+    await hooks.dispatchAction(
+      firstRoundId,
+      new Action(async () => new ActionResult({ success: true }), controlMediaActionSchema),
+      { command: 'play', intent: 'play the selected media', target_digest: digest },
+    );
+    const afterPlay = await manager.snapshot('task-media-criterion');
+    if (!afterPlay) throw new Error('Expected media task snapshot');
+
+    await manager.dispatch({
+      type: 'follow_up',
+      commandId: 'follow-media-criterion',
+      taskId: afterPlay.id,
+      expectedRevision: afterPlay.revision,
+      instruction: 'now pause it',
+      chatSessionId: 'chat-media',
+      instructionMessageId: 'message-media-2',
+    });
+    const followUpRoundId = await taskRoundId(manager, 'task-media-criterion');
+    await hooks.onPlan(followUpRoundId, [
+      { kind: 'media_state', operator: 'equals', expected: 'paused', required: true },
+    ]);
+
+    const planned = await manager.snapshot('task-media-criterion');
+    const followUpRound = planned?.rounds.find(round => round.id === followUpRoundId);
+    expect(followUpRound?.criteria).toEqual([
+      expect.objectContaining({
+        kind: 'media_state',
+        operator: 'equals',
+        expected: 'paused',
+        targetRefId: `media:${digest}`,
+        baseline: 'playing',
+      }),
+    ]);
   });
 
   it('consumes one persisted approval before invoking an external commit', async () => {
