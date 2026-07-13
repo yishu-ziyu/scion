@@ -1114,7 +1114,7 @@ git commit -m "feat: verify browser task completion"
 - Modify: `projects/nanobrowser/packages/storage/lib/task/types.ts`
 - Test: `projects/nanobrowser/chrome-extension/src/background/task/__tests__/media-journey.test.ts`
 
-- [ ] **Step 1: Write the failing continuous-control journey**
+- [x] **Step 1: Write the failing continuous-control journey**
 
 ```ts
 import { describe, expect, it, vi } from 'vitest';
@@ -1172,13 +1172,13 @@ describe('continuous media control', () => {
 });
 ```
 
-- [ ] **Step 2: Run the media test and confirm the action/page methods are absent**
+- [x] **Step 2: Run the media test and confirm the action/page methods are absent**
 
 Run: `pnpm --dir projects/nanobrowser --filter chrome-extension test -- src/background/task/__tests__/media-journey.test.ts`
 
 Expected: FAIL because `control_media`, `observeMedia`, and `controlMedia` do not exist.
 
-- [ ] **Step 3: Add the site-neutral media action through the normal dispatcher**
+- [x] **Step 3: Add the site-neutral media action through the normal dispatcher**
 
 ```ts
 export const controlMediaActionSchema: ActionSchema = {
@@ -1204,7 +1204,7 @@ return new ActionResult({ success: true, extractedContent: `Media ${input.comman
 
 The dispatcher classifies it reversible and records only action name, effect, tab, state, and target digest.
 
-- [ ] **Step 4: Add fixed media selection/observation to Page**
+- [x] **Step 4: Add fixed media selection/observation to Page**
 
 Add this exact Page surface:
 
@@ -1219,7 +1219,7 @@ controlMedia(command: 'play' | 'pause', targetDigest?: string): Promise<MediaBin
 
 Use trusted Puppeteer evaluation over same-origin main-frame `audio,video` only; cross-origin frames are excluded in cycle 1. Candidate order is: exact digest, then the only currently playing visible item, then the only largest-visible-area item. Digest `tagName|currentSrc origin+pathname|duration rounded to seconds|DOM sibling ordinal` with SHA-256; never include query strings, titles, or page text. Zero candidates or a rejected `HTMLMediaElement.play()` returns `missing`; any tie returns `ambiguous`; never fake `playing`.
 
-- [ ] **Step 5: Preserve/rebind the target across a new round**
+- [x] **Step 5: Preserve/rebind the target across a new round**
 
 After play, append the returned `BrowserTargetRef` with `kind: 'media'`. Before dispatcher parsing, the TaskManager hook applies this pure resolver:
 
@@ -1252,11 +1252,11 @@ const rebound = resolveMediaArgs('control_media', { command: 'pause' }, {
 expect(rebound).toMatchObject({ kind: 'ready', args: { target_digest: 'media-1' } });
 ```
 
-- [ ] **Step 6: Verify media completion through CompletionChecker**
+- [x] **Step 6: Verify media completion through CompletionChecker**
 
 `media_state` evidence must match the current round, stored target digest, post-command `notBefore`, and expected `playing|paused`. A Planner statement or click result alone cannot complete the round.
 
-- [ ] **Step 7: Run media, action, and browser regressions**
+- [x] **Step 7: Run media, action, and browser regressions**
 
 Run:
 
@@ -1267,7 +1267,7 @@ pnpm --dir projects/nanobrowser --filter chrome-extension type-check
 
 Expected: listed tests PASS; no `bilibili`, `b23`, or site selector appears in new runtime code.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add projects/nanobrowser

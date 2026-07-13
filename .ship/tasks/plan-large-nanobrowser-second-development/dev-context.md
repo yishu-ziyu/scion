@@ -101,3 +101,13 @@ Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `p
 - Verification: `chrome-extension` 137/137 tests pass; focused completion/form/manager/browser/event coverage passes; sidepanel and storage type checks and scoped ESLint pass.
 - Independent review: PASS after two fix rounds. The reviewer verified actual-tab evidence binding, multi-confirmation progress, event revision guards, preserved Executor memory, safe follow-up boundaries, and late-probe round handoff.
 - Unchanged baseline: chrome-extension type-check still reports only `helper.ts:24` (`completionWithRetry`) and missing local-only `personal/secrets.local`.
+
+## Story 5 completion record
+
+- Outcome: added site-neutral main-frame HTML5 audio/video play and pause through the shared dispatcher, with deterministic visible-media selection and SHA-256 target fingerprints that exclude page text, titles, and URL queries.
+- Continuity hardening: the most recently controlled media target moves to the durable recency tail, omitted follow-up digests rebind to that target, and missing or ambiguous targets stop in explicit `waiting_user` states instead of guessing.
+- Evidence hardening: Planner `media_state` criteria remain machine-verifiable, bind to the latest stored media digest before baseline observation, and require fresh current-round/current-target page state before receipt creation.
+- Commits: `b4c61eb`, `6dce44c`.
+- Verification: `chrome-extension` 149/149 tests pass; focused media/manager/completion/dispatcher review passes 76/76; sidepanel and storage type checks and scoped ESLint pass; static search finds no site-specific runtime logic.
+- Independent review: PASS after one fix round. The reviewer verified deterministic selection/digesting, wait-state behavior, target recency, Planner-to-criterion binding, and same-round target/freshness verification.
+- Unchanged baseline: chrome-extension type-check still reports only `helper.ts:24` (`completionWithRetry`) and missing local-only `personal/secrets.local`.
