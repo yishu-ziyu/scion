@@ -147,6 +147,45 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(async () => expect(await manager.snapshot('task-1')).toMatchObject({ status: 'interrupted' }));
   });
 
+  it('applies a running driver outcome to the latest follow-up round', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    const manager = new TaskManager({
+      createExecutor: async () => driver,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-1',
+      taskId: 'task-1',
+      instruction: 'open form',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(1));
+    await manager.dispatch({
+      type: 'follow_up',
+      commandId: 'follow-1',
+      taskId: 'task-1',
+      expectedRevision: 1,
+      instruction: 'then pause it',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-2',
+    });
+    finish({ kind: 'candidate_complete', summary: 'done' });
+    await vi.waitFor(async () =>
+      expect(await manager.snapshot('task-1')).toMatchObject({
+        status: 'waiting_user',
+        currentRoundId: expect.any(String),
+        rounds: [{}, { status: 'waiting_user', waitReason: 'proof_required' }],
+      }),
+    );
+  });
+
   it('applies revisioned pause, resume, follow-up, and cancel exactly once', async () => {
     const driver = fakeDriver();
     const manager = new TaskManager({

@@ -234,7 +234,7 @@ export class TaskManager {
       driver.addFollowUp(command.instruction);
       if (previousStatus === 'paused') driver.resume();
       if (previousStatus === 'waiting_user' || previousStatus === 'completed') {
-        void this.runDriver(task.id, roundId, driver);
+        void this.runDriver(task.id, driver);
       }
     }
     return ack;
@@ -338,7 +338,7 @@ export class TaskManager {
         this.executorHooks(),
       );
       this.drivers.set(taskId, driver);
-      await this.runDriver(taskId, round.id, driver);
+      await this.runDriver(taskId, driver);
     } catch {
       await this.queueTransition(async () => {
         const task = await getTask(taskId);
@@ -351,13 +351,13 @@ export class TaskManager {
     }
   }
 
-  private async runDriver(taskId: string, roundId: string, driver: ExecutorDriver): Promise<void> {
+  private async runDriver(taskId: string, driver: ExecutorDriver): Promise<void> {
     const outcome = await driver.run();
     await this.queueTransition(async () => {
       const task = await getTask(taskId);
       if (
         !task ||
-        task.currentRoundId !== roundId ||
+        this.drivers.get(taskId) !== driver ||
         task.status === 'interrupted' ||
         TERMINAL_STATUSES.includes(task.status)
       )
