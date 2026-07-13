@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TaskManager } from '../manager';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome } from '../contracts';
 import { Action } from '../../agent/actions/builder';
-import { clickElementActionSchema, waitActionSchema } from '../../agent/actions/schemas';
+import { clickElementActionSchema, controlMediaActionSchema, waitActionSchema } from '../../agent/actions/schemas';
 import { ActionResult } from '../../agent/types';
 
 const store = vi.hoisted(() => ({
@@ -24,6 +24,7 @@ const store = vi.hoisted(() => ({
     inForm: true,
   },
   observeActionTarget: vi.fn(),
+  observeMedia: vi.fn(),
 }));
 
 vi.mock('@extension/storage/lib/task', () => ({
@@ -34,7 +35,12 @@ vi.mock('@extension/storage/lib/task', () => ({
 
 vi.mock('../../agent/factory', () => ({
   browserContext: {
-    getCurrentPage: async () => ({ observeActionTarget: store.observeActionTarget }),
+    getCurrentPage: async () => ({
+      observeActionTarget: store.observeActionTarget,
+      observeMedia: store.observeMedia,
+      tabId: 7,
+      url: () => 'https://example.test/watch',
+    }),
   },
 }));
 
@@ -58,6 +64,8 @@ describe('TaskManager lifecycle', () => {
     store.saveTask.mockClear();
     store.observeActionTarget.mockReset();
     store.observeActionTarget.mockResolvedValue(store.targetObservation);
+    store.observeMedia.mockReset();
+    store.observeMedia.mockResolvedValue({ kind: 'missing' });
   });
 
   it('persists one start and returns the original ack for a duplicate command', async () => {
@@ -398,6 +406,121 @@ describe('TaskManager lifecycle', () => {
     await expect(manager.snapshot('task-safe-boundary')).resolves.toMatchObject({
       status: 'running',
       rounds: [{ attempts: [{ state: 'observed' }] }, { status: 'running' }],
+    });
+  });
+
+  it('waits for target rebinding instead of pausing an unknown media element', async () => {
+    let hooks!: ExecutorHooks;
+    const executeMedia = vi.fn(async () => new ActionResult({ success: true }));
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-missing-media',
+      taskId: 'task-missing-media',
+      instruction: 'pause the video',
+      chatSessionId: 'chat-media',
+      instructionMessageId: 'message-media',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-missing-media');
+
+    const result = await hooks.dispatchAction(roundId, new Action(executeMedia, controlMediaActionSchema), {
+      command: 'pause',
+      intent: 'pause the same media',
+    });
+
+    expect(executeMedia).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ attempt: { state: 'blocked' }, actionResult: { error: 'media_target_missing' } });
+    await expect(manager.snapshot('task-missing-media')).resolves.toMatchObject({
+      status: 'waiting_user',
+      rounds: [{ waitReason: 'target_missing', attempts: [{ state: 'blocked' }] }],
+    });
+  });
+
+  it('maps an ambiguous media result to explicit user rebinding', async () => {
+    let hooks!: ExecutorHooks;
+    store.observeMedia.mockResolvedValue({ kind: 'ambiguous', candidateCount: 2 });
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-ambiguous-media',
+      taskId: 'task-ambiguous-media',
+      instruction: 'play a video',
+      chatSessionId: 'chat-media',
+      instructionMessageId: 'message-media',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-ambiguous-media');
+
+    const result = await hooks.dispatchAction(
+      roundId,
+      new Action(async () => new ActionResult({ error: 'media_target_ambiguous' }), controlMediaActionSchema),
+      { command: 'play', intent: 'play a video' },
+    );
+
+    expect(result.actionResult.error).toBe('media_target_ambiguous');
+    await expect(manager.snapshot('task-ambiguous-media')).resolves.toMatchObject({
+      status: 'waiting_user',
+      rounds: [{ waitReason: 'target_ambiguous' }],
+    });
+  });
+
+  it('binds an initial play to one live media digest before execution', async () => {
+    let hooks!: ExecutorHooks;
+    store.observeMedia
+      .mockResolvedValueOnce({ kind: 'bound', targetDigest: 'media-1', state: 'paused' })
+      .mockResolvedValueOnce({ kind: 'bound', targetDigest: 'media-1', state: 'paused' })
+      .mockResolvedValueOnce({ kind: 'bound', targetDigest: 'media-1', state: 'playing' });
+    const executeMedia = vi.fn(async () => new ActionResult({ success: true }));
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-bound-media',
+      taskId: 'task-bound-media',
+      instruction: 'play the video',
+      chatSessionId: 'chat-media',
+      instructionMessageId: 'message-media',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-bound-media');
+
+    const result = await hooks.dispatchAction(roundId, new Action(executeMedia, controlMediaActionSchema), {
+      command: 'play',
+      intent: 'play the selected media',
+    });
+
+    expect(executeMedia).toHaveBeenCalledWith(expect.objectContaining({ command: 'play', target_digest: 'media-1' }));
+    expect(result).toMatchObject({ targetRef: { id: 'media:media-1', kind: 'media', digest: 'media-1' } });
+    await expect(manager.snapshot('task-bound-media')).resolves.toMatchObject({
+      activeTabId: 7,
+      targetRefs: [{ id: 'media:media-1', kind: 'media', digest: 'media-1' }],
     });
   });
 

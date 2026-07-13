@@ -47,6 +47,19 @@ export interface ActionTargetObservation {
   semanticNavigation: boolean;
 }
 
+export type MediaBindingResult =
+  | { kind: 'bound'; targetDigest: string; state: 'playing' | 'paused' }
+  | { kind: 'missing' }
+  | { kind: 'ambiguous'; candidateCount: number };
+
+interface MediaCandidate {
+  ordinal: number;
+  fingerprint: string;
+  area: number;
+  state: 'playing' | 'paused';
+  targetDigest: string;
+}
+
 export function build_initial_state(tabId?: number, url?: string, title?: string): PageState {
   return {
     elementTree: new DOMElementNode({
@@ -1571,31 +1584,131 @@ export default class Page {
       }
     }
 
-    return criteria.flatMap(criterion => {
-      let value: boolean | string;
-      switch (criterion.kind) {
-        case 'url':
-          value = normalizedUrl;
-          break;
-        case 'page_text':
-          value = textMatches[criterion.expectedDigest] ?? false;
-          break;
-        case 'element_state':
-        case 'media_state':
-        case 'user_confirmed':
-          return [];
-      }
-      return [
-        {
+    const observations: Array<ProbeObservation | null> = await Promise.all(
+      criteria.map(async criterion => {
+        let value: boolean | string;
+        let targetRefId = actualTargetRefId;
+        switch (criterion.kind) {
+          case 'url':
+            value = normalizedUrl;
+            break;
+          case 'page_text':
+            value = textMatches[criterion.expectedDigest] ?? false;
+            break;
+          case 'element_state':
+          case 'user_confirmed':
+            return null;
+          case 'media_state': {
+            const targetDigest = criterion.targetRefId.startsWith('media:')
+              ? criterion.targetRefId.slice('media:'.length)
+              : undefined;
+            const observed = await this.observeMedia(targetDigest);
+            if (observed.kind !== 'bound') return null;
+            targetRefId = `media:${observed.targetDigest}`;
+            value = observed.state;
+            break;
+          }
+        }
+        return {
           criterionId: criterion.id,
           roundId: criterion.roundId,
-          targetRefId: actualTargetRefId,
+          targetRefId,
           observedAt,
           source: 'page' as const,
           value,
-        },
-      ];
-    });
+        };
+      }),
+    );
+    return observations.filter((observation): observation is ProbeObservation => observation !== null);
+  }
+
+  async observeMedia(targetDigest?: string): Promise<MediaBindingResult> {
+    const candidates = await this.mediaCandidates();
+    if (candidates.length === 0) return { kind: 'missing' };
+    if (targetDigest) {
+      const matches = candidates.filter(candidate => candidate.targetDigest === targetDigest);
+      if (matches.length === 1) return this.mediaBinding(matches[0]);
+      return matches.length === 0 ? { kind: 'missing' } : { kind: 'ambiguous', candidateCount: matches.length };
+    }
+
+    const playing = candidates.filter(candidate => candidate.state === 'playing');
+    if (playing.length === 1) return this.mediaBinding(playing[0]);
+    if (playing.length > 1) return { kind: 'ambiguous', candidateCount: playing.length };
+
+    const largestArea = Math.max(...candidates.map(candidate => candidate.area));
+    const largest = candidates.filter(candidate => candidate.area === largestArea);
+    return largest.length === 1 ? this.mediaBinding(largest[0]) : { kind: 'ambiguous', candidateCount: largest.length };
+  }
+
+  async controlMedia(command: 'play' | 'pause', targetDigest?: string): Promise<MediaBindingResult> {
+    const selected = await this.observeMedia(targetDigest);
+    if (selected.kind !== 'bound' || !this._puppeteerPage) return selected;
+    const candidates = await this.mediaCandidates();
+    const candidate = candidates.find(item => item.targetDigest === selected.targetDigest);
+    if (!candidate) return { kind: 'missing' };
+
+    const controlled = await this._puppeteerPage.evaluate(
+      async (ordinal, requestedCommand) => {
+        const media = document.querySelectorAll<HTMLMediaElement>('audio,video')[ordinal];
+        if (!media) return false;
+        try {
+          if (requestedCommand === 'play') await media.play();
+          else media.pause();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      candidate.ordinal,
+      command,
+    );
+    if (!controlled) return { kind: 'missing' };
+    const observed = await this.observeMedia(selected.targetDigest);
+    const expectedState = command === 'play' ? 'playing' : 'paused';
+    return observed.kind === 'bound' && observed.state === expectedState ? observed : { kind: 'missing' };
+  }
+
+  private mediaBinding(candidate: MediaCandidate): Extract<MediaBindingResult, { kind: 'bound' }> {
+    return { kind: 'bound', targetDigest: candidate.targetDigest, state: candidate.state };
+  }
+
+  private async mediaCandidates(): Promise<MediaCandidate[]> {
+    if (!this._puppeteerPage) return [];
+    const candidates = await this._puppeteerPage.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLMediaElement>('audio,video')).flatMap((media, ordinal) => {
+        const rect = media.getBoundingClientRect();
+        const style = window.getComputedStyle(media);
+        const visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
+        const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+        const area = visibleWidth * visibleHeight;
+        if (area === 0 || style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+          return [];
+        }
+        let source = '';
+        try {
+          const url = new URL(media.currentSrc || media.src, document.baseURI);
+          source = `${url.origin}${url.pathname}`;
+        } catch {
+          source = '';
+        }
+        const siblings = media.parentElement
+          ? Array.from(media.parentElement.children).filter(element => element.matches('audio,video'))
+          : [media];
+        const siblingOrdinal = Math.max(0, siblings.indexOf(media));
+        const duration = Number.isFinite(media.duration) ? Math.round(media.duration) : 0;
+        return [
+          {
+            ordinal,
+            fingerprint: `${media.tagName.toLowerCase()}|${source}|${duration}|${siblingOrdinal}`,
+            area,
+            state: !media.paused && !media.ended ? ('playing' as const) : ('paused' as const),
+          },
+        ];
+      }),
+    );
+    return Promise.all(
+      candidates.map(async candidate => ({ ...candidate, targetDigest: await sha256(candidate.fingerprint) })),
+    );
   }
 
   private hasCommitSignal(value: string): boolean {

@@ -22,6 +22,7 @@ import {
   nextPageActionSchema,
   scrollToTopActionSchema,
   scrollToBottomActionSchema,
+  controlMediaActionSchema,
 } from './schemas';
 import { z } from 'zod';
 import { createLogger } from '@src/background/log';
@@ -581,6 +582,18 @@ export class ActionBuilder {
       return new ActionResult({ extractedContent: keyMessage, includeInMemory: true });
     }, sendKeysActionSchema);
     actions.push(sendKeys);
+
+    const controlMedia = new Action(async (input: z.infer<typeof controlMediaActionSchema.schema>) => {
+      const page = await this.context.browserContext.getCurrentPage();
+      const result = await page.controlMedia(input.command, input.target_digest);
+      if (result.kind !== 'bound') {
+        return new ActionResult({
+          error: result.kind === 'ambiguous' ? 'media_target_ambiguous' : 'media_target_missing',
+        });
+      }
+      return new ActionResult({ success: true, extractedContent: `Media ${input.command} requested` });
+    }, controlMediaActionSchema);
+    actions.push(controlMedia);
 
     // Get all options from a native dropdown
     const getDropdownOptions = new Action(

@@ -187,6 +187,16 @@ export const sendKeysActionSchema: ActionSchema = {
   }),
 };
 
+export const controlMediaActionSchema: ActionSchema = {
+  name: 'control_media',
+  description: 'Play or pause the currently bound visible HTML audio/video element',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    command: z.enum(['play', 'pause']),
+    target_digest: z.string().optional(),
+  }),
+};
+
 export const getDropdownOptionsActionSchema: ActionSchema = {
   name: 'get_dropdown_options',
   description: 'Get all options from a native dropdown',

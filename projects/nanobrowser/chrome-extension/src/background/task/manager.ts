@@ -13,6 +13,7 @@ import type {
 } from '@extension/storage/lib/task';
 import type {
   CompletionCriterionDraft,
+  DispatchResult,
   ExecutorDriver,
   ExecutorHooks,
   ExecutorInput,
@@ -24,6 +25,8 @@ import { StaleTaskRoundError } from './contracts';
 import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
 import { checkCompletion } from './completion';
 import { sha256 } from './digest';
+import { resolveMediaArgs } from './media';
+import { ActionResult } from '../agent/types';
 
 export type { ExecutorDriver } from './contracts';
 
@@ -400,6 +403,31 @@ export class TaskManager {
       observe: async (request, parsedArgs, phase) => {
         const { browserContext } = await import('../agent/factory');
         const page = await browserContext.getCurrentPage();
+        if (request.action.name() === 'control_media') {
+          const targetDigest = this.readStringField(parsedArgs, 'target_digest');
+          const observed = await page.observeMedia(targetDigest);
+          if (observed.kind !== 'bound') {
+            return { effectTarget: { tag: 'video' }, evidence: [] };
+          }
+          let urlOrigin = 'null';
+          try {
+            urlOrigin = new URL(page.url()).origin;
+          } catch {
+            // Keep the redacted null origin for non-URL pages.
+          }
+          return {
+            target: {
+              id: `media:${observed.targetDigest}`,
+              kind: 'media',
+              tabId: page.tabId,
+              frameId: 0,
+              urlOrigin,
+              digest: observed.targetDigest,
+            },
+            effectTarget: { tag: 'video' },
+            evidence: [],
+          };
+        }
         const observation = await page.observeActionTarget(request.action.name(), parsedArgs, phase);
         return {
           target: observation.target,
@@ -426,16 +454,93 @@ export class TaskManager {
         if (!task || task.status !== 'running' || task.currentRoundId !== roundId) {
           throw new StaleTaskRoundError();
         }
+        let resolvedArgs = rawArgs;
+        if (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)) {
+          const resolution = resolveMediaArgs(action.name(), rawArgs as Record<string, unknown>, task);
+          if (resolution.kind === 'waiting_user') {
+            return this.blockMediaAction(taskId, roundId, action.name(), rawArgs, resolution.reason);
+          }
+          resolvedArgs = resolution.args;
+        }
+        if (
+          action.name() === 'control_media' &&
+          resolvedArgs &&
+          typeof resolvedArgs === 'object' &&
+          !Array.isArray(resolvedArgs) &&
+          !this.readStringField(resolvedArgs, 'target_digest')
+        ) {
+          const { browserContext } = await import('../agent/factory');
+          const page = await browserContext.getCurrentPage();
+          const observed = await page.observeMedia();
+          if (observed.kind !== 'bound') {
+            const reason = observed.kind === 'ambiguous' ? 'target_ambiguous' : 'target_missing';
+            return this.blockMediaAction(taskId, roundId, action.name(), resolvedArgs, reason);
+          }
+          resolvedArgs = { ...(resolvedArgs as Record<string, unknown>), target_digest: observed.targetDigest };
+        }
         const result = await dispatcher.dispatch({
           taskId,
           roundId,
           action,
-          rawArgs,
+          rawArgs: resolvedArgs,
         });
         if (result.targetRef) await this.persistTarget(taskId, roundId, result.targetRef);
+        if (result.actionResult.error === 'media_target_missing') {
+          await this.persistMediaWait(taskId, roundId, 'target_missing');
+        } else if (result.actionResult.error === 'media_target_ambiguous') {
+          await this.persistMediaWait(taskId, roundId, 'target_ambiguous');
+        }
         return result;
       },
     };
+  }
+
+  private readStringField(value: unknown, key: string): string | undefined {
+    if (!value || typeof value !== 'object' || !(key in value)) return undefined;
+    const field = (value as Record<string, unknown>)[key];
+    return typeof field === 'string' ? field : undefined;
+  }
+
+  private async blockMediaAction(
+    taskId: string,
+    roundId: string,
+    actionName: string,
+    rawArgs: unknown,
+    reason: 'target_missing' | 'target_ambiguous',
+  ): Promise<DispatchResult> {
+    const proposedAt = this.deps.now();
+    let attempt: ActionAttempt = {
+      id: crypto.randomUUID(),
+      roundId,
+      actionName,
+      effect: 'reversible',
+      argsDigest: await sha256(JSON.stringify(rawArgs)),
+      state: 'proposed',
+      proposedAt,
+    };
+    await this.persistAttempt(taskId, attempt);
+    attempt = { ...attempt, state: 'blocked' };
+    await this.persistAttempt(taskId, attempt);
+    await this.persistMediaWait(taskId, roundId, reason);
+    return {
+      actionResult: new ActionResult({
+        error: reason === 'target_ambiguous' ? 'media_target_ambiguous' : 'media_target_missing',
+      }),
+      attempt,
+      evidence: [],
+    };
+  }
+
+  private async persistMediaWait(
+    taskId: string,
+    roundId: string,
+    reason: 'target_missing' | 'target_ambiguous',
+  ): Promise<void> {
+    await this.queueTransition(async () => {
+      const task = await getTask(taskId);
+      if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return;
+      await this.persistWaitingUser(task, this.currentRound(task), reason);
+    });
   }
 
   private async persistAttempt(taskId: string, attempt: ActionAttempt): Promise<void> {
@@ -831,16 +936,18 @@ export class TaskManager {
         observation =>
           observation.source === 'page' &&
           observation.roundId === round.id &&
-          /^tab-\d+$/.test(observation.targetRefId),
+          /^(?:tab-\d+|media:[a-f0-9]{64})$/.test(observation.targetRefId),
       );
-      const observedTargets = new Set(pageObservations.map(observation => observation.targetRefId));
+      const observedTabTargets = new Set(
+        pageObservations.map(observation => observation.targetRefId).filter(target => target.startsWith('tab-')),
+      );
       for (const criterion of criteria) {
         const observation = pageObservations.find(item => item.criterionId === criterion.id);
         if (observation) criterion.targetRefId = observation.targetRefId;
         criterion.baseline = observation?.value ?? false;
       }
-      if (observedTargets.size === 1) {
-        const observedTabId = Number([...observedTargets][0].slice(4));
+      if (observedTabTargets.size === 1) {
+        const observedTabId = Number([...observedTabTargets][0].slice(4));
         if (Number.isSafeInteger(observedTabId)) task.activeTabId = observedTabId;
       }
       if (task.currentRoundId !== expectedRoundId) return;
