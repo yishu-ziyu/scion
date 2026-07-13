@@ -4,7 +4,7 @@
 
 - Repository: `/Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion`
 - Product package: `projects/nanobrowser`
-- Runtime: Node `22.12.0` from `.nvmrc`, pnpm `10.26.2`
+- Runtime: Node `22.12.0` from `.nvmrc`, pnpm `9.15.1` through Corepack (the user-level pnpm 10 binary requires a newer Node)
 - Product contract: `plan/spec.md`
 - Implementation plan: `plan/plan.md`
 - Architecture decision: `docs/design/001-browser-action-task-runtime.md`
@@ -18,13 +18,13 @@ The seven stories execute sequentially because they share the TaskManager, Execu
 
 ```bash
 source "$HOME/.nvm/nvm.sh" && nvm use 22.12.0
-pnpm turbo ready
-pnpm -F chrome-extension test
-pnpm -F chrome-extension type-check
-pnpm -F @extension/sidepanel type-check
-pnpm -F @extension/storage type-check
-pnpm type-check
-pnpm build
+corepack pnpm turbo ready
+corepack pnpm -F chrome-extension test
+corepack pnpm -F chrome-extension type-check
+corepack pnpm -F @extension/sidepanel type-check
+corepack pnpm -F @extension/storage type-check
+corepack pnpm type-check
+corepack pnpm build
 ```
 
 Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `projects/nanobrowser`.
@@ -89,4 +89,15 @@ Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `p
 - Commits: `f7a4414`, `23b1af0`, `e76b21e`, `ce14eb8`, `4a6bf91`, `893b424`, `9677f43`, `fe6281d`.
 - Verification: `chrome-extension` 107/107 tests pass; sidepanel and storage type checks and scoped ESLint pass; static review confirms the dispatcher remains the only production Action handler execution seam.
 - Independent review: PASS after two fix rounds. The reviewer verified approval consumption and target mutation handling, uncertain recovery, multi-port isolation, fail-closed link policy, and event/history/log privacy boundaries.
+- Unchanged baseline: chrome-extension type-check still reports only `helper.ts:24` (`completionWithRetry`) and missing local-only `personal/secrets.local`.
+
+## Story 4 completion record
+
+- Outcome: Planner success is now only a completion candidate; TaskManager freezes redacted criteria before action, binds baseline and evidence to the actual tab/round, and creates `completed` only through a verified immutable receipt or dedicated user confirmation.
+- Runtime hardening: one serial Executor runner carries explicit round IDs through Planner, Navigator and dispatcher hooks; running, waiting and completed follow-ups preserve model memory and hand off at safe action/probe boundaries without concurrent BrowserContext cleanup or lost rounds.
+- Evidence hardening: missing, baseline-true, stale, timed-out, wrong-round and wrong-target observations fail closed; unavailable probes get one bounded retry; multiple explicit confirmations persist independently; automatic and user evidence combine without duplication.
+- UI/event hardening: task events carry top-level task/round/revision identity, SidePanel rejects stale or unrelated snapshots, and every unresolved `user_confirmed` criterion has its own command button.
+- Commits: `474f944`, `f2667a6`, `e80c205`, `688916e`, `3c84e98`, `f8bac9f`, `d3b9eb8`, `2d2bb1b`.
+- Verification: `chrome-extension` 137/137 tests pass; focused completion/form/manager/browser/event coverage passes; sidepanel and storage type checks and scoped ESLint pass.
+- Independent review: PASS after two fix rounds. The reviewer verified actual-tab evidence binding, multi-confirmation progress, event revision guards, preserved Executor memory, safe follow-up boundaries, and late-probe round handoff.
 - Unchanged baseline: chrome-extension type-check still reports only `helper.ts:24` (`completionWithRetry`) and missing local-only `personal/secrets.local`.

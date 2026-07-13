@@ -141,7 +141,9 @@ export interface TaskSession {
   updatedAt: number;
 }
 export type TaskSnapshot = TaskSession;
-export type TaskEvent = { type: 'snapshot'; taskId: string; snapshot: TaskSnapshot };
+export type TaskEvent =
+  | { type: 'snapshot'; taskId: string; roundId: string; revision: number; snapshot: TaskSnapshot }
+  | { type: 'task_completed_verified'; taskId: string; roundId: string; revision: number; receiptId: string; snapshot: TaskSnapshot };
 
 export type CompletionCriterionDraft =
   | { kind: 'url'; operator: 'equals' | 'starts_with'; expected: string; required: boolean }
@@ -161,15 +163,15 @@ export interface DispatchResult {
 }
 export interface ExecutorInput { taskId: string; roundId: string; instruction: string; tabId: number }
 export interface ExecutorHooks {
-  onPlan(criteria: CompletionCriterionDraft[]): Promise<void>;
-  dispatchAction(action: Action, rawArgs: unknown): Promise<DispatchResult>;
+  onPlan(roundId: string, criteria: CompletionCriterionDraft[]): Promise<void>;
+  dispatchAction(roundId: string, action: Action, rawArgs: unknown): Promise<DispatchResult>;
 }
 export interface ExecutorDriver {
-  run(): Promise<ExecutorOutcome>;
+  run(roundId: string): Promise<ExecutorOutcome>;
   addFollowUp(instruction: string): void;
   pause(): void;
   resume(): void;
-  stop(): void;
+  stop(): Promise<void>;
 }
 export type ExecutorOutcome =
   | { kind: 'candidate_complete'; summary: string }
@@ -837,7 +839,7 @@ git commit -m "feat: require crash-safe action approval"
 - Test: `projects/nanobrowser/chrome-extension/src/background/task/__tests__/completion.test.ts`
 - Test: `projects/nanobrowser/chrome-extension/src/background/task/__tests__/form-journey.test.ts`
 
-- [ ] **Step 1: Write failing baseline, round, freshness, and confirmation tests**
+- [x] **Step 1: Write failing baseline, round, freshness, and confirmation tests**
 
 ```ts
 import { describe, expect, it, vi } from 'vitest';
@@ -906,13 +908,13 @@ describe('CompletionChecker', () => {
 });
 ```
 
-- [ ] **Step 2: Run completion tests and confirm the checker is absent**
+- [x] **Step 2: Run completion tests and confirm the checker is absent**
 
 Run: `pnpm --dir projects/nanobrowser --filter chrome-extension test -- src/background/task/__tests__/completion.test.ts`
 
 Expected: FAIL because CompletionChecker does not exist.
 
-- [ ] **Step 3: Add Planner completion proposals and correct waiting-user prompts**
+- [x] **Step 3: Add Planner completion proposals and correct waiting-user prompts**
 
 Extend `plannerOutputSchema` with this exact addition. Criteria describe observable success, never user field values; TaskManager hashes allowed `page_text.expected` before persistence. Login/CAPTCHA must set `done=false`.
 
@@ -937,11 +939,11 @@ export const plannerCompletionFields = {
 // Spread plannerCompletionFields into the existing planner output z.object shape.
 ```
 
-- [ ] **Step 4: Freeze criteria before the first relevant action**
+- [x] **Step 4: Freeze criteria before the first relevant action**
 
 Add `ExecutorHooks.onPlan(criteria: CompletionCriterionDraft[]): Promise<void>` immediately after Planner output and before Navigator execution. TaskManager assigns criterion IDs, round ID, target reference, baseline, `frozenAt`, `notBefore`, and a 10-second timeout. If a `page_text.expected` exactly matches any normalized user field value or exceeds 160 characters, replace it with `user_confirmed`; unsupported proof follows the same path.
 
-- [ ] **Step 5: Implement fixed Page observation probes and pure checking**
+- [x] **Step 5: Implement fixed Page observation probes and pure checking**
 
 Page accepts a bounded array of probes and returns only booleans, normalized state, or SHA-256 digests. It never returns body text or raw input values. Add these exact runtime contracts to `completion.ts`:
 
@@ -958,7 +960,7 @@ export function checkCompletion(input: CompletionCheckInput): CompletionCheckRes
 
 `passed` is false when `criteria.length === 0`. Otherwise it is true only when every required criterion has one matching current-round/current-target observation, `observedAt >= notBefore`, `observedAt <= frozenAt + timeoutMs`, the baseline did not already satisfy a positive criterion, and the operator matches. Optional failures remain evidence but do not block.
 
-- [ ] **Step 6: Replace Planner success with verified receipt creation**
+- [x] **Step 6: Replace Planner success with verified receipt creation**
 
 `candidate_complete` runs this exact control flow; `driver.run()` is made re-entrant by resetting only its loop-local step counter, never Planner/Navigator memory:
 
@@ -984,7 +986,7 @@ for (;;) {
 
 These are private TaskManager methods with fixed signatures: `persistTerminalOrWaiting(outcome: ExecutorOutcome): Promise<void>`, `persistWaitingUser(task: TaskSession, round: TaskRound, reason: WaitReason): Promise<void>`, and `persistVerifiedReceipt(task: TaskSession, round: TaskRound, evidence: CompletionEvidence[]): Promise<void>`. `persistVerifiedReceipt` is the only function that writes `completed` and emits `task_completed_verified`; Planner `done` never does.
 
-- [ ] **Step 7: Implement dedicated completion confirmation UI/command**
+- [x] **Step 7: Implement dedicated completion confirmation UI/command**
 
 Only this button attached to a displayed `user_confirmed` criterion sends:
 
@@ -1001,7 +1003,7 @@ Only this button attached to a displayed `user_confirmed` criterion sends:
 
 Render it with `data-testid="criterion-confirm"`. Ordinary follow-up text cannot confirm. Persist evidence source `user` before recomputing completion.
 
-- [ ] **Step 8: Add the deterministic form journey at the TaskManager seam**
+- [x] **Step 8: Add the deterministic form journey at the TaskManager seam**
 
 Use a fake Executor whose first `run()` returns `candidate_complete` and a fake `observeCriteria` returning a fresh matching observation. The complete happy-path assertion is:
 
@@ -1076,7 +1078,7 @@ it('accepts one idempotent dedicated confirmation command', async () => {
 
 The CompletionChecker table in Step 1 covers rejected, old-round, wrong-target, stale, timeout, baseline, and mismatch evidence; none may create a receipt because `persistVerifiedReceipt` is reachable only when `checked.passed` is true.
 
-- [ ] **Step 9: Run completion, form, guardrail, and type checks**
+- [x] **Step 9: Run completion, form, guardrail, and type checks**
 
 Run:
 
@@ -1088,7 +1090,7 @@ pnpm --dir projects/nanobrowser --filter @extension/sidepanel type-check
 
 Expected: all listed tests PASS; no false completion case passes.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add projects/nanobrowser
