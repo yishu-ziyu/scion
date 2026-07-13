@@ -272,4 +272,69 @@ describe('verified form journey', () => {
     expect(driver.addFollowUp).toHaveBeenCalledOnce();
     expect(observeCriteria).toHaveBeenCalledTimes(3);
   });
+
+  it('combines automatic proof with one dedicated user confirmation', async () => {
+    const driver: ExecutorDriver = {
+      run: vi.fn().mockResolvedValue({ kind: 'candidate_complete', summary: 'submitted' }),
+      addFollowUp: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+    };
+    let call = 0;
+    const manager = new TaskManager({
+      createExecutor: async (_input, hooks) => {
+        await hooks.onPlan([
+          { kind: 'page_text', operator: 'present', expected: 'Saved', required: true },
+          { kind: 'user_confirmed', operator: 'equals', expected: true, required: true },
+        ]);
+        return driver;
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: CompletionCriterion[]) => {
+        call += 1;
+        return criteria
+          .filter(item => item.kind !== 'user_confirmed')
+          .map(item => ({
+            criterionId: item.id,
+            roundId: item.roundId,
+            targetRefId: item.targetRefId,
+            observedAt: 300,
+            source: 'page' as const,
+            value: call > 1,
+          }));
+      }),
+      now: () => 300,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-mixed',
+      taskId: 'task-mixed',
+      tabId: 7,
+      instruction: 'submit and let me verify',
+      chatSessionId: 'chat-mixed',
+      instructionMessageId: 'message-mixed',
+    });
+    await vi.waitFor(async () => expect((await manager.snapshot('task-mixed'))?.status).toBe('waiting_user'));
+    const waiting = await manager.snapshot('task-mixed');
+    const round = waiting?.rounds[0];
+    const confirmation = round?.criteria.find(item => item.kind === 'user_confirmed');
+    if (!waiting || !round || !confirmation) throw new Error('Expected mixed confirmation criteria');
+    expect(round.evidence).toEqual([expect.objectContaining({ source: 'page', passed: true })]);
+
+    await manager.dispatch({
+      type: 'confirm_completion',
+      commandId: 'confirm-mixed',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId: round.id,
+      criterionId: confirmation.id,
+    });
+
+    await expect(manager.snapshot('task-mixed')).resolves.toMatchObject({
+      status: 'completed',
+      rounds: [{ receipt: expect.any(Object) }],
+    });
+  });
 });

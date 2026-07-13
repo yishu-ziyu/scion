@@ -635,10 +635,28 @@ export class TaskManager {
         return;
       }
       if (round.criteria.some(item => item.kind === 'user_confirmed')) {
+        const automaticCriteria = round.criteria.filter(item => item.kind !== 'user_confirmed');
+        let automaticEvidence: CompletionEvidence[] = [];
+        if (automaticCriteria.length > 0) {
+          let observations: ProbeObservation[] = [];
+          try {
+            observations = await this.deps.observeCriteria(automaticCriteria);
+          } catch {
+            observations = [];
+          }
+          automaticEvidence = checkCompletion({
+            now: this.deps.now(),
+            currentRoundId: round.id,
+            criteria: automaticCriteria,
+            observations,
+          }).evidence;
+        }
         await this.queueTransition(async () => {
           const current = await getTask(taskId);
           if (!this.canApplyDriverOutcome(current, taskId, driver) || current.currentRoundId !== runRoundId) return;
-          await this.persistWaitingUser(current, this.currentRound(current), 'proof_required');
+          const currentRound = this.currentRound(current);
+          currentRound.evidence.push(...automaticEvidence);
+          await this.persistWaitingUser(current, currentRound, 'proof_required');
         });
         return;
       }
