@@ -107,6 +107,10 @@ export default class BrowserContext {
           `Tab URL: ${attachedTab.url || attachedTab.pendingUrl || ''} is not allowed after attachment`,
         );
       }
+      if (isNewTabPage(page.url()) && !isNewTabPage(attachedTab.url)) {
+        await this._invalidatePage(tabId, page, true);
+        return this._attachAllowedPage(tabId, forceUpdate, expectedCurrentTabId);
+      }
 
       this._attachedPages.set(tabId, page);
       if (expectedCurrentTabId !== undefined && this._currentTabId !== expectedCurrentTabId) {
