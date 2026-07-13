@@ -98,11 +98,15 @@ export async function createExecutorDriver(
             case ExecutionState.TASK_CANCEL:
               finish({ kind: 'cancelled' });
               break;
+            case ExecutionState.TASK_PAUSE:
+              if (event.data.details === 'login_required' || event.data.details === 'captcha_required') {
+                finish({ kind: 'waiting_user', reason: event.data.details });
+              }
+              break;
           }
         });
         void executor.execute().then(() => {
           if (!settled) finish({ kind: 'failed', category: 'missing_terminal_event' });
-          void executor.cleanup();
         });
       }),
     addFollowUp: instruction => executor.addFollowUpTask(instruction),
@@ -114,6 +118,7 @@ export async function createExecutorDriver(
     },
     stop: () => {
       void executor.cancel();
+      void executor.cleanup();
     },
   };
 }

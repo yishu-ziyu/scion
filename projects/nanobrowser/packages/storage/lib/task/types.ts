@@ -167,4 +167,6 @@ export interface TaskSession {
 }
 
 export type TaskSnapshot = TaskSession;
-export type TaskEvent = { type: 'snapshot'; taskId: string; snapshot: TaskSnapshot };
+export type TaskEvent =
+  | { type: 'snapshot'; taskId: string; snapshot: TaskSnapshot }
+  | { type: 'task_completed_verified'; taskId: string; receiptId: string; snapshot: TaskSnapshot };

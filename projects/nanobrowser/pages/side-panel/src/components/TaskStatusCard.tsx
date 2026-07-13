@@ -8,6 +8,7 @@ export interface TaskStatusCardProps {
 export function TaskStatusCard({ snapshot, send }: TaskStatusCardProps) {
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
   const approval = round?.approvals.find(item => item.status === 'pending');
+  const confirmation = round?.criteria.find(item => item.kind === 'user_confirmed');
 
   return (
     <section data-testid="task-status" data-status={snapshot.status} className="flex items-center gap-2 p-2 text-sm">
@@ -58,6 +59,23 @@ export function TaskStatusCard({ snapshot, send }: TaskStatusCardProps) {
             })
           }>
           Pause
+        </button>
+      )}
+      {snapshot.status === 'waiting_user' && round?.waitReason === 'proof_required' && confirmation && (
+        <button
+          type="button"
+          data-testid="criterion-confirm"
+          onClick={() =>
+            send({
+              type: 'confirm_completion',
+              commandId: crypto.randomUUID(),
+              taskId: snapshot.id,
+              expectedRevision: snapshot.revision,
+              roundId: round.id,
+              criterionId: confirmation.id,
+            })
+          }>
+          Confirm completion
         </button>
       )}
       {(snapshot.status === 'paused' || snapshot.status === 'interrupted') && (

@@ -18,30 +18,77 @@ import {
 import { filterExternalContent } from '../messages/utils';
 const logger = createLogger('PlannerAgent');
 
+const completionCriterionDraftSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('url'),
+    operator: z.enum(['equals', 'starts_with']),
+    expected: z.string().max(2048),
+    required: z.boolean().default(true),
+  }),
+  z.object({
+    kind: z.literal('page_text'),
+    operator: z.enum(['present', 'absent']),
+    expected: z.string().max(160),
+    required: z.boolean().default(true),
+  }),
+  z.object({
+    kind: z.literal('element_state'),
+    operator: z.literal('equals'),
+    expected: z.enum(['visible', 'hidden', 'enabled', 'disabled']),
+    required: z.boolean().default(true),
+  }),
+  z.object({
+    kind: z.literal('media_state'),
+    operator: z.literal('equals'),
+    expected: z.enum(['playing', 'paused']),
+    required: z.boolean().default(true),
+  }),
+  z.object({
+    kind: z.literal('user_confirmed'),
+    operator: z.literal('equals'),
+    expected: z.literal(true),
+    required: z.boolean().default(true),
+  }),
+]);
+
+const waitingUserSchema = z
+  .object({
+    reason: z.enum(['login_required', 'captcha_required']),
+    message: z.string().max(160),
+  })
+  .nullable()
+  .default(null);
+
 // Define Zod schema for planner output
 // Defaults help mid models (MiniMax-M3) that omit optional-ish fields.
 export const plannerOutputSchema = z.object({
   observation: z.string().default(''),
   challenges: z.string().default(''),
-  done: z.union([
-    z.boolean(),
-    z.string().transform(val => {
-      if (val.toLowerCase() === 'true') return true;
-      if (val.toLowerCase() === 'false') return false;
-      throw new Error('Invalid boolean string');
-    }),
-  ]).default(false),
+  done: z
+    .union([
+      z.boolean(),
+      z.string().transform(val => {
+        if (val.toLowerCase() === 'true') return true;
+        if (val.toLowerCase() === 'false') return false;
+        throw new Error('Invalid boolean string');
+      }),
+    ])
+    .default(false),
   next_steps: z.string().default(''),
   final_answer: z.string().default(''),
   reasoning: z.string().default(''),
-  web_task: z.union([
-    z.boolean(),
-    z.string().transform(val => {
-      if (val.toLowerCase() === 'true') return true;
-      if (val.toLowerCase() === 'false') return false;
-      throw new Error('Invalid boolean string');
-    }),
-  ]).default(true),
+  completion_criteria: z.array(completionCriterionDraftSchema).max(8).default([]),
+  waiting_user: waitingUserSchema,
+  web_task: z
+    .union([
+      z.boolean(),
+      z.string().transform(val => {
+        if (val.toLowerCase() === 'true') return true;
+        if (val.toLowerCase() === 'false') return false;
+        throw new Error('Invalid boolean string');
+      }),
+    ])
+    .default(true),
 });
 
 export type PlannerOutput = z.infer<typeof plannerOutputSchema>;
@@ -97,6 +144,7 @@ export class PlannerAgent extends BaseAgent<typeof plannerOutputSchema, PlannerO
         reasoning,
         final_answer,
         next_steps,
+        done: modelOutput.waiting_user ? false : modelOutput.done,
       };
 
       // If task is done, emit the final answer; otherwise emit next steps

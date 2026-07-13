@@ -272,7 +272,7 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(() => expect(secondDriver.run).toHaveBeenCalledTimes(1));
   });
 
-  it('applies a running driver outcome to the latest follow-up round', async () => {
+  it('does not apply an old running driver outcome to a follow-up round', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     const driver = fakeDriver();
     driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
@@ -302,17 +302,17 @@ describe('TaskManager lifecycle', () => {
       instructionMessageId: 'message-2',
     });
     finish({ kind: 'candidate_complete', summary: 'done' });
-    await vi.waitFor(async () =>
-      expect(await manager.snapshot('task-1')).toMatchObject({
-        status: 'waiting_user',
-        currentRoundId: expect.any(String),
-        rounds: [{}, { status: 'waiting_user', waitReason: 'proof_required' }],
-      }),
-    );
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(2));
+    await expect(manager.snapshot('task-1')).resolves.toMatchObject({
+      status: 'running',
+      currentRoundId: expect.any(String),
+      rounds: [{}, { status: 'running', criteria: [], evidence: [] }],
+    });
   });
 
   it('consumes one persisted approval before invoking an external commit', async () => {
     let hooks!: ExecutorHooks;
+    let now = 100;
     const driver = fakeDriver();
     const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
     const manager = new TaskManager({
@@ -323,7 +323,7 @@ describe('TaskManager lifecycle', () => {
       }),
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
-      now: () => 100,
+      now: () => now,
     });
     await manager.dispatch({
       type: 'start',
@@ -335,6 +335,8 @@ describe('TaskManager lifecycle', () => {
       tabId: 7,
     });
     await vi.waitFor(() => expect(hooks).toBeDefined());
+    await hooks.onPlan([{ kind: 'page_text', operator: 'present', expected: 'Saved', required: true }]);
+    now = 150;
     const pending = hooks.dispatchAction(new Action(executeExternalCommit, clickElementActionSchema, true), {
       intent: 'submit the form with secret form value',
       index: 4,
@@ -369,6 +371,7 @@ describe('TaskManager lifecycle', () => {
           {
             attempts: [{ state: 'observed' }],
             approvals: [{ status: 'consumed' }],
+            criteria: [{ notBefore: 150 }],
           },
         ],
       });

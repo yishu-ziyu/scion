@@ -42,6 +42,8 @@ export class Executor {
   private readonly context: AgentContext;
   private readonly plannerPrompt: PlannerPrompt;
   private readonly navigatorPrompt: NavigatorPrompt;
+  private readonly hooks: ExecutorHooks;
+  private waitingUserReason: 'login_required' | 'captcha_required' | null = null;
   private tasks: string[] = [];
   constructor(
     task: string,
@@ -89,6 +91,7 @@ export class Executor {
     });
 
     this.context = context;
+    this.hooks = extraArgs.hooks;
     // Initialize message history
     this.context.messageManager.initTaskMessages(this.navigatorPrompt.getSystemMessage(), task);
   }
@@ -134,6 +137,7 @@ export class Executor {
     // reset the step counter
     const context = this.context;
     context.nSteps = 0;
+    this.waitingUserReason = null;
     const allowedMaxSteps = this.context.options.maxSteps;
 
     try {
@@ -161,6 +165,10 @@ export class Executor {
         if (this.planner && (context.nSteps % context.options.planningInterval === 0 || navigatorDone)) {
           navigatorDone = false;
           latestPlanOutput = await this.runPlanner();
+          if (latestPlanOutput?.result?.waiting_user) {
+            this.waitingUserReason = latestPlanOutput.result.waiting_user.reason;
+            break;
+          }
 
           // Check if task is complete after planner run
           if (this.checkTaskCompletion(latestPlanOutput)) {
@@ -184,9 +192,8 @@ export class Executor {
         // Emit final answer if available, otherwise use task ID
         const finalMessage = this.context.finalAnswer || this.context.taskId;
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, finalMessage);
-
-        // Track task completion
-        void analytics.trackTaskComplete(this.context.taskId);
+      } else if (this.waitingUserReason) {
+        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_PAUSE, this.waitingUserReason);
       } else if (step >= allowedMaxSteps) {
         logger.error('❌ Task failed: Max steps reached');
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_errors_maxStepsReached'));
@@ -239,6 +246,7 @@ export class Executor {
       // Execute planner
       const planOutput = await this.planner.execute();
       if (planOutput.result) {
+        await this.hooks.onPlan(planOutput.result.completion_criteria);
         this.context.messageManager.addPlan(JSON.stringify(planOutput.result), positionForPlan);
       }
       return planOutput;

@@ -8,8 +8,9 @@ vi.hoisted(() => {
 });
 
 import Page, { build_initial_state } from '../page';
-import { DOMElementNode } from '../dom/views';
+import { DOMElementNode, DOMTextNode } from '../dom/views';
 import { decideEffect } from '../../task/action-dispatcher';
+import { sha256 } from '../../task/digest';
 
 function element(tagName: string, attributes: Record<string, string>, parent: DOMElementNode | null = null) {
   return new DOMElementNode({
@@ -182,5 +183,49 @@ describe('Page action target observation', () => {
 
     await rejected;
     expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns only bounded completion values and strips URL query data', async () => {
+    const page = new Page(7, 'https://example.test/success?token=SECRET#done', 'Fixture');
+    const expectedDigest = await sha256('Saved successfully');
+    const state = build_initial_state(7, 'https://example.test/success?token=SECRET#done', 'Fixture');
+    state.elementTree.children.push(new DOMTextNode('Saved successfully', true, state.elementTree));
+    vi.spyOn(page, 'getState').mockResolvedValue(state);
+
+    const observations = await page.observeCompletionCriteria([
+      {
+        id: 'url-1',
+        kind: 'url',
+        operator: 'equals',
+        expected: 'https://example.test/success',
+        required: true,
+        roundId: 'round-1',
+        targetRefId: 'tab-7',
+        baseline: false,
+        frozenAt: 100,
+        notBefore: 100,
+        timeoutMs: 5000,
+      },
+      {
+        id: 'text-1',
+        kind: 'page_text',
+        operator: 'present',
+        expectedDigest,
+        required: true,
+        roundId: 'round-1',
+        targetRefId: 'tab-7',
+        baseline: false,
+        frozenAt: 100,
+        notBefore: 100,
+        timeoutMs: 5000,
+      },
+    ]);
+
+    expect(observations).toEqual([
+      expect.objectContaining({ criterionId: 'url-1', value: 'https://example.test/success' }),
+      expect.objectContaining({ criterionId: 'text-1', value: true }),
+    ]);
+    expect(JSON.stringify(observations)).not.toContain('SECRET');
+    expect(JSON.stringify(observations)).not.toContain('Saved successfully');
   });
 });

@@ -2,6 +2,8 @@ import { getActiveTask, getTask, saveTask } from '@extension/storage/lib/task';
 import type {
   CommandAck,
   ActionAttempt,
+  CompletionCriterion,
+  CompletionEvidence,
   TaskCommand,
   TaskEvent,
   TaskRound,
@@ -9,8 +11,20 @@ import type {
   TaskSnapshot,
   TaskStatus,
 } from '@extension/storage/lib/task';
-import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome, ObserveCriteria } from './contracts';
+import type {
+  CompletionCriterionDraft,
+  ExecutorDriver,
+  ExecutorHooks,
+  ExecutorInput,
+  ExecutorOutcome,
+  ObserveCriteria,
+  ProbeObservation,
+} from './contracts';
 import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
+import { checkCompletion } from './completion';
+import { sha256 } from './digest';
+
+export type { ExecutorDriver } from './contracts';
 
 interface TaskManagerDeps {
   createExecutor: (input: ExecutorInput, hooks: ExecutorHooks) => Promise<ExecutorDriver>;
@@ -160,6 +174,8 @@ export class TaskManager {
         return this.decideApproval(existing, command, true);
       case 'reject':
         return this.decideApproval(existing, command, false);
+      case 'confirm_completion':
+        return this.confirmCompletion(existing, command);
       default:
         return this.reject(existing, command.commandId, 'invalid_transition');
     }
@@ -270,7 +286,7 @@ export class TaskManager {
       driver.addFollowUp(command.instruction);
       if (previousStatus === 'paused') driver.resume();
       if (previousStatus === 'waiting_user' || previousStatus === 'completed') {
-        void this.runDriver(task.id, driver);
+        void this.runDriver(task.id, driver, roundId);
       }
     }
     return ack;
@@ -398,7 +414,7 @@ export class TaskManager {
     });
     this.dispatchers.set(taskId, dispatcher);
     return {
-      onPlan: async () => {},
+      onPlan: criteria => this.freezeCriteria(taskId, criteria),
       dispatchAction: async (action, rawArgs) => {
         const task = await getTask(taskId);
         if (!task || task.status !== 'running') throw new Error('Task is not running');
@@ -426,6 +442,10 @@ export class TaskManager {
       const index = round.attempts.findIndex(item => item.id === attempt.id);
       if (index === -1) round.attempts.push(structuredClone(attempt));
       else round.attempts[index] = structuredClone(attempt);
+      if (attempt.state === 'executing') {
+        const notBefore = attempt.executingAt ?? this.deps.now();
+        for (const criterion of round.criteria) criterion.notBefore = Math.max(criterion.notBefore, notBefore);
+      }
       if (attempt.state === 'uncertain' && !TERMINAL_STATUSES.includes(task.status)) {
         task.status = 'waiting_user';
         round.status = 'waiting_user';
@@ -568,7 +588,7 @@ export class TaskManager {
 
       this.drivers.set(taskId, driver);
       this.launches.delete(taskId);
-      await this.runDriver(taskId, driver);
+      await this.runDriver(taskId, driver, roundId);
     } catch {
       await this.queueTransition(async () => {
         const task = await getTask(taskId);
@@ -583,21 +603,79 @@ export class TaskManager {
     }
   }
 
-  private async runDriver(taskId: string, driver: ExecutorDriver): Promise<void> {
-    const outcome = await driver.run();
-    await this.queueTransition(async () => {
+  private async runDriver(taskId: string, driver: ExecutorDriver, runRoundId: string): Promise<void> {
+    let verificationRetries = 0;
+    for (;;) {
+      const outcome = await driver.run();
       const task = await getTask(taskId);
-      if (
-        !task ||
-        this.drivers.get(taskId) !== driver ||
-        task.status === 'interrupted' ||
-        TERMINAL_STATUSES.includes(task.status)
-      )
+      if (!this.canApplyDriverOutcome(task, taskId, driver)) return;
+      if (task.currentRoundId !== runRoundId) {
+        void this.runDriver(taskId, driver, task.currentRoundId);
         return;
-      this.applyOutcome(task, outcome);
-      task.revision += 1;
-      await this.persist(task);
-    });
+      }
+      if (outcome.kind !== 'candidate_complete') {
+        await this.queueTransition(async () => {
+          const current = await getTask(taskId);
+          if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+          if (current.currentRoundId !== runRoundId) return;
+          await this.persistTerminalOrWaiting(current, outcome);
+        });
+        return;
+      }
+
+      const round = task.rounds.find(item => item.id === runRoundId);
+      if (!round) return;
+      if (round.criteria.length === 0) {
+        await this.queueTransition(async () => {
+          const current = await getTask(taskId);
+          if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+          if (current.currentRoundId !== runRoundId) return;
+          await this.persistWaitingUser(current, this.currentRound(current), 'proof_required');
+        });
+        return;
+      }
+      if (round.criteria.some(item => item.kind === 'user_confirmed')) {
+        await this.queueTransition(async () => {
+          const current = await getTask(taskId);
+          if (!this.canApplyDriverOutcome(current, taskId, driver) || current.currentRoundId !== runRoundId) return;
+          await this.persistWaitingUser(current, this.currentRound(current), 'proof_required');
+        });
+        return;
+      }
+
+      const observations = await this.deps.observeCriteria(round.criteria);
+      const checked = checkCompletion({
+        now: this.deps.now(),
+        currentRoundId: round.id,
+        criteria: round.criteria,
+        observations,
+      });
+      let retry = false;
+      await this.queueTransition(async () => {
+        const current = await getTask(taskId);
+        if (!this.canApplyDriverOutcome(current, taskId, driver) || current.currentRoundId !== round.id) return;
+        const currentRound = this.currentRound(current);
+        currentRound.evidence.push(...checked.evidence);
+        if (checked.passed) {
+          await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
+          return;
+        }
+        if (verificationRetries >= 1) {
+          await this.persistWaitingUser(current, currentRound, 'proof_required');
+          return;
+        }
+        current.revision += 1;
+        await this.persist(current);
+        retry = true;
+      });
+      if (!retry) return;
+      verificationRetries += 1;
+      driver.addFollowUp('Completion was not verified; inspect the current page and continue.');
+    }
+  }
+
+  private canApplyDriverOutcome(task: TaskSession | null, taskId: string, driver: ExecutorDriver): task is TaskSession {
+    return Boolean(task && this.drivers.get(taskId) === driver && task.status === 'running');
   }
 
   private applyOutcome(task: TaskSession, outcome: ExecutorOutcome): void {
@@ -626,6 +704,191 @@ export class TaskManager {
         round.status = 'failed';
         break;
     }
+  }
+
+  private async freezeCriteria(taskId: string, drafts: CompletionCriterionDraft[]): Promise<void> {
+    await this.queueTransition(async () => {
+      const task = await getTask(taskId);
+      if (!task || task.status !== 'running') return;
+      const round = this.currentRound(task);
+      if (round.criteria.length > 0 || drafts.length === 0) return;
+      const frozenAt = this.deps.now();
+      const targetRefId = `tab-${task.activeTabId}`;
+      const userFieldValues = this.extractUserFieldValues(this.instructions.get(taskId) ?? '');
+      const criteria = await Promise.all(
+        drafts.slice(0, 8).map(draft => this.freezeCriterion(draft, round.id, targetRefId, frozenAt, userFieldValues)),
+      );
+      const baseline = await this.deps.observeCriteria(criteria);
+      for (const criterion of criteria) {
+        const observation = baseline.find(item => item.criterionId === criterion.id);
+        criterion.baseline = observation?.value ?? false;
+      }
+      round.criteria = criteria;
+      task.revision += 1;
+      await this.persist(task);
+    });
+  }
+
+  private async freezeCriterion(
+    draft: CompletionCriterionDraft,
+    roundId: string,
+    targetRefId: string,
+    frozenAt: number,
+    userFieldValues: Set<string>,
+  ): Promise<CompletionCriterion> {
+    const base = {
+      id: crypto.randomUUID(),
+      roundId,
+      targetRefId,
+      required: draft.required,
+      frozenAt,
+      notBefore: frozenAt,
+      timeoutMs: 10_000,
+      baseline: false,
+    };
+    switch (draft.kind) {
+      case 'url': {
+        const expected = this.normalizeUrl(draft.expected);
+        return expected
+          ? { ...base, kind: 'url', operator: draft.operator, expected }
+          : { ...base, kind: 'user_confirmed', operator: 'equals', expected: true };
+      }
+      case 'page_text': {
+        const normalized = draft.expected.replace(/\s+/g, ' ').trim();
+        if (!normalized || normalized.length > 160 || userFieldValues.has(normalized)) {
+          return { ...base, kind: 'user_confirmed', operator: 'equals', expected: true };
+        }
+        return {
+          ...base,
+          kind: 'page_text',
+          operator: draft.operator,
+          expectedDigest: await sha256(normalized),
+        };
+      }
+      case 'user_confirmed':
+        return { ...base, kind: 'user_confirmed', operator: 'equals', expected: true };
+      case 'element_state':
+      case 'media_state':
+        return { ...base, kind: 'user_confirmed', operator: 'equals', expected: true };
+    }
+  }
+
+  private normalizeUrl(value: string): string | null {
+    try {
+      const url = new URL(value);
+      if (!['http:', 'https:'].includes(url.protocol)) return null;
+      return `${url.origin}${url.pathname}`;
+    } catch {
+      return null;
+    }
+  }
+
+  private extractUserFieldValues(instruction: string): Set<string> {
+    const values = new Set<string>();
+    for (const match of instruction.matchAll(/(?:=|:|：)\s*["']?([^,;\n"']{1,160})/g)) {
+      const value = match[1]?.replace(/\s+/g, ' ').trim();
+      if (value) values.add(value);
+    }
+    for (const match of instruction.matchAll(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\b\d{3}-\d{2}-\d{4}\b/g)) {
+      values.add(match[0]);
+    }
+    return values;
+  }
+
+  private async confirmCompletion(
+    task: TaskSession,
+    command: Extract<TaskCommand, { type: 'confirm_completion' }>,
+  ): Promise<CommandAck> {
+    const round = task.rounds.find(item => item.id === command.roundId);
+    const criterion = round?.criteria.find(item => item.id === command.criterionId);
+    if (
+      task.status !== 'waiting_user' ||
+      task.currentRoundId !== command.roundId ||
+      round?.waitReason !== 'proof_required' ||
+      !criterion ||
+      criterion.kind !== 'user_confirmed'
+    ) {
+      return this.reject(task, command.commandId, 'invalid_transition');
+    }
+    const observation: ProbeObservation = {
+      criterionId: criterion.id,
+      roundId: round.id,
+      targetRefId: criterion.targetRefId,
+      observedAt: this.deps.now(),
+      source: 'user',
+      value: true,
+    };
+    const priorObservations = round.evidence
+      .filter(item => item.passed)
+      .map(item => ({
+        criterionId: item.criterionId,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: item.observedAt,
+        source: item.source,
+        value: item.value,
+      }));
+    const checked = checkCompletion({
+      now: this.deps.now(),
+      currentRoundId: round.id,
+      criteria: round.criteria,
+      observations: [...priorObservations, observation],
+    });
+    if (!checked.passed) return this.reject(task, command.commandId, 'invalid_transition');
+    round.evidence.push(...checked.evidence);
+    const ack = this.accept(task, command.commandId);
+    await this.persistVerifiedReceipt(task, round, checked.evidence, false);
+    return ack;
+  }
+
+  private async persistTerminalOrWaiting(task: TaskSession, outcome: ExecutorOutcome): Promise<void> {
+    this.applyOutcome(task, outcome);
+    task.revision += 1;
+    await this.persist(task);
+  }
+
+  private async persistWaitingUser(
+    task: TaskSession,
+    round: TaskRound,
+    reason: TaskRound['waitReason'],
+  ): Promise<void> {
+    task.status = 'waiting_user';
+    round.status = 'waiting_user';
+    round.waitReason = reason;
+    task.revision += 1;
+    await this.persist(task);
+  }
+
+  private async persistVerifiedReceipt(
+    task: TaskSession,
+    round: TaskRound,
+    evidence: CompletionEvidence[],
+    incrementRevision = true,
+  ): Promise<void> {
+    round.receipt = {
+      id: crypto.randomUUID(),
+      taskId: task.id,
+      roundId: round.id,
+      verifiedAt: this.deps.now(),
+      criterionIds: round.criteria.filter(item => item.required).map(item => item.id),
+      evidenceDigests: await Promise.all(evidence.map(item => sha256(JSON.stringify(item)))),
+    };
+    task.status = 'completed';
+    round.status = 'completed';
+    round.waitReason = undefined;
+    if (incrementRevision) task.revision += 1;
+    await this.persist(task);
+    const snapshot = structuredClone(task);
+    for (const listener of this.listeners) {
+      listener({
+        type: 'task_completed_verified',
+        taskId: task.id,
+        receiptId: round.receipt.id,
+        snapshot,
+      });
+    }
+    this.drivers.get(task.id)?.stop();
+    this.drivers.delete(task.id);
   }
 
   private async persist(task: TaskSession): Promise<void> {

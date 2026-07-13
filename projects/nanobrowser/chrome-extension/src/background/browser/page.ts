@@ -16,12 +16,14 @@ import {
   removeHighlights as _removeHighlights,
   getScrollInfo as _getScrollInfo,
 } from './dom/service';
-import { DOMElementNode, type DOMState } from './dom/views';
+import { DOMElementNode, DOMTextNode, type DOMBaseNode, type DOMState } from './dom/views';
 import { type BrowserContextConfig, DEFAULT_BROWSER_CONTEXT_CONFIG, type PageState, URLNotAllowedError } from './views';
 import { createLogger } from '@src/background/log';
 import { ClickableElementProcessor } from './dom/clickable/service';
 import { isUrlAllowed } from './util';
 import { sha256 } from '../task/digest';
+import type { CompletionCriterion } from '@extension/storage/lib/task';
+import type { ProbeObservation } from '../task/contracts';
 
 const logger = createLogger('Page');
 
@@ -1551,6 +1553,50 @@ export default class Page {
     };
   }
 
+  async observeCompletionCriteria(criteria: CompletionCriterion[]): Promise<ProbeObservation[]> {
+    const observedAt = Date.now();
+    const normalizedUrl = this.normalizedUrl(this.url());
+    const textDigests = criteria
+      .filter((item): item is Extract<CompletionCriterion, { kind: 'page_text' }> => item.kind === 'page_text')
+      .map(item => item.expectedDigest);
+    let textMatches: Record<string, boolean> = {};
+
+    if (textDigests.length > 0) {
+      textMatches = Object.fromEntries(textDigests.map(digest => [digest, false]));
+      const state = await this.getState();
+      for (const value of this.completionTextCandidates(state.elementTree)) {
+        const digest = await sha256(value);
+        if (digest in textMatches) textMatches[digest] = true;
+      }
+    }
+
+    return criteria.flatMap(criterion => {
+      let value: boolean | string;
+      switch (criterion.kind) {
+        case 'url':
+          value = normalizedUrl;
+          break;
+        case 'page_text':
+          value = textMatches[criterion.expectedDigest] ?? false;
+          break;
+        case 'element_state':
+        case 'media_state':
+        case 'user_confirmed':
+          return [];
+      }
+      return [
+        {
+          criterionId: criterion.id,
+          roundId: criterion.roundId,
+          targetRefId: criterion.targetRefId,
+          observedAt,
+          source: 'page' as const,
+          value,
+        },
+      ];
+    });
+  }
+
   private hasCommitSignal(value: string): boolean {
     return /(submit|send|buy|purchase|delete|remove|confirm|pay|publish|post|save|book|reserve|checkout|transfer|approve|accept|create|update|grant|revoke|enable|disable|cancel|unsubscribe|authorize|connect|disconnect|join|leave|follow|unfollow|提交|发送|购买|删除|确认|支付|发布|保存|预订|转账|批准|接受|创建|更新|授权|撤销|启用|禁用|取消|退订|连接|断开|加入|离开|关注|取关)/i.test(
       value,
@@ -1576,6 +1622,41 @@ export default class Page {
     } catch {
       return 'null';
     }
+  }
+
+  private normalizedUrl(value: string): string {
+    try {
+      const url = new URL(value);
+      return `${url.origin}${url.pathname}`;
+    } catch {
+      return value;
+    }
+  }
+
+  private completionTextCandidates(root: DOMBaseNode): string[] {
+    const values = new Set<string>();
+    const pending: DOMBaseNode[] = [root];
+    for (let visited = 0; pending.length > 0 && visited < 2000; visited += 1) {
+      const node = pending.shift();
+      if (!node || !node.isVisible) continue;
+      if (node instanceof DOMTextNode) {
+        const normalized = node.text.replace(/\s+/g, ' ').trim();
+        if (normalized.length > 0 && normalized.length <= 160) values.add(normalized);
+        continue;
+      }
+      if (node instanceof DOMElementNode) {
+        for (const value of [
+          node.attributes['aria-label'],
+          node.attributes.title,
+          node.getAllTextTillNextClickableElement(3),
+        ]) {
+          const normalized = value?.replace(/\s+/g, ' ').trim();
+          if (normalized && normalized.length <= 160) values.add(normalized);
+        }
+        pending.push(...node.children);
+      }
+    }
+    return [...values];
   }
 
   isFileUploader(elementNode: DOMElementNode, maxDepth = 3, currentDepth = 0): boolean {

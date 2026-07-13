@@ -1,5 +1,6 @@
 import 'webextension-polyfill';
-import { llmProviderStore, analyticsSettingsStore, removeLegacyAgentStepHistories } from '@extension/storage';
+import { llmProviderStore, analyticsSettingsStore } from '@extension/storage';
+import { removeLegacyAgentStepHistories } from '@extension/storage/lib/chat';
 import { t } from '@extension/i18n';
 import { createLogger } from './log';
 import { DEFAULT_AGENT_OPTIONS } from './agent/types';
@@ -21,7 +22,10 @@ const taskManager = new TaskManager({
   switchTab: async tabId => {
     await browserContext.switchTab(tabId);
   },
-  observeCriteria: async () => [],
+  observeCriteria: async criteria => {
+    const page = await browserContext.getCurrentPage();
+    return page.observeCompletionCriteria(criteria);
+  },
   now: () => Date.now(),
 });
 
