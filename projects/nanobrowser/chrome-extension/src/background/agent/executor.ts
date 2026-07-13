@@ -1,5 +1,5 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { type ActionResult, AgentContext, type AgentOptions, type AgentOutput } from './types';
+import { AgentContext, type AgentOptions, type AgentOutput } from './types';
 import { t } from '@extension/i18n';
 import { NavigatorAgent, NavigatorActionRegistry } from './agents/navigator';
 import { PlannerAgent, type PlannerOutput } from './agents/planner';
@@ -21,9 +21,6 @@ import {
   MaxFailuresReachedError,
 } from './agents/errors';
 import { URLNotAllowedError } from '../browser/views';
-import { chatHistoryStore } from '@extension/storage/lib/chat';
-import type { AgentStepHistory } from './history';
-import type { GeneralSettingsConfig } from '@extension/storage';
 import { analytics } from '../services/analytics';
 
 const logger = createLogger('Executor');
@@ -32,7 +29,6 @@ export interface ExecutorExtraArgs {
   plannerLLM?: BaseChatModel;
   extractorLLM?: BaseChatModel;
   agentOptions?: Partial<AgentOptions>;
-  generalSettings?: GeneralSettingsConfig;
   /** Provider id from storage (e.g. "minimax") - used to disable structured output */
   navigatorProviderId?: string;
   plannerProviderId?: string;
@@ -44,7 +40,6 @@ export class Executor {
   private readonly context: AgentContext;
   private readonly plannerPrompt: PlannerPrompt;
   private readonly navigatorPrompt: NavigatorPrompt;
-  private readonly generalSettings: GeneralSettingsConfig | undefined;
   private tasks: string[] = [];
   constructor(
     task: string,
@@ -66,7 +61,6 @@ export class Executor {
       extraArgs?.agentOptions ?? {},
     );
 
-    this.generalSettings = extraArgs?.generalSettings;
     this.tasks.push(task);
     this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep);
     this.plannerPrompt = new PlannerPrompt();
@@ -133,7 +127,7 @@ export class Executor {
    * @returns {Promise<void>}
    */
   async execute(): Promise<void> {
-    logger.info(`🚀 Executing task: ${this.tasks[this.tasks.length - 1]}`);
+    logger.info('🚀 Executing task', { taskId: this.context.taskId });
     // reset the step counter
     const context = this.context;
     context.nSteps = 0;
@@ -220,18 +214,6 @@ export class Executor {
         // Track task failure with detailed error categorization
         const errorCategory = analytics.categorizeError(error instanceof Error ? error : errorMessage);
         void analytics.trackTaskFailed(this.context.taskId, errorCategory);
-      }
-    } finally {
-      if (import.meta.env.DEV) {
-        logger.debug('Executor history', JSON.stringify(this.context.history, null, 2));
-      }
-      // store the history only if replay is enabled
-      if (this.generalSettings?.replayHistoricalTasks) {
-        const historyString = JSON.stringify(this.context.history);
-        logger.info(`Executor history size: ${historyString.length}`);
-        await chatHistoryStore.storeAgentStepHistory(this.context.taskId, this.tasks[0], historyString);
-      } else {
-        logger.info('Replay historical tasks is disabled, skipping history storage');
       }
     }
   }
@@ -363,79 +345,5 @@ export class Executor {
 
   async getCurrentTaskId(): Promise<string> {
     return this.context.taskId;
-  }
-
-  /**
-   * Replays a saved history of actions with error handling and retry logic.
-   *
-   * @param history - The history to replay
-   * @param maxRetries - Maximum number of retries per action
-   * @param skipFailures - Whether to skip failed actions or stop execution
-   * @param delayBetweenActions - Delay between actions in seconds
-   * @returns List of action results
-   */
-  async replayHistory(
-    sessionId: string,
-    maxRetries = 3,
-    skipFailures = true,
-    delayBetweenActions = 2.0,
-  ): Promise<ActionResult[]> {
-    const results: ActionResult[] = [];
-    const replayLogger = createLogger('Executor:replayHistory');
-
-    logger.info('replay task', this.tasks[0]);
-
-    try {
-      const historyFromStorage = await chatHistoryStore.loadAgentStepHistory(sessionId);
-      if (!historyFromStorage) {
-        throw new Error(t('exec_replay_historyNotFound'));
-      }
-
-      const history = JSON.parse(historyFromStorage.history) as AgentStepHistory;
-      if (history.history.length === 0) {
-        throw new Error(t('exec_replay_historyEmpty'));
-      }
-      logger.debug(`🔄 Replaying history: ${JSON.stringify(history, null, 2)}`);
-      this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_START, this.context.taskId);
-
-      for (let i = 0; i < history.history.length; i++) {
-        const historyItem = history.history[i];
-
-        // Check if execution should stop
-        if (this.context.stopped) {
-          replayLogger.info('Replay stopped by user');
-          break;
-        }
-
-        // Execute the history step with enhanced method that handles all the logic
-        const stepResults = await this.navigator.executeHistoryStep(
-          historyItem,
-          i,
-          history.history.length,
-          maxRetries,
-          delayBetweenActions * 1000,
-          skipFailures,
-        );
-
-        results.push(...stepResults);
-
-        // If stopped during execution, break the loop
-        if (this.context.stopped) {
-          break;
-        }
-      }
-
-      if (this.context.stopped) {
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_replay_cancel'));
-      } else {
-        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, t('exec_replay_ok'));
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      replayLogger.error(`Replay failed: ${errorMessage}`);
-      this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_replay_fail', [errorMessage]));
-    }
-
-    return results;
   }
 }

@@ -290,9 +290,9 @@ export class ActionBuilder {
         }
 
         await page.inputTextElementNode(this.context.options.useVision, elementNode, input.text);
-        const msg = t('act_inputText_ok', [input.text, input.index.toString()]);
-        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-        return new ActionResult({ extractedContent: msg, includeInMemory: true });
+        const inputMessage = `Entered text into element ${input.index}`;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, inputMessage);
+        return new ActionResult({ extractedContent: inputMessage, includeInMemory: true });
       },
       inputTextActionSchema,
       true,
@@ -390,7 +390,7 @@ export class ActionBuilder {
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
           return new ActionResult({ error: errorMsg, includeInMemory: true });
         }
-        logger.info(`Scrolling to percent: ${input.yPercent} with elementNode: ${elementNode.xpath}`);
+        logger.info('Scrolling element to percent', { elementIndex: input.index });
         await page.scrollToPercent(input.yPercent, elementNode);
       } else {
         await page.scrollToPercent(input.yPercent);
@@ -567,14 +567,15 @@ export class ActionBuilder {
 
     // Keyboard Actions
     const sendKeys = new Action(async (input: z.infer<typeof sendKeysActionSchema.schema>) => {
-      const intent = input.intent || t('act_sendKeys_start', [input.keys]);
+      const intent = input.intent || 'Sending keyboard input';
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
       const page = await this.context.browserContext.getCurrentPage();
       await page.sendKeys(input.keys);
-      const msg = t('act_sendKeys_ok', [input.keys]);
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-      return new ActionResult({ extractedContent: msg, includeInMemory: true });
+      const keyKind = /^enter$/i.test(input.keys) ? 'Enter' : 'keyboard input';
+      const keyMessage = `Sent ${keyKind}`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, keyMessage);
+      return new ActionResult({ extractedContent: keyMessage, includeInMemory: true });
     }, sendKeysActionSchema);
     actions.push(sendKeys);
 
@@ -676,7 +677,7 @@ export class ActionBuilder {
           });
         }
 
-        logger.debug(`Attempting to select '${input.text}' using xpath: ${elementNode.xpath}`);
+        logger.debug('Selecting dropdown option', { elementIndex: input.index });
 
         try {
           const result = await page.selectDropdownOption(input.index, input.text);
