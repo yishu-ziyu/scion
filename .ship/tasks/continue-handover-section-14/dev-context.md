@@ -43,10 +43,10 @@ One vertical story in one sequential wave because context, background adapter, a
 
 ## Verification
 
-- Red → green: settled extension tabs, allowed pending web URLs, and pending extension URLs.
-- `pnpm -F chrome-extension test`: 23/23 pass.
-- Targeted ESLint: pass.
-- `pnpm build`: pass.
+- Red → green: pending commit, cold/switch attach races, HTTP attach failure, update invalidation, old cleanup vs new selection, about:blank bootstrap, stale read vs explicit switch, and blank→HTTP promotion.
+- `pnpm -F chrome-extension test`: 32/32 pass; BrowserContext targeted suite: 18/18 pass.
+- Three-file targeted ESLint: pass. Full lint reports only 13 recorded pre-existing errors outside the changed files.
+- `pnpm -F chrome-extension build`: pass.
 - Type-check: only the pre-existing `agent/helper.ts:24` `completionWithRetry` error remains.
-- Story commits: `0d28641`, `b8327a1`, `641b4ca`.
-- Peer review: fail after two targeted fix rounds. Mixed committed/pending snapshots and current-tab reuse are covered; unresolved findings are attach-time snapshot races and pending-only tabs constructing `Page` from empty `tab.url`.
+- Story commits: `2147f01`, `9f164b3`, `33273cc`, `d398209` (plus design/dev evidence commits).
+- Peer review: concrete fix rounds addressed about:blank bootstrap compatibility, stale read overwrite, later blank→HTTP promotion, and same-acquisition blank→HTTP promotion. Final narrow verification: PASS, no P1/P2 findings.

@@ -16,7 +16,7 @@ Compared host and independent peer investigations against `4a97364389201a1440dd5
 - Peer: initially preserve the existing unattached result for allowed non-web pages such as `about:blank`.
 - Evidence: downstream Page operations either degrade to empty/null state (`page.ts:181-199,341-345`) or throw when Puppeteer is absent (`page.ts:441-444,1285-1288`). Only `navigateTo()` has a narrow Chrome-tabs fallback (`context.ts:277-295`), while all other BrowserContext consumers expect an operable Page.
 - Debate: the peer conceded that this exception does not justify returning a selected-but-unattached target.
-- Disposition: **proven-false**. The merged spec requires observable acquisition failure.
+- Disposition: **patched after runtime review**. HTTP acquisition failure remains observable, but `about:blank` is preserved as the sole unattached navigation bootstrap because `navigateTo()` deliberately promotes it through `chrome.tabs.update()`. A regression also requires the same tab to rebuild and attach once it becomes HTTP.
 
 ## 3. Concurrent current-tab cleanup
 
