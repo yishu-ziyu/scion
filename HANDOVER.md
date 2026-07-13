@@ -410,6 +410,15 @@ Done criteria for a Codex handoff chunk:
 - The only type-check failure remains the unrelated `agent/helper.ts:24` `completionWithRetry` mismatch. Real side-panel E2E remains explicitly skipped because approved browser control could not enumerate native Chrome UI and prohibited direct extension-URL automation; no unsafe workaround was used.
 - Daily runtime and scion copies of the three changed runtime files were verified identical. The next session can begin product intake/design for the larger second-development program instead of reopening this blocker.
 
+### Second-development design closure (2026-07-13)
+
+- Completed product intake, architecture, and `/yishuship:design` for the larger action-Agent cycle. This stage changed design/control documents only; it did not implement the new runtime.
+- The product boundary is now explicit: one durable browser task, contextual follow-up, approval before external commits, evidence-gated completion, generic HTML media control, and local semantic Skills. Old raw action replay is removed rather than evolved.
+- The executable plan is split into seven tracer-bullet stories and passed an independent execution drill after closing lifecycle, ACK/revision, approval consumption, completion-proof, media-target, Skill-input/privacy, and real-Chrome orchestration blockers.
+- Canonical architecture: `TaskManager` owns one task state machine; every action passes through `ActionDispatcher`; `CompletionChecker` is the only completion authority; normal raw instructions remain only in user-authored chat; resolved Skill values remain memory-only.
+- Design artifacts: `.ship/tasks/plan-large-nanobrowser-second-development/plan/{spec.md,peer-spec.md,diff-report.md,plan.md,drill-report.md}` and `docs/design/001-browser-action-task-runtime.md`.
+- Next session should enter `/yishuship:dev` and execute Story 1 first. Do not skip directly to Skills or real-site acceptance; later stories depend on the replay-removal and durable-lifecycle seams.
+
 ---
 
 ## 15. Contact / ownership notes
