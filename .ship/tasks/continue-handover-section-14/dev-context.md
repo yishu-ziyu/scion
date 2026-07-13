@@ -32,8 +32,9 @@ One vertical story, sequential: red regression test → minimal `BrowserContext`
 ## Verification
 
 - Red → green: settled extension tabs, allowed pending web URLs, and pending extension URLs.
-- `pnpm -F chrome-extension test`: 20/20 pass.
+- `pnpm -F chrome-extension test`: 23/23 pass.
 - Targeted ESLint: pass.
 - `pnpm build`: pass.
 - Type-check: only the pre-existing `agent/helper.ts:24` `completionWithRetry` error remains.
-- Peer review: fail after two targeted fix rounds. The unresolved mixed transition is committed `chrome-extension://` plus pending HTTPS; a red diagnostic confirmed inventory and cold-selection violations.
+- Story commits: `0d28641`, `b8327a1`, `641b4ca`.
+- Peer review: fail after two targeted fix rounds. Mixed committed/pending snapshots and current-tab reuse are covered; unresolved findings are attach-time snapshot races and pending-only tabs constructing `Page` from empty `tab.url`.

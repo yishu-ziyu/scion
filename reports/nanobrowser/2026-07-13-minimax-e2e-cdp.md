@@ -86,14 +86,15 @@ Deprecated: `~/bin/chrome-debug-launcher.sh` now redirects to `chrome-cdp ensure
 
 ## Follow-up: extension-tab isolation (2026-07-13)
 
-Product result: settled extension pages are isolated, but the story is **BLOCKED in peer review** on one mixed navigation transition and has not been pushed.
+Product result: the original mixed committed/pending URL leaks are closed locally, but the story remains **BLOCKED in peer review** on attach-time races and has not been pushed.
 
 - `BrowserContext` now reuses the existing URL/firewall policy in three places: cold target selection, the tab inventory sent to agents, and `switch_tab` validation. It checks `pendingUrl` before the last committed `url`, closing the in-flight navigation gap found in peer review.
-- Added six Vitest regressions for active-tab fallback, inventory filtering, settled/pending URL selection, safe pending-URL inventory output, and rejection before tab activation.
-- Verification: extension tests **20/20 PASS**; targeted ESLint **PASS**; production `pnpm build` **PASS**.
-- Final peer verdict: **FAIL**. When a tab still has a committed `chrome-extension://` URL but an allowed HTTPS `pendingUrl`, the shared helper approves the pending URL. That tab can then enter inventory and `getCurrentPage()` / `switchTab()` can construct `Page` from the forbidden committed URL. A red diagnostic reproduced both failures: inventory returned the pending URL instead of `[]`, and cold selection chose the extension-backed tab instead of the allowed content fallback.
-- Required next fix: treat every non-empty committed URL as an additional safety gate; a tab with a forbidden committed URL must remain omitted and unselectable until the allowed navigation commits. Add both inverse-transition regressions before changing the helper. The current yishuship dev cycle exhausted its two targeted fix rounds, so this needs a fresh fix/review cycle rather than another unreviewed patch.
-- Main Chrome CDP health **PASS** (35 targets). Real side-panel E2E was not rerun: native Chrome UI enumeration timed out, then the browser-control safety policy blocked extension-internal URLs and explicitly prohibited a workaround. Manual closure remains: reload the Nanobrowser card, open the real side panel on `example.com`, and run `用一句话中文总结当前页面`.
+- Added nine BrowserContext regressions covering active-tab fallback, inventory filtering, mixed committed/pending URLs, already-current tab revalidation, and pre/post-activation rejection.
+- Verification: extension tests **23/23 PASS**; targeted ESLint **PASS**; production `pnpm build` **PASS**.
+- Fresh-cycle commits: `0d28641` gates tabs on both effective and committed URLs; `b8327a1` revalidates already-current targets; `641b4ca` rechecks a tab after activation before attachment.
+- Peer review still ended **FAIL** after two targeted fix rounds. Remaining findings: cold selection and `switchTab()` still have a time-of-check/time-of-use window between their final Chrome snapshot and asynchronous attachment; a pending-only HTTPS tab is approved but `_getOrCreatePage()` constructs `Page` from empty `tab.url`, so it is non-attachable.
+- Required next cycle: make validated target acquisition + attachment one owned operation, including post-attach revalidation/detach, and decide whether pending-only tabs wait for commit or construct from the approved effective URL. This is wider than another caller guard and should be settled before the planned larger second-development program.
+- Main Chrome CDP health **PASS** (34 targets). Real side-panel E2E was not rerun: native Chrome UI enumeration timed out, then the browser-control safety policy blocked extension-internal URLs and explicitly prohibited a workaround. Manual closure remains: reload the Nanobrowser card, open the real side panel on `example.com`, and run `用一句话中文总结当前页面`.
 - Existing unrelated gate: extension type-check still fails at `agent/helper.ts:24` because `completionWithRetry` is absent from the installed `ChatOpenAI` type.
 - Known ceiling: when an extension page is active, fallback picks the first allowed tab in tab order. Track the last allowed activation if multi-tab precision becomes necessary.
 
