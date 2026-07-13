@@ -1,8 +1,9 @@
 /* eslint-disable react/prop-types */
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useReducer } from 'react';
 import { FaTrash, FaPen, FaCheck, FaTimes } from 'react-icons/fa';
 import { t } from '@extension/i18n';
 import type { FavoriteItem, FavoriteSkill } from '@extension/storage/lib/prompt/favorites';
+import { emptySkillDraft, reduceSkillDraft } from './skill-draft';
 
 interface BookmarkListProps {
   bookmarks: FavoriteItem[];
@@ -26,19 +27,19 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState<string>('');
   const [draggedId, setDraggedId] = useState<number | null>(null);
-  const [runningSkillId, setRunningSkillId] = useState<number | null>(null);
-  const [skillValues, setSkillValues] = useState<Record<string, string>>({});
+  const [skillDraft, dispatchSkillDraft] = useReducer(reduceSkillDraft, emptySkillDraft);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleEditClick = (bookmark: FavoriteItem) => {
+    dispatchSkillDraft({ type: 'editing' });
     setEditingId(bookmark.id);
     setEditTitle(bookmark.title);
   };
 
   const handleRunSkill = (skill: FavoriteSkill) => {
-    onSkillRun(skill, skillValues);
-    setRunningSkillId(null);
-    setSkillValues({});
+    const values = skillDraft.values;
+    dispatchSkillDraft({ type: 'submitted' });
+    onSkillRun(skill, values);
   };
 
   const handleSaveEdit = (id: number) => {
@@ -145,16 +146,20 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                         className={`truncate pr-10 text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
                         {bookmark.title}
                       </div>
-                      {runningSkillId === bookmark.id ? (
+                      {skillDraft.runningSkillId === bookmark.id ? (
                         <>
                           {bookmark.inputs.map(input => (
                             <label key={input.name} className="flex flex-col gap-1 text-xs">
                               {input.label}
                               <input
                                 data-testid={`skill-input-${input.name}`}
-                                value={skillValues[input.name] ?? ''}
+                                value={skillDraft.values[input.name] ?? ''}
                                 onChange={event =>
-                                  setSkillValues(values => ({ ...values, [input.name]: event.target.value }))
+                                  dispatchSkillDraft({
+                                    type: 'value_changed',
+                                    name: input.name,
+                                    value: event.target.value,
+                                  })
                                 }
                                 className={`rounded border px-2 py-1 ${
                                   isDarkMode
@@ -176,10 +181,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                         <button
                           type="button"
                           data-testid="skill-run"
-                          onClick={() => {
-                            setRunningSkillId(bookmark.id);
-                            setSkillValues({});
-                          }}
+                          onClick={() => dispatchSkillDraft({ type: 'opened', skillId: bookmark.id })}
                           className="rounded bg-sky-600 px-2 py-1 text-xs text-white">
                           {t('chat_skills_run')}
                         </button>
@@ -225,6 +227,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                 <button
                   onClick={e => {
                     e.stopPropagation();
+                    dispatchSkillDraft({ type: 'deleted' });
                     if (onBookmarkDelete) {
                       onBookmarkDelete(bookmark.id);
                     }
