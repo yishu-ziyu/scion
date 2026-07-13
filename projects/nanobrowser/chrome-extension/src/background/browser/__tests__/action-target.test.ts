@@ -75,6 +75,19 @@ describe('Page action target observation', () => {
     );
   });
 
+  it('observes the resulting page after a commit without replaying the old index', async () => {
+    const button = element('button', { type: 'submit' });
+    const page = pageWithElement(button);
+    (page as unknown as { _puppeteerPage: { url: () => string } })._puppeteerPage = {
+      url: () => 'https://example.test/success',
+    };
+
+    const observation = await page.observeActionTarget('click_element', { index: 4 }, 'after');
+
+    expect(observation.target).toMatchObject({ kind: 'page', urlOrigin: 'https://example.test' });
+    expect(observation.target.digest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
   it('binds Enter approval to the active element structure', async () => {
     const page = new Page(7, 'https://example.test/form', 'Fixture');
     const evaluate = vi

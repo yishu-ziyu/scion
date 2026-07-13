@@ -1359,7 +1359,23 @@ export default class Page {
     parsedArgs: unknown,
     phase: 'before' | 'after',
   ): Promise<ActionTargetObservation> {
-    void phase;
+    if (phase === 'after') {
+      const urlOrigin = this.urlOrigin();
+      const digest = await sha256(JSON.stringify({ tabId: this._tabId, urlOrigin, page: await sha256(this.url()) }));
+      return {
+        target: {
+          id: `target-${digest.slice(0, 16)}`,
+          kind: 'page',
+          tabId: this._tabId,
+          frameId: 0,
+          urlOrigin,
+          digest,
+        },
+        inForm: false,
+        hasSemanticName: false,
+        semanticCommit: false,
+      };
+    }
     const args = parsedArgs && typeof parsedArgs === 'object' ? (parsedArgs as Record<string, unknown>) : {};
     const index = typeof args.index === 'number' ? args.index : undefined;
     const node = index === undefined ? null : this.getDomElementByIndex(index);

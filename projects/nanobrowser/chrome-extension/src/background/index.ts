@@ -8,16 +8,16 @@ import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
 import { ensurePersonalDefaults } from '../personal/bootstrap';
 import { TaskManager } from './task/manager';
-import { PortLease } from './task/port-lease';
+import { PortRegistry } from './task/port-registry';
 import { browserContext, createExecutorDriver } from './agent/factory';
 
 const logger = createLogger('background');
 
-const sidePanelPorts = new PortLease<chrome.runtime.Port>();
+const sidePanelPorts = new PortRegistry<chrome.runtime.Port>();
 const SIDE_PANEL_URL = chrome.runtime.getURL('side-panel/index.html');
 const taskManager = new TaskManager({
   createExecutor: (input, hooks) =>
-    createExecutorDriver(input, hooks, event => sidePanelPorts.current?.postMessage(event)),
+    createExecutorDriver(input, hooks, event => sidePanelPorts.broadcast(port => port.postMessage(event))),
   switchTab: async tabId => {
     await browserContext.switchTab(tabId);
   },
@@ -25,7 +25,7 @@ const taskManager = new TaskManager({
   now: () => Date.now(),
 });
 
-taskManager.subscribe(event => sidePanelPorts.current?.postMessage({ type: 'task_event', event }));
+taskManager.subscribe(event => sidePanelPorts.broadcast(port => port.postMessage({ type: 'task_event', event })));
 
 // Personal fork: seed MiniMax-M3 into chrome.storage on every SW boot (no GUI).
 void ensurePersonalDefaults().catch(error => logger.error('Personal bootstrap failed', error));
@@ -102,7 +102,7 @@ chrome.runtime.onConnect.addListener(port => {
       return;
     }
 
-    sidePanelPorts.replace(port);
+    sidePanelPorts.add(port);
 
     port.onMessage.addListener(async message => {
       try {

@@ -426,7 +426,7 @@ export class TaskManager {
       const index = round.attempts.findIndex(item => item.id === attempt.id);
       if (index === -1) round.attempts.push(structuredClone(attempt));
       else round.attempts[index] = structuredClone(attempt);
-      if (attempt.state === 'uncertain' && task.status !== 'interrupted' && !TERMINAL_STATUSES.includes(task.status)) {
+      if (attempt.state === 'uncertain' && !TERMINAL_STATUSES.includes(task.status)) {
         task.status = 'waiting_user';
         round.status = 'waiting_user';
         round.waitReason = 'commit_outcome_uncertain';

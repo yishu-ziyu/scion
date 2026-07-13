@@ -499,6 +499,77 @@ describe('TaskManager lifecycle', () => {
     expect(driver.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a disconnect-time commit uncertainty non-resumable', async () => {
+    let hooks!: ExecutorHooks;
+    let failCommit!: (error: Error) => void;
+    const driver = fakeDriver();
+    const executeExternalCommit = vi.fn(() => new Promise<ActionResult>((_resolve, reject) => (failCommit = reject)));
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (input, nextHooks) => {
+        expect(input.taskId).toBe('task-disconnect-uncertain');
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-disconnect-uncertain',
+      taskId: 'task-disconnect-uncertain',
+      instruction: 'submit form',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const pending = hooks.dispatchAction(new Action(executeExternalCommit, clickElementActionSchema, true), {
+      intent: 'submit form',
+      index: 4,
+    });
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-disconnect-uncertain')).toMatchObject({ status: 'waiting_approval' });
+    });
+    const waiting = await manager.snapshot('task-disconnect-uncertain');
+    if (!waiting) throw new Error('Expected waiting approval snapshot');
+    const round = waiting.rounds[0];
+    const approval = round?.approvals[0];
+    if (!round || !approval) throw new Error('Expected pending approval');
+    await manager.dispatch({
+      type: 'approve',
+      commandId: 'approve-disconnect-uncertain',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId: round.id,
+      approvalId: approval.id,
+    });
+    await vi.waitFor(() => expect(executeExternalCommit).toHaveBeenCalledTimes(1));
+
+    await manager.interruptActive();
+    const rejected = expect(pending).rejects.toThrow('commit outcome unknown after disconnect');
+    failCommit(new Error('commit outcome unknown after disconnect'));
+
+    await rejected;
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-disconnect-uncertain')).toMatchObject({
+        status: 'waiting_user',
+        rounds: [{ waitReason: 'commit_outcome_uncertain', attempts: [{ state: 'uncertain' }] }],
+      });
+    });
+    const uncertain = await manager.snapshot('task-disconnect-uncertain');
+    if (!uncertain) throw new Error('Expected uncertain snapshot');
+    await expect(
+      manager.dispatch({
+        type: 'resume',
+        commandId: 'resume-uncertain',
+        taskId: uncertain.id,
+        expectedRevision: uncertain.revision,
+      }),
+    ).resolves.toMatchObject({ accepted: false, error: 'invalid_transition' });
+    expect(executeExternalCommit).toHaveBeenCalledTimes(1);
+  });
+
   it('recovers an executing external commit as uncertain without invoking it', async () => {
     store.sessions.set('task-uncertain', {
       id: 'task-uncertain',
