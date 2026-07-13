@@ -83,3 +83,18 @@ Deprecated: `~/bin/chrome-debug-launcher.sh` now redirects to `chrome-cdp ensure
 - Strict regression: multi-step with 0 parse failures
 - Exclude `chrome-extension://` tabs from Navigator browser state
 - Optional second provider (StepFun) in personal package inventory
+
+## Follow-up: extension-tab isolation (2026-07-13)
+
+Product result: settled extension pages are isolated, but the story is **BLOCKED in peer review** on one mixed navigation transition and has not been pushed.
+
+- `BrowserContext` now reuses the existing URL/firewall policy in three places: cold target selection, the tab inventory sent to agents, and `switch_tab` validation. It checks `pendingUrl` before the last committed `url`, closing the in-flight navigation gap found in peer review.
+- Added six Vitest regressions for active-tab fallback, inventory filtering, settled/pending URL selection, safe pending-URL inventory output, and rejection before tab activation.
+- Verification: extension tests **20/20 PASS**; targeted ESLint **PASS**; production `pnpm build` **PASS**.
+- Final peer verdict: **FAIL**. When a tab still has a committed `chrome-extension://` URL but an allowed HTTPS `pendingUrl`, the shared helper approves the pending URL. That tab can then enter inventory and `getCurrentPage()` / `switchTab()` can construct `Page` from the forbidden committed URL. A red diagnostic reproduced both failures: inventory returned the pending URL instead of `[]`, and cold selection chose the extension-backed tab instead of the allowed content fallback.
+- Required next fix: treat every non-empty committed URL as an additional safety gate; a tab with a forbidden committed URL must remain omitted and unselectable until the allowed navigation commits. Add both inverse-transition regressions before changing the helper. The current yishuship dev cycle exhausted its two targeted fix rounds, so this needs a fresh fix/review cycle rather than another unreviewed patch.
+- Main Chrome CDP health **PASS** (35 targets). Real side-panel E2E was not rerun: native Chrome UI enumeration timed out, then the browser-control safety policy blocked extension-internal URLs and explicitly prohibited a workaround. Manual closure remains: reload the Nanobrowser card, open the real side panel on `example.com`, and run `用一句话中文总结当前页面`.
+- Existing unrelated gate: extension type-check still fails at `agent/helper.ts:24` because `completionWithRetry` is absent from the installed `ChatOpenAI` type.
+- Known ceiling: when an extension page is active, fallback picks the first allowed tab in tab order. Track the last allowed activation if multi-tab precision becomes necessary.
+
+Parser investigation was deliberately kept separate. The captured MiniMax failure is complete pseudo-XML (`<tool_call><invoke name="AgentOutput">...` with MiniMax delimiters), not malformed JSON. A correct follow-up needs an exact fixture and a direct XML-parser dependency; `jsonrepair` cannot handle this payload. The older E2E `result.json` also marks `no_parse_fail: true` despite parse-failure lines, so that assertion must be fixed before claiming strict zero-failure regression.
