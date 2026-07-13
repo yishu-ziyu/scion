@@ -35,6 +35,19 @@ const contentTab = {
   title: 'Example Domain',
 } as chrome.tabs.Tab;
 
+const pendingContentTab = {
+  ...contentTab,
+  id: 3,
+  url: '',
+  pendingUrl: 'https://example.com/loading',
+} as chrome.tabs.Tab;
+
+const pendingExtensionTab = {
+  ...contentTab,
+  id: 4,
+  pendingUrl: extensionTab.url,
+} as chrome.tabs.Tab;
+
 describe('BrowserContext tab selection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -59,10 +72,29 @@ describe('BrowserContext tab selection', () => {
     ]);
   });
 
+  it('selects an allowed pending URL before it commits', async () => {
+    tabsApi.query.mockResolvedValue([pendingContentTab]);
+    tabsApi.create.mockResolvedValue({ ...contentTab, id: 99 });
+    const context = new BrowserContext({});
+    vi.spyOn(context, 'attachPage').mockResolvedValue(true);
+
+    const page = await context.getCurrentPage();
+
+    expect(page.tabId).toBe(pendingContentTab.id);
+    expect(tabsApi.create).not.toHaveBeenCalled();
+  });
+
   it('rejects an extension page before switching tabs', async () => {
     tabsApi.get.mockResolvedValue(extensionTab);
 
     await expect(new BrowserContext({}).switchTab(extensionTab.id!)).rejects.toBeInstanceOf(URLNotAllowedError);
+    expect(tabsApi.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a pending extension URL before switching tabs', async () => {
+    tabsApi.get.mockResolvedValue(pendingExtensionTab);
+
+    await expect(new BrowserContext({}).switchTab(pendingExtensionTab.id!)).rejects.toBeInstanceOf(URLNotAllowedError);
     expect(tabsApi.update).not.toHaveBeenCalled();
   });
 });

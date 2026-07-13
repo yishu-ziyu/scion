@@ -35,7 +35,8 @@ export default class BrowserContext {
   }
 
   private _isTabAllowed(tab?: chrome.tabs.Tab): boolean {
-    return Boolean(tab?.id && tab.url && isUrlAllowed(tab.url, this._config.allowedUrls, this._config.deniedUrls));
+    const url = tab?.pendingUrl || tab?.url;
+    return Boolean(tab?.id && url && isUrlAllowed(url, this._config.allowedUrls, this._config.deniedUrls));
   }
 
   private async _getOrCreatePage(tab: chrome.tabs.Tab, forceUpdate = false): Promise<Page> {
