@@ -27,7 +27,7 @@ import { BrowserStateHistory, URLNotAllowedError } from '@src/background/browser
 import { convertZodToJsonSchema, repairJsonString } from '@src/background/utils';
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
-import type { ExecutorHooks } from '../../task/contracts';
+import { StaleTaskRoundError, type ExecutorHooks } from '../../task/contracts';
 
 const logger = createLogger('NavigatorAgent');
 
@@ -154,7 +154,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     return super.invoke(inputMessages);
   }
 
-  async execute(): Promise<AgentOutput<NavigatorResult>> {
+  async execute(roundId?: string): Promise<AgentOutput<NavigatorResult>> {
     const agentOutput: AgentOutput<NavigatorResult> = {
       id: this.id,
     };
@@ -165,6 +165,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     let actionResults: ActionResult[] = [];
 
     try {
+      if (!roundId) throw new Error('Navigator execution requires a task round');
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_START, 'Navigating...');
 
       const messageManager = this.context.messageManager;
@@ -200,7 +201,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       this.addModelOutputToMemory(modelOutput);
 
       // take the actions
-      actionResults = await this.doMultiAction(actions);
+      actionResults = await this.doMultiAction(roundId, actions);
       // logger.info('Action results', JSON.stringify(actionResults, null, 2));
 
       this.context.actionResults = actionResults;
@@ -220,6 +221,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
       return agentOutput;
     } catch (error) {
       this.removeLastStateMessageFromMemory();
+      if (error instanceof StaleTaskRoundError) throw error;
       const errorMessage = error instanceof Error ? error.message : String(error);
       // Check if this is an authentication error
       if (isAuthenticationError(error)) {
@@ -361,7 +363,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
     return actions;
   }
 
-  private async doMultiAction(actions: Record<string, unknown>[]): Promise<ActionResult[]> {
+  private async doMultiAction(roundId: string, actions: Record<string, unknown>[]): Promise<ActionResult[]> {
     const results: ActionResult[] = [];
     let errCount = 0;
     const browserContext = this.context.browserContext;
@@ -402,7 +404,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           }
         }
 
-        const dispatched = await this.dispatchAction(actionInstance, actionArgs);
+        const dispatched = await this.dispatchAction(roundId, actionInstance, actionArgs);
         const result = dispatched.actionResult;
         if (result === undefined) {
           throw new Error(`Action ${actionName} returned undefined`);
@@ -426,6 +428,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
         // TODO: wait for 1 second for now, need to optimize this to avoid unnecessary waiting
         await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (error) {
+        if (error instanceof StaleTaskRoundError) throw error;
         if (error instanceof URLNotAllowedError) {
           throw error;
         }

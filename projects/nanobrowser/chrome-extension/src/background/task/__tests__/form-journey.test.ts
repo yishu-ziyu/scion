@@ -39,8 +39,8 @@ describe('verified form journey', () => {
       }));
     });
     const manager = new TaskManager({
-      createExecutor: async (_input, hooks) => {
-        await hooks.onPlan([
+      createExecutor: async (input, hooks) => {
+        await hooks.onPlan(input.roundId, [
           { kind: 'page_text', operator: 'present', expected: 'Saved successfully', required: true },
         ]);
         return driver;
@@ -70,7 +70,7 @@ describe('verified form journey', () => {
     });
     expect(observeCriteria).toHaveBeenCalledTimes(2);
     expect(events).toContain('task_completed_verified');
-    expect(driver.stop).toHaveBeenCalledOnce();
+    expect(driver.stop).not.toHaveBeenCalled();
     expect(JSON.stringify(await manager.snapshot('task-form'))).not.toContain('FIELD_SENTINEL_8472');
     expect(JSON.stringify(await manager.snapshot('task-form'))).not.toContain('Saved successfully');
   });
@@ -84,8 +84,10 @@ describe('verified form journey', () => {
       stop: vi.fn(),
     };
     const manager = new TaskManager({
-      createExecutor: async (_input, hooks) => {
-        await hooks.onPlan([{ kind: 'user_confirmed', operator: 'equals', expected: true, required: true }]);
+      createExecutor: async (input, hooks) => {
+        await hooks.onPlan(input.roundId, [
+          { kind: 'user_confirmed', operator: 'equals', expected: true, required: true },
+        ]);
         return driver;
       },
       switchTab: vi.fn(),
@@ -129,7 +131,72 @@ describe('verified form journey', () => {
         },
       ],
     });
-    expect(driver.stop).toHaveBeenCalledOnce();
+    expect(driver.stop).not.toHaveBeenCalled();
+  });
+
+  it('reuses completed executor memory for the next follow-up round', async () => {
+    const driver: ExecutorDriver = {
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({ kind: 'candidate_complete', summary: 'finished first round' })
+        .mockImplementation(() => new Promise<never>(() => {})),
+      addFollowUp: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+    };
+    let observationCall = 0;
+    const createExecutor = vi.fn(async (input, hooks) => {
+      await hooks.onPlan(input.roundId, [
+        { kind: 'url', operator: 'equals', expected: 'https://example.test/done', required: true },
+      ]);
+      return driver;
+    });
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: CompletionCriterion[]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 350,
+          source: 'page' as const,
+          value: observationCall++ === 0 ? 'https://example.test/start' : 'https://example.test/done',
+        })),
+      ),
+      now: () => 350,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-memory',
+      taskId: 'task-memory',
+      tabId: 7,
+      instruction: 'finish the first round',
+      chatSessionId: 'chat-memory',
+      instructionMessageId: 'message-memory-1',
+    });
+    await vi.waitFor(async () => expect((await manager.snapshot('task-memory'))?.status).toBe('completed'));
+    const completed = await manager.snapshot('task-memory');
+    if (!completed) throw new Error('Expected completed first round');
+
+    await manager.dispatch({
+      type: 'follow_up',
+      commandId: 'follow-memory',
+      taskId: completed.id,
+      expectedRevision: completed.revision,
+      instruction: 'continue with the same context',
+      chatSessionId: 'chat-memory',
+      instructionMessageId: 'message-memory-2',
+    });
+
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(2));
+    const followedUp = await manager.snapshot('task-memory');
+    expect(createExecutor).toHaveBeenCalledOnce();
+    expect(driver.stop).not.toHaveBeenCalled();
+    expect(driver.addFollowUp).toHaveBeenCalledWith('continue with the same context');
+    expect(driver.run).toHaveBeenNthCalledWith(2, followedUp?.currentRoundId);
   });
 
   it('freezes one redacted baseline before execution and ignores later proposals', async () => {
@@ -151,9 +218,13 @@ describe('verified form journey', () => {
       })),
     );
     const manager = new TaskManager({
-      createExecutor: async (_input, hooks) => {
-        await hooks.onPlan([{ kind: 'page_text', operator: 'present', expected: 'Saved once', required: true }]);
-        await hooks.onPlan([{ kind: 'page_text', operator: 'present', expected: 'Replaced later', required: true }]);
+      createExecutor: async (input, hooks) => {
+        await hooks.onPlan(input.roundId, [
+          { kind: 'page_text', operator: 'present', expected: 'Saved once', required: true },
+        ]);
+        await hooks.onPlan(input.roundId, [
+          { kind: 'page_text', operator: 'present', expected: 'Replaced later', required: true },
+        ]);
         return driver;
       },
       switchTab: vi.fn(),
@@ -197,8 +268,8 @@ describe('verified form journey', () => {
       stop: vi.fn(),
     };
     const manager = new TaskManager({
-      createExecutor: async (_input, hooks) => {
-        await hooks.onPlan([
+      createExecutor: async (input, hooks) => {
+        await hooks.onPlan(input.roundId, [
           { kind: 'url', operator: 'equals', expected: 'https://example.test/done', required: true },
         ]);
         return driver;
@@ -243,8 +314,8 @@ describe('verified form journey', () => {
       stop: vi.fn(),
     };
     const manager = new TaskManager({
-      createExecutor: async (_input, hooks) => {
-        await hooks.onPlan([
+      createExecutor: async (input, hooks) => {
+        await hooks.onPlan(input.roundId, [
           { kind: 'page_text', operator: 'present', expected: 'FIELD_SENTINEL_8472', required: true },
         ]);
         return driver;
@@ -294,8 +365,10 @@ describe('verified form journey', () => {
       }));
     });
     const manager = new TaskManager({
-      createExecutor: async (_input, hooks) => {
-        await hooks.onPlan([{ kind: 'page_text', operator: 'present', expected: 'Saved', required: true }]);
+      createExecutor: async (input, hooks) => {
+        await hooks.onPlan(input.roundId, [
+          { kind: 'page_text', operator: 'present', expected: 'Saved', required: true },
+        ]);
         return driver;
       },
       switchTab: vi.fn(),
@@ -329,8 +402,8 @@ describe('verified form journey', () => {
     };
     let call = 0;
     const manager = new TaskManager({
-      createExecutor: async (_input, hooks) => {
-        await hooks.onPlan([
+      createExecutor: async (input, hooks) => {
+        await hooks.onPlan(input.roundId, [
           { kind: 'page_text', operator: 'present', expected: 'Saved', required: true },
           { kind: 'user_confirmed', operator: 'equals', expected: true, required: true },
         ]);
@@ -393,8 +466,8 @@ describe('verified form journey', () => {
       stop: vi.fn(),
     };
     const manager = new TaskManager({
-      createExecutor: async (_input, hooks) => {
-        await hooks.onPlan([
+      createExecutor: async (input, hooks) => {
+        await hooks.onPlan(input.roundId, [
           { kind: 'user_confirmed', operator: 'equals', expected: true, required: true },
           { kind: 'user_confirmed', operator: 'equals', expected: true, required: true },
         ]);

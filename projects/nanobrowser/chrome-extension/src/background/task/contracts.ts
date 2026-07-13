@@ -43,17 +43,24 @@ export interface ExecutorInput {
   tabId: number;
 }
 
+export class StaleTaskRoundError extends Error {
+  constructor() {
+    super('Task round is no longer current');
+    this.name = 'StaleTaskRoundError';
+  }
+}
+
 export interface ExecutorHooks {
-  onPlan(criteria: CompletionCriterionDraft[]): Promise<void>;
-  dispatchAction(action: Action, rawArgs: unknown): Promise<DispatchResult>;
+  onPlan(roundId: string, criteria: CompletionCriterionDraft[]): Promise<void>;
+  dispatchAction(roundId: string, action: Action, rawArgs: unknown): Promise<DispatchResult>;
 }
 
 export interface ExecutorDriver {
-  run(): Promise<ExecutorOutcome>;
+  run(roundId: string): Promise<ExecutorOutcome>;
   addFollowUp(instruction: string): void;
   pause(): void;
   resume(): void;
-  stop(): void;
+  stop(): Promise<void>;
 }
 
 export type ExecutorOutcome =

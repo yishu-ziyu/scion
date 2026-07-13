@@ -77,7 +77,7 @@ export async function createExecutorDriver(
   });
 
   return {
-    run: () =>
+    run: roundId =>
       new Promise<ExecutorOutcome>(resolve => {
         let outcome: ExecutorOutcome | null = null;
         const finish = (result: ExecutorOutcome) => {
@@ -104,7 +104,7 @@ export async function createExecutorDriver(
               break;
           }
         });
-        void executor.execute().then(
+        void executor.execute(roundId).then(
           () => resolve(outcome ?? { kind: 'failed', category: 'missing_terminal_event' }),
           () => resolve({ kind: 'failed', category: 'execution_failed' }),
         );
@@ -116,9 +116,9 @@ export async function createExecutorDriver(
     resume: () => {
       void executor.resume();
     },
-    stop: () => {
-      void executor.cancel();
-      void executor.cleanup();
+    stop: async () => {
+      await executor.cancel();
+      await executor.cleanup();
     },
   };
 }

@@ -20,6 +20,7 @@ import type {
   ObserveCriteria,
   ProbeObservation,
 } from './contracts';
+import { StaleTaskRoundError } from './contracts';
 import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
 import { checkCompletion } from './completion';
 import { sha256 } from './digest';
@@ -79,9 +80,7 @@ export class TaskManager {
     await this.queueTransition(async () => {
       const task = await getActiveTask();
       if (!task || !['running', 'paused', 'waiting_approval'].includes(task.status)) return;
-      this.interruptTaskRuntime(task.id);
-      this.drivers.get(task.id)?.stop();
-      this.drivers.delete(task.id);
+      await this.stopTaskRuntime(task.id);
       task.status = 'interrupted';
       this.currentRound(task).status = 'interrupted';
       task.revision += 1;
@@ -143,6 +142,7 @@ export class TaskManager {
           error: 'invalid_transition',
         };
       }
+      if (active) await this.stopTaskRuntime(active.id);
       return this.start(command);
     }
 
@@ -259,6 +259,7 @@ export class TaskManager {
     if (!['running', 'paused', 'waiting_user', 'completed'].includes(task.status) || !command.instruction.trim()) {
       return this.reject(task, command.commandId, 'invalid_transition');
     }
+    const previousStatus = task.status;
     const roundId = crypto.randomUUID();
     task.status = 'running';
     task.currentRoundId = roundId;
@@ -279,13 +280,12 @@ export class TaskManager {
     this.instructions.set(task.id, command.instruction);
     await this.persist(task);
     const driver = this.drivers.get(task.id);
-    if (driver) {
-      this.drivers.delete(task.id);
-      this.dispatchers.get(task.id)?.interrupt();
-      this.dispatchers.delete(task.id);
-      driver.stop();
+    if (!driver) void this.runCurrentRound(task.id);
+    else {
+      driver.addFollowUp(command.instruction);
+      if (previousStatus === 'paused') driver.resume();
+      if (['waiting_user', 'completed'].includes(previousStatus)) void this.runDriver(task.id, driver, roundId);
     }
-    void this.runCurrentRound(task.id);
     return ack;
   }
 
@@ -295,8 +295,7 @@ export class TaskManager {
     this.currentRound(task).status = 'cancelled';
     const ack = this.accept(task, commandId);
     await this.persist(task);
-    this.interruptTaskRuntime(task.id);
-    this.drivers.get(task.id)?.stop();
+    await this.stopTaskRuntime(task.id);
     return ack;
   }
 
@@ -393,7 +392,7 @@ export class TaskManager {
     return round;
   }
 
-  private executorHooks(taskId: string, roundId: string): ExecutorHooks {
+  private executorHooks(taskId: string): ExecutorHooks {
     const dispatcher = new ActionDispatcher({
       now: this.deps.now,
       persistAttempt: attempt => this.persistAttempt(taskId, attempt),
@@ -411,11 +410,21 @@ export class TaskManager {
     });
     this.dispatchers.set(taskId, dispatcher);
     return {
-      onPlan: criteria => this.freezeCriteria(taskId, roundId, criteria),
-      dispatchAction: async (action, rawArgs) => {
+      onPlan: async (roundId, criteria) => {
+        let task = await getTask(taskId);
+        if (!task || task.status !== 'running' || task.currentRoundId !== roundId) {
+          throw new StaleTaskRoundError();
+        }
+        await this.freezeCriteria(taskId, roundId, criteria);
+        task = await getTask(taskId);
+        if (!task || task.status !== 'running' || task.currentRoundId !== roundId) {
+          throw new StaleTaskRoundError();
+        }
+      },
+      dispatchAction: async (roundId, action, rawArgs) => {
         const task = await getTask(taskId);
         if (!task || task.status !== 'running' || task.currentRoundId !== roundId) {
-          throw new Error('Task round is not running');
+          throw new StaleTaskRoundError();
         }
         const result = await dispatcher.dispatch({
           taskId,
@@ -456,8 +465,7 @@ export class TaskManager {
       await this.persist(task);
     });
     if (stopDriver) {
-      this.drivers.get(taskId)?.stop();
-      this.drivers.delete(taskId);
+      await this.stopTaskRuntime(taskId);
     }
   }
 
@@ -468,7 +476,20 @@ export class TaskManager {
   ): Promise<void> {
     await this.queueTransition(async () => {
       const task = await getTask(taskId);
-      if (!task || task.currentRoundId !== roundId) return;
+      if (!task) return;
+      if (task.currentRoundId !== roundId) {
+        const sourceIndex = task.rounds.findIndex(item => item.id === roundId);
+        const currentIndex = task.rounds.findIndex(item => item.id === task.currentRoundId);
+        const currentRound = task.rounds[currentIndex];
+        if (
+          sourceIndex !== currentIndex - 1 ||
+          !currentRound ||
+          currentRound.criteria.length > 0 ||
+          currentRound.attempts.length > 0
+        ) {
+          return;
+        }
+      }
       const index = task.targetRefs.findIndex(item => item.id === target.id);
       if (index === -1) task.targetRefs.push(target);
       else task.targetRefs[index] = target;
@@ -535,6 +556,14 @@ export class TaskManager {
     }
   }
 
+  private async stopTaskRuntime(taskId: string): Promise<void> {
+    this.interruptTaskRuntime(taskId);
+    const driver = this.drivers.get(taskId);
+    this.drivers.delete(taskId);
+    this.dispatchers.delete(taskId);
+    if (driver) await driver.stop();
+  }
+
   private async runCurrentRound(taskId: string): Promise<void> {
     if (this.launches.has(taskId)) return;
     const launch = Symbol(taskId);
@@ -573,7 +602,7 @@ export class TaskManager {
       const roundId = round.id;
       const driver = await this.deps.createExecutor(
         { taskId, roundId, instruction, tabId: task.activeTabId },
-        this.executorHooks(taskId, roundId),
+        this.executorHooks(taskId),
       );
 
       task = await getTask(taskId);
@@ -583,7 +612,7 @@ export class TaskManager {
         this.launches.get(taskId) !== launch ||
         task.currentRoundId !== roundId
       ) {
-        driver.stop();
+        await driver.stop();
         if (task?.status === 'running' && this.launches.get(taskId) === launch) {
           this.launches.delete(taskId);
           void this.runCurrentRound(taskId);
@@ -611,7 +640,7 @@ export class TaskManager {
   private async runDriver(taskId: string, driver: ExecutorDriver, runRoundId: string): Promise<void> {
     let verificationRetries = 0;
     for (;;) {
-      const outcome = await driver.run();
+      const outcome = await driver.run(runRoundId);
       const task = await getTask(taskId);
       if (!this.canApplyDriverOutcome(task, taskId, driver)) return;
       if (task.currentRoundId !== runRoundId) {
@@ -942,8 +971,6 @@ export class TaskManager {
         snapshot,
       });
     }
-    this.drivers.get(task.id)?.stop();
-    this.drivers.delete(task.id);
   }
 
   private async persist(task: TaskSession): Promise<void> {

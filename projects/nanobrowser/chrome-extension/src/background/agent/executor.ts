@@ -22,7 +22,7 @@ import {
 } from './agents/errors';
 import { URLNotAllowedError } from '../browser/views';
 import { analytics } from '../services/analytics';
-import type { ExecutorHooks } from '../task/contracts';
+import { StaleTaskRoundError, type ExecutorHooks } from '../task/contracts';
 
 const logger = createLogger('Executor');
 
@@ -132,7 +132,7 @@ export class Executor {
    *
    * @returns {Promise<void>}
    */
-  async execute(): Promise<void> {
+  async execute(roundId: string): Promise<void> {
     logger.info('🚀 Executing task', { taskId: this.context.taskId });
     // reset the step counter
     const context = this.context;
@@ -164,7 +164,7 @@ export class Executor {
         // Run planner periodically for guidance
         if (this.planner && (context.nSteps % context.options.planningInterval === 0 || navigatorDone)) {
           navigatorDone = false;
-          latestPlanOutput = await this.runPlanner();
+          latestPlanOutput = await this.runPlanner(roundId);
           if (latestPlanOutput?.result?.waiting_user) {
             this.waitingUserReason = latestPlanOutput.result.waiting_user.reason;
             break;
@@ -177,7 +177,7 @@ export class Executor {
         }
 
         // Execute navigator
-        navigatorDone = await this.navigate();
+        navigatorDone = await this.navigate(roundId);
 
         // If navigator indicates completion, the next periodic planner run will validate it
         if (navigatorDone) {
@@ -212,6 +212,10 @@ export class Executor {
         // Note: We don't track pause as it's not a final state
       }
     } catch (error) {
+      if (error instanceof StaleTaskRoundError) {
+        logger.info('Yielding executor at a follow-up round boundary');
+        return;
+      }
       if (error instanceof RequestCancelledError) {
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_task_cancel'));
 
@@ -231,7 +235,7 @@ export class Executor {
   /**
    * Helper method to run planner and store its output
    */
-  private async runPlanner(): Promise<AgentOutput<PlannerOutput> | null> {
+  private async runPlanner(roundId: string): Promise<AgentOutput<PlannerOutput> | null> {
     const context = this.context;
     try {
       // Add current browser state to memory
@@ -246,11 +250,12 @@ export class Executor {
       // Execute planner
       const planOutput = await this.planner.execute();
       if (planOutput.result) {
-        await this.hooks.onPlan(planOutput.result.completion_criteria);
+        await this.hooks.onPlan(roundId, planOutput.result.completion_criteria);
         this.context.messageManager.addPlan(JSON.stringify(planOutput.result), positionForPlan);
       }
       return planOutput;
     } catch (error) {
+      if (error instanceof StaleTaskRoundError) throw error;
       logger.error(`Failed to execute planner: ${error}`);
       if (
         error instanceof ChatModelAuthError ||
@@ -271,7 +276,7 @@ export class Executor {
     }
   }
 
-  private async navigate(): Promise<boolean> {
+  private async navigate(roundId: string): Promise<boolean> {
     const context = this.context;
     try {
       // Get and execute navigation action
@@ -279,7 +284,7 @@ export class Executor {
       if (context.paused || context.stopped) {
         return false;
       }
-      const navOutput = await this.navigator.execute();
+      const navOutput = await this.navigator.execute(roundId);
       // check if the task is paused or stopped
       if (context.paused || context.stopped) {
         return false;
@@ -293,6 +298,7 @@ export class Executor {
         return true;
       }
     } catch (error) {
+      if (error instanceof StaleTaskRoundError) throw error;
       logger.error(`Failed to execute step: ${error}`);
       if (
         error instanceof ChatModelAuthError ||

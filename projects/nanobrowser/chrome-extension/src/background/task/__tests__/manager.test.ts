@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TaskManager } from '../manager';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome } from '../contracts';
 import { Action } from '../../agent/actions/builder';
-import { clickElementActionSchema } from '../../agent/actions/schemas';
+import { clickElementActionSchema, waitActionSchema } from '../../agent/actions/schemas';
 import { ActionResult } from '../../agent/types';
 
 const store = vi.hoisted(() => ({
@@ -45,6 +45,12 @@ const fakeDriver = (): ExecutorDriver => ({
   resume: vi.fn(),
   stop: vi.fn(),
 });
+
+async function taskRoundId(manager: TaskManager, taskId: string): Promise<string> {
+  const task = await manager.snapshot(taskId);
+  if (!task) throw new Error(`Expected task ${taskId}`);
+  return task.currentRoundId;
+}
 
 describe('TaskManager lifecycle', () => {
   beforeEach(() => {
@@ -151,7 +157,7 @@ describe('TaskManager lifecycle', () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     const driver = fakeDriver();
     driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
-    driver.stop = vi.fn(() => finish({ kind: 'cancelled' }));
+    driver.stop = vi.fn(async () => finish({ kind: 'cancelled' }));
     const manager = new TaskManager({
       createExecutor: async () => driver,
       switchTab: vi.fn(),
@@ -274,17 +280,15 @@ describe('TaskManager lifecycle', () => {
 
   it('does not apply an old running driver outcome to a follow-up round', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
-    let oldHooks!: ExecutorHooks;
-    const oldDriver = fakeDriver();
-    oldDriver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
-    const newDriver = fakeDriver();
-    const createExecutor = vi
-      .fn<(input: ExecutorInput, hooks: ExecutorHooks) => Promise<ExecutorDriver>>()
-      .mockImplementationOnce(async (_input, hooks) => {
-        oldHooks = hooks;
-        return oldDriver;
-      })
-      .mockResolvedValueOnce(newDriver);
+    let hooks!: ExecutorHooks;
+    let oldRoundId = '';
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    const createExecutor = vi.fn(async (input: ExecutorInput, nextHooks: ExecutorHooks) => {
+      oldRoundId = input.roundId;
+      hooks = nextHooks;
+      return driver;
+    });
     const manager = new TaskManager({
       createExecutor,
       switchTab: vi.fn(),
@@ -300,7 +304,7 @@ describe('TaskManager lifecycle', () => {
       instructionMessageId: 'message-1',
       tabId: 7,
     });
-    await vi.waitFor(() => expect(oldDriver.run).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(1));
     await manager.dispatch({
       type: 'follow_up',
       commandId: 'follow-1',
@@ -310,15 +314,90 @@ describe('TaskManager lifecycle', () => {
       chatSessionId: 'chat-1',
       instructionMessageId: 'message-2',
     });
-    await oldHooks.onPlan([{ kind: 'page_text', operator: 'present', expected: 'Old result', required: true }]);
-    await vi.waitFor(() => expect(newDriver.run).toHaveBeenCalledTimes(1));
+    await expect(
+      hooks.onPlan(oldRoundId, [{ kind: 'page_text', operator: 'present', expected: 'Old result', required: true }]),
+    ).rejects.toThrow('Task round is no longer current');
+    expect(driver.run).toHaveBeenCalledTimes(1);
+    expect(driver.stop).not.toHaveBeenCalled();
     finish({ kind: 'candidate_complete', summary: 'done' });
-    expect(oldDriver.stop).toHaveBeenCalledOnce();
-    expect(newDriver.run).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(2));
     await expect(manager.snapshot('task-1')).resolves.toMatchObject({
       status: 'running',
       currentRoundId: expect.any(String),
       rounds: [{}, { status: 'running', criteria: [], evidence: [] }],
+    });
+    const currentRoundId = await taskRoundId(manager, 'task-1');
+    expect(driver.run).toHaveBeenNthCalledWith(1, oldRoundId);
+    expect(driver.run).toHaveBeenNthCalledWith(2, currentRoundId);
+    expect(createExecutor).toHaveBeenCalledOnce();
+  });
+
+  it('waits for an in-flight action boundary before running a follow-up round', async () => {
+    let finishRun!: (outcome: ExecutorOutcome) => void;
+    let finishAction!: (result: ActionResult) => void;
+    let hooks!: ExecutorHooks;
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finishRun = resolve)));
+    const createExecutor = vi.fn(async (_input: ExecutorInput, nextHooks: ExecutorHooks) => {
+      hooks = nextHooks;
+      return driver;
+    });
+    const executeAction = vi.fn(() => new Promise<ActionResult>(resolve => (finishAction = resolve)));
+    store.observeActionTarget.mockResolvedValue({
+      ...store.targetObservation,
+      target: { ...store.targetObservation.target, id: 'target-8', tabId: 8 },
+    });
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-safe-boundary',
+      taskId: 'task-safe-boundary',
+      instruction: 'wait, then continue',
+      chatSessionId: 'chat-safe-boundary',
+      instructionMessageId: 'message-safe-boundary',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledOnce());
+    const oldRoundId = await taskRoundId(manager, 'task-safe-boundary');
+    const pendingAction = hooks.dispatchAction(oldRoundId, new Action(executeAction, waitActionSchema), {
+      intent: 'wait before continuing',
+      seconds: 1,
+    });
+    await vi.waitFor(() => expect(executeAction).toHaveBeenCalledOnce());
+    const executing = await manager.snapshot('task-safe-boundary');
+    if (!executing) throw new Error('Expected executing task');
+
+    await manager.dispatch({
+      type: 'follow_up',
+      commandId: 'follow-safe-boundary',
+      taskId: executing.id,
+      expectedRevision: executing.revision,
+      instruction: 'continue after the wait',
+      chatSessionId: 'chat-safe-boundary',
+      instructionMessageId: 'message-safe-boundary-2',
+    });
+    expect(driver.addFollowUp).toHaveBeenCalledWith('continue after the wait');
+    expect(driver.run).toHaveBeenCalledOnce();
+    expect(driver.stop).not.toHaveBeenCalled();
+    expect(createExecutor).toHaveBeenCalledOnce();
+
+    finishAction(new ActionResult({ success: true }));
+    await expect(pendingAction).resolves.toMatchObject({ actionResult: { success: true } });
+    expect(driver.run).toHaveBeenCalledOnce();
+    await expect(manager.snapshot('task-safe-boundary')).resolves.toMatchObject({ activeTabId: 8 });
+
+    finishRun({ kind: 'candidate_complete', summary: 'old round finished' });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(2));
+    const newRoundId = await taskRoundId(manager, 'task-safe-boundary');
+    expect(driver.run).toHaveBeenNthCalledWith(2, newRoundId);
+    await expect(manager.snapshot('task-safe-boundary')).resolves.toMatchObject({
+      status: 'running',
+      rounds: [{ attempts: [{ state: 'observed' }] }, { status: 'running' }],
     });
   });
 
@@ -347,12 +426,19 @@ describe('TaskManager lifecycle', () => {
       tabId: 7,
     });
     await vi.waitFor(() => expect(hooks).toBeDefined());
-    await hooks.onPlan([{ kind: 'page_text', operator: 'present', expected: 'Saved', required: true }]);
+    const approvalRoundId = await taskRoundId(manager, 'task-approval');
+    await hooks.onPlan(approvalRoundId, [
+      { kind: 'page_text', operator: 'present', expected: 'Saved', required: true },
+    ]);
     now = 150;
-    const pending = hooks.dispatchAction(new Action(executeExternalCommit, clickElementActionSchema, true), {
-      intent: 'submit the form with secret form value',
-      index: 4,
-    });
+    const pending = hooks.dispatchAction(
+      approvalRoundId,
+      new Action(executeExternalCommit, clickElementActionSchema, true),
+      {
+        intent: 'submit the form with secret form value',
+        index: 4,
+      },
+    );
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-approval')).toMatchObject({ status: 'waiting_approval' });
     });
@@ -418,10 +504,15 @@ describe('TaskManager lifecycle', () => {
       tabId: 7,
     });
     await vi.waitFor(() => expect(hooks).toBeDefined());
-    const pending = hooks.dispatchAction(new Action(executeExternalCommit, clickElementActionSchema, true), {
-      intent: 'submit form',
-      index: 4,
-    });
+    const pauseRaceRoundId = await taskRoundId(manager, 'task-pause-race');
+    const pending = hooks.dispatchAction(
+      pauseRaceRoundId,
+      new Action(executeExternalCommit, clickElementActionSchema, true),
+      {
+        intent: 'submit form',
+        index: 4,
+      },
+    );
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-pause-race')).toMatchObject({ status: 'waiting_approval' });
     });
@@ -477,7 +568,9 @@ describe('TaskManager lifecycle', () => {
       tabId: 7,
     });
     await vi.waitFor(() => expect(hooks).toBeDefined());
+    const uncertainRoundId = await taskRoundId(manager, 'task-uncertain-live');
     const pending = hooks.dispatchAction(
+      uncertainRoundId,
       new Action(
         vi.fn(async () => {
           throw new Error('click outcome unknown');
@@ -539,10 +632,15 @@ describe('TaskManager lifecycle', () => {
       tabId: 7,
     });
     await vi.waitFor(() => expect(hooks).toBeDefined());
-    const pending = hooks.dispatchAction(new Action(executeExternalCommit, clickElementActionSchema, true), {
-      intent: 'submit form',
-      index: 4,
-    });
+    const disconnectRoundId = await taskRoundId(manager, 'task-disconnect-uncertain');
+    const pending = hooks.dispatchAction(
+      disconnectRoundId,
+      new Action(executeExternalCommit, clickElementActionSchema, true),
+      {
+        intent: 'submit form',
+        index: 4,
+      },
+    );
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-disconnect-uncertain')).toMatchObject({ status: 'waiting_approval' });
     });
@@ -760,7 +858,7 @@ describe('TaskManager lifecycle', () => {
       rounds: [{ id: expect.any(String) }, { instructionMessageId: 'message-2' }],
     });
     expect(driver.resume).toHaveBeenCalledTimes(1);
-    expect(driver.addFollowUp).not.toHaveBeenCalled();
-    expect(driver.stop).toHaveBeenCalledTimes(2);
+    expect(driver.addFollowUp).toHaveBeenCalledWith('then pause it');
+    expect(driver.stop).toHaveBeenCalledTimes(1);
   });
 });
