@@ -4,6 +4,15 @@ Personal second-development (二开) lab for open-source tools.
 
 Maintainer: yishu-ziyu
 
+
+## Local path
+
+```
+/Users/mahaoxuan/Desktop/AI产品经理/自研产品/oss-forks
+```
+
+Symlink (compat): `~/projects/oss-forks` → this directory.
+
 ## Layout
 
 ```
