@@ -742,17 +742,20 @@ export default class Page {
         this._puppeteerPage.keyboard.press(this._convertKey(mainKey)),
         this.waitForPageAndFramesLoad(),
       ]);
-      logger.info('sendKeys complete', keys);
+      logger.info('sendKeys complete');
     } catch (error) {
-      logger.error('Failed to send keys:', error);
-      throw new Error(`Failed to send keys: ${error instanceof Error ? error.message : String(error)}`);
+      const errorCategory = error instanceof Error ? error.name : 'unknown_error';
+      logger.error('Failed to send keys', { category: errorCategory });
+      throw new Error(`Failed to send keys: ${errorCategory}`);
     } finally {
       // Release all modifier keys in reverse order regardless of any errors in key press.
       for (const modifier of [...modifiers].reverse()) {
         try {
           await this._puppeteerPage.keyboard.up(this._convertKey(modifier));
         } catch (releaseError) {
-          logger.error('Failed to release modifier:', modifier, releaseError);
+          logger.error('Failed to release modifier', {
+            category: releaseError instanceof Error ? releaseError.name : 'unknown_error',
+          });
         }
       }
     }
@@ -832,9 +835,7 @@ export default class Page {
       space: 'Space',
     };
 
-    const convertedKey = keyMap[lowerKey] || key;
-    logger.info('convertedKey', convertedKey);
-    return convertedKey as KeyInput;
+    return (keyMap[lowerKey] || key) as KeyInput;
   }
 
   async scrollToText(text: string, nth: number = 1): Promise<boolean> {
@@ -956,7 +957,7 @@ export default class Page {
       throw new Error('Element not found or puppeteer is not connected');
     }
 
-    logger.debug(`Attempting to select '${text}' from dropdown`);
+    logger.debug('Selecting dropdown option');
     logger.debug(`Element attributes: ${JSON.stringify(element.attributes)}`);
     logger.debug(`Element tag: ${element.tagName}`);
 

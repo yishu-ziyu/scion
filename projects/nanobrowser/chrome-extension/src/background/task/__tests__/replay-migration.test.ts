@@ -32,10 +32,17 @@ describe('legacy replay migration', () => {
 
   it('contains no replay caller or raw action-argument logger', () => {
     const root = resolve(process.cwd(), 'src/background');
-    const source = ['index.ts', 'agent/executor.ts', 'agent/agents/navigator.ts', 'agent/actions/builder.ts']
+    const source = [
+      'index.ts',
+      'agent/executor.ts',
+      'agent/agents/navigator.ts',
+      'agent/actions/builder.ts',
+      'browser/page.ts',
+    ]
       .map(file => readFileSync(resolve(root, file), 'utf8'))
       .join('\n');
     expect(source).not.toMatch(/replayHistory|executeHistoryStep|JSON\.stringify\(actionArgs/);
     expect(source).not.toContain("logger.info('Actions'");
+    expect(source).not.toMatch(/logger\.info\('sendKeys complete', keys|logger\.info\('convertedKey'/);
   });
 });
