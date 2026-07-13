@@ -46,6 +46,7 @@ const SidePanel = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
   const [taskSnapshot, setTaskSnapshot] = useState<TaskSnapshot | null>(null);
+  const [taskSnapshotLoaded, setTaskSnapshotLoaded] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
@@ -308,6 +309,7 @@ const SidePanel = () => {
     }
 
     try {
+      setTaskSnapshotLoaded(false);
       portRef.current = chrome.runtime.connect({ name: 'side-panel-connection' });
 
       // biome-ignore lint/suspicious/noExplicitAny: <explanation>
@@ -317,8 +319,10 @@ const SidePanel = () => {
           handleTaskState(message);
         } else if (message && message.type === 'task_snapshot') {
           setTaskSnapshot(message.snapshot);
+          setTaskSnapshotLoaded(true);
         } else if (message && message.type === 'task_event') {
           setTaskSnapshot(message.event.snapshot);
+          setTaskSnapshotLoaded(true);
         } else if (message && message.type === 'command_ack' && !message.ack.accepted) {
           void appendMessage({
             actor: Actors.SYSTEM,
@@ -361,6 +365,7 @@ const SidePanel = () => {
           clearInterval(heartbeatIntervalRef.current);
           heartbeatIntervalRef.current = null;
         }
+        setTaskSnapshotLoaded(false);
         setInputEnabled(true);
         setShowStopButton(false);
       });
@@ -392,8 +397,13 @@ const SidePanel = () => {
       });
       // Clear any references since connection failed
       portRef.current = null;
+      setTaskSnapshotLoaded(false);
     }
   }, [handleTaskState, appendMessage, stopConnection]);
+
+  useEffect(() => {
+    setupConnection();
+  }, [setupConnection]);
 
   // Add safety check for message sending
   const sendMessage = useCallback(
@@ -1055,7 +1065,7 @@ const SidePanel = () => {
                         onMicClick={handleMicClick}
                         isRecording={isRecording}
                         isProcessingSpeech={isProcessingSpeech}
-                        disabled={!inputEnabled || isHistoricalSession}
+                        disabled={!taskSnapshotLoaded || !inputEnabled || isHistoricalSession}
                         showStopButton={showStopButton}
                         setContent={setter => {
                           setInputTextRef.current = setter;
@@ -1091,7 +1101,7 @@ const SidePanel = () => {
                       onMicClick={handleMicClick}
                       isRecording={isRecording}
                       isProcessingSpeech={isProcessingSpeech}
-                      disabled={!inputEnabled || isHistoricalSession}
+                      disabled={!taskSnapshotLoaded || !inputEnabled || isHistoricalSession}
                       showStopButton={showStopButton}
                       setContent={setter => {
                         setInputTextRef.current = setter;
