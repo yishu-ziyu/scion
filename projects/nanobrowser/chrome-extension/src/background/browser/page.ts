@@ -1389,6 +1389,32 @@ export default class Page {
     let activeTag: string | undefined;
     let semanticName: string | undefined = attributes['aria-label'] || attributes.name || attributes.title;
 
+    if (node && this._puppeteerPage) {
+      const handle = await this.getElementByIndex(index as number);
+      const live = await handle?.evaluate(element => {
+        const htmlElement = element as HTMLElement;
+        return {
+          tag: htmlElement.tagName?.toLowerCase(),
+          type: htmlElement.getAttribute('type')?.toLowerCase(),
+          role: htmlElement.getAttribute('role')?.toLowerCase(),
+          autocomplete: htmlElement.getAttribute('autocomplete')?.toLowerCase(),
+          inForm: Boolean(htmlElement.closest('form')),
+          name:
+            htmlElement.getAttribute('aria-label') ||
+            htmlElement.getAttribute('name') ||
+            htmlElement.getAttribute('title'),
+        };
+      });
+      if (live) {
+        tag = live.tag;
+        type = live.type;
+        role = live.role;
+        inForm = live.inForm;
+        semanticName = live.name || undefined;
+        if (live.autocomplete === 'current-password') type = 'password';
+      }
+    }
+
     if (actionName === 'send_keys' && this._puppeteerPage) {
       const active = await this._puppeteerPage.evaluate(() => {
         const element = document.activeElement as HTMLElement | null;
@@ -1414,8 +1440,21 @@ export default class Page {
     const nameDigest = semanticName ? await sha256(semanticName) : undefined;
     const urlOrigin = this.urlOrigin();
     const kind = index !== undefined || actionName === 'send_keys' ? 'element' : 'page';
+    const pageDigest = await sha256(this.url());
+    const structureDigest = node?.xpath ? await sha256(node.xpath) : undefined;
     const digest = await sha256(
-      JSON.stringify({ tabId: this._tabId, urlOrigin, kind, tag, type, role, inForm, nameDigest }),
+      JSON.stringify({
+        tabId: this._tabId,
+        urlOrigin,
+        pageDigest,
+        kind,
+        tag,
+        type,
+        role,
+        inForm,
+        nameDigest,
+        structureDigest,
+      }),
     );
     return {
       target: {

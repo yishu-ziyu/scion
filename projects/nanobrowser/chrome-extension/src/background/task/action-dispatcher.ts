@@ -119,10 +119,29 @@ export class ActionDispatcher {
       }
       attempt = { ...attempt, state: 'approved', approvedAt: this.deps.now() };
       await this.deps.persistAttempt(attempt);
+
+      let rechecked: TargetObservation;
+      try {
+        rechecked = await this.deps.observe(request, parsedArgs, 'before');
+      } catch {
+        attempt = { ...attempt, state: 'blocked' };
+        await this.deps.persistAttempt(attempt);
+        return this.result(new ActionResult({ error: 'Approved target could not be revalidated' }), attempt, before);
+      }
+      if (!before.target || !rechecked.target || before.target.digest !== rechecked.target.digest) {
+        attempt = { ...attempt, state: 'blocked' };
+        await this.deps.persistAttempt(attempt);
+        return this.result(new ActionResult({ error: 'Approved target changed; replan required' }), attempt, rechecked);
+      }
     }
 
     attempt = { ...attempt, state: 'executing', executingAt: this.deps.now() };
     await this.deps.persistAttempt(attempt);
+    if (this.interrupted) {
+      attempt = { ...attempt, state: 'blocked' };
+      await this.deps.persistAttempt(attempt);
+      return this.result(new ActionResult({ error: 'Action was interrupted' }), attempt, before);
+    }
     try {
       const actionResult = await request.action.executeParsed(parsedArgs);
       const after = await this.deps.observe(request, parsedArgs, 'after');

@@ -116,6 +116,46 @@ describe('ActionDispatcher', () => {
     expect(persistedStates).toEqual(['proposed', 'blocked']);
   });
 
+  it('invalidates approval when the target fingerprint changes', async () => {
+    const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
+    const action = new Action(executeExternalCommit, clickElementActionSchema, true);
+    const persistedStates: string[] = [];
+    let observation = 0;
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      persistAttempt: vi.fn(async attempt => {
+        persistedStates.push(attempt.state);
+      }),
+      requestApproval: vi.fn(async () => 'approved' as const),
+      observe: vi.fn(async () => {
+        observation += 1;
+        return {
+          target: {
+            id: 'target-1',
+            kind: 'element' as const,
+            tabId: 7,
+            frameId: 0 as const,
+            urlOrigin: 'https://example.test',
+            digest: observation === 1 ? 'button-before' : 'button-changed',
+          },
+          effectTarget: { tag: 'button', type: 'submit', inForm: true },
+          evidence: [],
+        };
+      }),
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action,
+      rawArgs: { intent: 'submit form', index: 4 },
+    });
+
+    expect(result.attempt.state).toBe('blocked');
+    expect(executeExternalCommit).not.toHaveBeenCalled();
+    expect(persistedStates).toEqual(['proposed', 'approved', 'blocked']);
+  });
+
   it('persists uncertain after an executing action throws', async () => {
     const action = new Action(
       vi.fn(async () => {
@@ -132,6 +172,14 @@ describe('ActionDispatcher', () => {
       }),
       requestApproval: vi.fn(async () => 'approved' as const),
       observe: vi.fn(async () => ({
+        target: {
+          id: 'target-1',
+          kind: 'element' as const,
+          tabId: 7,
+          frameId: 0 as const,
+          urlOrigin: 'https://example.test',
+          digest: 'button-1',
+        },
         effectTarget: { tag: 'button', type: 'submit', inForm: true },
         evidence: [],
       })),
