@@ -213,7 +213,7 @@ One `TaskSession.revision` is authoritative. A new task starts at revision 1. Ev
 - Modify: `projects/nanobrowser/packages/i18n/locales/{en,pt_BR,zh_CN,zh_TW}/messages.json`
 - Test: `projects/nanobrowser/chrome-extension/src/background/task/__tests__/replay-migration.test.ts`
 
-- [ ] **Step 1: Write the failing prefix-migration test**
+- [x] **Step 1: Write the failing prefix-migration test**
 
 ```ts
 import { readFileSync } from 'node:fs';
@@ -259,13 +259,13 @@ describe('legacy replay migration', () => {
 });
 ```
 
-- [ ] **Step 2: Run the migration test and confirm the missing export**
+- [x] **Step 2: Run the migration test and confirm the missing export**
 
 Run: `pnpm --dir projects/nanobrowser --filter chrome-extension test -- src/background/task/__tests__/replay-migration.test.ts`
 
 Expected: FAIL because `removeLegacyAgentStepHistories` is not exported.
 
-- [ ] **Step 3: Implement the native Chrome-storage cleanup**
+- [x] **Step 3: Implement the native Chrome-storage cleanup**
 
 Add this concrete function to `packages/storage/lib/chat/history.ts`; expose it through the existing chat barrel. Keep user chat keys untouched.
 
@@ -279,11 +279,11 @@ export async function removeLegacyAgentStepHistories(): Promise<void> {
 
 Call it once from background startup with logged failure but without blocking extension startup.
 
-- [ ] **Step 4: Delete the complete replay surface**
+- [x] **Step 4: Delete the complete replay surface**
 
 Delete `ChatAgentStepHistory`, `storeAgentStepHistory`, `loadAgentStepHistory`, Executor `replayHistory`, Navigator history parsing/execution, the background `replay` case, SidePanel replay command/state/handlers, ChatInput replay props/button, the general setting/toggle, and replay locale keys. Do not leave a disabled command or compatibility wrapper.
 
-- [ ] **Step 5: Remove raw action/history logging**
+- [x] **Step 5: Remove raw action/history logging**
 
 Delete Navigator `logger.info('Actions', actions)`, action-argument error serialization, Executor development history serialization, and all remaining action-history persistence branches. Replace value-bearing input/keyboard events and the Navigator error logger with these exact redacted forms:
 
@@ -305,7 +305,7 @@ logger.error('doAction error', {
 
 The runtime event allowlist is `actionName`, `elementIndex`, `effect`, `state`, `errorCategory`, `targetDigest`, and timestamps. Never emit or persist `text`, `keys`, raw arguments, DOM text, page body, form values, or credentials.
 
-- [ ] **Step 6: Re-run checks and prove no caller remains**
+- [x] **Step 6: Re-run checks and prove no caller remains**
 
 Run:
 
@@ -319,7 +319,7 @@ pnpm --dir projects/nanobrowser --filter @extension/storage type-check
 
 Expected: migration test PASS; `rg` returns only the migration prefix and its test; type checks PASS or reproduce only a separately recorded pre-existing error unchanged by this story.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add projects/nanobrowser

@@ -62,3 +62,12 @@ Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `p
 - No replay compatibility wrapper, browser fork, cloud runtime, site adapter, parallel task scheduler, repository layer, generated-script runner, or Skill marketplace.
 - Existing security guardrails, input validation, approval gates, and completion checks may not be weakened for simplicity.
 - No new dependency is planned or authorized.
+
+## Story 1 completion record
+
+- Outcome: removed the replay UI/command/settings/execution/storage surface and migrated legacy `chat_agent_step_*`, `__last_llm_raw`, and `__last_llm_parse_error` keys without touching user chat keys.
+- Security hardening: redacted input, keyboard, dropdown, action-error, model-response, JSON-repair, and credential-prefix logs; static regression coverage scans every repaired layer.
+- Commits: `444bc94`, `73da123`, `a00e0b5`, `d77b278`, `f3ff8e0`, `8f22e4c`.
+- Verification: `chrome-extension` 34/34 tests pass; sidepanel, options, and storage type checks pass; replay search returns only migration/test references.
+- Independent review: PASS after two fix rounds. The reviewer found and verified removal of low-level keyboard, raw LLM-response, and dropdown form-value traces.
+- Unchanged baseline: chrome-extension type-check still reports only `helper.ts:24` (`completionWithRetry`) and missing local-only `personal/secrets.local`.
