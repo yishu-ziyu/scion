@@ -4,13 +4,22 @@ import { RxDiscordLogo } from 'react-icons/rx';
 import { FiSettings } from 'react-icons/fi';
 import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
-import { type Message, Actors, chatHistoryStore, agentModelStore } from '@extension/storage';
+import {
+  type ChatMessage,
+  type Message,
+  type TaskCommand,
+  type TaskSnapshot,
+  Actors,
+  chatHistoryStore,
+  agentModelStore,
+} from '@extension/storage';
 import favoritesStorage, { type FavoritePrompt } from '@extension/storage/lib/prompt/favorites';
 import { t } from '@extension/i18n';
 import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
+import { TaskStatusCard } from './components/TaskStatusCard';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import './SidePanel.css';
 
@@ -36,6 +45,7 @@ const SidePanel = () => {
   const [hasConfiguredModels, setHasConfiguredModels] = useState<boolean | null>(null); // null = loading, false = no models, true = has models
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
+  const [taskSnapshot, setTaskSnapshot] = useState<TaskSnapshot | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
@@ -104,27 +114,45 @@ const SidePanel = () => {
     sessionIdRef.current = currentSessionId;
   }, [currentSessionId]);
 
-  const appendMessage = useCallback((newMessage: Message, sessionId?: string | null) => {
-    // Don't save progress messages
-    const isProgressMessage = newMessage.content === progressMessage;
+  const appendMessage = useCallback(
+    async (newMessage: Message, sessionId?: string | null, storedContent?: string): Promise<ChatMessage | null> => {
+      const isProgressMessage = newMessage.content === progressMessage;
+      setMessages(prev => {
+        const filteredMessages = prev.filter(
+          (msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1),
+        );
+        return [...filteredMessages, newMessage];
+      });
 
-    setMessages(prev => {
-      const filteredMessages = prev.filter((msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1));
-      return [...filteredMessages, newMessage];
+      const effectiveSessionId = sessionId !== undefined ? sessionId : sessionIdRef.current;
+      if (!effectiveSessionId || isProgressMessage) return null;
+      return chatHistoryStore.addMessage(effectiveSessionId, {
+        ...newMessage,
+        content: storedContent ?? newMessage.content,
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!taskSnapshot) return;
+    const busy = taskSnapshot.status === 'running' || taskSnapshot.status === 'waiting_approval';
+    setInputEnabled(!busy);
+    setShowStopButton(busy);
+    setIsFollowUpMode(['running', 'paused', 'waiting_user', 'completed'].includes(taskSnapshot.status));
+  }, [taskSnapshot]);
+
+  useEffect(() => {
+    const chatSessionId = taskSnapshot?.chatSessionId;
+    if (!chatSessionId || chatSessionId === sessionIdRef.current) return;
+    void chatHistoryStore.getSession(chatSessionId).then(session => {
+      if (!session) return;
+      setCurrentSessionId(session.id);
+      sessionIdRef.current = session.id;
+      setMessages(session.messages);
+      setIsHistoricalSession(false);
     });
-
-    // Use provided sessionId if available, otherwise fall back to sessionIdRef.current
-    const effectiveSessionId = sessionId !== undefined ? sessionId : sessionIdRef.current;
-
-    console.log('sessionId', effectiveSessionId);
-
-    // Save message to storage if we have a session and it's not a progress message
-    if (effectiveSessionId && !isProgressMessage) {
-      chatHistoryStore
-        .addMessage(effectiveSessionId, newMessage)
-        .catch(err => console.error('Failed to save message to history:', err));
-    }
-  }, []);
+  }, [taskSnapshot]);
 
   const handleTaskState = useCallback(
     (event: AgentEvent) => {
@@ -286,6 +314,16 @@ const SidePanel = () => {
         // Add type checking for message
         if (message && message.type === EventType.EXECUTION) {
           handleTaskState(message);
+        } else if (message && message.type === 'task_snapshot') {
+          setTaskSnapshot(message.snapshot);
+        } else if (message && message.type === 'task_event') {
+          setTaskSnapshot(message.event.snapshot);
+        } else if (message && message.type === 'command_ack' && !message.ack.accepted) {
+          void appendMessage({
+            actor: Actors.SYSTEM,
+            content: `Command rejected: ${message.ack.error}`,
+            timestamp: Date.now(),
+          });
         } else if (message && message.type === 'error') {
           // Handle error messages from service worker
           appendMessage({
@@ -343,6 +381,7 @@ const SidePanel = () => {
           stopConnection(); // Stop if port is invalid
         }
       }, 25000);
+      portRef.current.postMessage({ type: 'get_active_task' });
     } catch (error) {
       console.error('Failed to establish connection:', error);
       appendMessage({
@@ -371,6 +410,11 @@ const SidePanel = () => {
       }
     },
     [stopConnection],
+  );
+
+  const sendTaskCommand = useCallback(
+    (command: TaskCommand) => sendMessage({ type: 'task_command', command }),
+    [sendMessage],
   );
 
   // Handle chat commands that start with /
@@ -416,8 +460,6 @@ const SidePanel = () => {
   };
 
   const handleSendMessage = async (text: string, displayText?: string) => {
-    console.log('handleSendMessage', text);
-
     // Trim the input text first
     const trimmedText = text.trim();
 
@@ -461,39 +503,43 @@ const SidePanel = () => {
         sessionIdRef.current = sessionId;
       }
 
-      const userMessage = {
+      const userMessage: Message = {
         actor: Actors.USER,
-        content: displayText || text, // Use display text for chat UI, full text for background service
+        content: displayText || text,
         timestamp: Date.now(),
       };
 
-      // Pass the sessionId directly to appendMessage
-      appendMessage(userMessage, sessionIdRef.current);
+      const storedMessage = await appendMessage(userMessage, sessionIdRef.current, text);
+      if (!storedMessage || !sessionIdRef.current) throw new Error('Failed to persist task instruction');
 
       // Setup connection if not exists
       if (!portRef.current) {
         setupConnection();
       }
 
-      // Send message using the utility function
-      if (isFollowUpMode) {
-        // Send as follow-up task
-        await sendMessage({
-          type: 'follow_up_task',
-          task: text,
-          taskId: sessionIdRef.current,
-          tabId,
+      const canFollowUp =
+        taskSnapshot?.id === sessionIdRef.current &&
+        ['running', 'paused', 'waiting_user', 'completed'].includes(taskSnapshot.status);
+      if (canFollowUp) {
+        sendTaskCommand({
+          type: 'follow_up',
+          commandId: crypto.randomUUID(),
+          taskId: taskSnapshot.id,
+          expectedRevision: taskSnapshot.revision,
+          instruction: text,
+          chatSessionId: sessionIdRef.current,
+          instructionMessageId: storedMessage.id,
         });
-        console.log('follow_up_task sent', text, tabId, sessionIdRef.current);
       } else {
-        // Send as new task
-        await sendMessage({
-          type: 'new_task',
-          task: text,
+        sendTaskCommand({
+          type: 'start',
+          commandId: crypto.randomUUID(),
           taskId: sessionIdRef.current,
+          instruction: text,
+          chatSessionId: sessionIdRef.current,
+          instructionMessageId: storedMessage.id,
           tabId,
         });
-        console.log('new_task sent', text, tabId, sessionIdRef.current);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -511,12 +557,17 @@ const SidePanel = () => {
 
   const handleStopTask = async () => {
     try {
-      portRef.current?.postMessage({
-        type: 'cancel_task',
-      });
+      if (taskSnapshot) {
+        sendTaskCommand({
+          type: 'cancel',
+          commandId: crypto.randomUUID(),
+          taskId: taskSnapshot.id,
+          expectedRevision: taskSnapshot.revision,
+        });
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error('cancel_task error', errorMessage);
+      console.error('Task cancellation error', errorMessage);
       appendMessage({
         actor: Actors.SYSTEM,
         content: errorMessage,
@@ -536,6 +587,7 @@ const SidePanel = () => {
     setShowStopButton(false);
     setIsFollowUpMode(false);
     setIsHistoricalSession(false);
+    setTaskSnapshot(null);
 
     // Disconnect any existing connection
     stopConnection();
@@ -989,6 +1041,9 @@ const SidePanel = () => {
             {/* Show normal chat interface when models are configured */}
             {hasConfiguredModels === true && (
               <>
+                {taskSnapshot && currentSessionId === taskSnapshot.chatSessionId && (
+                  <TaskStatusCard snapshot={taskSnapshot} send={sendTaskCommand} />
+                )}
                 {messages.length === 0 && (
                   <>
                     <div
