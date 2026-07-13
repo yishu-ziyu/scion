@@ -54,5 +54,6 @@ describe('legacy replay migration', () => {
     expect(source).not.toContain("logger.info('Actions'");
     expect(source).not.toMatch(/logger\.info\('sendKeys complete', keys|logger\.info\('convertedKey'/);
     expect(source).not.toMatch(/__last_llm_|cleanedPreview|textPreview|original: actionString|repaired: repairedJson/);
+    expect(source).not.toMatch(/Element attributes:|Selection result:/);
   });
 });

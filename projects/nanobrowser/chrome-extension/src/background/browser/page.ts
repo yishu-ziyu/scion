@@ -958,8 +958,6 @@ export default class Page {
     }
 
     logger.debug('Selecting dropdown option');
-    logger.debug(`Element attributes: ${JSON.stringify(element.attributes)}`);
-    logger.debug(`Element tag: ${element.tagName}`);
 
     // Validate that we're working with a select element
     if (element.tagName?.toLowerCase() !== 'select') {
@@ -1015,7 +1013,7 @@ export default class Page {
         index,
       );
 
-      logger.debug('Selection result:', result);
+      logger.debug('Dropdown option selected', { elementIndex: index });
       // whether found or not, return the message
       return result.message;
     } catch (error) {
