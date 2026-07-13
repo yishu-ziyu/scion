@@ -582,7 +582,7 @@ git commit -m "feat: add durable browser task lifecycle"
 - Test: `projects/nanobrowser/chrome-extension/src/background/task/__tests__/action-dispatcher.test.ts`
 - Test: `projects/nanobrowser/chrome-extension/src/background/task/__tests__/commit-recovery.test.ts`
 
-- [ ] **Step 1: Write failing policy and bypass tests**
+- [x] **Step 1: Write failing policy and bypass tests**
 
 ```ts
 import { describe, expect, it, vi } from 'vitest';
@@ -641,13 +641,13 @@ it('does not invoke an external commit before approval and invokes it once after
 });
 ```
 
-- [ ] **Step 2: Run the dispatcher tests and confirm the seam is absent**
+- [x] **Step 2: Run the dispatcher tests and confirm the seam is absent**
 
 Run: `pnpm --dir projects/nanobrowser --filter chrome-extension test -- src/background/task/__tests__/action-dispatcher.test.ts`
 
 Expected: FAIL because ActionDispatcher/EffectPolicy do not exist.
 
-- [ ] **Step 3: Reuse Action validation, then execute parsed input**
+- [x] **Step 3: Reuse Action validation, then execute parsed input**
 
 Change `Action` without changing its schemas:
 
@@ -669,7 +669,7 @@ call(input: unknown): Promise<ActionResult> {
 
 Preserve the empty-schema behavior inside `parse`.
 
-- [ ] **Step 4: Implement the single ActionDispatcher and internal pure policy**
+- [x] **Step 4: Implement the single ActionDispatcher and internal pure policy**
 
 ```ts
 // digest.ts
@@ -722,7 +722,7 @@ export function recoverAttempt(attempt: ActionAttempt): ActionAttempt {
 }
 ```
 
-- [ ] **Step 5: Route every remaining Navigator action through the dispatcher**
+- [x] **Step 5: Route every remaining Navigator action through the dispatcher**
 
 Inject one dispatcher function into Navigator from Executor. Replace `actionInstance.call(actionArgs)` in `doMultiAction` with:
 
@@ -735,7 +735,7 @@ if (dispatched.attempt.state === 'blocked' || result.error) break;
 
 On approval wait/block, stop the rest of the batch. Verify no live runtime caller invokes `Action.call()` outside the dispatcher compatibility method.
 
-- [ ] **Step 6: Add fixed target observation for click and Enter**
+- [x] **Step 6: Add fixed target observation for click and Enter**
 
 Add this fixed Page interface; it returns only tag/type/role/name digest, form membership, active element, URL origin, and tab ID:
 
@@ -758,7 +758,7 @@ observeActionTarget(
 
 `ActionDispatcherDeps.observe` delegates to this method. Block password/current-password targets. Treat unknown Enter and ambiguous button clicks as approval, not allow. Do not persist input text or raw page content.
 
-- [ ] **Step 7: Wire approval commands and UI**
+- [x] **Step 7: Wire approval commands and UI**
 
 TaskManager validates task/round/approval/revision, persists the one-use approval before resolving the live dispatcher promise, and emits a redacted snapshot. `TaskStatusCard` renders the pending approval with this exact command payload (the reject payload differs only by `type` and test id):
 
@@ -773,7 +773,7 @@ TaskManager validates task/round/approval/revision, persists the one-use approva
 })}>Reject</button>
 ```
 
-- [ ] **Step 8: Add restart-injection tests at every commit boundary**
+- [x] **Step 8: Add restart-injection tests at every commit boundary**
 
 Add this reducer test to `commit-recovery.test.ts`, then seed the same attempts into the concrete task store and call the Story 2 `manager.recover()` once to assert the task containing `executing` becomes `waiting_user/commit_outcome_uncertain`:
 
@@ -798,7 +798,7 @@ describe('external commit recovery', () => {
 
 Only cold `executing` becomes `uncertain`; no cold state calls the effect. TaskManager maps `uncertain` to task/round status `waiting_user` and wait reason `commit_outcome_uncertain` in the same persistence transaction.
 
-- [ ] **Step 9: Run security and regression checks**
+- [x] **Step 9: Run security and regression checks**
 
 Run:
 
@@ -810,7 +810,7 @@ pnpm --dir projects/nanobrowser --filter chrome-extension type-check
 
 Expected: tests PASS; `rg` returns no execution bypass or raw-arg log; type check PASS or only the recorded unrelated baseline error.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add projects/nanobrowser

@@ -80,3 +80,13 @@ Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `p
 - Verification: `chrome-extension` 43/43 tests pass; manager lifecycle 9/9; sidepanel and storage type checks and scoped ESLint pass.
 - Independent review: PASS after two fix rounds. The reviewer verified closure of Executor launch races, cold active-task recovery, and live side-panel reconnection.
 - Unchanged baseline: chrome-extension type-check still reports only `helper.ts:24` (`completionWithRetry`) and missing local-only `personal/secrets.local`.
+
+## Story 3 completion record
+
+- Outcome: routed every live Navigator action through one crash-safe dispatcher with parse-before-policy ordering, redacted persisted attempts, one-use approval, target revalidation, and exactly-once handler invocation.
+- Safety hardening: fail-closed ambiguous clicks and Enter variants; bound approval to live structural and semantic target digests; converted uncertain post-commit errors, disconnects, and cold `executing` attempts to `waiting_user/commit_outcome_uncertain`; isolated concurrent side-panel ports.
+- Privacy hardening: redacted Navigator action/step and Planner step events before emission, removed full Planner output logging, and prevented all action telemetry from entering durable chat history.
+- Commits: `f7a4414`, `23b1af0`, `e76b21e`, `ce14eb8`, `4a6bf91`, `893b424`, `9677f43`, `fe6281d`.
+- Verification: `chrome-extension` 107/107 tests pass; sidepanel and storage type checks and scoped ESLint pass; static review confirms the dispatcher remains the only production Action handler execution seam.
+- Independent review: PASS after two fix rounds. The reviewer verified approval consumption and target mutation handling, uncertain recovery, multi-port isolation, fail-closed link policy, and event/history/log privacy boundaries.
+- Unchanged baseline: chrome-extension type-check still reports only `helper.ts:24` (`completionWithRetry`) and missing local-only `personal/secrets.local`.
