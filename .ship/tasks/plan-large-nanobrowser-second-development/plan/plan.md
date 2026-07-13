@@ -347,7 +347,7 @@ git commit -m "security: remove raw task replay"
 - Modify: `projects/nanobrowser/pages/side-panel/src/SidePanel.tsx:24-188,298-398,552-670,1123-1188`
 - Test: `projects/nanobrowser/chrome-extension/src/background/task/__tests__/manager.test.ts`
 
-- [ ] **Step 1: Write failing lifecycle/idempotency tests through the TaskManager interface**
+- [x] **Step 1: Write failing lifecycle/idempotency tests through the TaskManager interface**
 
 ```ts
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -451,21 +451,21 @@ describe('TaskManager lifecycle', () => {
 });
 ```
 
-- [ ] **Step 2: Run the manager test and confirm the task module is absent**
+- [x] **Step 2: Run the manager test and confirm the task module is absent**
 
 Run: `pnpm --dir projects/nanobrowser --filter chrome-extension test -- src/background/task/__tests__/manager.test.ts`
 
 Expected: FAIL because TaskManager and task storage types do not exist.
 
-- [ ] **Step 3: Add the persisted wire/state types**
+- [x] **Step 3: Add the persisted wire/state types**
 
 Copy the persisted definitions from `TaskStatus` through `TaskEvent` in **Canonical contracts used by every story** exactly into `packages/storage/lib/task/types.ts`. Put `CompletionCriterionDraft` through `ExecutorOutcome` in `chrome-extension/src/background/task/contracts.ts`; Story 3/4 modules import/re-export their owned types from there instead of redefining them. Raw `instruction` and `run_skill.values` exist only on the in-memory command path, never `TaskSession`/`TaskRound`/events.
 
-- [ ] **Step 4: Add one concrete local task store**
+- [x] **Step 4: Add one concrete local task store**
 
 Use `createStorage<Record<string, TaskSession>>('task-runtime-v1', {}, { storageEnum: StorageEnum.Local, liveUpdate: true })`. Export only `getTask`, `getActiveTask`, and `saveTask`; tests mock this concrete module. Do not add a repository interface; TaskManager is the only writer.
 
-- [ ] **Step 5: Implement the deep TaskManager and typed Executor seam**
+- [x] **Step 5: Implement the deep TaskManager and typed Executor seam**
 
 The public interface is exactly; import the canonical `TaskCommand`, `CommandAck`, `TaskSnapshot`, `TaskEvent`, and `WaitReason` types from storage:
 
@@ -506,11 +506,11 @@ private executorHooks(): ExecutorHooks {
 
 Use one Promise chain for command transitions. ACK after validation and persistence; invoke `void runCurrentRound(taskId)` after ACK. Persist normal-task `goalSummary: 'User task'` and `instructionSummary: 'User instruction'`, never the raw string. Cold resume loads `chatHistory.getSession(task.chatSessionId)`, finds the user message by `instructionMessageId`, and passes that in memory to the new Executor; a missing message becomes `waiting_user/proof_required`. `candidate_complete` stays `waiting_user` until Story 4 provides evidence, so this slice cannot create false success.
 
-- [ ] **Step 6: Move current Executor construction into one function**
+- [x] **Step 6: Move current Executor construction into one function**
 
 Move `setupExecutor` from `background/index.ts:283-359` to `background/agent/factory.ts` as `createExecutorDriver(input, hooks)`. Keep the existing MiniMax/default/firewall/settings logic unchanged. Add no factory class and no generic container.
 
-- [ ] **Step 7: Replace background command branches and bind the declared tab**
+- [x] **Step 7: Replace background command branches and bind the declared tab**
 
 Keep heartbeat, screenshot, state, nohighlight, and speech-to-text. Replace legacy task message branches with:
 
@@ -523,7 +523,7 @@ case 'get_active_task':
 
 TaskManager start must call existing `browserContext.switchTab(command.tabId)` before Executor creation. On disconnect call `interruptActive()`, not cancel. On service-worker boot call `recover()`.
 
-- [ ] **Step 8: Render authoritative snapshots in the side panel**
+- [x] **Step 8: Render authoritative snapshots in the side panel**
 
 Make `appendMessage` return the stored `ChatMessage` for user sends, then include its ID in start/follow-up commands. Generate `commandId` with `crypto.randomUUID()`. Send `get_active_task` after connect and render this authoritative component contract; do not infer task truth from `isFollowUpMode`:
 
@@ -542,7 +542,7 @@ export function TaskStatusCard({ snapshot, send }: TaskStatusCardProps) {
 }
 ```
 
-- [ ] **Step 9: Run lifecycle, regression, and type checks**
+- [x] **Step 9: Run lifecycle, regression, and type checks**
 
 Run:
 
@@ -555,7 +555,7 @@ pnpm --dir projects/nanobrowser --filter @extension/storage type-check
 
 Expected: tests PASS; type checks PASS or only the recorded unchanged pre-existing failure remains.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add projects/nanobrowser

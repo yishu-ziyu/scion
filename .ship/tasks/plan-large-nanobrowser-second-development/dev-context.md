@@ -71,3 +71,12 @@ Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `p
 - Verification: `chrome-extension` 34/34 tests pass; sidepanel, options, and storage type checks pass; replay search returns only migration/test references.
 - Independent review: PASS after two fix rounds. The reviewer found and verified removal of low-level keyboard, raw LLM-response, and dropdown form-value traces.
 - Unchanged baseline: chrome-extension type-check still reports only `helper.ts:24` (`completionWithRetry`) and missing local-only `personal/secrets.local`.
+
+## Story 2 completion record
+
+- Outcome: routed start, follow-up, pause, resume, cancel, disconnect interruption, cold recovery, and reconnect through one persisted revisioned TaskManager snapshot.
+- Runtime hardening: serialized Executor creation, revalidated task status/current round before `run()`, discarded stale drivers, and prevented cold or disconnected side panels from issuing commands before loading the active snapshot.
+- Commits: `6c67cbf`, `fa734f1`, `09a91c0`, `2008ac2`, `25afe7f`, `ebb5b6d`, `2f6aa93`, `c4fd2d9`.
+- Verification: `chrome-extension` 43/43 tests pass; manager lifecycle 9/9; sidepanel and storage type checks and scoped ESLint pass.
+- Independent review: PASS after two fix rounds. The reviewer verified closure of Executor launch races, cold active-task recovery, and live side-panel reconnection.
+- Unchanged baseline: chrome-extension type-check still reports only `helper.ts:24` (`completionWithRetry`) and missing local-only `personal/secrets.local`.
