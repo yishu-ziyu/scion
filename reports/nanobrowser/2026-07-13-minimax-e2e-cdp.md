@@ -86,7 +86,7 @@ Deprecated: `~/bin/chrome-debug-launcher.sh` now redirects to `chrome-cdp ensure
 
 ## Follow-up: extension-tab isolation (2026-07-13)
 
-Product result: the original mixed committed/pending URL leaks are closed locally, but the story remains **BLOCKED in peer review** on attach-time races and has not been pushed.
+Product result at that checkpoint: the original mixed committed/pending URL leaks were closed locally, but the story remained **BLOCKED in peer review** on attach-time races. The next cycle below supersedes this status.
 
 - `BrowserContext` now reuses the existing URL/firewall policy in three places: cold target selection, the tab inventory sent to agents, and `switch_tab` validation. It checks `pendingUrl` before the last committed `url`, closing the in-flight navigation gap found in peer review.
 - Added nine BrowserContext regressions covering active-tab fallback, inventory filtering, mixed committed/pending URLs, already-current tab revalidation, and pre/post-activation rejection.
@@ -97,5 +97,22 @@ Product result: the original mixed committed/pending URL leaks are closed locall
 - Main Chrome CDP health **PASS** (34 targets). Real side-panel E2E was not rerun: native Chrome UI enumeration timed out, then the browser-control safety policy blocked extension-internal URLs and explicitly prohibited a workaround. Manual closure remains: reload the Nanobrowser card, open the real side panel on `example.com`, and run `用一句话中文总结当前页面`.
 - Existing unrelated gate: extension type-check still fails at `agent/helper.ts:24` because `completionWithRetry` is absent from the installed `ChatOpenAI` type.
 - Known ceiling: when an extension page is active, fallback picks the first allowed tab in tab order. Track the last allowed activation if multi-tab precision becomes necessary.
+
+## Closure: validated target attachment cycle (2026-07-13)
+
+Product result: the extension-tab isolation blocker is **CLOSED locally**. Navigator target selection cannot approve one Chrome snapshot and then attach or retain a newly forbidden target through the asynchronous gap.
+
+- `BrowserContext` now owns the full target transaction: latest Chrome snapshot, pending-only commit wait, committed URL policy, Page construction/reuse, required HTTP attachment, post-attachment refetch, cleanup, and current-ID commit.
+- `getCurrentPage()`, `switchTab()`, `openTab()`, and navigation reattachment all use that transaction. The unused public current-ID setter and attach-only bypass were removed.
+- The existing background `tabs.onUpdated` adapter now invalidates/detaches a managed target when committed or pending state becomes forbidden, before DOM-script injection continues.
+- Stale reads cannot overwrite a newer completed switch, and delayed cleanup for an old tab cannot clear a newer current tab.
+- `about:blank` is the only unattached exception because it is the existing `navigateTo()` bootstrap. Both later blank→HTTP promotion and blank→HTTP during the same acquisition rebuild Page from the HTTP snapshot and require attachment before return.
+- New regression total: BrowserContext **18/18**. Full chrome-extension suite: **32/32 PASS**. Three changed files pass targeted ESLint. Production `pnpm -F chrome-extension build`: **PASS**.
+- Repository-wide lint still reports 13 pre-existing errors outside the changed files. Type-check still reports only the pre-existing `agent/helper.ts:24` `completionWithRetry` mismatch.
+- Final runtime commits: `2147f01`, `9f164b3`, `33273cc`, `d398209`, `e582372`. Final narrow independent verification: **PASS / no P1-P2 findings**.
+- The daily runtime and scion copies of `context.ts`, `index.ts`, and `context.test.ts` have zero diff.
+- Real main-Chrome side-panel E2E was not retried: native Chrome UI enumeration previously timed out and the approved browser-control surface prohibited direct extension-internal navigation or a workaround. This satisfies the handoff's explicit-skip branch without weakening the safety policy. Manual smoke remains: reload the unpacked extension, keep `example.com` active, open the real side panel, and run `用一句话中文总结当前页面`.
+
+This blocker no longer needs another guard/fix cycle. The next substantial work should start with product intake and architecture/design for the planned larger second development.
 
 Parser investigation was deliberately kept separate. The captured MiniMax failure is complete pseudo-XML (`<tool_call><invoke name="AgentOutput">...` with MiniMax delimiters), not malformed JSON. A correct follow-up needs an exact fixture and a direct XML-parser dependency; `jsonrepair` cannot handle this payload. The older E2E `result.json` also marks `no_parse_fail: true` despite parse-failure lines, so that assertion must be fixed before claiming strict zero-failure regression.

@@ -3,7 +3,7 @@
 **Audience:** Codex (or any agent) continuing development on this machine.  
 **Owner:** yishu-ziyu  
 **Date:** 2026-07-13  
-**Status:** MiniMax-M3 personal fork is usable on main Chrome; multi-step Navigator E2E passed with known flaky mid-parse.
+**Status:** MiniMax-M3 personal fork is usable on main Chrome; multi-step Navigator E2E passed with known flaky mid-parse; extension-tab target isolation is closed through attach-time regression review.
 
 Read this file first.
 Then skim `reports/nanobrowser/2026-07-13-minimax-e2e-cdp.md`.
@@ -294,7 +294,7 @@ Priority suggestions for Codex (owner can reorder):
 ### P1 - quality
 
 1. **Strict multi-step regression** targeting 0 intermediate parse failures on a fixed task set.
-2. **Exclude `chrome-extension://` tabs** from Navigator browser state / active target selection.
+2. **DONE 2026-07-13:** exclude `chrome-extension://` tabs from Navigator state and close selection, attachment, update-invalidation, and blank→HTTP races. See the dated report.
 3. Harden JSON extraction further (partial JSON, tool-call wrappers, Chinese prose + trailing JSON).
 4. Capture failing raw model payloads to a local debug sink (already partial in base agent) and document how to read them.
 
@@ -400,6 +400,15 @@ Done criteria for a Codex handoff chunk:
 - At least one real browser task verified (or explicit reason if skipped).
 - Secrets still gitignored.
 - scion `main` updated if the change should persist beyond this machine's daily tree.
+
+### Section 14 closure (2026-07-13)
+
+- Completed the recommended extension-tab isolation item through a full design → TDD → independent-review cycle.
+- `BrowserContext` now owns committed target acquisition, attachment-result checking, post-attachment refetch, current-selection commit, and forbidden-update invalidation as one safety boundary.
+- Pending-only HTTP targets wait for commit. `about:blank` remains the sole unattached navigation bootstrap and is rebuilt/attached if it becomes HTTP, including during the same acquisition.
+- Verification: BrowserContext **18/18**, full chrome-extension suite **32/32**, targeted ESLint **PASS**, production build **PASS**, final narrow peer verification **PASS**.
+- The only type-check failure remains the unrelated `agent/helper.ts:24` `completionWithRetry` mismatch. Real side-panel E2E remains explicitly skipped because approved browser control could not enumerate native Chrome UI and prohibited direct extension-URL automation; no unsafe workaround was used.
+- Daily runtime and scion copies of the three changed runtime files were verified identical. The next session can begin product intake/design for the larger second-development program instead of reopening this blocker.
 
 ---
 
