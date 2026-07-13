@@ -402,7 +402,8 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           }
         }
 
-        const result = (await this.dispatchAction(actionInstance, actionArgs)).actionResult;
+        const dispatched = await this.dispatchAction(actionInstance, actionArgs);
+        const result = dispatched.actionResult;
         if (result === undefined) {
           throw new Error(`Action ${actionName} returned undefined`);
         }
@@ -416,6 +417,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           }
         }
         results.push(result);
+        if (dispatched.attempt.state === 'blocked' || result.error) break;
 
         // check if the task is paused or stopped
         if (this.context.paused || this.context.stopped) {

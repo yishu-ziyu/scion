@@ -21,8 +21,26 @@ import { type BrowserContextConfig, DEFAULT_BROWSER_CONTEXT_CONFIG, type PageSta
 import { createLogger } from '@src/background/log';
 import { ClickableElementProcessor } from './dom/clickable/service';
 import { isUrlAllowed } from './util';
+import { sha256 } from '../task/digest';
 
 const logger = createLogger('Page');
+
+export interface ActionTargetObservation {
+  target: {
+    id: string;
+    kind: 'page' | 'element';
+    tabId: number;
+    frameId: 0;
+    urlOrigin: string;
+    digest: string;
+  };
+  tag?: string;
+  type?: string;
+  role?: string;
+  inForm: boolean;
+  activeTag?: string;
+  nameDigest?: string;
+}
 
 export function build_initial_state(tabId?: number, url?: string, title?: string): PageState {
   return {
@@ -1352,6 +1370,86 @@ export default class Page {
   getDomElementByIndex(index: number): DOMElementNode | null {
     const selectorMap = this.getSelectorMap();
     return selectorMap.get(index) || null;
+  }
+
+  async observeActionTarget(
+    actionName: string,
+    parsedArgs: unknown,
+    phase: 'before' | 'after',
+  ): Promise<ActionTargetObservation> {
+    void phase;
+    const args = parsedArgs && typeof parsedArgs === 'object' ? (parsedArgs as Record<string, unknown>) : {};
+    const index = typeof args.index === 'number' ? args.index : undefined;
+    const node = index === undefined ? null : this.getDomElementByIndex(index);
+    const attributes = node?.attributes ?? {};
+    let tag = node?.tagName?.toLowerCase() || undefined;
+    let type: string | undefined = attributes.type?.toLowerCase();
+    let role: string | undefined = attributes.role?.toLowerCase();
+    let inForm = this.hasFormAncestor(node);
+    let activeTag: string | undefined;
+    let semanticName: string | undefined = attributes['aria-label'] || attributes.name || attributes.title;
+
+    if (actionName === 'send_keys' && this._puppeteerPage) {
+      const active = await this._puppeteerPage.evaluate(() => {
+        const element = document.activeElement as HTMLElement | null;
+        return {
+          tag: element?.tagName?.toLowerCase(),
+          type: element?.getAttribute('type')?.toLowerCase(),
+          role: element?.getAttribute('role')?.toLowerCase(),
+          autocomplete: element?.getAttribute('autocomplete')?.toLowerCase(),
+          inForm: Boolean(element?.closest('form')),
+          name: element?.getAttribute('aria-label') || element?.getAttribute('name') || element?.getAttribute('title'),
+        };
+      });
+      activeTag = active.tag;
+      tag = active.tag;
+      type = active.type;
+      role = active.role;
+      inForm = active.inForm;
+      semanticName = active.name || undefined;
+      if (active.autocomplete === 'current-password') type = 'password';
+    }
+
+    if (attributes.autocomplete?.toLowerCase() === 'current-password') type = 'password';
+    const nameDigest = semanticName ? await sha256(semanticName) : undefined;
+    const urlOrigin = this.urlOrigin();
+    const kind = index !== undefined || actionName === 'send_keys' ? 'element' : 'page';
+    const digest = await sha256(
+      JSON.stringify({ tabId: this._tabId, urlOrigin, kind, tag, type, role, inForm, nameDigest }),
+    );
+    return {
+      target: {
+        id: `target-${digest.slice(0, 16)}`,
+        kind,
+        tabId: this._tabId,
+        frameId: 0,
+        urlOrigin,
+        digest,
+      },
+      tag,
+      type,
+      role,
+      inForm,
+      activeTag,
+      nameDigest,
+    };
+  }
+
+  private hasFormAncestor(node: DOMElementNode | null): boolean {
+    let current: DOMElementNode | null = node;
+    while (current) {
+      if (current.tagName?.toLowerCase() === 'form') return true;
+      current = current.parent;
+    }
+    return false;
+  }
+
+  private urlOrigin(): string {
+    try {
+      return new URL(this.url()).origin;
+    } catch {
+      return 'null';
+    }
   }
 
   isFileUploader(elementNode: DOMElementNode, maxDepth = 3, currentDepth = 0): boolean {

@@ -1,6 +1,7 @@
 import { getActiveTask, getTask, saveTask } from '@extension/storage/lib/task';
 import type {
   CommandAck,
+  ActionAttempt,
   TaskCommand,
   TaskEvent,
   TaskRound,
@@ -9,6 +10,7 @@ import type {
   TaskStatus,
 } from '@extension/storage/lib/task';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome, ObserveCriteria } from './contracts';
+import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
 
 interface TaskManagerDeps {
   createExecutor: (input: ExecutorInput, hooks: ExecutorHooks) => Promise<ExecutorDriver>;
@@ -19,9 +21,18 @@ interface TaskManagerDeps {
 
 const TERMINAL_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled'];
 
+interface PendingApproval {
+  taskId: string;
+  roundId: string;
+  attemptId: string;
+  resolve: (decision: 'approved' | 'rejected') => void;
+}
+
 export class TaskManager {
   private readonly drivers = new Map<string, ExecutorDriver>();
+  private readonly dispatchers = new Map<string, ActionDispatcher>();
   private readonly launches = new Map<string, symbol>();
+  private readonly pendingApprovals = new Map<string, PendingApproval>();
   private readonly instructions = new Map<string, string>();
   private readonly listeners = new Set<(event: TaskEvent) => void>();
   private transition: Promise<void> = Promise.resolve();
@@ -54,6 +65,7 @@ export class TaskManager {
     await this.queueTransition(async () => {
       const task = await getActiveTask();
       if (!task || !['running', 'paused', 'waiting_approval'].includes(task.status)) return;
+      this.interruptTaskRuntime(task.id);
       this.drivers.get(task.id)?.stop();
       this.drivers.delete(task.id);
       task.status = 'interrupted';
@@ -68,7 +80,26 @@ export class TaskManager {
       const task = await getActiveTask();
       if (!task || !['running', 'paused', 'waiting_approval'].includes(task.status)) return;
       const round = this.currentRound(task);
-      if (task.sourceSkillId !== undefined) {
+      let hasUncertainCommit = false;
+      for (const taskRound of task.rounds) {
+        taskRound.attempts = taskRound.attempts.map(attempt => {
+          if (attempt.state === 'executing') hasUncertainCommit = true;
+          const recovered = recoverAttempt(attempt);
+          return recovered;
+        });
+        for (const approval of taskRound.approvals) {
+          if (approval.status !== 'pending') continue;
+          approval.status = 'rejected';
+          approval.decidedAt = this.deps.now();
+          const attempt = taskRound.attempts.find(item => item.id === approval.attemptId);
+          if (attempt?.state === 'proposed') attempt.state = 'blocked';
+        }
+      }
+      if (hasUncertainCommit) {
+        task.status = 'waiting_user';
+        round.status = 'waiting_user';
+        round.waitReason = 'commit_outcome_uncertain';
+      } else if (task.sourceSkillId !== undefined) {
         task.status = 'inputs_required';
         round.status = 'inputs_required';
         round.waitReason = 'skill_inputs_required';
@@ -125,6 +156,10 @@ export class TaskManager {
         return this.followUp(existing, command);
       case 'cancel':
         return this.cancel(existing, command.commandId);
+      case 'approve':
+        return this.decideApproval(existing, command, true);
+      case 'reject':
+        return this.decideApproval(existing, command, false);
       default:
         return this.reject(existing, command.commandId, 'invalid_transition');
     }
@@ -247,7 +282,58 @@ export class TaskManager {
     this.currentRound(task).status = 'cancelled';
     const ack = this.accept(task, commandId);
     await this.persist(task);
+    this.interruptTaskRuntime(task.id);
     this.drivers.get(task.id)?.stop();
+    return ack;
+  }
+
+  private async decideApproval(
+    task: TaskSession,
+    command: Extract<TaskCommand, { type: 'approve' | 'reject' }>,
+    approved: boolean,
+  ): Promise<CommandAck> {
+    const round = task.rounds.find(item => item.id === command.roundId);
+    const approval = round?.approvals.find(item => item.id === command.approvalId);
+    const pending = this.pendingApprovals.get(command.approvalId);
+    if (
+      task.status !== 'waiting_approval' ||
+      task.currentRoundId !== command.roundId ||
+      !round ||
+      !approval ||
+      approval.status !== 'pending' ||
+      !pending ||
+      pending.taskId !== task.id ||
+      pending.roundId !== round.id ||
+      pending.attemptId !== approval.attemptId
+    ) {
+      return this.reject(task, command.commandId, 'invalid_transition');
+    }
+
+    const attempt = round.attempts.find(item => item.id === approval.attemptId);
+    if (!attempt || attempt.state !== 'proposed') {
+      return this.reject(task, command.commandId, 'invalid_transition');
+    }
+
+    const now = this.deps.now();
+    if (approved) {
+      attempt.state = 'approved';
+      attempt.approvedAt = now;
+      approval.status = 'consumed';
+      task.status = 'running';
+      round.status = 'running';
+      round.waitReason = undefined;
+    } else {
+      attempt.state = 'blocked';
+      approval.status = 'rejected';
+      task.status = 'waiting_user';
+      round.status = 'waiting_user';
+      round.waitReason = 'approval_rejected';
+    }
+    approval.decidedAt = now;
+    const ack = this.accept(task, command.commandId);
+    await this.persist(task);
+    this.pendingApprovals.delete(command.approvalId);
+    pending.resolve(approved ? 'approved' : 'rejected');
     return ack;
   }
 
@@ -294,23 +380,120 @@ export class TaskManager {
     return round;
   }
 
-  private executorHooks(): ExecutorHooks {
+  private executorHooks(taskId: string): ExecutorHooks {
+    const dispatcher = new ActionDispatcher({
+      now: this.deps.now,
+      persistAttempt: attempt => this.persistAttempt(taskId, attempt),
+      requestApproval: (attempt, summary) => this.requestApproval(taskId, attempt, summary),
+      observe: async (request, parsedArgs, phase) => {
+        const { browserContext } = await import('../agent/factory');
+        const page = await browserContext.getCurrentPage();
+        const observation = await page.observeActionTarget(request.action.name(), parsedArgs, phase);
+        return {
+          target: observation.target,
+          effectTarget: observation,
+          evidence: [],
+        };
+      },
+    });
+    this.dispatchers.set(taskId, dispatcher);
     return {
       onPlan: async () => {},
-      dispatchAction: async (action, rawArgs) => ({
-        actionResult: await action.call(rawArgs),
-        attempt: {
-          id: crypto.randomUUID(),
-          roundId: 'compatibility',
-          actionName: action.name(),
-          effect: 'read',
-          argsDigest: 'not-persisted-in-story-2',
-          state: 'observed',
-          proposedAt: this.deps.now(),
-        },
-        evidence: [],
-      }),
+      dispatchAction: async (action, rawArgs) => {
+        const task = await getTask(taskId);
+        if (!task || task.status !== 'running') throw new Error('Task is not running');
+        const result = await dispatcher.dispatch({
+          taskId,
+          roundId: task.currentRoundId,
+          action,
+          rawArgs,
+        });
+        if (result.targetRef) await this.persistTarget(taskId, result.targetRef);
+        return result;
+      },
     };
+  }
+
+  private async persistAttempt(taskId: string, attempt: ActionAttempt): Promise<void> {
+    await this.queueTransition(async () => {
+      const task = await getTask(taskId);
+      const round = task?.rounds.find(item => item.id === attempt.roundId);
+      if (!task || !round) return;
+      const index = round.attempts.findIndex(item => item.id === attempt.id);
+      if (index === -1) round.attempts.push(structuredClone(attempt));
+      else round.attempts[index] = structuredClone(attempt);
+      task.revision += 1;
+      await this.persist(task);
+    });
+  }
+
+  private async persistTarget(taskId: string, target: TaskSession['targetRefs'][number]): Promise<void> {
+    await this.queueTransition(async () => {
+      const task = await getTask(taskId);
+      if (!task) return;
+      const index = task.targetRefs.findIndex(item => item.id === target.id);
+      if (index === -1) task.targetRefs.push(target);
+      else task.targetRefs[index] = target;
+      task.revision += 1;
+      await this.persist(task);
+    });
+  }
+
+  private async requestApproval(
+    taskId: string,
+    attempt: ActionAttempt,
+    summary: string,
+  ): Promise<'approved' | 'rejected'> {
+    const approvalId = crypto.randomUUID();
+    let resolve!: (decision: 'approved' | 'rejected') => void;
+    const decision = new Promise<'approved' | 'rejected'>(done => {
+      resolve = done;
+    });
+    this.pendingApprovals.set(approvalId, {
+      taskId,
+      roundId: attempt.roundId,
+      attemptId: attempt.id,
+      resolve,
+    });
+
+    let accepted = false;
+    try {
+      await this.queueTransition(async () => {
+        const task = await getTask(taskId);
+        const round = task?.rounds.find(item => item.id === attempt.roundId);
+        if (!task || !round || task.currentRoundId !== round.id || task.status !== 'running') return;
+        round.approvals.push({
+          id: approvalId,
+          attemptId: attempt.id,
+          roundId: round.id,
+          summary,
+          status: 'pending',
+        });
+        task.status = 'waiting_approval';
+        round.status = 'waiting_approval';
+        task.revision += 1;
+        accepted = true;
+        await this.persist(task);
+      });
+    } catch (error) {
+      this.pendingApprovals.delete(approvalId);
+      resolve('rejected');
+      throw error;
+    }
+    if (!accepted) {
+      this.pendingApprovals.delete(approvalId);
+      return 'rejected';
+    }
+    return decision;
+  }
+
+  private interruptTaskRuntime(taskId: string): void {
+    this.dispatchers.get(taskId)?.interrupt();
+    for (const [approvalId, pending] of this.pendingApprovals) {
+      if (pending.taskId !== taskId) continue;
+      this.pendingApprovals.delete(approvalId);
+      pending.resolve('rejected');
+    }
   }
 
   private async runCurrentRound(taskId: string): Promise<void> {
@@ -351,7 +534,7 @@ export class TaskManager {
       const roundId = round.id;
       const driver = await this.deps.createExecutor(
         { taskId, roundId, instruction, tabId: task.activeTabId },
-        this.executorHooks(),
+        this.executorHooks(taskId),
       );
 
       task = await getTask(taskId);

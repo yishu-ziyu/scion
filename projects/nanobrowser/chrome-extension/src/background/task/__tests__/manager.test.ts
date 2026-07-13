@@ -1,18 +1,40 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TaskManager } from '../manager';
-import type { ExecutorDriver, ExecutorInput, ExecutorOutcome } from '../contracts';
+import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome } from '../contracts';
+import { Action } from '../../agent/actions/builder';
+import { clickElementActionSchema } from '../../agent/actions/schemas';
+import { ActionResult } from '../../agent/types';
 
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
   saveTask: vi.fn(async (task: { id: string }) => {
     store.sessions.set(task.id, structuredClone(task));
   }),
+  observeActionTarget: vi.fn(async () => ({
+    target: {
+      id: 'target-1',
+      kind: 'element' as const,
+      tabId: 7,
+      frameId: 0 as const,
+      urlOrigin: 'https://example.test',
+      digest: 'button-1',
+    },
+    tag: 'button',
+    type: 'submit',
+    inForm: true,
+  })),
 }));
 
 vi.mock('@extension/storage/lib/task', () => ({
   getTask: async (id: string) => store.sessions.get(id) ?? null,
   getActiveTask: async () => [...store.sessions.values()].at(-1) ?? null,
   saveTask: store.saveTask,
+}));
+
+vi.mock('../../agent/factory', () => ({
+  browserContext: {
+    getCurrentPage: async () => ({ observeActionTarget: store.observeActionTarget }),
+  },
 }));
 
 const fakeDriver = (): ExecutorDriver => ({
@@ -27,6 +49,7 @@ describe('TaskManager lifecycle', () => {
   beforeEach(() => {
     store.sessions.clear();
     store.saveTask.mockClear();
+    store.observeActionTarget.mockClear();
   });
 
   it('persists one start and returns the original ack for a duplicate command', async () => {
@@ -284,6 +307,190 @@ describe('TaskManager lifecycle', () => {
         rounds: [{}, { status: 'waiting_user', waitReason: 'proof_required' }],
       }),
     );
+  });
+
+  it('consumes one persisted approval before invoking an external commit', async () => {
+    let hooks!: ExecutorHooks;
+    const driver = fakeDriver();
+    const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (input, nextHooks) => {
+        expect(input.taskId).toBe('task-approval');
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-approval',
+      taskId: 'task-approval',
+      instruction: 'submit the form with secret form value',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const pending = hooks.dispatchAction(new Action(executeExternalCommit, clickElementActionSchema, true), {
+      intent: 'submit the form with secret form value',
+      index: 4,
+    });
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-approval')).toMatchObject({ status: 'waiting_approval' });
+    });
+    const waiting = await manager.snapshot('task-approval');
+    if (!waiting) throw new Error('Expected waiting approval snapshot');
+    const round = waiting.rounds.find(item => item.id === waiting.currentRoundId);
+    const approval = round?.approvals[0];
+    if (!approval) throw new Error('Expected pending approval');
+    expect(executeExternalCommit).not.toHaveBeenCalled();
+
+    const approveCommand = {
+      type: 'approve' as const,
+      commandId: 'approve-1',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId: round.id,
+      approvalId: approval.id,
+    };
+    const ack = await manager.dispatch(approveCommand);
+    const result = await pending;
+    expect(result.actionResult.success).toBe(true);
+    expect(executeExternalCommit).toHaveBeenCalledTimes(1);
+    expect(await manager.dispatch(approveCommand)).toEqual(ack);
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-approval')).toMatchObject({
+        status: 'running',
+        rounds: [
+          {
+            attempts: [{ state: 'observed' }],
+            approvals: [{ status: 'consumed' }],
+          },
+        ],
+      });
+    });
+    expect(JSON.stringify(await manager.snapshot('task-approval'))).not.toContain('secret form value');
+  });
+
+  it('recovers an executing external commit as uncertain without invoking it', async () => {
+    store.sessions.set('task-uncertain', {
+      id: 'task-uncertain',
+      goalSummary: 'User task',
+      status: 'running',
+      revision: 4,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionSummary: 'User instruction',
+          status: 'running',
+          commandAcks: {},
+          criteria: [],
+          attempts: [
+            {
+              id: 'attempt-1',
+              roundId: 'round-1',
+              actionName: 'click_element',
+              effect: 'external_commit',
+              argsDigest: 'digest',
+              state: 'executing',
+              proposedAt: 1,
+            },
+          ],
+          approvals: [],
+          evidence: [],
+        },
+      ],
+    });
+    const executeExternalCommit = vi.fn();
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => fakeDriver()),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+
+    await manager.recover();
+
+    expect(executeExternalCommit).not.toHaveBeenCalled();
+    await expect(manager.snapshot('task-uncertain')).resolves.toMatchObject({
+      status: 'waiting_user',
+      rounds: [
+        {
+          status: 'waiting_user',
+          waitReason: 'commit_outcome_uncertain',
+          attempts: [{ state: 'uncertain' }],
+        },
+      ],
+    });
+  });
+
+  it('rejects a stale pending approval during cold recovery', async () => {
+    store.sessions.set('task-pending', {
+      id: 'task-pending',
+      goalSummary: 'User task',
+      status: 'waiting_approval',
+      revision: 3,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionSummary: 'User instruction',
+          status: 'waiting_approval',
+          commandAcks: {},
+          criteria: [],
+          attempts: [
+            {
+              id: 'attempt-1',
+              roundId: 'round-1',
+              actionName: 'click_element',
+              effect: 'external_commit',
+              argsDigest: 'digest',
+              state: 'proposed',
+              proposedAt: 1,
+            },
+          ],
+          approvals: [
+            {
+              id: 'approval-1',
+              attemptId: 'attempt-1',
+              roundId: 'round-1',
+              summary: 'Submit the current form',
+              status: 'pending',
+            },
+          ],
+          evidence: [],
+        },
+      ],
+    });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => fakeDriver()),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+
+    await manager.recover();
+
+    await expect(manager.snapshot('task-pending')).resolves.toMatchObject({
+      status: 'interrupted',
+      rounds: [
+        {
+          attempts: [{ state: 'blocked' }],
+          approvals: [{ status: 'rejected', decidedAt: 100 }],
+        },
+      ],
+    });
   });
 
   it('applies revisioned pause, resume, follow-up, and cancel exactly once', async () => {
