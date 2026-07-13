@@ -415,6 +415,7 @@ export class TaskManager {
   }
 
   private async persistAttempt(taskId: string, attempt: ActionAttempt): Promise<void> {
+    let stopDriver = false;
     await this.queueTransition(async () => {
       const task = await getTask(taskId);
       const round = task?.rounds.find(item => item.id === attempt.roundId);
@@ -425,9 +426,19 @@ export class TaskManager {
       const index = round.attempts.findIndex(item => item.id === attempt.id);
       if (index === -1) round.attempts.push(structuredClone(attempt));
       else round.attempts[index] = structuredClone(attempt);
+      if (attempt.state === 'uncertain' && task.status !== 'interrupted' && !TERMINAL_STATUSES.includes(task.status)) {
+        task.status = 'waiting_user';
+        round.status = 'waiting_user';
+        round.waitReason = 'commit_outcome_uncertain';
+        stopDriver = true;
+      }
       task.revision += 1;
       await this.persist(task);
     });
+    if (stopDriver) {
+      this.drivers.get(taskId)?.stop();
+      this.drivers.delete(taskId);
+    }
   }
 
   private async persistTarget(taskId: string, target: TaskSession['targetRefs'][number]): Promise<void> {

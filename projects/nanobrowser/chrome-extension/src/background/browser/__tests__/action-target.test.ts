@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => {
   Object.defineProperty(globalThis, 'chrome', {
@@ -31,6 +31,8 @@ function pageWithElement(node: DOMElementNode): Page {
 }
 
 describe('Page action target observation', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('returns only a digest for a semantic submit target', async () => {
     const form = element('form', {});
     const button = element('button', { type: 'submit', 'aria-label': 'Submit invoice' }, form);
@@ -40,6 +42,8 @@ describe('Page action target observation', () => {
       tag: 'button',
       type: 'submit',
       inForm: true,
+      hasSemanticName: true,
+      semanticCommit: true,
       nameDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
       target: {
         kind: 'element',
@@ -58,5 +62,68 @@ describe('Page action target observation', () => {
 
     expect(observation.type).toBe('password');
     expect(decideEffect({ actionName: 'input_text', target: observation, skillPolicy: 'default' }).kind).toBe('block');
+  });
+
+  it('fails closed when a cached indexed target cannot be read live', async () => {
+    const button = element('button', { type: 'submit' });
+    const page = pageWithElement(button);
+    (page as unknown as { _puppeteerPage: object })._puppeteerPage = {};
+    vi.spyOn(page, 'getElementByIndex').mockResolvedValue(null);
+
+    await expect(page.observeActionTarget('click_element', { index: 4 }, 'before')).rejects.toThrow(
+      'no longer available',
+    );
+  });
+
+  it('binds Enter approval to the active element structure', async () => {
+    const page = new Page(7, 'https://example.test/form', 'Fixture');
+    const evaluate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        tag: 'textarea',
+        type: undefined,
+        role: undefined,
+        autocomplete: undefined,
+        inForm: true,
+        name: undefined,
+        hasSemanticName: false,
+        structure: 'html:0/body:1/form:0/textarea:0',
+      })
+      .mockResolvedValueOnce({
+        tag: 'textarea',
+        type: undefined,
+        role: undefined,
+        autocomplete: undefined,
+        inForm: true,
+        name: undefined,
+        hasSemanticName: false,
+        structure: 'html:0/body:1/form:0/textarea:1',
+      });
+    (page as unknown as { _puppeteerPage: { evaluate: typeof evaluate; url: () => string } })._puppeteerPage = {
+      evaluate,
+      url: () => 'https://example.test/form',
+    };
+
+    const first = await page.observeActionTarget('send_keys', { keys: 'Control+Enter' }, 'before');
+    const second = await page.observeActionTarget('send_keys', { keys: 'Control+Enter' }, 'before');
+
+    expect(first.target.digest).not.toBe(second.target.digest);
+  });
+
+  it('never retries a click after its outcome becomes unknown', async () => {
+    vi.useFakeTimers();
+    const button = element('button', { type: 'submit' });
+    const page = pageWithElement(button);
+    const click = vi.fn(() => new Promise<void>(() => {}));
+    const handle = { click, evaluate: vi.fn(async () => true) };
+    (page as unknown as { _puppeteerPage: object })._puppeteerPage = {};
+    vi.spyOn(page, 'locateElement').mockResolvedValue(handle as never);
+
+    const pending = page.clickElementNode(false, button);
+    const rejected = expect(pending).rejects.toThrow('Click timeout');
+    await vi.advanceTimersByTimeAsync(2001);
+
+    await rejected;
+    expect(click).toHaveBeenCalledTimes(1);
   });
 });

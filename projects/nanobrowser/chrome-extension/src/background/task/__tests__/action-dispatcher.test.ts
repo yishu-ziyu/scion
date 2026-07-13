@@ -13,8 +13,11 @@ describe('EffectPolicy', () => {
     ['click_element', { tag: 'button', type: 'submit', inForm: true }, 'approval'],
     ['click_element', { tag: 'div', role: 'button', inForm: false }, 'approval'],
     ['click_element', { tag: 'input', type: 'submit', inForm: false }, 'approval'],
-    ['click_element', { tag: 'a', type: '', inForm: false }, 'allow'],
+    ['click_element', { tag: 'a', type: '', inForm: false, hasSemanticName: true }, 'allow'],
+    ['click_element', { tag: 'a', type: '', inForm: false, semanticCommit: true }, 'approval'],
+    ['click_element', { tag: 'a', type: '', inForm: false, intent: 'Delete item' }, 'approval'],
     ['send_keys', { activeTag: 'input', inForm: true, keys: 'Enter' }, 'approval'],
+    ['send_keys', { activeTag: 'textarea', inForm: true, keys: 'Control+Enter' }, 'approval'],
     ['send_keys', { activeTag: 'body', inForm: false, keys: 'PageDown' }, 'allow'],
     ['input_text', { tag: 'input', type: 'password' }, 'block'],
     ['input_text', { tag: 'input', type: 'text' }, 'allow'],
@@ -193,6 +196,44 @@ describe('ActionDispatcher', () => {
         rawArgs: { intent: 'submit form', index: 4 },
       }),
     ).rejects.toThrow('commit transport failed');
+    expect(persistedStates).toEqual(['proposed', 'approved', 'executing', 'uncertain']);
+  });
+
+  it('does not mark an external commit error result as observed', async () => {
+    const action = new Action(
+      vi.fn(async () => new ActionResult({ error: 'outcome unknown' })),
+      clickElementActionSchema,
+      true,
+    );
+    const persistedStates: string[] = [];
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      persistAttempt: vi.fn(async attempt => {
+        persistedStates.push(attempt.state);
+      }),
+      requestApproval: vi.fn(async () => 'approved' as const),
+      observe: vi.fn(async () => ({
+        target: {
+          id: 'target-1',
+          kind: 'element' as const,
+          tabId: 7,
+          frameId: 0 as const,
+          urlOrigin: 'https://example.test',
+          digest: 'button-1',
+        },
+        effectTarget: { tag: 'button', type: 'submit', inForm: true },
+        evidence: [],
+      })),
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action,
+      rawArgs: { intent: 'submit form', index: 4 },
+    });
+
+    expect(result.attempt.state).toBe('uncertain');
     expect(persistedStates).toEqual(['proposed', 'approved', 'executing', 'uncertain']);
   });
 });

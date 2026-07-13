@@ -233,9 +233,7 @@ export class ActionBuilder {
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
         const page = await this.context.browserContext.getCurrentPage();
-        const state = await page.getState();
-
-        const elementNode = state?.selectorMap.get(input.index);
+        const elementNode = page.getDomElementByIndex(input.index);
         if (!elementNode) {
           throw new Error(t('act_errors_elementNotExist', [input.index.toString()]));
         }
@@ -273,9 +271,7 @@ export class ActionBuilder {
         } catch (error) {
           const msg = t('act_errors_elementNoLongerAvailable', [input.index.toString()]);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
-          return new ActionResult({
-            error: error instanceof Error ? error.message : String(error),
-          });
+          throw error;
         }
       },
       clickElementActionSchema,

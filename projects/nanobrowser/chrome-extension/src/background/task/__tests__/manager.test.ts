@@ -439,6 +439,66 @@ describe('TaskManager lifecycle', () => {
     await expect(manager.snapshot('task-pause-race')).resolves.toMatchObject({ status: 'paused' });
   });
 
+  it('stops automatic execution when an approved commit outcome is uncertain', async () => {
+    let hooks!: ExecutorHooks;
+    const driver = fakeDriver();
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (input, nextHooks) => {
+        expect(input.taskId).toBe('task-uncertain-live');
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-uncertain-live',
+      taskId: 'task-uncertain-live',
+      instruction: 'submit form',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const pending = hooks.dispatchAction(
+      new Action(
+        vi.fn(async () => {
+          throw new Error('click outcome unknown');
+        }),
+        clickElementActionSchema,
+        true,
+      ),
+      { intent: 'submit form', index: 4 },
+    );
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-uncertain-live')).toMatchObject({ status: 'waiting_approval' });
+    });
+    const waiting = await manager.snapshot('task-uncertain-live');
+    if (!waiting) throw new Error('Expected waiting approval snapshot');
+    const round = waiting.rounds[0];
+    const approval = round?.approvals[0];
+    if (!round || !approval) throw new Error('Expected pending approval');
+    await manager.dispatch({
+      type: 'approve',
+      commandId: 'approve-uncertain-live',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId: round.id,
+      approvalId: approval.id,
+    });
+
+    await expect(pending).rejects.toThrow('click outcome unknown');
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-uncertain-live')).toMatchObject({
+        status: 'waiting_user',
+        rounds: [{ waitReason: 'commit_outcome_uncertain', attempts: [{ state: 'uncertain' }] }],
+      });
+    });
+    expect(driver.stop).toHaveBeenCalledTimes(1);
+  });
+
   it('recovers an executing external commit as uncertain without invoking it', async () => {
     store.sessions.set('task-uncertain', {
       id: 'task-uncertain',

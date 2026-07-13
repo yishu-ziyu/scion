@@ -40,6 +40,8 @@ export interface ActionTargetObservation {
   inForm: boolean;
   activeTag?: string;
   nameDigest?: string;
+  hasSemanticName: boolean;
+  semanticCommit: boolean;
 }
 
 export function build_initial_state(tabId?: number, url?: string, title?: string): PageState {
@@ -1305,6 +1307,7 @@ export default class Page {
     }
 
     try {
+      void useVision;
       // Highlight before clicking
       // if (elementNode.highlightIndex !== null) {
       //   await this._updateState(useVision, elementNode.highlightIndex);
@@ -1318,32 +1321,11 @@ export default class Page {
       // Scroll element into view if needed
       await this._scrollIntoViewIfNeeded(element);
 
-      try {
-        // First attempt: Use Puppeteer's click method with timeout
-        await Promise.race([
-          element.click(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Click timeout')), 2000)),
-        ]);
-        await this._checkAndHandleNavigation();
-      } catch (error) {
-        // if URLNotAllowedError, throw it
-        if (error instanceof URLNotAllowedError) {
-          throw error;
-        }
-        // Second attempt: Use evaluate to perform a direct click
-        logger.info('Failed to click element, trying again', error);
-        try {
-          await element.evaluate(el => (el as HTMLElement).click());
-        } catch (secondError) {
-          // if URLNotAllowedError, throw it
-          if (secondError instanceof URLNotAllowedError) {
-            throw secondError;
-          }
-          throw new Error(
-            `Failed to click element: ${secondError instanceof Error ? secondError.message : String(secondError)}`,
-          );
-        }
-      }
+      await Promise.race([
+        element.click(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Click timeout')), 2000)),
+      ]);
+      await this._checkAndHandleNavigation();
     } catch (error) {
       throw new Error(
         `Failed to click element: ${elementNode}. Error: ${error instanceof Error ? error.message : String(error)}`,
@@ -1381,6 +1363,7 @@ export default class Page {
     const args = parsedArgs && typeof parsedArgs === 'object' ? (parsedArgs as Record<string, unknown>) : {};
     const index = typeof args.index === 'number' ? args.index : undefined;
     const node = index === undefined ? null : this.getDomElementByIndex(index);
+    if (index !== undefined && !node) throw new Error('Action target is missing');
     const attributes = node?.attributes ?? {};
     let tag = node?.tagName?.toLowerCase() || undefined;
     let type: string | undefined = attributes.type?.toLowerCase();
@@ -1388,11 +1371,32 @@ export default class Page {
     let inForm = this.hasFormAncestor(node);
     let activeTag: string | undefined;
     let semanticName: string | undefined = attributes['aria-label'] || attributes.name || attributes.title;
+    let hasSemanticName = Boolean(semanticName);
+    let semanticCommit = this.hasCommitSignal(`${semanticName ?? ''} ${attributes.href ?? ''}`);
+    let structureSource = node?.xpath || undefined;
 
     if (node && this._puppeteerPage) {
       const handle = await this.getElementByIndex(index as number);
-      const live = await handle?.evaluate(element => {
+      if (!handle) throw new Error('Action target is no longer available');
+      const live = await handle.evaluate(element => {
         const htmlElement = element as HTMLElement;
+        const semanticText = [
+          htmlElement.getAttribute('aria-label'),
+          htmlElement.getAttribute('name'),
+          htmlElement.getAttribute('title'),
+          htmlElement.textContent?.slice(0, 200),
+          htmlElement.getAttribute('href'),
+        ]
+          .filter(Boolean)
+          .join(' ');
+        const path: string[] = [];
+        let current: Element | null = htmlElement;
+        while (current) {
+          const parent: Element | null = current.parentElement;
+          const position = parent ? Array.from(parent.children).indexOf(current) : 0;
+          path.push(`${current.tagName.toLowerCase()}:${position}`);
+          current = parent;
+        }
         return {
           tag: htmlElement.tagName?.toLowerCase(),
           type: htmlElement.getAttribute('type')?.toLowerCase(),
@@ -1403,21 +1407,43 @@ export default class Page {
             htmlElement.getAttribute('aria-label') ||
             htmlElement.getAttribute('name') ||
             htmlElement.getAttribute('title'),
+          hasSemanticName: semanticText.length > 0,
+          semanticCommit:
+            /(submit|send|buy|purchase|delete|remove|confirm|pay|publish|post|save|book|reserve|checkout|transfer|approve|accept|create|update|提交|发送|购买|删除|确认|支付|发布|保存|预订|转账|批准|接受|创建|更新)/i.test(
+              semanticText,
+            ),
+          structure: path.reverse().join('/'),
         };
       });
-      if (live) {
-        tag = live.tag;
-        type = live.type;
-        role = live.role;
-        inForm = live.inForm;
-        semanticName = live.name || undefined;
-        if (live.autocomplete === 'current-password') type = 'password';
-      }
+      tag = live.tag;
+      type = live.type;
+      role = live.role;
+      inForm = live.inForm;
+      semanticName = live.name || undefined;
+      hasSemanticName = live.hasSemanticName;
+      semanticCommit = live.semanticCommit;
+      structureSource = live.structure;
+      if (live.autocomplete === 'current-password') type = 'password';
     }
 
     if (actionName === 'send_keys' && this._puppeteerPage) {
       const active = await this._puppeteerPage.evaluate(() => {
         const element = document.activeElement as HTMLElement | null;
+        const path: string[] = [];
+        let current: Element | null = element;
+        while (current) {
+          const parent: Element | null = current.parentElement;
+          const position = parent ? Array.from(parent.children).indexOf(current) : 0;
+          path.push(`${current.tagName.toLowerCase()}:${position}`);
+          current = parent;
+        }
+        const semanticText = [
+          element?.getAttribute('aria-label'),
+          element?.getAttribute('name'),
+          element?.getAttribute('title'),
+        ]
+          .filter(Boolean)
+          .join(' ');
         return {
           tag: element?.tagName?.toLowerCase(),
           type: element?.getAttribute('type')?.toLowerCase(),
@@ -1425,6 +1451,8 @@ export default class Page {
           autocomplete: element?.getAttribute('autocomplete')?.toLowerCase(),
           inForm: Boolean(element?.closest('form')),
           name: element?.getAttribute('aria-label') || element?.getAttribute('name') || element?.getAttribute('title'),
+          hasSemanticName: semanticText.length > 0,
+          structure: path.reverse().join('/'),
         };
       });
       activeTag = active.tag;
@@ -1433,6 +1461,8 @@ export default class Page {
       role = active.role;
       inForm = active.inForm;
       semanticName = active.name || undefined;
+      hasSemanticName = active.hasSemanticName;
+      structureSource = active.structure;
       if (active.autocomplete === 'current-password') type = 'password';
     }
 
@@ -1441,7 +1471,7 @@ export default class Page {
     const urlOrigin = this.urlOrigin();
     const kind = index !== undefined || actionName === 'send_keys' ? 'element' : 'page';
     const pageDigest = await sha256(this.url());
-    const structureDigest = node?.xpath ? await sha256(node.xpath) : undefined;
+    const structureDigest = structureSource ? await sha256(structureSource) : undefined;
     const digest = await sha256(
       JSON.stringify({
         tabId: this._tabId,
@@ -1471,7 +1501,15 @@ export default class Page {
       inForm,
       activeTag,
       nameDigest,
+      hasSemanticName,
+      semanticCommit,
     };
+  }
+
+  private hasCommitSignal(value: string): boolean {
+    return /(submit|send|buy|purchase|delete|remove|confirm|pay|publish|post|save|book|reserve|checkout|transfer|approve|accept|create|update|提交|发送|购买|删除|确认|支付|发布|保存|预订|转账|批准|接受|创建|更新)/i.test(
+      value,
+    );
   }
 
   private hasFormAncestor(node: DOMElementNode | null): boolean {
