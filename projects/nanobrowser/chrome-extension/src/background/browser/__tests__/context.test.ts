@@ -5,6 +5,10 @@ const tabsApi = vi.hoisted(() => ({
   create: vi.fn(),
   get: vi.fn(),
   update: vi.fn(),
+  onActivated: {
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+  },
 }));
 
 vi.hoisted(() => {
@@ -146,5 +150,18 @@ describe('BrowserContext tab selection', () => {
 
     await expect(new BrowserContext({}).switchTab(pendingExtensionTab.id!)).rejects.toBeInstanceOf(URLNotAllowedError);
     expect(tabsApi.update).not.toHaveBeenCalled();
+  });
+
+  it('revalidates a tab after activation before attaching it', async () => {
+    tabsApi.get
+      .mockResolvedValueOnce(contentTab)
+      .mockResolvedValueOnce({ ...contentTab, active: true })
+      .mockResolvedValueOnce(currentTabBecomesMixed);
+    tabsApi.update.mockResolvedValue({ ...contentTab, active: true });
+    const context = new BrowserContext({});
+    const attachPage = vi.spyOn(context, 'attachPage').mockResolvedValue(true);
+
+    await expect(context.switchTab(contentTab.id!)).rejects.toBeInstanceOf(URLNotAllowedError);
+    expect(attachPage).not.toHaveBeenCalled();
   });
 });

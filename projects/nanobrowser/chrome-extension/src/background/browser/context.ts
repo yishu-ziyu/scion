@@ -254,7 +254,13 @@ export default class BrowserContext {
     await chrome.tabs.update(tabId, { active: true });
     await this.waitForTabEvents(tabId, { waitForUpdate: false });
 
-    const page = await this._getOrCreatePage(await chrome.tabs.get(tabId));
+    const updatedTab = await chrome.tabs.get(tabId);
+    if (!this._getAllowedTabUrl(updatedTab)) {
+      await this.detachPage(tabId);
+      throw new URLNotAllowedError(`Switch tab failed. URL: ${updatedTab.url || ''} is not allowed`);
+    }
+
+    const page = await this._getOrCreatePage(updatedTab);
     await this.attachPage(page);
     this._currentTabId = tabId;
     return page;
