@@ -10,7 +10,7 @@ const store = vi.hoisted(() => ({
   saveTask: vi.fn(async (task: { id: string }) => {
     store.sessions.set(task.id, structuredClone(task));
   }),
-  observeActionTarget: vi.fn(async () => ({
+  targetObservation: {
     target: {
       id: 'target-1',
       kind: 'element' as const,
@@ -22,7 +22,8 @@ const store = vi.hoisted(() => ({
     tag: 'button',
     type: 'submit',
     inForm: true,
-  })),
+  },
+  observeActionTarget: vi.fn(),
 }));
 
 vi.mock('@extension/storage/lib/task', () => ({
@@ -49,7 +50,8 @@ describe('TaskManager lifecycle', () => {
   beforeEach(() => {
     store.sessions.clear();
     store.saveTask.mockClear();
-    store.observeActionTarget.mockClear();
+    store.observeActionTarget.mockReset();
+    store.observeActionTarget.mockResolvedValue(store.targetObservation);
   });
 
   it('persists one start and returns the original ack for a duplicate command', async () => {
@@ -372,6 +374,69 @@ describe('TaskManager lifecycle', () => {
       });
     });
     expect(JSON.stringify(await manager.snapshot('task-approval'))).not.toContain('secret form value');
+  });
+
+  it('does not execute an approved commit after the task is paused', async () => {
+    let hooks!: ExecutorHooks;
+    let finishRecheck!: (value: typeof store.targetObservation) => void;
+    store.observeActionTarget
+      .mockResolvedValueOnce(store.targetObservation)
+      .mockImplementationOnce(() => new Promise(resolve => (finishRecheck = resolve)));
+    const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (input, nextHooks) => {
+        expect(input.taskId).toBe('task-pause-race');
+        hooks = nextHooks;
+        return fakeDriver();
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-pause-race',
+      taskId: 'task-pause-race',
+      instruction: 'submit form',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const pending = hooks.dispatchAction(new Action(executeExternalCommit, clickElementActionSchema, true), {
+      intent: 'submit form',
+      index: 4,
+    });
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-pause-race')).toMatchObject({ status: 'waiting_approval' });
+    });
+    const waiting = await manager.snapshot('task-pause-race');
+    if (!waiting) throw new Error('Expected waiting approval snapshot');
+    const round = waiting.rounds[0];
+    const approval = round?.approvals[0];
+    if (!round || !approval) throw new Error('Expected pending approval');
+    await manager.dispatch({
+      type: 'approve',
+      commandId: 'approve-pause-race',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId: round.id,
+      approvalId: approval.id,
+    });
+    await vi.waitFor(() => expect(finishRecheck).toBeTypeOf('function'));
+    const running = await manager.snapshot('task-pause-race');
+    if (!running) throw new Error('Expected running snapshot');
+    await manager.dispatch({
+      type: 'pause',
+      commandId: 'pause-before-commit',
+      taskId: running.id,
+      expectedRevision: running.revision,
+    });
+    finishRecheck(store.targetObservation);
+
+    await expect(pending).rejects.toThrow('Task is not running');
+    expect(executeExternalCommit).not.toHaveBeenCalled();
+    await expect(manager.snapshot('task-pause-race')).resolves.toMatchObject({ status: 'paused' });
   });
 
   it('recovers an executing external commit as uncertain without invoking it', async () => {

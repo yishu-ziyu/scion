@@ -419,6 +419,9 @@ export class TaskManager {
       const task = await getTask(taskId);
       const round = task?.rounds.find(item => item.id === attempt.roundId);
       if (!task || !round) return;
+      if (attempt.state === 'executing' && task.status !== 'running') {
+        throw new Error('Task is not running');
+      }
       const index = round.attempts.findIndex(item => item.id === attempt.id);
       if (index === -1) round.attempts.push(structuredClone(attempt));
       else round.attempts[index] = structuredClone(attempt);
