@@ -27,6 +27,7 @@ import { BrowserStateHistory, URLNotAllowedError } from '@src/background/browser
 import { convertZodToJsonSchema, repairJsonString } from '@src/background/utils';
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
+import type { ExecutorHooks } from '../../task/contracts';
 
 const logger = createLogger('NavigatorAgent');
 
@@ -64,19 +65,23 @@ export interface NavigatorResult {
   done: boolean;
 }
 
+type NavigatorOptions = BaseAgentOptions & { dispatchAction: ExecutorHooks['dispatchAction'] };
+
 export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
   private actionRegistry: NavigatorActionRegistry;
   private jsonSchema: Record<string, unknown>;
   private _stateHistory: BrowserStateHistory | null = null;
+  private readonly dispatchAction: ExecutorHooks['dispatchAction'];
 
   constructor(
     actionRegistry: NavigatorActionRegistry,
-    options: BaseAgentOptions,
+    options: NavigatorOptions,
     extraOptions?: Partial<ExtraAgentOptions>,
   ) {
     super(actionRegistry.setupModelOutputSchema(), options, { ...extraOptions, id: 'navigator' });
 
     this.actionRegistry = actionRegistry;
+    this.dispatchAction = options.dispatchAction;
 
     // The zod object is too complex to be used directly, so we need to convert it to json schema first for the model to use
     this.jsonSchema = convertZodToJsonSchema(this.modelOutputSchema, 'NavigatorAgentOutput', true);
@@ -397,7 +402,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType, NavigatorResult> {
           }
         }
 
-        const result = await actionInstance.call(actionArgs);
+        const result = (await this.dispatchAction(actionInstance, actionArgs)).actionResult;
         if (result === undefined) {
           throw new Error(`Action ${actionName} returned undefined`);
         }

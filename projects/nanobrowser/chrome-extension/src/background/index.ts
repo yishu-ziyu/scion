@@ -1,36 +1,34 @@
 import 'webextension-polyfill';
-import {
-  agentModelStore,
-  AgentNameEnum,
-  firewallStore,
-  generalSettingsStore,
-  llmProviderStore,
-  analyticsSettingsStore,
-  removeLegacyAgentStepHistories,
-} from '@extension/storage';
+import { llmProviderStore, analyticsSettingsStore, removeLegacyAgentStepHistories } from '@extension/storage';
 import { t } from '@extension/i18n';
-import BrowserContext from './browser/context';
-import { Executor } from './agent/executor';
 import { createLogger } from './log';
-import { ExecutionState } from './agent/event/types';
-import { createChatModel } from './agent/helper';
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { DEFAULT_AGENT_OPTIONS } from './agent/types';
 import { SpeechToTextService } from './services/speechToText';
 import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
 import { ensurePersonalDefaults } from '../personal/bootstrap';
+import { TaskManager } from './task/manager';
+import { browserContext, createExecutorDriver } from './agent/factory';
 
 const logger = createLogger('background');
 
-const browserContext = new BrowserContext({});
-let currentExecutor: Executor | null = null;
 let currentPort: chrome.runtime.Port | null = null;
 const SIDE_PANEL_URL = chrome.runtime.getURL('side-panel/index.html');
+const taskManager = new TaskManager({
+  createExecutor: (input, hooks) => createExecutorDriver(input, hooks, event => currentPort?.postMessage(event)),
+  switchTab: async tabId => {
+    await browserContext.switchTab(tabId);
+  },
+  observeCriteria: async () => [],
+  now: () => Date.now(),
+});
+
+taskManager.subscribe(event => currentPort?.postMessage({ type: 'task_event', event }));
 
 // Personal fork: seed MiniMax-M3 into chrome.storage on every SW boot (no GUI).
 void ensurePersonalDefaults().catch(error => logger.error('Personal bootstrap failed', error));
 void removeLegacyAgentStepHistories().catch(error => logger.error('Legacy replay cleanup failed', error));
+void taskManager.recover().catch(error => logger.error('Task recovery failed', error));
 chrome.runtime.onInstalled.addListener(() => {
   void ensurePersonalDefaults().catch(error => logger.error('Personal bootstrap onInstalled failed', error));
 });
@@ -58,7 +56,7 @@ chrome.debugger.onDetach.addListener(async (source, reason) => {
   console.log('Debugger detached:', source, reason);
   if (reason === 'canceled_by_user') {
     if (source.tabId) {
-      currentExecutor?.cancel();
+      void taskManager.interruptActive();
       await browserContext.cleanup();
     }
   }
@@ -112,57 +110,11 @@ chrome.runtime.onConnect.addListener(port => {
             port.postMessage({ type: 'heartbeat_ack' });
             break;
 
-          case 'new_task': {
-            if (!message.task) return port.postMessage({ type: 'error', error: t('bg_cmd_newTask_noTask') });
-            if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
+          case 'task_command':
+            return port.postMessage({ type: 'command_ack', ack: await taskManager.dispatch(message.command) });
 
-            logger.info('new_task', message.tabId, message.task);
-            currentExecutor = await setupExecutor(message.taskId, message.task, browserContext);
-            subscribeToExecutorEvents(currentExecutor);
-
-            const result = await currentExecutor.execute();
-            logger.info('new_task execution result', message.tabId, result);
-            break;
-          }
-
-          case 'follow_up_task': {
-            if (!message.task) return port.postMessage({ type: 'error', error: t('bg_cmd_followUpTask_noTask') });
-            if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
-
-            logger.info('follow_up_task', message.tabId, message.task);
-
-            // If executor exists, add follow-up task
-            if (currentExecutor) {
-              currentExecutor.addFollowUpTask(message.task);
-              // Re-subscribe to events in case the previous subscription was cleaned up
-              subscribeToExecutorEvents(currentExecutor);
-              const result = await currentExecutor.execute();
-              logger.info('follow_up_task execution result', message.tabId, result);
-            } else {
-              // executor was cleaned up, can not add follow-up task
-              logger.info('follow_up_task: executor was cleaned up, can not add follow-up task');
-              return port.postMessage({ type: 'error', error: t('bg_cmd_followUpTask_cleaned') });
-            }
-            break;
-          }
-
-          case 'cancel_task': {
-            if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
-            await currentExecutor.cancel();
-            break;
-          }
-
-          case 'resume_task': {
-            if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_cmd_resumeTask_noTask') });
-            await currentExecutor.resume();
-            return port.postMessage({ type: 'success' });
-          }
-
-          case 'pause_task': {
-            if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
-            await currentExecutor.pause();
-            return port.postMessage({ type: 'success' });
-          }
+          case 'get_active_task':
+            return port.postMessage({ type: 'task_snapshot', snapshot: await taskManager.activeSnapshot() });
 
           case 'screenshot': {
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
@@ -247,112 +199,9 @@ chrome.runtime.onConnect.addListener(port => {
     });
 
     port.onDisconnect.addListener(() => {
-      // this event is also triggered when the side panel is closed, so we need to cancel the task
       console.log('Side panel disconnected');
       currentPort = null;
-      currentExecutor?.cancel();
+      void taskManager.interruptActive();
     });
   }
 });
-
-async function setupExecutor(taskId: string, task: string, browserContext: BrowserContext) {
-  // Personal fork: always re-inject MiniMax-M3 before any LLM call (avoids stale chrome.storage / race).
-  await ensurePersonalDefaults();
-
-  const providers = await llmProviderStore.getAllProviders();
-  // if no providers, need to display the options page
-  if (Object.keys(providers).length === 0) {
-    throw new Error(t('bg_setup_noApiKeys'));
-  }
-
-  // Clean up any legacy validator settings for backward compatibility
-  await agentModelStore.cleanupLegacyValidatorSettings();
-
-  const agentModels = await agentModelStore.getAllAgentModels();
-  // verify if every provider used in the agent models exists in the providers
-  for (const agentModel of Object.values(agentModels)) {
-    if (!providers[agentModel.provider]) {
-      throw new Error(t('bg_setup_noProvider', [agentModel.provider]));
-    }
-  }
-
-  const navigatorModel = agentModels[AgentNameEnum.Navigator];
-  if (!navigatorModel) {
-    throw new Error(t('bg_setup_noNavigatorModel'));
-  }
-  // Log the provider config being used for the navigator
-  const navigatorProviderConfig = providers[navigatorModel.provider];
-  logger.info(
-    `Navigator LLM: provider=${navigatorModel.provider} model=${navigatorModel.modelName} base=${navigatorProviderConfig.baseUrl}`,
-  );
-  const navigatorLLM = createChatModel(navigatorProviderConfig, navigatorModel);
-
-  let plannerLLM: BaseChatModel | null = null;
-  const plannerModel = agentModels[AgentNameEnum.Planner];
-  if (plannerModel) {
-    // Log the provider config being used for the planner
-    const plannerProviderConfig = providers[plannerModel.provider];
-    plannerLLM = createChatModel(plannerProviderConfig, plannerModel);
-  }
-
-  // Apply firewall settings to browser context
-  const firewall = await firewallStore.getFirewall();
-  if (firewall.enabled) {
-    browserContext.updateConfig({
-      allowedUrls: firewall.allowList,
-      deniedUrls: firewall.denyList,
-    });
-  } else {
-    browserContext.updateConfig({
-      allowedUrls: [],
-      deniedUrls: [],
-    });
-  }
-
-  const generalSettings = await generalSettingsStore.getSettings();
-  browserContext.updateConfig({
-    minimumWaitPageLoadTime: generalSettings.minWaitPageLoad / 1000.0,
-    displayHighlights: generalSettings.displayHighlights,
-  });
-
-  const executor = new Executor(task, taskId, browserContext, navigatorLLM, {
-    plannerLLM: plannerLLM ?? navigatorLLM,
-    navigatorProviderId: navigatorModel.provider,
-    plannerProviderId: plannerModel?.provider ?? navigatorModel.provider,
-    agentOptions: {
-      maxSteps: generalSettings.maxSteps,
-      maxFailures: generalSettings.maxFailures,
-      maxActionsPerStep: generalSettings.maxActionsPerStep,
-      useVision: generalSettings.useVision,
-      useVisionForPlanner: true,
-      planningInterval: generalSettings.planningInterval,
-    },
-  });
-
-  return executor;
-}
-
-// Update subscribeToExecutorEvents to use port
-async function subscribeToExecutorEvents(executor: Executor) {
-  // Clear previous event listeners to prevent multiple subscriptions
-  executor.clearExecutionEvents();
-
-  // Subscribe to new events
-  executor.subscribeExecutionEvents(async event => {
-    try {
-      if (currentPort) {
-        currentPort.postMessage(event);
-      }
-    } catch (error) {
-      logger.error('Failed to send message to side panel:', error);
-    }
-
-    if (
-      event.state === ExecutionState.TASK_OK ||
-      event.state === ExecutionState.TASK_FAIL ||
-      event.state === ExecutionState.TASK_CANCEL
-    ) {
-      await currentExecutor?.cleanup();
-    }
-  });
-}

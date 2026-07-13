@@ -22,10 +22,12 @@ import {
 } from './agents/errors';
 import { URLNotAllowedError } from '../browser/views';
 import { analytics } from '../services/analytics';
+import type { ExecutorHooks } from '../task/contracts';
 
 const logger = createLogger('Executor');
 
 export interface ExecutorExtraArgs {
+  hooks: ExecutorHooks;
   plannerLLM?: BaseChatModel;
   extractorLLM?: BaseChatModel;
   agentOptions?: Partial<AgentOptions>;
@@ -46,19 +48,19 @@ export class Executor {
     taskId: string,
     browserContext: BrowserContext,
     navigatorLLM: BaseChatModel,
-    extraArgs?: Partial<ExecutorExtraArgs>,
+    extraArgs: ExecutorExtraArgs,
   ) {
     const messageManager = new MessageManager();
 
-    const plannerLLM = extraArgs?.plannerLLM ?? navigatorLLM;
-    const extractorLLM = extraArgs?.extractorLLM ?? navigatorLLM;
+    const plannerLLM = extraArgs.plannerLLM ?? navigatorLLM;
+    const extractorLLM = extraArgs.extractorLLM ?? navigatorLLM;
     const eventManager = new EventManager();
     const context = new AgentContext(
       taskId,
       browserContext,
       messageManager,
       eventManager,
-      extraArgs?.agentOptions ?? {},
+      extraArgs.agentOptions ?? {},
     );
 
     this.tasks.push(task);
@@ -75,14 +77,15 @@ export class Executor {
       chatLLM: navigatorLLM,
       context: context,
       prompt: this.navigatorPrompt,
-      provider: extraArgs?.navigatorProviderId || '',
+      provider: extraArgs.navigatorProviderId || '',
+      dispatchAction: extraArgs.hooks.dispatchAction,
     });
 
     this.planner = new PlannerAgent({
       chatLLM: plannerLLM,
       context: context,
       prompt: this.plannerPrompt,
-      provider: extraArgs?.plannerProviderId || extraArgs?.navigatorProviderId || '',
+      provider: extraArgs.plannerProviderId || extraArgs.navigatorProviderId || '',
     });
 
     this.context = context;
