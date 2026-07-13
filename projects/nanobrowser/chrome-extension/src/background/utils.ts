@@ -33,12 +33,13 @@ export function repairJsonString(actionString: string): string {
   try {
     // Use jsonrepair to fix malformed JSON
     const repairedJson = jsonrepair(actionString.trim());
-    logger.info('Successfully repaired JSON string', { original: actionString, repaired: repairedJson });
+    logger.info('Successfully repaired JSON string');
     return repairedJson;
   } catch (error) {
     // If jsonrepair fails, log the error and return the original string
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.warning('jsonrepair failed to fix JSON string', { original: actionString, error: errorMessage });
+    logger.warning('jsonrepair failed to fix JSON string', {
+      category: error instanceof Error ? error.name : 'unknown_error',
+    });
     return actionString.trim();
   }
 }

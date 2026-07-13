@@ -139,7 +139,7 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
       provider === 'custom_openai' ||
       // storage provider id is often a custom string like "minimax" already handled;
       // also disable when ChatOpenAI wraps an unknown custom deployment
-      this.chatModelLibrary === 'ChatOpenAI' && provider !== '' && provider !== ProviderTypeEnum.OpenAI
+      (this.chatModelLibrary === 'ChatOpenAI' && provider !== '' && provider !== ProviderTypeEnum.OpenAI)
     ) {
       logger.debug(`[${this.modelName}] provider=${this.provider}: manual JSON extraction (custom OpenAI-compatible)`);
       return false;
@@ -173,14 +173,13 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
         logger.debug(`[${this.modelName}] LLM response received:`, {
           hasParsed: !!response.parsed,
           hasRaw: !!response.raw,
-          rawContent: response.raw?.content?.slice(0, 500) + (response.raw?.content?.length > 500 ? '...' : ''),
         });
 
         if (response.parsed) {
           logger.debug(`[${this.modelName}] Successfully parsed structured output`);
           return response.parsed;
         }
-        logger.error('Failed to parse response', response);
+        logger.error('Failed to parse structured response');
         throw new Error('Could not parse response with structured output');
       } catch (error) {
         if (isAbortedError(error)) {
@@ -199,7 +198,9 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
             return parsed;
           }
         }
-        logger.error(`[${this.modelName}] LLM call failed with error: \n${errorMessage}`);
+        logger.error(`[${this.modelName}] LLM call failed`, {
+          category: error instanceof Error ? error.name : 'unknown_error',
+        });
         throw new Error(`Failed to invoke ${this.modelName} with structured output: \n${errorMessage}`);
       }
     }
@@ -215,24 +216,8 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
       });
 
       const text = messageContentToText(response.content);
-      // Persist last raw response for debugging parse failures (personal fork)
-      try {
-        void chrome.storage.local.set({
-          '__last_llm_raw': {
-            agent: this.id,
-            model: this.modelName,
-            provider: this.provider,
-            contentType: typeof response.content,
-            textPreview: text.slice(0, 4000),
-            textLen: text.length,
-            at: Date.now(),
-          },
-        });
-      } catch {
-        /* ignore storage errors in SW */
-      }
       if (text) {
-        logger.debug(`[${this.modelName}] Manual extraction raw content (first 800 chars):`, text.slice(0, 800));
+        logger.debug(`[${this.modelName}] Manual extraction response received`, { textLength: text.length });
         try {
           const parsed = this.manuallyParseResponse(text);
           if (parsed) {
@@ -243,9 +228,7 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
           const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
           throw new ResponseParseError(msg);
         }
-        logger.warning(`[${this.modelName}] Manual parse returned empty after strip/extract`, {
-          cleanedPreview: removeThinkTags(text).slice(0, 500),
-        });
+        logger.warning(`[${this.modelName}] Manual parse returned empty after strip/extract`);
       } else {
         logger.warning(`[${this.modelName}] Empty model content in manual extraction mode`, {
           contentType: typeof response.content,
@@ -256,7 +239,9 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
       if (error instanceof ResponseParseError) {
         throw error;
       }
-      logger.error(`[${this.modelName}] LLM call failed in manual extraction mode:`, error);
+      logger.error(`[${this.modelName}] LLM call failed in manual extraction mode`, {
+        category: error instanceof Error ? error.name : 'unknown_error',
+      });
       throw error;
     }
     const errorMessage = `Failed to parse response from ${this.modelName}`;
@@ -273,9 +258,10 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
     try {
       return this.modelOutputSchema.parse(data);
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      logger.error('validateModelOutput', detail, data);
-      throw new ResponseParseError(`Could not validate model output: ${detail.slice(0, 300)}`);
+      logger.error('validateModelOutput failed', {
+        category: error instanceof Error ? error.name : 'unknown_error',
+      });
+      throw new ResponseParseError('Could not validate model output');
     }
   }
 
@@ -286,23 +272,9 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
       const extractedJson = extractJsonFromModelOutput(cleanedContent);
       return this.validateModelOutput(extractedJson);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
       logger.warning('manuallyParseResponse failed', {
-        error: msg,
-        cleanedPreview: cleanedContent.slice(0, 600),
+        category: error instanceof Error ? error.name : 'unknown_error',
       });
-      try {
-        void chrome.storage.local.set({
-          '__last_llm_parse_error': {
-            agent: this.id,
-            error: msg,
-            cleanedPreview: cleanedContent.slice(0, 2000),
-            at: Date.now(),
-          },
-        });
-      } catch {
-        /* ignore */
-      }
       // Re-throw validation errors so UI shows the real reason
       if (error instanceof ResponseParseError) {
         throw error;

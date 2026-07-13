@@ -27,7 +27,9 @@ const getCurrentTimestamp = (): number => Date.now();
 
 export async function removeLegacyAgentStepHistories(): Promise<void> {
   const all = await chrome.storage.local.get(null);
-  const keys = Object.keys(all).filter(key => key.startsWith('chat_agent_step_'));
+  const keys = Object.keys(all).filter(
+    key => key.startsWith('chat_agent_step_') || key === '__last_llm_raw' || key === '__last_llm_parse_error',
+  );
   if (keys.length > 0) await chrome.storage.local.remove(keys);
 }
 
