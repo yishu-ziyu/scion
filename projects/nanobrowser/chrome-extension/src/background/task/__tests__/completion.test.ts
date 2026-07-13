@@ -215,4 +215,28 @@ describe('CompletionChecker', () => {
       evidence: [],
     });
   });
+
+  it('reports missing evidence as a mismatch in the current round', () => {
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'missing-1',
+          kind: 'page_text',
+          operator: 'present',
+          expectedDigest: 'saved-digest',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          baseline: false,
+          frozenAt: 100,
+          notBefore: 100,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [],
+    });
+    expect(result.evidence[0]).toMatchObject({ passed: false, reason: 'mismatch' });
+  });
 });

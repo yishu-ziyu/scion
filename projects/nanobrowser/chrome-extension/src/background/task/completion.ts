@@ -63,8 +63,9 @@ function rejectionReason(
   criterion: CompletionCriterion,
   observation: ProbeObservation | undefined,
 ): CompletionEvidence['reason'] | undefined {
-  if (criterion.roundId !== input.currentRoundId || observation?.roundId !== input.currentRoundId) return 'wrong_round';
+  if (criterion.roundId !== input.currentRoundId) return 'wrong_round';
   if (!observation) return 'mismatch';
+  if (observation.roundId !== input.currentRoundId) return 'wrong_round';
   if (observation.targetRefId !== criterion.targetRefId) return 'wrong_target';
   if (observation.observedAt < criterion.notBefore) return 'stale';
   if (
