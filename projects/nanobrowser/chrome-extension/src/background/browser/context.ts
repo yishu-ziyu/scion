@@ -34,6 +34,10 @@ export default class BrowserContext {
     this._currentTabId = tabId;
   }
 
+  private _isTabAllowed(tab?: chrome.tabs.Tab): boolean {
+    return Boolean(tab?.id && tab.url && isUrlAllowed(tab.url, this._config.allowedUrls, this._config.deniedUrls));
+  }
+
   private async _getOrCreatePage(tab: chrome.tabs.Tab, forceUpdate = false): Promise<Page> {
     if (!tab.id) {
       throw new Error('Tab ID is not available');
@@ -94,7 +98,12 @@ export default class BrowserContext {
     // 1. If _currentTabId not set, query the active tab and attach it
     if (!this._currentTabId) {
       let activeTab: chrome.tabs.Tab;
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      let tab: chrome.tabs.Tab | undefined = (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+      if (!this._isTabAllowed(tab)) {
+        const tabs = await chrome.tabs.query({ currentWindow: true });
+        // ponytail: first allowed tab is the fallback; track last allowed activation if multi-tab precision matters.
+        tab = tabs.find(candidate => this._isTabAllowed(candidate));
+      }
       if (!tab?.id) {
         // open a new tab with blank page
         const newTab = await chrome.tabs.create({ url: this._config.homePageUrl });
@@ -221,6 +230,11 @@ export default class BrowserContext {
   public async switchTab(tabId: number): Promise<Page> {
     logger.info('switchTab', tabId);
 
+    const tab = await chrome.tabs.get(tabId);
+    if (!this._isTabAllowed(tab)) {
+      throw new URLNotAllowedError(`Switch tab failed. URL: ${tab.url || ''} is not allowed`);
+    }
+
     await chrome.tabs.update(tabId, { active: true });
     await this.waitForTabEvents(tabId, { waitForUpdate: false });
 
@@ -309,7 +323,7 @@ export default class BrowserContext {
     const tabInfos: TabInfo[] = [];
 
     for (const tab of tabs) {
-      if (tab.id && tab.url && tab.title) {
+      if (this._isTabAllowed(tab) && tab.id && tab.url && tab.title) {
         tabInfos.push({
           id: tab.id,
           url: tab.url,
