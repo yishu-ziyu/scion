@@ -33,6 +33,12 @@ reports/           # E2E notes, design decisions, run evidence indexes
 |---------|----------|--------|-------|
 | [nanobrowser](./projects/nanobrowser) | [nanobrowser/nanobrowser](https://github.com/nanobrowser/nanobrowser) | active | MiniMax-M3 Token Plan, zh_CN, CDP E2E, think-tag JSON fix |
 
+## Handover for agents (Codex etc.)
+
+Start here: **[HANDOVER.md](./HANDOVER.md)**.
+
+It covers dual trees (`scion` vs `~/projects/nanobrowser`), MiniMax bootstrap, CDP rules, E2E status, and next work.
+
 ## How we work
 
 1. Code lives under `projects/<name>/`.

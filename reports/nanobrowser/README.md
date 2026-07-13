@@ -4,6 +4,10 @@ Upstream: https://github.com/nanobrowser/nanobrowser
 Local path (dev): `projects/nanobrowser`  
 Extension id (unpacked on this machine): `nnldlldkcjcooleefoflkgcjobimnaol`
 
+## Start here for agents
+
+Lab-level handoff (Codex): [../../HANDOVER.md](../../HANDOVER.md)
+
 ## Reports
 
 | Date | Doc | Summary |
