@@ -40,6 +40,11 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(error => console.error(error));
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  try {
+    await browserContext.handleTabUpdated(tab);
+  } catch (error) {
+    logger.error('Failed to invalidate updated tab', error);
+  }
   if (tabId && changeInfo.status === 'complete' && tab.url?.startsWith('http')) {
     await injectBuildDomTreeScripts(tabId);
   }
