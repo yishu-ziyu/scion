@@ -79,11 +79,10 @@ export async function createExecutorDriver(
   return {
     run: () =>
       new Promise<ExecutorOutcome>(resolve => {
-        let settled = false;
-        const finish = (outcome: ExecutorOutcome) => {
-          if (settled) return;
-          settled = true;
-          resolve(outcome);
+        let outcome: ExecutorOutcome | null = null;
+        const finish = (result: ExecutorOutcome) => {
+          if (outcome !== null) return;
+          outcome = result;
         };
         executor.clearExecutionEvents();
         executor.subscribeExecutionEvents(async event => {
@@ -105,9 +104,10 @@ export async function createExecutorDriver(
               break;
           }
         });
-        void executor.execute().then(() => {
-          if (!settled) finish({ kind: 'failed', category: 'missing_terminal_event' });
-        });
+        void executor.execute().then(
+          () => resolve(outcome ?? { kind: 'failed', category: 'missing_terminal_event' }),
+          () => resolve({ kind: 'failed', category: 'execution_failed' }),
+        );
       }),
     addFollowUp: instruction => executor.addFollowUpTask(instruction),
     pause: () => {
