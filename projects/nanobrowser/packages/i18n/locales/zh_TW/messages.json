@@ -14,7 +14,7 @@
     "message": "連線至 Service Worker 失敗"
   },
   "errors_cmd_unknown": {
-    "message": "不支援的指令：$COMMAND$。\n\n可用指令：/state、/nohighlight、/replay <historySessionId>",
+    "message": "不支援的指令：$COMMAND$。\n\n可用指令：/state、/nohighlight",
     "placeholders": {
       "command": {
         "content": "$1",
@@ -58,9 +58,6 @@
   "chat_buttons_stop": {
     "message": "停止"
   },
-  "chat_buttons_replay": {
-    "message": "重播"
-  },
   "chat_buttons_send": {
     "message": "傳送"
   },
@@ -99,39 +96,6 @@
   },
   "chat_bookmarks_delete": {
     "message": "刪除書籤"
-  },
-  "chat_replay_starting": {
-    "message": "開始重播任務：\n\n\"$TASK$\"",
-    "placeholders": {
-      "task": {
-        "content": "$1",
-        "example": "Navigate to example.com"
-      }
-    }
-  },
-  "chat_replay_failed": {
-    "message": "重播失敗：$ERROR_MESSAGE$",
-    "placeholders": {
-      "error_message": {
-        "content": "$1",
-        "example": "Connection timeout"
-      }
-    }
-  },
-  "chat_replay_invalidArgs": {
-    "message": "參數無效。請使用此格式：/replay <historySessionId>"
-  },
-  "chat_replay_disabled": {
-    "message": "重播功能已在一般設定中停用。請在擴充功能的設定中啟用 \"重播歷史任務\" 以使用此功能。"
-  },
-  "chat_replay_noHistory": {
-    "message": "找不到工作階段 \"$SESSION_ID$...\" 的操作歷史紀錄。此工作階段可能未包含可重播的操作。\n\n這可能是因為它本身就是一個重播工作階段 (重播工作階段無法再次重播)，或是在此功能推出之前所建立的。",
-    "placeholders": {
-      "session_id": {
-        "content": "$1",
-        "example": "abc123def456789"
-      }
-    }
   },
   "chat_stt_processing": {
     "message": "正在處理語音..."
@@ -255,12 +219,6 @@
   },
   "options_general_minWaitPageLoad_desc": {
     "message": "頁面載入後的最短等候時間 (250-5000 毫秒)"
-  },
-  "options_general_replayHistoricalTasks": {
-    "message": "重播歷史任務（實驗性功能）"
-  },
-  "options_general_replayHistoricalTasks_desc": {
-    "message": "啟用儲存與重播代理程式的步驟歷史紀錄 (此為實驗性功能，可能存在問題)"
   },
   "options_models_providers_header": {
     "message": "LLM 提供者"
@@ -478,12 +436,6 @@
   "bg_cmd_stt_failed": {
     "message": "語音辨識失敗"
   },
-  "bg_cmd_replay_noHistory": {
-    "message": "未提供歷史工作階段 ID。"
-  },
-  "bg_cmd_replay_failed": {
-    "message": "重播失敗"
-  },
   "bg_setup_noApiKeys": {
     "message": "請先在設定頁面中完成 API 金鑰的設定。"
   },
@@ -519,27 +471,6 @@
         "example": "Connection timeout"
       }
     }
-  },
-  "exec_replay_cancel": {
-    "message": "重播已取消"
-  },
-  "exec_replay_ok": {
-    "message": "重播已完成"
-  },
-  "exec_replay_fail": {
-    "message": "重播失敗：\n\n$ERROR_MESSAGE$",
-    "placeholders": {
-      "error_message": {
-        "content": "$1",
-        "example": "Network error"
-      }
-    }
-  },
-  "exec_replay_historyNotFound": {
-    "message": "找不到歷史紀錄"
-  },
-  "exec_replay_historyEmpty": {
-    "message": "歷史紀錄為空"
   },
   "act_searchGoogle_start": {
     "message": "正在 Google 上搜尋 \"$QUERY$\"",

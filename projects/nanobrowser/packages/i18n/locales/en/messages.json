@@ -14,7 +14,7 @@
     "message": "连接至 Service Worker 失败"
   },
   "errors_cmd_unknown": {
-    "message": "不支持的指令：$COMMAND$。\n\n可用指令：/state、/nohighlight、/replay <historySessionId>",
+    "message": "不支持的指令：$COMMAND$。\n\n可用指令：/state、/nohighlight",
     "placeholders": {
       "command": {
         "content": "$1",
@@ -58,9 +58,6 @@
   "chat_buttons_stop": {
     "message": "停止"
   },
-  "chat_buttons_replay": {
-    "message": "回放"
-  },
   "chat_buttons_send": {
     "message": "发送"
   },
@@ -99,39 +96,6 @@
   },
   "chat_bookmarks_delete": {
     "message": "删除书签"
-  },
-  "chat_replay_starting": {
-    "message": "开始回放任务：\n\n\"$TASK$\"",
-    "placeholders": {
-      "task": {
-        "content": "$1",
-        "example": "Navigate to example.com"
-      }
-    }
-  },
-  "chat_replay_failed": {
-    "message": "回放失败：$ERROR_MESSAGE$",
-    "placeholders": {
-      "error_message": {
-        "content": "$1",
-        "example": "Connection timeout"
-      }
-    }
-  },
-  "chat_replay_invalidArgs": {
-    "message": "参数无效。请使用此格式：/replay <historySessionId>"
-  },
-  "chat_replay_disabled": {
-    "message": "回放功能已在一般设置中停用。请在扩展的设置中启用 \"回放历史任务\" 以使用此功能。"
-  },
-  "chat_replay_noHistory": {
-    "message": "找不到会话 \"$SESSION_ID$...\" 的操作历史记录。此会话可能未包含可回放的操作。\n\n这可能是因为它本身就是一个回放会话 (回放会话无法再次回放)，或是在此功能推出之前所建立的。",
-    "placeholders": {
-      "session_id": {
-        "content": "$1",
-        "example": "abc123def456789"
-      }
-    }
   },
   "chat_stt_processing": {
     "message": "正在处理语音..."
@@ -255,12 +219,6 @@
   },
   "options_general_minWaitPageLoad_desc": {
     "message": "页面加载后的最短等候时间 (250-5000 毫秒)"
-  },
-  "options_general_replayHistoricalTasks": {
-    "message": "回放历史任务（实验性功能）"
-  },
-  "options_general_replayHistoricalTasks_desc": {
-    "message": "启用保存与回放代理的步骤历史记录 (此为实验性功能，可能存在问题)"
   },
   "options_models_providers_header": {
     "message": "LLM 提供者"
@@ -478,12 +436,6 @@
   "bg_cmd_stt_failed": {
     "message": "语音辨识失败"
   },
-  "bg_cmd_replay_noHistory": {
-    "message": "未提供历史会话 ID。"
-  },
-  "bg_cmd_replay_failed": {
-    "message": "回放失败"
-  },
   "bg_setup_noApiKeys": {
     "message": "请先在设置页面中完成 API 密钥的设置。"
   },
@@ -519,27 +471,6 @@
         "example": "Connection timeout"
       }
     }
-  },
-  "exec_replay_cancel": {
-    "message": "回放已取消"
-  },
-  "exec_replay_ok": {
-    "message": "回放已完成"
-  },
-  "exec_replay_fail": {
-    "message": "回放失败：\n\n$ERROR_MESSAGE$",
-    "placeholders": {
-      "error_message": {
-        "content": "$1",
-        "example": "Network error"
-      }
-    }
-  },
-  "exec_replay_historyNotFound": {
-    "message": "找不到历史记录"
-  },
-  "exec_replay_historyEmpty": {
-    "message": "历史记录为空"
   },
   "act_searchGoogle_start": {
     "message": "正在 Google 上搜寻 \"$QUERY$\"",

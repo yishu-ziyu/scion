@@ -14,7 +14,7 @@
     "message": "Falha ao conectar ao service worker"
   },
   "errors_cmd_unknown": {
-    "message": "Comando não suportado: $COMMAND$.\n\nComandos disponíveis: /state, /nohighlight, /replay <historySessionId>",
+    "message": "Comando não suportado: $COMMAND$.\n\nComandos disponíveis: /state, /nohighlight",
     "placeholders": {
       "command": {
         "content": "$1",
@@ -58,9 +58,6 @@
   "chat_buttons_stop": {
     "message": "Parar"
   },
-  "chat_buttons_replay": {
-    "message": "Reproduzir"
-  },
   "chat_buttons_send": {
     "message": "Enviar"
   },
@@ -99,39 +96,6 @@
   },
   "chat_bookmarks_delete": {
     "message": "Excluir favorito"
-  },
-  "chat_replay_starting": {
-    "message": "Iniciando reprodução da tarefa:\n\n\"$TASK$\"",
-    "placeholders": {
-      "task": {
-        "content": "$1",
-        "example": "Navegar para example.com"
-      }
-    }
-  },
-  "chat_replay_failed": {
-    "message": "Reprodução falhou: $ERROR_MESSAGE$",
-    "placeholders": {
-      "error_message": {
-        "content": "$1",
-        "example": "Tempo de conexão esgotado"
-      }
-    }
-  },
-  "chat_replay_invalidArgs": {
-    "message": "Argumentos inválidos. Por favor, use o formato: /replay <historySessionId>"
-  },
-  "chat_replay_disabled": {
-    "message": "A reprodução está desativada nas configurações gerais. Por favor, ative \"Reproduzir Tarefas Históricas\" nas configurações da extensão para usar este recurso."
-  },
-  "chat_replay_noHistory": {
-    "message": "Nenhum histórico de ação encontrado para a sessão \"$SESSION_ID$\".\n\nÉ uma sessão de reprodução (sessões de reprodução não podem ser reproduzidas novamente), ou foi criada antes do recurso de reprodução estar disponível.",
-    "placeholders": {
-      "session_id": {
-        "content": "$1",
-        "example": "abc123def456789"
-      }
-    }
   },
   "chat_stt_processing": {
     "message": "Processando fala..."
@@ -255,12 +219,6 @@
   },
   "options_general_minWaitPageLoad_desc": {
     "message": "Tempo mínimo de espera após o carregamento da página (250-5000ms)"
-  },
-  "options_general_replayHistoricalTasks": {
-    "message": "Reproduzir Tarefas Históricas (experimental)"
-  },
-  "options_general_replayHistoricalTasks_desc": {
-    "message": "Ativar o armazenamento e a reprodução do histórico de passos do agente (experimental, pode ter problemas)"
   },
   "options_models_providers_header": {
     "message": "Provedores de LLM"
@@ -478,12 +436,6 @@
   "bg_cmd_stt_failed": {
     "message": "Reconhecimento de fala falhou"
   },
-  "bg_cmd_replay_noHistory": {
-    "message": "Nenhum ID de sessão de histórico fornecido"
-  },
-  "bg_cmd_replay_failed": {
-    "message": "Reprodução falhou"
-  },
   "bg_setup_noApiKeys": {
     "message": "Por favor, configure as chaves de API nas configurações primeiro"
   },
@@ -519,27 +471,6 @@
         "example": "Tempo de conexão esgotado"
       }
     }
-  },
-  "exec_replay_cancel": {
-    "message": "Reprodução cancelada"
-  },
-  "exec_replay_ok": {
-    "message": "Reprodução concluída"
-  },
-  "exec_replay_fail": {
-    "message": "Reprodução falhou: \n\n$ERROR_MESSAGE$",
-    "placeholders": {
-      "error_message": {
-        "content": "$1",
-        "example": "Erro de rede"
-      }
-    }
-  },
-  "exec_replay_historyNotFound": {
-    "message": "Histórico não encontrado"
-  },
-  "exec_replay_historyEmpty": {
-    "message": "O histórico está vazio"
   },
   "act_searchGoogle_start": {
     "message": "Procurando por \"$QUERY$\" no Google",

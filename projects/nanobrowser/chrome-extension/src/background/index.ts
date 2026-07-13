@@ -6,6 +6,7 @@ import {
   generalSettingsStore,
   llmProviderStore,
   analyticsSettingsStore,
+  removeLegacyAgentStepHistories,
 } from '@extension/storage';
 import { t } from '@extension/i18n';
 import BrowserContext from './browser/context';
@@ -29,6 +30,7 @@ const SIDE_PANEL_URL = chrome.runtime.getURL('side-panel/index.html');
 
 // Personal fork: seed MiniMax-M3 into chrome.storage on every SW boot (no GUI).
 void ensurePersonalDefaults().catch(error => logger.error('Personal bootstrap failed', error));
+void removeLegacyAgentStepHistories().catch(error => logger.error('Legacy replay cleanup failed', error));
 chrome.runtime.onInstalled.addListener(() => {
   void ensurePersonalDefaults().catch(error => logger.error('Personal bootstrap onInstalled failed', error));
 });
@@ -232,33 +234,6 @@ chrome.runtime.onConnect.addListener(port => {
             }
           }
 
-          case 'replay': {
-            if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
-            if (!message.taskId) return port.postMessage({ type: 'error', error: t('bg_errors_noTaskId') });
-            if (!message.historySessionId)
-              return port.postMessage({ type: 'error', error: t('bg_cmd_replay_noHistory') });
-            logger.info('replay', message.tabId, message.taskId, message.historySessionId);
-
-            try {
-              // Switch to the specified tab
-              await browserContext.switchTab(message.tabId);
-              // Setup executor with the new taskId and a dummy task description
-              currentExecutor = await setupExecutor(message.taskId, message.task, browserContext);
-              subscribeToExecutorEvents(currentExecutor);
-
-              // Run replayHistory with the history session ID
-              const result = await currentExecutor.replayHistory(message.historySessionId);
-              logger.debug('replay execution result', message.tabId, result);
-            } catch (error) {
-              logger.error('Replay failed:', error);
-              return port.postMessage({
-                type: 'error',
-                error: error instanceof Error ? error.message : t('bg_cmd_replay_failed'),
-              });
-            }
-            break;
-          }
-
           default:
             return port.postMessage({ type: 'error', error: t('errors_cmd_unknown', [message.type]) });
         }
@@ -308,7 +283,7 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
   // Log the provider config being used for the navigator
   const navigatorProviderConfig = providers[navigatorModel.provider];
   logger.info(
-    `Navigator LLM: provider=${navigatorModel.provider} model=${navigatorModel.modelName} base=${navigatorProviderConfig.baseUrl} keyPrefix=${(navigatorProviderConfig.apiKey || '').slice(0, 10)}…`,
+    `Navigator LLM: provider=${navigatorModel.provider} model=${navigatorModel.modelName} base=${navigatorProviderConfig.baseUrl}`,
   );
   const navigatorLLM = createChatModel(navigatorProviderConfig, navigatorModel);
 
@@ -352,7 +327,6 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
       useVisionForPlanner: true,
       planningInterval: generalSettings.planningInterval,
     },
-    generalSettings: generalSettings,
   });
 
   return executor;

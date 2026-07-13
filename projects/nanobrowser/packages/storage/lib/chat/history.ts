@@ -1,13 +1,6 @@
 import { createStorage } from '../base/base';
 import { StorageEnum } from '../base/enums';
-import type {
-  ChatSession,
-  ChatMessage,
-  ChatHistoryStorage,
-  Message,
-  ChatSessionMetadata,
-  ChatAgentStepHistory,
-} from './types';
+import type { ChatSession, ChatMessage, ChatHistoryStorage, Message, ChatSessionMetadata } from './types';
 
 // Key for storing chat session metadata
 const CHAT_SESSIONS_META_KEY = 'chat_sessions_meta';
@@ -29,27 +22,14 @@ const getSessionMessagesStorage = (sessionId: string) => {
   });
 };
 
-// Helper function to get storage key for a specific session's agent state history
-const getSessionAgentStepHistoryKey = (sessionId: string) => `chat_agent_step_${sessionId}`;
-
-// Helper function to get storage for a specific session's agent state history
-const getSessionAgentStepHistoryStorage = (sessionId: string) => {
-  return createStorage<ChatAgentStepHistory>(
-    getSessionAgentStepHistoryKey(sessionId),
-    {
-      task: '',
-      history: '',
-      timestamp: 0,
-    },
-    {
-      storageEnum: StorageEnum.Local,
-      liveUpdate: true,
-    },
-  );
-};
-
 // Helper function to get current timestamp in milliseconds
 const getCurrentTimestamp = (): number => Date.now();
+
+export async function removeLegacyAgentStepHistories(): Promise<void> {
+  const all = await chrome.storage.local.get(null);
+  const keys = Object.keys(all).filter(key => key.startsWith('chat_agent_step_'));
+  if (keys.length > 0) await chrome.storage.local.remove(keys);
+}
 
 /**
  * Creates a chat history storage instance with optimized operations
@@ -223,30 +203,6 @@ export function createChatHistoryStorage(): ChatHistoryStorage {
           return session;
         });
       });
-    },
-
-    storeAgentStepHistory: async (sessionId: string, task: string, history: string): Promise<void> => {
-      // Check if session exists
-      const sessionsMeta = await chatSessionsMetaStorage.get();
-      const sessionMeta = sessionsMeta.find(session => session.id === sessionId);
-      if (!sessionMeta) {
-        throw new Error(`Session with ID ${sessionId} not found`);
-      }
-
-      const agentStepHistoryStorage = getSessionAgentStepHistoryStorage(sessionId);
-      await agentStepHistoryStorage.set({
-        task,
-        history,
-        timestamp: getCurrentTimestamp(),
-      });
-    },
-
-    loadAgentStepHistory: async (sessionId: string): Promise<ChatAgentStepHistory | null> => {
-      const agentStepHistoryStorage = getSessionAgentStepHistoryStorage(sessionId);
-      const history = await agentStepHistoryStorage.get();
-      if (!history || !history.task || !history.timestamp || history.history === '' || history.history === '[]')
-        return null;
-      return history;
     },
   };
 }
