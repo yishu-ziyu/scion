@@ -60,6 +60,7 @@ export class TaskManager {
   private readonly instructions = new Map<string, string>();
   private readonly criterionTemplates = new Map<string, CompletionCriterionTemplate[]>();
   private readonly lockedCriteriaRounds = new Set<string>();
+  private readonly unsafeSkillCriteriaRounds = new Set<string>();
   private readonly listeners = new Set<(event: TaskEvent) => void>();
   private transition: Promise<void> = Promise.resolve();
 
@@ -260,6 +261,9 @@ export class TaskManager {
       templates.length === 0
     ) {
       return this.reject(task, command.commandId, 'invalid_transition');
+    }
+    if (this.unsafeSkillCriteriaRounds.has(this.roundKey(task.id, command.roundId))) {
+      return this.reject(task, command.commandId, 'invalid_input');
     }
 
     try {
@@ -804,6 +808,9 @@ export class TaskManager {
     for (const key of this.lockedCriteriaRounds) {
       if (key.startsWith(`${taskId}:`)) this.lockedCriteriaRounds.delete(key);
     }
+    for (const key of this.unsafeSkillCriteriaRounds) {
+      if (key.startsWith(`${taskId}:`)) this.unsafeSkillCriteriaRounds.delete(key);
+    }
     if (driver) await driver.stop();
   }
 
@@ -1073,6 +1080,9 @@ export class TaskManager {
       const tabTargetRefId = `tab-${task.activeTabId}`;
       const latestMediaTarget = [...task.targetRefs].reverse().find(target => target.kind === 'media');
       const userFieldValues = this.extractUserFieldValues(this.instructions.get(taskId) ?? '');
+      const copiedFieldCriterion = drafts.some(
+        draft => draft.kind === 'page_text' && userFieldValues.has(draft.expected.replace(/\s+/g, ' ').trim()),
+      );
       const criteria = await Promise.all(
         drafts
           .slice(0, 8)
@@ -1109,7 +1119,10 @@ export class TaskManager {
       round.criteria = criteria;
       task.revision += 1;
       await this.persist(task);
-      this.criterionTemplates.set(this.roundKey(task.id, round.id), this.templatesFromCriteria(drafts, criteria));
+      const key = this.roundKey(task.id, round.id);
+      this.criterionTemplates.set(key, this.templatesFromCriteria(drafts, criteria));
+      if (copiedFieldCriterion) this.unsafeSkillCriteriaRounds.add(key);
+      else this.unsafeSkillCriteriaRounds.delete(key);
     });
   }
 

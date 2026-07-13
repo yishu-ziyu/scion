@@ -191,6 +191,57 @@ describe('local semantic Skill', () => {
     });
   });
 
+  it('rejects saving a completion criterion copied from a user field value', async () => {
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (input, hooks) => {
+        await hooks.onPlan(input.roundId, [
+          { kind: 'page_text', operator: 'present', expected: 'Ada', required: true },
+        ]);
+        return driver();
+      }),
+      switchTab: vi.fn(async () => undefined),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 300,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-field-copy',
+      taskId: 'field-copy-task',
+      instruction: 'Name: Ada',
+      chatSessionId: 'chat-field-copy',
+      instructionMessageId: 'message-field-copy',
+      tabId: 7,
+    });
+    await vi.waitFor(async () => expect((await manager.snapshot('field-copy-task'))?.status).toBe('waiting_user'));
+    const waiting = await manager.snapshot('field-copy-task');
+    const round = waiting?.rounds[0];
+    const criterion = round?.criteria[0];
+    if (!waiting || !round || !criterion) throw new Error('Expected user-confirmed field-copy criterion');
+    await manager.dispatch({
+      type: 'confirm_completion',
+      commandId: 'confirm-field-copy',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId: round.id,
+      criterionId: criterion.id,
+    });
+    const completed = await manager.snapshot(waiting.id);
+    if (!completed) throw new Error('Expected completed field-copy task');
+
+    await expect(
+      manager.dispatch({
+        type: 'save_skill',
+        commandId: 'save-field-copy',
+        taskId: completed.id,
+        expectedRevision: completed.revision,
+        roundId: completed.currentRoundId,
+        title: 'Fill form',
+        instructionTemplate: 'Fill {{name}}',
+      }),
+    ).resolves.toMatchObject({ accepted: false, error: 'invalid_input' });
+    expect(state.skills.size).toBe(0);
+  });
+
   it('saves only a verified task and replans changed DOM order without retaining values', async () => {
     const pages = [new Map([['Name', 2]]), new Map([['Name', 9]])];
     const usedIndexes: number[] = [];
