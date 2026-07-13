@@ -81,6 +81,7 @@ export interface FavoritePromptsStorage {
 const SKILL_INPUT_NAME = /^[a-z][a-z0-9_]{0,31}$/;
 const SKILL_PLACEHOLDER = /{{\s*([^{}]+?)\s*}}/g;
 const SENSITIVE_SKILL_TEXT = /\b(password|token|secret|credential)\b/i;
+const SENSITIVE_INPUT_SEGMENT = /^(password|token|secret|credential)(?:\d.*)?$/i;
 const DOM_INDEX_TOKEN = /\[\d+\]/;
 
 export function parseSkillInputs(template: string): SkillInput[] {
@@ -88,6 +89,9 @@ export function parseSkillInputs(template: string): SkillInput[] {
   for (const match of template.matchAll(SKILL_PLACEHOLDER)) {
     const name = match[1]?.trim() ?? '';
     if (!SKILL_INPUT_NAME.test(name)) throw new Error('invalid_skill_input');
+    if (name.split('_').some(segment => SENSITIVE_INPUT_SEGMENT.test(segment))) {
+      throw new Error('invalid_skill_input');
+    }
     if (!names.includes(name)) names.push(name);
   }
   if (

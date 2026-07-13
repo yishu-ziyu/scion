@@ -35,13 +35,27 @@ describe('AgentContext event privacy', () => {
     expect(JSON.stringify(event)).not.toContain(secret);
   });
 
-  it('preserves non-action status details', async () => {
+  it.each([
+    [ExecutionState.TASK_OK, 'task_completed'],
+    [ExecutionState.TASK_FAIL, 'task_failed'],
+  ])('redacts model-derived system details for %s', async (state, expected) => {
+    const emit = vi.fn<(event: AgentEvent) => Promise<void>>(async () => undefined);
+    const context = new AgentContext('task-1', {} as never, {} as never, { emit } as never, {});
+    const sentinel = 'Submitted for FIELD_SENTINEL_8472';
+
+    await context.emitEvent(Actors.SYSTEM, state, sentinel);
+
+    expect(emittedEvent(emit).data.details).toBe(expected);
+    expect(JSON.stringify(emittedEvent(emit))).not.toContain(sentinel);
+  });
+
+  it('preserves typed system pause reasons', async () => {
     const emit = vi.fn<(event: AgentEvent) => Promise<void>>(async () => undefined);
     const context = new AgentContext('task-1', {} as never, {} as never, { emit } as never, {});
 
-    await context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, 'Configuration is missing');
+    await context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_PAUSE, 'login_required');
 
-    expect(emittedEvent(emit).data.details).toBe('Configuration is missing');
+    expect(emittedEvent(emit).data.details).toBe('login_required');
   });
 
   it('redacts model-generated planner details before emission', async () => {

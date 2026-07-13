@@ -9,9 +9,14 @@ const STEP_EVENT_DETAILS: Record<string, string> = {
   'step.fail': 'step_failed',
   'step.cancel': 'step_cancelled',
 };
+const SYSTEM_EVENT_DETAILS: Record<string, string> = {
+  'task.ok': 'task_completed',
+  'task.fail': 'task_failed',
+};
 
 export function redactRuntimeEventDetails(actor: string, state: string, details: string): string {
   if (actor === 'navigator') return ACTION_EVENT_DETAILS[state] ?? STEP_EVENT_DETAILS[state] ?? details;
   if (actor === 'planner') return STEP_EVENT_DETAILS[state] ?? details;
+  if (actor === 'system') return SYSTEM_EVENT_DETAILS[state] ?? details;
   return details;
 }

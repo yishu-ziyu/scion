@@ -87,7 +87,13 @@ describe('local semantic Skill', () => {
     expect(() => Favorites.assertExactSkillInputs(safeInput, { name: 'x'.repeat(2_001) })).toThrow(
       'invalid_skill_input',
     );
-    for (const instructionTemplate of ['Fill {{Name}}', 'Use password {{name}}', 'Click [12] with {{name}}']) {
+    for (const instructionTemplate of [
+      'Fill {{Name}}',
+      'Use password {{name}}',
+      'Use {{api_token}}',
+      'Use {{secret_value}}',
+      'Click [12] with {{name}}',
+    ]) {
       expect(() =>
         Favorites.createSkillDefinition({
           title: 'Unsafe Skill',
@@ -207,7 +213,7 @@ describe('local semantic Skill', () => {
       type: 'start',
       commandId: 'start-field-copy',
       taskId: 'field-copy-task',
-      instruction: 'Name: Ada',
+      instruction: 'Fill Ada into the Name field',
       chatSessionId: 'chat-field-copy',
       instructionMessageId: 'message-field-copy',
       tabId: 7,

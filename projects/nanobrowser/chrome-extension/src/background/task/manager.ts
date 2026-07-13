@@ -1270,12 +1270,28 @@ export class TaskManager {
 
   private extractUserFieldValues(instruction: string): Set<string> {
     const values = new Set<string>();
-    for (const match of instruction.matchAll(/(?:=|:|：)\s*["']?([^,;\n"']{1,160})/g)) {
-      const value = match[1]?.replace(/\s+/g, ' ').trim();
+    const addValue = (candidate: string | undefined) => {
+      const value = candidate
+        ?.replace(/\s+/g, ' ')
+        .trim()
+        .replace(/^["'“]|["'”]$/g, '');
       if (value) values.add(value);
+    };
+    for (const match of instruction.matchAll(/(?:=|:|：)\s*["']?([^,;\n"']{1,160})/g)) {
+      addValue(match[1]);
+    }
+    const naturalLanguagePatterns = [
+      /\b(?:fill|enter|type|put)\s+["“']?(.{1,160}?)["”']?\s+(?:into|in)\b/gi,
+      /\bwith\s+["“']?(.{1,160}?)["”']?(?=\s+(?:and|then|at)\b|[,;.\n]|$)/gi,
+      /\bset\s+[^,;\n]{1,60}?\s+to\s+["“']?(.{1,160}?)["”']?(?=\s+(?:and|then)\b|[,;.\n]|$)/gi,
+      /(?:字段|栏)(?:中)?(?:填写|输入|填入|设为)\s*["“']?([^,，;；。\n"”']{1,80})/g,
+      /(?:填写|输入|填入)\s*["“']?([^,，;；。\n"”']{1,80}?)["”']?\s*(?:到|至|进|在)/g,
+    ];
+    for (const pattern of naturalLanguagePatterns) {
+      for (const match of instruction.matchAll(pattern)) addValue(match[1]);
     }
     for (const match of instruction.matchAll(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\b\d{3}-\d{2}-\d{4}\b/g)) {
-      values.add(match[0]);
+      addValue(match[0]);
     }
     return values;
   }
