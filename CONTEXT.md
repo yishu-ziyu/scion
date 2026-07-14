@@ -41,3 +41,8 @@ Correctness, safety, verified completion, privacy, and maintainability beat deli
 - **Shell**: Chrome extension, side panel, user login state on the daily browser.
 - **Product contract**: Task, approval, verified completion, receipt, Skill, privacy boundaries.
 - **Execution core**: Planner/Navigator-style action loop. Replaceable. Not a moat.
+
+## North star
+
+Single end goal: `docs/product/003-north-star.md`.
+Gates G1–G7 beat intermediate thrash. Current milestone is always named there.

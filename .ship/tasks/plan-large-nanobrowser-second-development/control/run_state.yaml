@@ -3,8 +3,8 @@ active: true
 current_phase: dev
 status: running
 workflow: product-lifecycle-v2
-updated_at: "2026-07-14T15:58:00Z"
-# Stories 1-6 complete; Story 7 in progress (fixture e2e + owner journeys)
-last_design_slice: human-timeline
-current_story: 7
-story_7_notes: "RUNS=1 full pass once; multi-run/media flaky under MiniMax; session+planner+e2e hardening applied; design status stays not-implemented"
+updated_at: "2026-07-15T01:20:00Z"
+north_star: docs/product/003-north-star.md
+current_milestone: M1
+current_milestone_goal: "P1 Stagehand+MiniMax fixture G1+G2 consecutive 10/10"
+next_forbidden_until_m1: "M2 production core swap, Feishu/Bilibili 10x as main line"
