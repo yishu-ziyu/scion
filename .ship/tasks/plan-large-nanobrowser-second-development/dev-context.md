@@ -111,3 +111,22 @@ Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `p
 - Verification: `chrome-extension` 149/149 tests pass; focused media/manager/completion/dispatcher review passes 76/76; sidepanel and storage type checks and scoped ESLint pass; static search finds no site-specific runtime logic.
 - Independent review: PASS after one fix round. The reviewer verified deterministic selection/digesting, wait-state behavior, target recency, Planner-to-criterion binding, and same-round target/freshness verification.
 - Unchanged baseline: chrome-extension type-check still reports only `helper.ts:24` (`completionWithRetry`) and missing local-only `personal/secrets.local`.
+
+## Story 6 completion record
+
+- Outcome: verified local semantic Skills — parameterized templates in favorites union, save only from completed rounds with receipts, run with values only in memory, criteria locked from Skill definition, cold recovery to `inputs_required/skill_inputs_required`.
+- Storage: `parseSkillInputs` / `compileSkillTemplate` / `assertExactSkillInputs` / `createSkillDefinition` / `addSkill` / `getSkill` in `packages/storage/lib/prompt/favorites.ts`.
+- Runtime: `TaskManager.saveSkill` + `runSkill` + `freezeSkillCriteria` + locked criteria rounds; no resolved values in persisted task snapshots.
+- UI: `TaskStatusCard` `skill-save` / template form; `BookmarkList` run + per-input fields; draft cleanup helpers.
+- Privacy/safety follow-ups: reject unsafe criteria/templates; no secret-like placeholders; clear skill input drafts after send.
+- Commits: `530e31b`, `de1f89b`, `3322ed9`, `6537efe`, `3730a4f`.
+- Verification (2026-07-14 re-run): `skill-journey` 7/7, `form-journey` 10/10, `replay-migration` 2/2; `@extension/storage` and `@extension/sidepanel` type-check pass.
+- Process: plan.md Story 6 steps marked complete; independent peer review dispatched this session.
+- Unchanged baseline: chrome-extension type-check still reports only `helper.ts:24` (`completionWithRetry`) and missing local-only `personal/secrets.local`.
+
+### Story 6 fix round (2026-07-14)
+
+- Peer: PASS_WITH_CONCERNS (cold-save templates; residual UI for inputs_required).
+- Fix commit: persist skill save meta outside TaskSession (`task-skill-save-v1`).
+- Re-verification: skill-journey 8/8, form-journey 10/10, manager 21/21, replay-migration 2/2; storage + sidepanel type-check pass.
+- Concerns residual: see `concerns.md`.

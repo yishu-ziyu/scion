@@ -1291,7 +1291,7 @@ git commit -m "feat: add continuous html media control"
 - Modify: `projects/nanobrowser/packages/i18n/locales/{en,pt_BR,zh_CN,zh_TW}/messages.json`
 - Test: `projects/nanobrowser/chrome-extension/src/background/task/__tests__/skill-journey.test.ts`
 
-- [ ] **Step 1: Write failing template and value-retention tests**
+- [x] **Step 1: Write failing template and value-retention tests**
 
 ```ts
 import { describe, expect, it, vi } from 'vitest';
@@ -1325,13 +1325,13 @@ describe('local semantic Skill', () => {
 });
 ```
 
-- [ ] **Step 2: Run the Skill test and confirm the union/helpers are absent**
+- [x] **Step 2: Run the Skill test and confirm the union/helpers are absent**
 
 Run: `pnpm --dir projects/nanobrowser --filter chrome-extension test -- src/background/task/__tests__/skill-journey.test.ts`
 
 Expected: FAIL because Skill storage/template helpers do not exist.
 
-- [ ] **Step 3: Extend favorites in place with a backward-compatible union**
+- [x] **Step 3: Extend favorites in place with a backward-compatible union**
 
 ```ts
 export interface SkillInput { name: string; label: string; required: true }
@@ -1368,7 +1368,7 @@ getSkill(id: number): Promise<Extract<FavoriteItem, { kind: 'skill' }> | undefin
 
 Stored entries without `kind` remain prompt favorites. Placeholder names must match `/^[a-z][a-z0-9_]{0,31}$/`; duplicate placeholders collapse; missing/extra inputs fail before start. No secret input type exists in cycle 1.
 
-- [ ] **Step 4: Allow save only from a verified receipt**
+- [x] **Step 4: Allow save only from a verified receipt**
 
 TaskManager accepts `save_skill` only when the current round is completed with a receipt. It calls `createSkillDefinition`, then `favoritesStorage.addSkill()` with the returned union member. Reject when the template contains `/\b(password|token|secret|credential)\b/i`, a numeric DOM index token like `[12]`, any placeholder not matching `/^[a-z][a-z0-9_]{0,31}$/`, or a criterion copied from a field value.
 
@@ -1401,7 +1401,7 @@ private async freezeSkillCriteria(
 
 Import `sha256` from `chrome-extension/src/background/task/digest.ts`; do not add another digest implementation.
 
-- [ ] **Step 5: Add Save/Run/Edit/Delete UI to the existing favorites surface**
+- [x] **Step 5: Add Save/Run/Edit/Delete UI to the existing favorites surface**
 
 `TaskStatusCard` exposes `data-testid="skill-save"` only when `round.receipt` exists. The save form binds `data-testid="skill-template"` to `instructionTemplate` and sends canonical `save_skill` through `data-testid="skill-save-confirm"`. `BookmarkList` keeps prompt behavior and renders Skills with this discriminated branch:
 
@@ -1422,7 +1422,7 @@ Import `sha256` from `chrome-extension/src/background/task/digest.ts`; do not ad
 
 Edit/delete/reorder dispatch to the extended favorites store and never render or cache resolved values after the run command is sent.
 
-- [ ] **Step 6: Run Skills with values only in memory**
+- [x] **Step 6: Run Skills with values only in memory**
 
 `run_skill` follows this exact sequence:
 
@@ -1466,7 +1466,7 @@ return ack;
 
 `assertExactSkillInputs(inputs, values)` is a pure exported helper in `favorites.ts`; it rejects missing/extra names and values over 2,000 characters before task creation. `TaskManager.executorHooks(taskId, options?: { criteriaLocked?: boolean }): ExecutorHooks` returns the Story 3 dispatcher/Story 4 plan hooks; `TaskManager.runCurrentRound(taskId, driver): Promise<void>` is the verified loop defined in Story 4; `liveExecutors` is `Map<string, ExecutorDriver>`. Neither the rendered instruction nor `command.values` is passed to `saveTask`, events, logs, receipts, analytics, or chat. On cold recovery, `sourceSkillId` plus a non-terminal state becomes `inputs_required/skill_inputs_required`; the side panel collects every value again and sends a new `run_skill` task ID.
 
-- [ ] **Step 7: Add changed-DOM-order journey coverage**
+- [x] **Step 7: Add changed-DOM-order journey coverage**
 
 Write this complete test in `skill-journey.test.ts`; the fake Executor resolves the field by current label on each run, so a stored DOM index cannot make it pass:
 
@@ -1519,7 +1519,7 @@ it('replans a Skill when DOM indexes change and retains no resolved value', asyn
 });
 ```
 
-- [ ] **Step 8: Run Skill, form, privacy, and type checks**
+- [x] **Step 8: Run Skill, form, privacy, and type checks**
 
 Run:
 
@@ -1531,7 +1531,7 @@ pnpm --dir projects/nanobrowser --filter @extension/sidepanel type-check
 
 Expected: tests and type checks PASS; sentinel values are absent from persisted/runtime-generated artifacts.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add projects/nanobrowser
