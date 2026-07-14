@@ -26,3 +26,5 @@ Personal **browser action agent**: multi-step web tasks in daily Chrome, approve
 - Brand: **持节 / Chijie** (not Nanobrowser, not 奕枢).
 - Design tokens live under `pages/side-panel/src/design/chijie-*.css`.
 - North star: `docs/product/003-north-star.md` (scion repo root).
+- **Interaction source of truth:** `docs/design/003-chijie-ui-interaction.md`
+- **Mockups:** `docs/design/ui/chijie-sidepanel-task-main.png`, `docs/design/ui/chijie-options-overview.png`

@@ -9,8 +9,10 @@
 2. product/001-nanobrowser-prd.md ← 产品范围、流程、功能需求
 3. decisions/001 + 002           ← 扩展载体；质量优先可换核
 4. product/002-agent-core-bakeoff.md ← 执行核对比（无 P0，主 P1）
-5. design/001-...                ← 运行时设计（换核前后会改 status）
-6. product/004-docs-driven-dev.md ← 本文配套：如何用文档驱动开发
+5. design/001 + 002              ← 运行时 / 可换核
+6. design/003-chijie-ui-interaction.md ← 持节 v1 侧栏+设置交互（附图 design/ui/）
+7. product/004-docs-driven-dev.md ← 如何用文档驱动开发
+8. product/006-outer-loop-rl-min-plan.md ← 可选后续：外环 RL（draft，默认不执行）
 ```
 
 索引表：`DOCS_INDEX.md`。
