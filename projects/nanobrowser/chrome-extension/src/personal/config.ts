@@ -3,6 +3,7 @@
  * Keys are injected into secrets.local.ts at build time (gitignored).
  */
 import { AgentNameEnum, ProviderTypeEnum } from '@extension/storage';
+import type { AgentCoreBackend } from '../background/agent/backends/types';
 
 export const PERSONAL_PROVIDER_ID = 'minimax';
 
@@ -14,6 +15,13 @@ export const PERSONAL_PROVIDER = {
 };
 
 export const PERSONAL_MODEL = 'MiniMax-M3';
+
+/**
+ * Agent core backend override (design/002).
+ * null = use general settings / default `nano` until control LLM policy is ready.
+ * Set to `control` only with CreateExecutorDriverOptions.control.steps or future LLM policy.
+ */
+export const PERSONAL_AGENT_CORE_BACKEND: AgentCoreBackend | null = null;
 
 /** Planner + Navigator both use M3 for self-use simplicity. */
 export const PERSONAL_AGENT_MODELS = {

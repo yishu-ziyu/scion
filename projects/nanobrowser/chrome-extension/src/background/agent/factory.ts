@@ -1,124 +1,77 @@
-import {
-  agentModelStore,
-  AgentNameEnum,
-  firewallStore,
-  generalSettingsStore,
-  llmProviderStore,
-} from '@extension/storage';
-import { t } from '@extension/i18n';
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { generalSettingsStore } from '@extension/storage';
 import BrowserContext from '../browser/context';
 import { createLogger } from '../log';
-import { ensurePersonalDefaults } from '../../personal/bootstrap';
-import { createChatModel } from './helper';
-import { Executor } from './executor';
-import { ExecutionState } from './event/types';
 import type { AgentEvent } from './event/types';
-import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome } from '../task/contracts';
+import type { ExecutorDriver, ExecutorHooks, ExecutorInput } from '../task/contracts';
+import { createNanoExecutorDriver } from './backends/nano';
+import {
+  createControlLoopDriver,
+  type ControlLoopOptions,
+  type ControlScriptStep,
+} from './backends/control-loop';
+import {
+  DEFAULT_AGENT_CORE_BACKEND,
+  parseAgentCoreBackend,
+  type AgentCoreBackend,
+} from './backends/types';
+import { PERSONAL_AGENT_CORE_BACKEND } from '../../personal/config';
 
 const logger = createLogger('ExecutorFactory');
 
 export const browserContext = new BrowserContext({});
 
+export type { AgentCoreBackend, ControlScriptStep, ControlLoopOptions };
+
+export interface CreateExecutorDriverOptions {
+  /** Force backend (tests / explicit wiring). */
+  backend?: AgentCoreBackend;
+  /** When backend is control, required scripted steps until LLM policy lands. */
+  control?: ControlLoopOptions;
+  onEvent?: (event: AgentEvent) => void;
+}
+
+/**
+ * Resolve production backend: explicit option → personal config → general settings → default nano.
+ * design/002: default stays nano until control is stable; then flip default to control.
+ */
+export async function resolveAgentCoreBackend(explicit?: AgentCoreBackend): Promise<AgentCoreBackend> {
+  if (explicit) return explicit;
+  if (PERSONAL_AGENT_CORE_BACKEND) return parseAgentCoreBackend(PERSONAL_AGENT_CORE_BACKEND);
+  try {
+    const settings = await generalSettingsStore.getSettings();
+    const fromSettings = (settings as { agentCoreBackend?: string }).agentCoreBackend;
+    if (fromSettings) return parseAgentCoreBackend(fromSettings);
+  } catch {
+    // settings unavailable in unit tests
+  }
+  return DEFAULT_AGENT_CORE_BACKEND;
+}
+
 export async function createExecutorDriver(
   input: ExecutorInput,
   hooks: ExecutorHooks,
-  onEvent?: (event: AgentEvent) => void,
+  onEventOrOptions?: ((event: AgentEvent) => void) | CreateExecutorDriverOptions,
+  maybeOptions?: CreateExecutorDriverOptions,
 ): Promise<ExecutorDriver> {
-  await ensurePersonalDefaults();
-
-  const providers = await llmProviderStore.getAllProviders();
-  if (Object.keys(providers).length === 0) throw new Error(t('bg_setup_noApiKeys'));
-
-  await agentModelStore.cleanupLegacyValidatorSettings();
-  const agentModels = await agentModelStore.getAllAgentModels();
-  for (const agentModel of Object.values(agentModels)) {
-    if (!providers[agentModel.provider]) throw new Error(t('bg_setup_noProvider', [agentModel.provider]));
+  // Backward compatible: (input, hooks, onEvent) as used by background/index.ts
+  let options: CreateExecutorDriverOptions = {};
+  if (typeof onEventOrOptions === 'function') {
+    options = { ...maybeOptions, onEvent: onEventOrOptions };
+  } else if (onEventOrOptions) {
+    options = onEventOrOptions;
   }
 
-  const navigatorModel = agentModels[AgentNameEnum.Navigator];
-  if (!navigatorModel) throw new Error(t('bg_setup_noNavigatorModel'));
-  const navigatorProviderConfig = providers[navigatorModel.provider];
-  logger.info('Creating Navigator model', {
-    provider: navigatorModel.provider,
-    model: navigatorModel.modelName,
-  });
-  const navigatorLLM = createChatModel(navigatorProviderConfig, navigatorModel);
+  const backend = await resolveAgentCoreBackend(options.backend);
+  logger.info('createExecutorDriver', { backend, taskId: input.taskId });
 
-  let plannerLLM: BaseChatModel | null = null;
-  const plannerModel = agentModels[AgentNameEnum.Planner];
-  if (plannerModel) plannerLLM = createChatModel(providers[plannerModel.provider], plannerModel);
+  if (backend === 'control') {
+    if (!options.control?.steps?.length) {
+      throw new Error(
+        'control backend requires CreateExecutorDriverOptions.control.steps until LLM control policy ships (design/002 M2)',
+      );
+    }
+    return createControlLoopDriver(input, hooks, options.control);
+  }
 
-  const firewall = await firewallStore.getFirewall();
-  browserContext.updateConfig({
-    allowedUrls: firewall.enabled ? firewall.allowList : [],
-    deniedUrls: firewall.enabled ? firewall.denyList : [],
-  });
-
-  const generalSettings = await generalSettingsStore.getSettings();
-  browserContext.updateConfig({
-    minimumWaitPageLoadTime: generalSettings.minWaitPageLoad / 1000,
-    displayHighlights: generalSettings.displayHighlights,
-  });
-
-  const executor = new Executor(input.instruction, input.taskId, browserContext, navigatorLLM, {
-    hooks,
-    plannerLLM: plannerLLM ?? navigatorLLM,
-    navigatorProviderId: navigatorModel.provider,
-    plannerProviderId: plannerModel?.provider ?? navigatorModel.provider,
-    agentOptions: {
-      maxSteps: generalSettings.maxSteps,
-      maxFailures: generalSettings.maxFailures,
-      maxActionsPerStep: generalSettings.maxActionsPerStep,
-      useVision: generalSettings.useVision,
-      useVisionForPlanner: true,
-      planningInterval: generalSettings.planningInterval,
-    },
-  });
-
-  return {
-    run: roundId =>
-      new Promise<ExecutorOutcome>(resolve => {
-        let outcome: ExecutorOutcome | null = null;
-        const finish = (result: ExecutorOutcome) => {
-          if (outcome !== null) return;
-          outcome = result;
-        };
-        executor.clearExecutionEvents();
-        executor.subscribeExecutionEvents(async event => {
-          onEvent?.(event);
-          switch (event.state) {
-            case ExecutionState.TASK_OK:
-              finish({ kind: 'candidate_complete', summary: 'Candidate completion' });
-              break;
-            case ExecutionState.TASK_FAIL:
-              finish({ kind: 'failed', category: 'execution_failed' });
-              break;
-            case ExecutionState.TASK_CANCEL:
-              finish({ kind: 'cancelled' });
-              break;
-            case ExecutionState.TASK_PAUSE:
-              if (event.data.details === 'login_required' || event.data.details === 'captcha_required') {
-                finish({ kind: 'waiting_user', reason: event.data.details });
-              }
-              break;
-          }
-        });
-        void executor.execute(roundId).then(
-          () => resolve(outcome ?? { kind: 'failed', category: 'missing_terminal_event' }),
-          () => resolve({ kind: 'failed', category: 'execution_failed' }),
-        );
-      }),
-    addFollowUp: instruction => executor.addFollowUpTask(instruction),
-    pause: () => {
-      void executor.pause();
-    },
-    resume: () => {
-      void executor.resume();
-    },
-    stop: async () => {
-      await executor.cancel();
-      await executor.cleanup();
-    },
-  };
+  return createNanoExecutorDriver(input, hooks, browserContext, options.onEvent);
 }
