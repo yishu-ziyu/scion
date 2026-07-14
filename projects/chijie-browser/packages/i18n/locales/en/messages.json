@@ -894,47 +894,166 @@
   "options_tabs_analytics": {
     "message": "分析"
   },
-  "chat_skills_save": { "message": "Save as reusable template" },
-  "chat_skills_saveConfirm": { "message": "Save template" },
-  "chat_skills_run": { "message": "Run again" },
-  "chat_skills_runConfirm": { "message": "Start" },
-  "chat_skills_titlePlaceholder": { "message": "Template name" },
-  "chat_skills_templatePlaceholder": { "message": "Instruction template, e.g. Fill {{name}}" },
-  "chat_skills_defaultTitle": { "message": "My web task" },
-  "chat_task_status_running": { "message": "In progress" },
-  "chat_task_status_paused": { "message": "Paused" },
-  "chat_task_status_waiting_approval": { "message": "Waiting for your OK" },
-  "chat_task_status_waiting_user": { "message": "Needs you" },
-  "chat_task_status_inputs_required": { "message": "Needs your inputs" },
-  "chat_task_status_interrupted": { "message": "Interrupted" },
-  "chat_task_status_completed": { "message": "Done" },
-  "chat_task_status_failed": { "message": "Failed" },
-  "chat_task_status_cancelled": { "message": "Cancelled" },
-  "chat_task_working_on_page": { "message": "Working on the current page" },
-  "chat_task_done_title": { "message": "Done" },
-  "chat_task_done_body": { "message": "Page result was verified. This step is safely finished." },
-  "chat_task_next_step_title": { "message": "What you can do next" },
-  "chat_task_approval_explain": { "message": "It wants to do something hard to undo. Please confirm:" },
-  "chat_task_approve": { "message": "Approve and continue" },
-  "chat_task_reject": { "message": "Reject" },
-  "chat_task_confirm_done": { "message": "I confirm it is done" },
-  "chat_task_pause": { "message": "Pause" },
-  "chat_task_resume": { "message": "Resume" },
-  "chat_task_stop": { "message": "Stop task" },
-  "chat_task_cancel_edit": { "message": "Cancel" },
-  "chat_task_skill_save_hint": { "message": "After saving, use Run again below with new values." },
-  "chat_task_skill_template_help": { "message": "Prefilled from your last goal. Replace changing parts with {{name}}." },
-  "chat_task_hint_login": { "message": "Log in on the page first, then resume or send a new instruction." },
-  "chat_task_hint_captcha": { "message": "Solve the captcha on the page, then continue." },
-  "chat_task_hint_rejected": { "message": "You rejected the last action. Send a new instruction if you still want it done." },
-  "chat_task_hint_proof": { "message": "It needs your eyes on the result. Tap confirm if it looks right." },
-  "chat_task_hint_uncertain": { "message": "Submit result is unclear. Check the page, then continue or retry." },
-  "chat_task_hint_target_missing": { "message": "The target is missing on the page. Change the page state and retry." },
-  "chat_task_hint_target_ambiguous": { "message": "Several similar targets exist. Make your instruction more specific." },
-  "chat_task_hint_skill_inputs": { "message": "This template needs fresh inputs. Use Run again below and fill them in." },
-  "chat_task_hint_failed_generic": { "message": "This run failed. Check chat for details, rewrite the goal, or stop and start fresh." },
-  "chat_task_hint_cancelled": { "message": "Task cancelled. Send a new instruction anytime." },
-  "chat_task_hint_interrupted": { "message": "Connection or page interrupted. Try Resume, or resend the instruction." },
-  "chat_task_hint_generic": { "message": "Use the buttons below, or send the next instruction." },
-  "chat_bookmarks_skills_header": { "message": "Run again" }
+  "chat_skills_save": {
+    "message": "Save as reusable template"
+  },
+  "chat_skills_saveConfirm": {
+    "message": "Save template"
+  },
+  "chat_skills_run": {
+    "message": "Run again"
+  },
+  "chat_skills_runConfirm": {
+    "message": "Start"
+  },
+  "chat_skills_titlePlaceholder": {
+    "message": "Template name"
+  },
+  "chat_skills_templatePlaceholder": {
+    "message": "Instruction template, e.g. Fill {{name}}"
+  },
+  "chat_skills_defaultTitle": {
+    "message": "My web task"
+  },
+  "chat_task_status_running": {
+    "message": "In progress"
+  },
+  "chat_task_status_paused": {
+    "message": "Paused"
+  },
+  "chat_task_status_waiting_approval": {
+    "message": "Waiting for your OK"
+  },
+  "chat_task_status_waiting_user": {
+    "message": "Needs you"
+  },
+  "chat_task_status_inputs_required": {
+    "message": "Needs your inputs"
+  },
+  "chat_task_status_interrupted": {
+    "message": "Interrupted"
+  },
+  "chat_task_status_completed": {
+    "message": "Done"
+  },
+  "chat_task_status_failed": {
+    "message": "Failed"
+  },
+  "chat_task_status_cancelled": {
+    "message": "Cancelled"
+  },
+  "chat_task_working_on_page": {
+    "message": "Working on the current page"
+  },
+  "chat_task_done_title": {
+    "message": "Done"
+  },
+  "chat_task_done_body": {
+    "message": "Page result was verified. This step is safely finished."
+  },
+  "chat_task_next_step_title": {
+    "message": "What you can do next"
+  },
+  "chat_task_approval_explain": {
+    "message": "It wants to do something hard to undo. Please confirm:"
+  },
+  "chat_task_approve": {
+    "message": "Approve once"
+  },
+  "chat_task_reject": {
+    "message": "Go back"
+  },
+  "chat_task_confirm_done": {
+    "message": "I confirm it is done"
+  },
+  "chat_task_pause": {
+    "message": "Pause"
+  },
+  "chat_task_resume": {
+    "message": "Resume"
+  },
+  "chat_task_stop": {
+    "message": "Stop task"
+  },
+  "chat_task_cancel_edit": {
+    "message": "Cancel"
+  },
+  "chat_task_skill_save_hint": {
+    "message": "After saving, use Run again below with new values."
+  },
+  "chat_task_skill_template_help": {
+    "message": "Prefilled from your last goal. Replace changing parts with {{name}}."
+  },
+  "chat_task_hint_login": {
+    "message": "Log in on the page first, then resume or send a new instruction."
+  },
+  "chat_task_hint_captcha": {
+    "message": "Solve the captcha on the page, then continue."
+  },
+  "chat_task_hint_rejected": {
+    "message": "You rejected the last action. Send a new instruction if you still want it done."
+  },
+  "chat_task_hint_proof": {
+    "message": "It needs your eyes on the result. Tap confirm if it looks right."
+  },
+  "chat_task_hint_uncertain": {
+    "message": "Submit result is unclear. Check the page, then continue or retry."
+  },
+  "chat_task_hint_target_missing": {
+    "message": "The target is missing on the page. Change the page state and retry."
+  },
+  "chat_task_hint_target_ambiguous": {
+    "message": "Several similar targets exist. Make your instruction more specific."
+  },
+  "chat_task_hint_skill_inputs": {
+    "message": "This template needs fresh inputs. Use Run again below and fill them in."
+  },
+  "chat_task_hint_failed_generic": {
+    "message": "This run failed. Check chat for details, rewrite the goal, or stop and start fresh."
+  },
+  "chat_task_hint_cancelled": {
+    "message": "Task cancelled. Send a new instruction anytime."
+  },
+  "chat_task_hint_interrupted": {
+    "message": "Connection or page interrupted. Try Resume, or resend the instruction."
+  },
+  "chat_task_hint_generic": {
+    "message": "Use the buttons below, or send the next instruction."
+  },
+  "chat_bookmarks_skills_header": {
+    "message": "Run again"
+  },
+  "chat_task_section_task": {
+    "message": "Task"
+  },
+  "chat_task_section_rounds": {
+    "message": "Rounds"
+  },
+  "chat_task_section_approval": {
+    "message": "Approval · your action"
+  },
+  "chat_task_current_goal": {
+    "message": "Goal"
+  },
+  "chat_task_current_site": {
+    "message": "Site"
+  },
+  "chat_task_progress": {
+    "message": "Progress"
+  },
+  "chat_task_policy_external": {
+    "message": "Policy: external commits pause for your approval."
+  },
+  "chat_task_approval_heading": {
+    "message": "About to submit externally"
+  },
+  "chat_task_receipt_id": {
+    "message": "Receipt ID"
+  },
+  "chat_task_receipt_time": {
+    "message": "Completed at"
+  },
+  "chat_task_header_idle": {
+    "message": "Ready"
+  }
 }

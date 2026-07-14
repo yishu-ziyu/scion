@@ -123,6 +123,205 @@
   padding: 10px 12px;
 }
 
+/* design/003 — task / rounds / approval */
+.chijie-task-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(26, 26, 26, 0.1);
+}
+
+.chijie-task-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.chijie-task-meta > div {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chijie-task-meta dt {
+  margin: 0;
+  color: var(--chijie-muted);
+  font-family: var(--chijie-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chijie-task-meta dd {
+  margin: 0;
+  color: var(--chijie-paper-ink);
+  word-break: break-word;
+}
+
+.chijie-progress-track {
+  display: inline-block;
+  width: 72px;
+  height: 6px;
+  margin-right: 8px;
+  vertical-align: middle;
+  border-radius: 99px;
+  background: rgba(26, 26, 26, 0.12);
+  overflow: hidden;
+}
+
+.chijie-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--chijie-accent);
+}
+
+.chijie-progress-text {
+  font-family: var(--chijie-font-mono);
+  font-size: 11px;
+  color: var(--chijie-paper-ink);
+}
+
+.chijie-policy-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--chijie-paper-ink);
+  opacity: 0.85;
+}
+
+.chijie-round-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chijie-round-timeline li {
+  display: grid;
+  grid-template-columns: 2.75rem 1fr 1rem;
+  gap: 8px;
+  align-items: start;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.chijie-round-timeline li.is-pending .chijie-round-title {
+  color: var(--chijie-accent-signal);
+  font-weight: 600;
+}
+
+.chijie-round-time {
+  font-family: var(--chijie-font-mono);
+  font-size: 10px;
+  color: var(--chijie-muted);
+}
+
+.chijie-round-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chijie-round-title {
+  color: var(--chijie-paper-ink);
+}
+
+.chijie-round-state {
+  font-size: 11px;
+  color: var(--chijie-muted);
+}
+
+.chijie-round-index {
+  font-family: var(--chijie-font-mono);
+  font-size: 10px;
+  color: var(--chijie-muted);
+  text-align: right;
+}
+
+.chijie-approval-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--chijie-radius-md);
+  border: 1px solid #e8c48a;
+  background: #fff6e8;
+  color: var(--chijie-paper-ink);
+}
+
+.chijie-approval-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.chijie-approval-body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+
+.chijie-approval-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chijie-receipt-meta {
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.chijie-receipt-meta > div {
+  display: grid;
+  grid-template-columns: 4rem 1fr;
+  gap: 6px;
+}
+
+.chijie-receipt-meta dt {
+  margin: 0;
+  opacity: 0.65;
+}
+
+.chijie-receipt-meta dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.chijie-header-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chijie-header-brand-title {
+  font-family: var(--chijie-font-hand);
+  font-size: 24px;
+  line-height: 1.1;
+  color: var(--chijie-paper);
+}
+
+.chijie-header-brand-sub {
+  font-family: var(--chijie-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--chijie-muted);
+}
+
 .chijie-next-step {
   border-radius: var(--chijie-radius-md);
   border: 1px dashed var(--chijie-paper-ink);

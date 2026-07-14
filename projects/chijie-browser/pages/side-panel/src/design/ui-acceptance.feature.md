@@ -27,7 +27,7 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 
 - Given status `waiting_approval` with a pending approval
 - When the card is rendered
-- Then primary CTA is "同意并继续" (or locale equivalent)
+- Then primary CTA is "批准一次" (or locale equivalent)
 - And actions stack vertically (column layout)
 
 ## Scenario: Skill template prefilled from last goal

@@ -198,3 +198,24 @@ describe('Feature: Side panel uses 持节 design system', () => {
     });
   });
 });
+
+describe('Feature: design/003 task main blocks', () => {
+  it('TaskStatusCard source includes goal/rounds/approval testids', () => {
+    expect(taskStatusCardSource).toContain('task-goal-block');
+    expect(taskStatusCardSource).toContain('task-round-timeline');
+    expect(taskStatusCardSource).toContain('task-approval-card');
+    expect(taskStatusCardSource).toContain('completion-receipt');
+    expect(taskStatusCardSource).not.toContain('批准一次'); // uses i18n key
+    expect(taskStatusCardSource).toContain('chat_task_approve');
+  });
+
+  it('humanActionLabel maps machine actions to Chinese product copy', async () => {
+    const { humanActionLabel } = await import('../../components/TaskStatusCard');
+    expect(humanActionLabel('input_text')).toBe('填写表单');
+    expect(humanActionLabel('control_media')).toBe('媒体控制');
+  });
+
+  it('header brand is 持节 Chijie', () => {
+    expect(sidePanelSource).toContain('持节 Chijie');
+  });
+});

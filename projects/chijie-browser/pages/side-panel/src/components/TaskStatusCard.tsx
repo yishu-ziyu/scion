@@ -1,4 +1,4 @@
-import type { TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
+import type { ActionAttempt, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
 import { t } from '@extension/i18n';
 import { useState } from 'react';
 import {
@@ -77,12 +77,71 @@ export function instructionToSkillTemplate(instruction: string): string {
   return text;
 }
 
+/** Human labels for action names (design/003 round timeline). */
+export function humanActionLabel(actionName: string): string {
+  const map: Record<string, string> = {
+    go_to_url: '打开页面',
+    open_tab: '打开标签页',
+    switch_tab: '切换标签',
+    click_element: '点击元素',
+    input_text: '填写表单',
+    send_keys: '键盘输入',
+    control_media: '媒体控制',
+    scroll_to_text: '滚动定位',
+    scroll_to_percent: '滚动页面',
+    wait: '等待',
+    done: '准备完成',
+    search_google: '搜索',
+    go_back: '返回',
+    get_dropdown_options: '读取选项',
+    select_dropdown_option: '选择选项',
+  };
+  return map[actionName] ?? actionName.replaceAll('_', ' ');
+}
+
+function attemptLineState(attempt: ActionAttempt, isLatestPendingCommit: boolean): string {
+  if (isLatestPendingCommit && attempt.effect === 'external_commit') {
+    return '即将提交（需审批）';
+  }
+  switch (attempt.state) {
+    case 'observed':
+      return '已完成';
+    case 'executing':
+      return '执行中';
+    case 'approved':
+      return '已批准';
+    case 'proposed':
+      return '准备中';
+    case 'uncertain':
+      return '结果待确认';
+    case 'blocked':
+      return '已阻止';
+    default:
+      return attempt.state;
+  }
+}
+
+function formatTime(ts: number): string {
+  try {
+    return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
+function siteLabel(snapshot: TaskSnapshot): string {
+  const page = [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page');
+  if (page?.urlOrigin && page.urlOrigin !== 'null') return page.urlOrigin;
+  return t('chat_task_working_on_page');
+}
+
 export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: TaskStatusCardProps) {
   const [showSkillForm, setShowSkillForm] = useState(false);
   const [skillTitle, setSkillTitle] = useState('');
   const [skillTemplate, setSkillTemplate] = useState('');
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
   const approval = round?.approvals.find(item => item.status === 'pending');
+  const attempts = round?.attempts ?? [];
   const confirmations =
     round?.criteria.filter(
       criterion =>
@@ -100,6 +159,10 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
     snapshot.status === 'failed' ||
     snapshot.status === 'interrupted';
 
+  const doneSteps = attempts.filter(a => a.state === 'observed' || a.state === 'approved').length;
+  const totalHint = Math.max(attempts.length + (snapshot.status === 'waiting_approval' ? 1 : 0), attempts.length, 1);
+  const progressLabel = `${Math.min(doneSteps + (snapshot.status === 'waiting_approval' ? 1 : 0), totalHint)}/${Math.max(totalHint, 7)}`;
+
   const openSkillForm = () => {
     setShowSkillForm(true);
     setSkillTitle(previous => previous || snapshot.goalSummary.slice(0, 48) || t('chat_skills_defaultTitle'));
@@ -115,12 +178,20 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
     receiptId: round?.receipt?.id ?? '',
   });
 
+  const pendingCommitAttempt =
+    approval &&
+    attempts
+      .slice()
+      .reverse()
+      .find(a => a.id === approval.attemptId || a.effect === 'external_commit');
+
   return (
     <section
       data-testid="task-status"
       data-status={snapshot.status}
       data-attention={needsAttention ? 'true' : 'false'}
       className={taskCardClassName}>
+      {/* Header: status */}
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
           <span className="text-lg font-medium leading-tight" data-testid="task-status-label">
@@ -128,9 +199,121 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
           </span>
           {!isTerminal && <span className={monoLabelClassName}>{t('chat_task_working_on_page')}</span>}
         </div>
-        {snapshot.goalSummary && <p className="line-clamp-2 text-xs opacity-80">{snapshot.goalSummary}</p>}
       </div>
 
+      {/* Block 2: Task card (design/003) */}
+      <div data-testid="task-goal-block" className="chijie-task-section">
+        <div className={monoLabelClassName}>{t('chat_task_section_task')}</div>
+        <dl className="chijie-task-meta">
+          <div>
+            <dt>{t('chat_task_current_goal')}</dt>
+            <dd data-testid="task-goal-summary">{snapshot.goalSummary || round?.instructionSummary || '—'}</dd>
+          </div>
+          <div>
+            <dt>{t('chat_task_current_site')}</dt>
+            <dd data-testid="task-site">{siteLabel(snapshot)}</dd>
+          </div>
+          <div>
+            <dt>{t('chat_task_progress')}</dt>
+            <dd data-testid="task-progress">
+              <span className="chijie-progress-track" aria-hidden>
+                <span
+                  className="chijie-progress-fill"
+                  style={{
+                    width: `${Math.min(100, Math.round((Number(progressLabel.split('/')[0]) / Number(progressLabel.split('/')[1] || 1)) * 100))}%`,
+                  }}
+                />
+              </span>
+              <span className="chijie-progress-text">{progressLabel}</span>
+            </dd>
+          </div>
+        </dl>
+        {snapshot.status === 'waiting_approval' && (
+          <p className="chijie-policy-hint" data-testid="task-policy-hint">
+            {t('chat_task_policy_external')}
+          </p>
+        )}
+      </div>
+
+      {/* Block 3: Round timeline */}
+      {attempts.length > 0 && (
+        <div data-testid="task-round-timeline" className="chijie-task-section">
+          <div className={monoLabelClassName}>{t('chat_task_section_rounds')}</div>
+          <ol className="chijie-round-timeline">
+            {attempts.map((attempt, index) => {
+              const isPendingCommit =
+                Boolean(pendingCommitAttempt) &&
+                attempt.id === pendingCommitAttempt?.id &&
+                snapshot.status === 'waiting_approval';
+              return (
+                <li
+                  key={attempt.id}
+                  data-testid="task-round-step"
+                  data-state={attempt.state}
+                  data-pending={isPendingCommit ? 'true' : 'false'}
+                  className={isPendingCommit ? 'is-pending' : undefined}>
+                  <span className="chijie-round-time">{formatTime(attempt.proposedAt)}</span>
+                  <span className="chijie-round-body">
+                    <span className="chijie-round-title">{humanActionLabel(attempt.actionName)}</span>
+                    <span className="chijie-round-state">{attemptLineState(attempt, isPendingCommit)}</span>
+                  </span>
+                  <span className="chijie-round-index" aria-hidden>
+                    {index + 1}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      )}
+
+      {/* Block 4: Approval (design/003) */}
+      {snapshot.status === 'waiting_approval' && round && approval && (
+        <div data-testid="task-approval-card" className="chijie-approval-card">
+          <div className={monoLabelClassName}>{t('chat_task_section_approval')}</div>
+          <p className="chijie-approval-title">{t('chat_task_approval_heading')}</p>
+          <p className="chijie-approval-body">
+            {t('chat_task_approval_explain')}
+            {approval.summary ? `「${approval.summary}」` : ''}
+          </p>
+          <div className="chijie-approval-actions">
+            <button
+              type="button"
+              data-testid="approval-approve"
+              className={primaryButtonClassName}
+              onClick={() =>
+                send({
+                  type: 'approve',
+                  commandId: crypto.randomUUID(),
+                  taskId: snapshot.id,
+                  expectedRevision: snapshot.revision,
+                  roundId: round.id,
+                  approvalId: approval.id,
+                })
+              }>
+              {t('chat_task_approve')}
+            </button>
+            <button
+              type="button"
+              data-testid="approval-reject"
+              className={secondaryButtonClassName}
+              onClick={() =>
+                send({
+                  type: 'reject',
+                  commandId: crypto.randomUUID(),
+                  taskId: snapshot.id,
+                  expectedRevision: snapshot.revision,
+                  roundId: round.id,
+                  approvalId: approval.id,
+                })
+              }>
+              {t('chat_task_reject')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Block 5: Completion receipt */}
       {round?.receipt && (
         <div data-testid="completion-receipt" className="chijie-done-block">
           {completionText.split('\n').map(line => (
@@ -138,6 +321,20 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
               {line}
             </div>
           ))}
+          <dl className="chijie-receipt-meta" data-testid="completion-receipt-meta">
+            <div>
+              <dt>{t('chat_task_receipt_id')}</dt>
+              <dd className="font-mono text-[11px] opacity-80">{round.receipt.id}</dd>
+            </div>
+            <div>
+              <dt>{t('chat_task_receipt_time')}</dt>
+              <dd>{new Date(round.receipt.verifiedAt).toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt>{t('chat_task_current_site')}</dt>
+              <dd>{siteLabel(snapshot)}</dd>
+            </div>
+          </dl>
         </div>
       )}
 
@@ -149,47 +346,6 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
         <div data-testid="task-next-step" className="chijie-next-step">
           <div className="font-medium">{t('chat_task_next_step_title')}</div>
           <div className="mt-1">{failureNextStep(snapshot)}</div>
-        </div>
-      )}
-
-      {snapshot.status === 'waiting_approval' && round && approval && (
-        <div className={actionStackClassName}>
-          <p className="text-xs leading-relaxed opacity-90">
-            {t('chat_task_approval_explain')}
-            {approval.summary ? `「${approval.summary}」` : ''}
-          </p>
-          <button
-            type="button"
-            data-testid="approval-approve"
-            className={primaryButtonClassName}
-            onClick={() =>
-              send({
-                type: 'approve',
-                commandId: crypto.randomUUID(),
-                taskId: snapshot.id,
-                expectedRevision: snapshot.revision,
-                roundId: round.id,
-                approvalId: approval.id,
-              })
-            }>
-            {t('chat_task_approve')}
-          </button>
-          <button
-            type="button"
-            data-testid="approval-reject"
-            className={dangerButtonClassName}
-            onClick={() =>
-              send({
-                type: 'reject',
-                commandId: crypto.randomUUID(),
-                taskId: snapshot.id,
-                expectedRevision: snapshot.revision,
-                roundId: round.id,
-                approvalId: approval.id,
-              })
-            }>
-            {t('chat_task_reject')}
-          </button>
         </div>
       )}
 

@@ -974,7 +974,14 @@ const SidePanel = () => {
                 {t('nav_back')}
               </button>
             ) : (
-              <span className="chijie-hand-title">持节</span>
+              <div className="chijie-header-brand">
+                <span className="chijie-header-brand-title">持节 Chijie</span>
+                <span className="chijie-header-brand-sub" data-testid="header-task-status">
+                  {taskSnapshot
+                    ? t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
+                    : t('chat_task_header_idle')}
+                </span>
+              </div>
             )}
           </div>
           <div className="header-icons">
