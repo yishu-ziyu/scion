@@ -35,9 +35,13 @@ reports/           # E2E notes, design decisions, run evidence indexes
 
 ## Handover for agents (Codex etc.)
 
-Start here: **[HANDOVER.md](./HANDOVER.md)**.
+Rules (lean, layered):
 
-It covers dual trees (`scion` vs `~/projects/nanobrowser`), MiniMax bootstrap, CDP rules, E2E status, and next work.
+- Lab: **[AGENTS.md](./AGENTS.md)**
+- Extension monorepo: **[projects/nanobrowser/AGENTS.md](./projects/nanobrowser/AGENTS.md)**
+- Ops narrative: **[HANDOVER.md](./HANDOVER.md)** (dual trees, MiniMax, CDP, E2E)
+
+`CLAUDE.md` under nanobrowser is a thin pointer to `AGENTS.md` only.
 
 ## How we work
 
