@@ -25,8 +25,19 @@ export function TaskStatusCard({ snapshot, send }: TaskStatusCardProps) {
   return (
     <section data-testid="task-status" data-status={snapshot.status} className="flex items-center gap-2 p-2 text-sm">
       <span>{snapshot.status}</span>
+      {round?.receipt && (
+        <span data-testid="completion-receipt" className="rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-900">
+          receipt:{round.receipt.id}
+        </span>
+      )}
       {round?.receipt && !showSkillForm && (
-        <button type="button" data-testid="skill-save" onClick={() => setShowSkillForm(true)}>
+        <button
+          type="button"
+          data-testid="skill-save"
+          onClick={() => {
+            setShowSkillForm(true);
+            setSkillTitle(previous => previous || snapshot.goalSummary.slice(0, 48) || 'Local skill');
+          }}>
           {t('chat_skills_save')}
         </button>
       )}
@@ -47,7 +58,7 @@ export function TaskStatusCard({ snapshot, send }: TaskStatusCardProps) {
           <button
             type="button"
             data-testid="skill-save-confirm"
-            disabled={!skillTitle.trim() || !skillTemplate.trim()}
+            disabled={!skillTemplate.trim()}
             onClick={() => {
               send({
                 type: 'save_skill',
@@ -55,7 +66,7 @@ export function TaskStatusCard({ snapshot, send }: TaskStatusCardProps) {
                 taskId: snapshot.id,
                 expectedRevision: snapshot.revision,
                 roundId: round.id,
-                title: skillTitle,
+                title: skillTitle.trim() || 'Local skill',
                 instructionTemplate: skillTemplate,
               });
               setShowSkillForm(false);

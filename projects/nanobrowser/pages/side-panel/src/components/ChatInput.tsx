@@ -207,6 +207,7 @@ export default function ChatInput({
 
         <textarea
           ref={textareaRef}
+          data-testid="goal-input"
           value={text}
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
@@ -299,6 +300,7 @@ export default function ChatInput({
           ) : (
             <button
               type="submit"
+              data-testid="goal-send"
               disabled={isSendButtonDisabled}
               aria-disabled={isSendButtonDisabled}
               className={`rounded-md bg-[#19C2FF] px-3 py-1 text-white transition-colors hover:enabled:bg-[#0073DC] ${isSendButtonDisabled ? 'cursor-not-allowed opacity-50' : ''}`}>
