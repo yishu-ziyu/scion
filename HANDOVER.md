@@ -46,6 +46,17 @@ There is **one** extension folder. Paths are aliases, not copies.
 3. Commit + push **only** from `scion` to `origin` (`yishu-ziyu/scion`).
 4. Do **not** force-push secrets or recreate a second full nanobrowser tree.
 
+### Failure log capture (for agents)
+
+When the user hits `step_failed` or other runtime errors:
+
+1. User (or agent, with CDP up): `chrome-cdp ensure` then `nanobrowser-logs`  
+   Script: `reports/nanobrowser/scripts/capture_logs.py`  
+2. Output (local, gitignored): `reports/nanobrowser/logs/LATEST.md` + `LATEST.jsonl`  
+3. Agent **reads LATEST.md** - do not ask the user to paste Service Worker consoles by default.
+
+Requires main Chrome on port 9222 and Nanobrowser side panel / SW alive.
+
 ---
 
 ## 3. Name and identity

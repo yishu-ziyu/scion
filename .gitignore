@@ -24,3 +24,8 @@
 # logs
 **/*.log
 **/tmp/
+
+# Nanobrowser CDP captures may contain model payloads / semi-sensitive text
+reports/nanobrowser/logs/*
+!reports/nanobrowser/logs/.gitkeep
+!reports/nanobrowser/logs/README.md
