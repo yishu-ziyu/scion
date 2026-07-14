@@ -68,10 +68,11 @@ function rejectionReason(
   if (observation.roundId !== input.currentRoundId) return 'wrong_round';
   if (observation.targetRefId !== criterion.targetRefId) return 'wrong_target';
   if (observation.observedAt < criterion.notBefore) return 'stale';
-  if (
-    input.now > criterion.frozenAt + criterion.timeoutMs ||
-    observation.observedAt > criterion.frozenAt + criterion.timeoutMs
-  ) {
+  // Deadline starts from notBefore (advanced to executingAt on external commits),
+  // not frozenAt. Otherwise any approval wait longer than timeoutMs always times out
+  // even when the post-commit observation is fresh.
+  const deadline = criterion.notBefore + criterion.timeoutMs;
+  if (input.now > deadline || observation.observedAt > deadline) {
     return 'timed_out';
   }
   if (baselineSatisfies(criterion)) return 'already_true_at_baseline';

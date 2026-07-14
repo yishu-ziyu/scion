@@ -76,6 +76,41 @@ describe('CompletionChecker', () => {
     expect(result.evidence[0].reason).toBe(reason);
   });
 
+  it('keeps post-commit evidence valid after a long approval wait past frozenAt+timeout', () => {
+    // Planner froze at t=100 with 5s timeout. User approved much later; notBefore advanced to execute.
+    const result = checkCompletion({
+      now: 12_000,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'c1',
+          kind: 'page_text',
+          operator: 'present',
+          expectedDigest: 'saved-digest',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          baseline: false,
+          frozenAt: 100,
+          notBefore: 10_000,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [
+        {
+          criterionId: 'c1',
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          observedAt: 11_000,
+          source: 'page',
+          value: true,
+        },
+      ],
+    });
+    expect(result.passed).toBe(true);
+    expect(result.evidence[0].passed).toBe(true);
+  });
+
   it('accepts only a dedicated user observation for user_confirmed', () => {
     const criterion = {
       id: 'confirm-1',
