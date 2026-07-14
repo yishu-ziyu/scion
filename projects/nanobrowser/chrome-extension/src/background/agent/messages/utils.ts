@@ -1,4 +1,5 @@
 import { type BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
+import { jsonrepair } from 'jsonrepair';
 
 import { guardrails } from '@src/background/services/guardrails';
 import { ResponseParseError } from '../agents/errors';
@@ -127,6 +128,25 @@ export function extractFirstJsonSubstring(text: string): string | null {
   return null;
 }
 
+function coerceParsedObject(parsed: unknown): Record<string, unknown> | null {
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed as Record<string, unknown>;
+  }
+  // Navigator sometimes returns a bare action array - wrap
+  if (Array.isArray(parsed)) {
+    return { action: parsed };
+  }
+  // Double-encoded JSON string
+  if (typeof parsed === 'string') {
+    try {
+      return coerceParsedObject(JSON.parse(parsed));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function tryParseJsonObject(raw: string): Record<string, unknown> | null {
   const candidates = [raw.trim()];
   // Prefer fenced code block body when present
@@ -134,25 +154,42 @@ function tryParseJsonObject(raw: string): Record<string, unknown> | null {
     const parts = raw.split('```');
     for (let i = 1; i < parts.length; i += 2) {
       let block = parts[i] ?? '';
-      block = block.replace(/^\s*json\s*/i, '').trim();
+      block = block.replace(/^\s*(json|javascript|ts|typescript)\s*/i, '').trim();
       if (block) candidates.push(block);
     }
   }
   const first = extractFirstJsonSubstring(raw);
   if (first) candidates.push(first);
 
+  // MiniMax sometimes uses fullwidth braces or smart quotes around JSON
+  const normalized = raw
+    .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\uFF5B]/g, '{')
+    .replace(/[\uFF5D]/g, '}');
+  if (normalized !== raw) {
+    candidates.push(normalized.trim());
+    const firstNorm = extractFirstJsonSubstring(normalized);
+    if (firstNorm) candidates.push(firstNorm);
+  }
+
   for (const candidate of candidates) {
+    if (!candidate) continue;
     try {
-      const parsed = JSON.parse(candidate);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-      // Navigator sometimes returns a bare action array - wrap
-      if (Array.isArray(parsed)) {
-        return { action: parsed };
-      }
+      const coerced = coerceParsedObject(JSON.parse(candidate));
+      if (coerced) return coerced;
     } catch {
-      // try next candidate
+      // Only repair strings that look like JSON. Repairing free prose+JSON
+      // (e.g. "Here is my plan: ```json ...") can invent empty objects.
+      const looksLikeJson = /^\s*[{\[]/.test(candidate);
+      if (!looksLikeJson) continue;
+      try {
+        const repaired = jsonrepair(candidate);
+        const coerced = coerceParsedObject(JSON.parse(repaired));
+        if (coerced) return coerced;
+      } catch {
+        // try next candidate
+      }
     }
   }
   return null;
@@ -279,6 +316,49 @@ export function normalizeAgentJsonShape(data: Record<string, unknown>): Record<s
     else if (typeof out[strKey] !== 'string') out[strKey] = String(out[strKey]);
   }
 
+  // Planner completion_criteria is a strict discriminated union - drop junk items
+  // so one bad criterion does not fail the whole plan (common MiniMax failure mode).
+  if (out.completion_criteria != null) {
+    if (!Array.isArray(out.completion_criteria)) {
+      out.completion_criteria = [];
+    } else {
+      const allowed = new Set(['url', 'page_text', 'element_state', 'media_state', 'user_confirmed']);
+      out.completion_criteria = out.completion_criteria
+        .filter(item => item && typeof item === 'object' && !Array.isArray(item))
+        .map(item => {
+          const c = { ...(item as Record<string, unknown>) };
+          if (typeof c.kind === 'string') c.kind = c.kind.toLowerCase();
+          if (c.required == null) c.required = true;
+          if (typeof c.required === 'string') {
+            const s = (c.required as string).toLowerCase();
+            if (s === 'true') c.required = true;
+            if (s === 'false') c.required = false;
+          }
+          if (typeof c.expected === 'number' || typeof c.expected === 'boolean') {
+            c.expected = String(c.expected);
+          }
+          return c;
+        })
+        .filter(c => allowed.has(String(c.kind)));
+    }
+  }
+
+  // waiting_user must match enum or be null - models invent free-form objects
+  if (out.waiting_user != null) {
+    if (typeof out.waiting_user !== 'object' || Array.isArray(out.waiting_user)) {
+      out.waiting_user = null;
+    } else {
+      const w = out.waiting_user as Record<string, unknown>;
+      const reason = String(w.reason ?? '');
+      if (reason !== 'login_required' && reason !== 'captcha_required') {
+        out.waiting_user = null;
+      } else if (typeof w.message !== 'string') {
+        w.message = w.message == null ? '' : String(w.message);
+        out.waiting_user = w;
+      }
+    }
+  }
+
   // Navigator brain fields (+ camelCase aliases)
   if (out.current_state && typeof out.current_state === 'object') {
     const cs = { ...(out.current_state as Record<string, unknown>) };
@@ -386,10 +466,13 @@ export function extractJsonFromModelOutput(content: string): Record<string, unkn
       return normalizeAgentJsonShape(parsed);
     }
 
-    // Last resort: jsonrepair via dynamic import is heavy; throw for caller
     throw new Error('No JSON object found after stripping think tags');
   } catch (e) {
-    throw new ResponseParseError(`Could not manually extract JSON from model output`);
+    const detail = e instanceof Error ? e.message : String(e);
+    // Keep a short hint so Service Worker / CDP logs show why, not only the generic label
+    throw new ResponseParseError(
+      `Could not manually extract JSON from model output (${detail.slice(0, 160)})`,
+    );
   }
 }
 

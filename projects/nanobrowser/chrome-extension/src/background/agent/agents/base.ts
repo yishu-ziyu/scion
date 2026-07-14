@@ -1,4 +1,4 @@
-import type { z } from 'zod';
+import { ZodError, type z } from 'zod';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { AgentContext, AgentOutput } from '../types';
 import type { BasePrompt } from '../prompts/base';
@@ -9,6 +9,7 @@ import {
   convertInputMessages,
   extractJsonFromModelOutput,
   messageContentToText,
+  normalizeAgentJsonShape,
   removeThinkTags,
 } from '../messages/utils';
 import { isAbortedError, ResponseParseError } from './errors';
@@ -252,28 +253,62 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
   // Execute the agent and return the result
   abstract execute(): Promise<AgentOutput<M>>;
 
+  private formatZodIssues(error: ZodError): string {
+    return error.issues
+      .slice(0, 6)
+      .map(i => `${i.path.join('.') || '(root)'}: ${i.message}`)
+      .join('; ');
+  }
+
   // Helper method to validate metadata
   protected validateModelOutput(data: unknown): this['ModelOutput'] | undefined {
     if (!this.modelOutputSchema || !data) return undefined;
     try {
       return this.modelOutputSchema.parse(data);
     } catch (error) {
-      logger.error('validateModelOutput failed', {
+      // Soft retry: mid models often return junk in optional planner fields.
+      // Drop completion_criteria / waiting_user and re-normalize once.
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        try {
+          const soft = normalizeAgentJsonShape({
+            ...(data as Record<string, unknown>),
+            completion_criteria: [],
+            waiting_user: null,
+          });
+          return this.modelOutputSchema.parse(soft);
+        } catch {
+          // fall through
+        }
+      }
+
+      const detail =
+        error instanceof ZodError
+          ? this.formatZodIssues(error)
+          : error instanceof Error
+            ? error.message
+            : 'unknown_error';
+      const keys =
+        data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data as object).slice(0, 20) : [];
+      logger.error(`validateModelOutput failed: ${detail}`, {
         category: error instanceof Error ? error.name : 'unknown_error',
+        keys,
       });
-      throw new ResponseParseError('Could not validate model output');
+      throw new ResponseParseError(`Could not validate model output (${detail.slice(0, 200)})`);
     }
   }
 
   // Helper method to manually parse the response content
   protected manuallyParseResponse(content: string): this['ModelOutput'] | undefined {
     const cleanedContent = removeThinkTags(content);
+    const preview = cleanedContent.replace(/\s+/g, ' ').slice(0, 500);
     try {
       const extractedJson = extractJsonFromModelOutput(cleanedContent);
       return this.validateModelOutput(extractedJson);
     } catch (error) {
-      logger.warning('manuallyParseResponse failed', {
+      logger.warning(`manuallyParseResponse failed: ${error instanceof Error ? error.message : String(error)}`, {
         category: error instanceof Error ? error.name : 'unknown_error',
+        preview,
+        length: cleanedContent.length,
       });
       // Re-throw validation errors so UI shows the real reason
       if (error instanceof ResponseParseError) {
