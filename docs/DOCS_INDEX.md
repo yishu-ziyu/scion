@@ -4,6 +4,8 @@
 
 | Category | # | Status | Name | Description | Last Modified | Path |
 |----------|---|--------|------|-------------|---------------|------|
+| decisions | 002 | current | 质量优先，Agent Core 可替换 | 质量高于沉没成本；保留 Chrome 扩展产品层，允许替换 NanoBrowser 原版 Agent 执行核。 | 2026-07-15 | [002](docs/decisions/002-quality-first-replaceable-agent-core.md) |
 | decisions | 001 | current | 保留 Chrome 扩展作为浏览器行动载体 | 记录为何本轮在现有扩展内建设任务运行时，而不是新造浏览器或云端执行器。 | 2026-07-13 | [001](docs/decisions/001-keep-chrome-extension.md) |
 | design | 001 | not-implemented | 浏览器行动任务运行时 | 定义可验证任务、连续控制、动作审批和本地 Skill 的扩展内架构。 | 2026-07-13 | [001](docs/design/001-browser-action-task-runtime.md) |
+| product | 002 | draft | Agent Core Bake-off 协议 | 同题对比 Nano Core、Stagehand/Playwright 系与 Browser Use：飞书表单与 B 站媒体，按 PRD 闸门取证。 | 2026-07-15 | [002](docs/product/002-agent-core-bakeoff.md) |
 | product | 001 | draft | Nanobrowser 二开：可验证浏览器行动 Agent PRD | 定义单任务连续控制、可验证完成、动作审批与本地 Skill 复用的首个产品闭环。 | 2026-07-14 | [001](docs/product/001-nanobrowser-prd.md) |

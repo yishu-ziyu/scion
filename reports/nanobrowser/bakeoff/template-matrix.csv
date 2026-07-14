@@ -1,0 +1,1 @@
+path,task,attempt,build_or_commit,model,outcome,false_complete,unapproved_commit,target_bind_ok,interventions,latency_ms,llm_calls,failure_class,notes
