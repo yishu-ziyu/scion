@@ -37,6 +37,7 @@ import { StaleTaskRoundError } from './contracts';
 import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
 import { checkCompletion } from './completion';
 import { sha256 } from './digest';
+import { allowsVerifiedComplete } from './page-state';
 import { resolveMediaArgs } from './media';
 import { ActionResult } from '../agent/types';
 
@@ -697,7 +698,15 @@ export class TaskManager {
       criteria: automaticCriteria,
       observations,
     });
-    if (!checked.passed) return false;
+    // product/007: no verified complete without required criteria evidence (expect / page proof).
+    if (
+      !allowsVerifiedComplete({
+        completionPassed: checked.passed,
+        hasRequiredCriteria: automaticCriteria.some(c => c.required),
+      })
+    ) {
+      return false;
+    }
     await this.queueTransition(async () => {
       const current = await getTask(taskId);
       if (!current || current.status !== 'running' || current.currentRoundId !== roundId) return;

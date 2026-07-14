@@ -202,6 +202,79 @@ describe('ActionDispatcher', () => {
     expect(persistedStates).toEqual(['proposed', 'approved', 'executing', 'uncertain']);
   });
 
+  it('rejects mutate when claimed pageRevision is stale (product/007)', async () => {
+    const execute = vi.fn(async () => new ActionResult({ success: true }));
+    const action = new Action(execute, clickElementActionSchema, true);
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      persistAttempt: vi.fn(async () => undefined),
+      requestApproval: vi.fn(async () => 'approved' as const),
+      observe: vi.fn(async () => ({
+        target: {
+          id: 'target-1',
+          kind: 'element' as const,
+          tabId: 7,
+          frameId: 0 as const,
+          urlOrigin: 'https://example.test',
+          digest: 'button-1',
+        },
+        effectTarget: { tag: 'button', type: 'submit', inForm: true },
+        evidence: [],
+        pageRevision: '7|https://example.test|button-1',
+      })),
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action,
+      rawArgs: {
+        intent: 'submit form',
+        index: 4,
+        pageRevision: '7|https://example.test|stale-dom',
+      },
+    });
+
+    expect(result.attempt.state).toBe('blocked');
+    expect(result.actOutcome).toBe('didnt');
+    expect(result.actionResult.error).toMatch(/pageRevision/i);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('marks successful external_commit without expect as unknown (product/007)', async () => {
+    const execute = vi.fn(async () => new ActionResult({ success: true }));
+    const action = new Action(execute, clickElementActionSchema, true);
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      persistAttempt: vi.fn(async () => undefined),
+      requestApproval: vi.fn(async () => 'approved' as const),
+      observe: vi.fn(async () => ({
+        target: {
+          id: 'target-1',
+          kind: 'element' as const,
+          tabId: 7,
+          frameId: 0 as const,
+          urlOrigin: 'https://example.test',
+          digest: 'button-1',
+        },
+        effectTarget: { tag: 'button', type: 'submit', inForm: true },
+        evidence: [],
+      })),
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action,
+      rawArgs: { intent: 'submit form', index: 4 },
+    });
+
+    expect(result.attempt.state).toBe('observed');
+    expect(result.actOutcome).toBe('unknown');
+    expect(result.pageRevision).toContain('button-1');
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
   it('does not mark an external commit error result as observed', async () => {
     const action = new Action(
       vi.fn(async () => new ActionResult({ error: 'outcome unknown' })),

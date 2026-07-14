@@ -29,11 +29,18 @@ export interface ProbeObservation {
   value: boolean | string;
 }
 
+/** product/007 P0 act outcome: delivery ≠ success; unknown must not complete. */
+export type ActOutcome = 'worked' | 'didnt' | 'unknown';
+
 export interface DispatchResult {
   actionResult: ActionResult;
   attempt: ActionAttempt;
   targetRef?: BrowserTargetRef;
   evidence: CompletionEvidence[];
+  /** Observe binding this act used (007 stateId / pageRevision). */
+  pageRevision?: string;
+  /** Semantic outcome after act + optional expect (007). */
+  actOutcome?: ActOutcome;
 }
 
 export interface ExecutorInput {

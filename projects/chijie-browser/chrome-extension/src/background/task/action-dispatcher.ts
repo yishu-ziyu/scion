@@ -1,8 +1,14 @@
 import type { Action } from '../agent/actions/builder';
 import { ActionResult } from '../agent/types';
 import type { ActionAttempt, BrowserTargetRef, CompletionEvidence } from '@extension/storage/lib/task';
-import type { DispatchResult } from './contracts';
+import type { ActOutcome, DispatchResult } from './contracts';
 import { sha256 } from './digest';
+import {
+  assertMutableStateBinding,
+  classifyActOutcome,
+  makePageRevision,
+  readClaimedState,
+} from './page-state';
 
 export type EffectDecision =
   | { kind: 'allow'; effect: 'read' | 'reversible' }
@@ -74,6 +80,8 @@ export interface TargetObservation {
   target?: BrowserTargetRef;
   effectTarget: EffectTarget;
   evidence: CompletionEvidence[];
+  /** product/007: immutable observe id; element refs bind to this only. */
+  pageRevision?: string;
 }
 
 export interface ActionDispatcherDeps {
@@ -98,8 +106,10 @@ export class ActionDispatcher {
 
   async dispatch(request: DispatchRequest): Promise<DispatchResult> {
     this.interrupted = false;
+    // Claimed state lives on raw args (model may send pageRevision outside zod schema).
+    const claimed = readClaimedState(request.rawArgs);
     const parsedArgs = request.action.parse(request.rawArgs);
-    const before = await this.deps.observe(request, parsedArgs, 'before');
+    const before = this.withPageRevision(await this.deps.observe(request, parsedArgs, 'before'));
     const argsDigest = await sha256(JSON.stringify(parsedArgs));
     const decision = decideEffect({
       actionName: request.action.name(),
@@ -123,10 +133,27 @@ export class ActionDispatcher {
     };
     await this.deps.persistAttempt(attempt);
 
+    // product/007: stale stateId/pageRevision or target ref → reject before mutate
+    const binding = assertMutableStateBinding({
+      claimedRevision: claimed.pageRevision,
+      observedRevision: before.pageRevision,
+      claimedTargetDigest: claimed.targetDigest,
+      observedTargetDigest: before.target?.digest,
+    });
+    if (!binding.ok) {
+      attempt = { ...attempt, state: 'blocked' };
+      await this.deps.persistAttempt(attempt);
+      return this.result(new ActionResult({ error: binding.message }), attempt, before, {
+        actOutcome: 'didnt',
+      });
+    }
+
     if (decision.kind === 'block') {
       attempt = { ...attempt, state: 'blocked' };
       await this.deps.persistAttempt(attempt);
-      return this.result(new ActionResult({ error: decision.reason }), attempt, before);
+      return this.result(new ActionResult({ error: decision.reason }), attempt, before, {
+        actOutcome: 'didnt',
+      });
     }
 
     if (decision.kind === 'approval') {
@@ -134,24 +161,34 @@ export class ActionDispatcher {
       if (approval === 'rejected' || this.interrupted) {
         attempt = { ...attempt, state: 'blocked' };
         await this.deps.persistAttempt(attempt);
-        return this.result(new ActionResult({ error: 'Action was not approved' }), attempt, before);
+        return this.result(new ActionResult({ error: 'Action was not approved' }), attempt, before, {
+          actOutcome: 'didnt',
+        });
       }
       attempt = { ...attempt, state: 'approved', approvedAt: this.deps.now() };
       await this.deps.persistAttempt(attempt);
 
       let rechecked: TargetObservation;
       try {
-        rechecked = await this.deps.observe(request, parsedArgs, 'before');
+        rechecked = this.withPageRevision(await this.deps.observe(request, parsedArgs, 'before'));
       } catch {
         attempt = { ...attempt, state: 'blocked' };
         await this.deps.persistAttempt(attempt);
-        return this.result(new ActionResult({ error: 'Approved target could not be revalidated' }), attempt, before);
+        return this.result(new ActionResult({ error: 'Approved target could not be revalidated' }), attempt, before, {
+          actOutcome: 'unknown',
+        });
       }
       if (!before.target || !rechecked.target || before.target.digest !== rechecked.target.digest) {
         attempt = { ...attempt, state: 'blocked' };
         await this.deps.persistAttempt(attempt);
-        return this.result(new ActionResult({ error: 'Approved target changed; replan required' }), attempt, rechecked);
+        return this.result(
+          new ActionResult({ error: 'Approved target changed; replan required' }),
+          attempt,
+          rechecked,
+          { actOutcome: 'didnt' },
+        );
       }
+      // Target digest is the commit binding; full-page revision may drift while the control stays.
     }
 
     attempt = { ...attempt, state: 'executing', executingAt: this.deps.now() };
@@ -159,19 +196,37 @@ export class ActionDispatcher {
     if (this.interrupted) {
       attempt = { ...attempt, state: 'blocked' };
       await this.deps.persistAttempt(attempt);
-      return this.result(new ActionResult({ error: 'Action was interrupted' }), attempt, before);
+      return this.result(new ActionResult({ error: 'Action was interrupted' }), attempt, before, {
+        actOutcome: 'didnt',
+      });
     }
     try {
       const actionResult = await request.action.executeParsed(parsedArgs);
       if (actionResult.error) {
-        attempt = { ...attempt, state: attempt.effect === 'external_commit' ? 'uncertain' : 'blocked' };
+        const uncertain = attempt.effect === 'external_commit';
+        attempt = { ...attempt, state: uncertain ? 'uncertain' : 'blocked' };
         await this.deps.persistAttempt(attempt);
-        return this.result(actionResult, attempt, before);
+        return this.result(actionResult, attempt, before, {
+          actOutcome: classifyActOutcome({
+            actionError: actionResult.error,
+            effect: attempt.effect,
+            expectEvidence: [],
+            hasExpect: claimed.hasExpectFlag,
+            uncertain,
+          }),
+        });
       }
-      const after = await this.deps.observe(request, parsedArgs, 'after');
+      const after = this.withPageRevision(await this.deps.observe(request, parsedArgs, 'after'));
       attempt = { ...attempt, state: 'observed', observedAt: this.deps.now() };
       await this.deps.persistAttempt(attempt);
-      return this.result(actionResult, attempt, after);
+      const hasExpect = claimed.hasExpectFlag || after.evidence.length > 0;
+      const actOutcome = classifyActOutcome({
+        actionError: null,
+        effect: attempt.effect,
+        expectEvidence: after.evidence.map(e => ({ passed: e.passed, reason: e.reason })),
+        hasExpect,
+      });
+      return this.result(actionResult, attempt, after, { actOutcome });
     } catch (error) {
       attempt = { ...attempt, state: attempt.effect === 'external_commit' ? 'uncertain' : 'blocked' };
       await this.deps.persistAttempt(attempt);
@@ -179,12 +234,32 @@ export class ActionDispatcher {
     }
   }
 
-  private result(actionResult: ActionResult, attempt: ActionAttempt, observation: TargetObservation): DispatchResult {
+  private withPageRevision(observation: TargetObservation): TargetObservation {
+    if (observation.pageRevision) return observation;
+    if (!observation.target) return observation;
+    return {
+      ...observation,
+      pageRevision: makePageRevision({
+        tabId: observation.target.tabId,
+        urlOrigin: observation.target.urlOrigin,
+        snapshotDigest: observation.target.digest,
+      }),
+    };
+  }
+
+  private result(
+    actionResult: ActionResult,
+    attempt: ActionAttempt,
+    observation: TargetObservation,
+    extra?: { actOutcome?: ActOutcome },
+  ): DispatchResult {
     return {
       actionResult,
       attempt,
       targetRef: observation.target,
       evidence: observation.evidence,
+      pageRevision: observation.pageRevision,
+      actOutcome: extra?.actOutcome,
     };
   }
 
