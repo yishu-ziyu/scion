@@ -31,3 +31,13 @@ An action that creates a visible or difficult-to-reverse result outside the Agen
 ## Skill
 
 A reusable semantic task recipe with inputs, expected outcome, and approval policy. The first implementation cycle includes local Skill saving and rerun, but excludes sharing and a marketplace. A raw replay of stale element indexes is not a Skill.
+
+## Quality first
+
+Correctness, safety, verified completion, privacy, and maintainability beat delivery speed and sunk cost. When quality requires replacing the Agent execution core, replace it; do not protect "we already built on Nano core."
+
+## Shell vs core
+
+- **Shell**: Chrome extension, side panel, user login state on the daily browser.
+- **Product contract**: Task, approval, verified completion, receipt, Skill, privacy boundaries.
+- **Execution core**: Planner/Navigator-style action loop. Replaceable. Not a moat.
