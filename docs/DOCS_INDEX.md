@@ -4,6 +4,7 @@
 
 | Category | # | Status | Name | Description | Last Modified | Path |
 |----------|---|--------|------|-------------|---------------|------|
+| product | 007 | current | 从 pi-computer-use 可借鉴什么（持节） | 持节借状态机/后置条件/三态结果；不集成整仓；可转发对齐。 | 2026-07-15 | [007](docs/product/007-pi-computer-use-borrow-for-chijie.md) |
 | product | 006 | draft | 外环 RL 最小方案（可选后续） | 只写方案、暂不执行。可验证闸门 rollout + Skill；不训权重。目录预留 reports/nanobrowser/outer-rl/。 | 2026-07-15 | [006](docs/product/006-outer-loop-rl-min-plan.md) |
 | decisions | 002 | current | 质量优先，Agent Core 可替换 | 质量高于沉没成本；保留 Chrome 扩展产品层，允许替换 NanoBrowser 原版 Agent 执行核。 | 2026-07-15 | [002](docs/decisions/002-quality-first-replaceable-agent-core.md) |
 | decisions | 001 | current | 保留 Chrome 扩展作为浏览器行动载体 | 记录为何本轮在现有扩展内建设任务运行时，而不是新造浏览器或云端执行器。 | 2026-07-13 | [001](docs/decisions/001-keep-chrome-extension.md) |
