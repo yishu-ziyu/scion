@@ -47,6 +47,8 @@ interface TaskManagerDeps {
   switchTab: (tabId: number) => Promise<void>;
   observeCriteria: ObserveCriteria;
   now: () => number;
+  /** Backoff after external_commit before re-probe (ms). Default covers async form rewrites. */
+  postCommitVerifyDelaysMs?: number[];
 }
 
 const TERMINAL_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled'];
@@ -588,7 +590,13 @@ export class TaskManager {
           throw new StaleTaskRoundError();
         }
         if (!this.lockedCriteriaRounds.has(this.roundKey(taskId, roundId))) {
-          await this.freezeCriteria(taskId, roundId, criteria);
+          // Models often return empty completion_criteria; fall back to instruction cues
+          // so external_commit can still settle with a verified receipt.
+          const drafts =
+            criteria.length > 0
+              ? criteria
+              : this.extractImplicitCompletionCriteria(this.instructions.get(taskId) ?? '');
+          await this.freezeCriteria(taskId, roundId, drafts);
         } else if (this.currentRound(task).criteria.length === 0) {
           throw new Error('Locked Skill criteria are missing');
         }
@@ -651,29 +659,45 @@ export class TaskManager {
   }
 
   /**
-   * After a successful external_commit, re-probe frozen criteria immediately.
+   * After a successful external_commit, re-probe frozen criteria.
    * Real MiniMax loops often keep stepping after form submit without emitting
    * candidate_complete; page evidence is enough for a verified receipt.
+   * Fixture/real forms often rewrite DOM after an async fetch - one immediate
+   * probe races the update, so retry with short backoff.
+   * Only automatic criteria participate - user_confirmed still needs the panel.
    */
   private async tryVerifyAfterCommit(taskId: string, roundId: string): Promise<void> {
+    // Immediate + short backoff: form fixtures rewrite after async fetch; do not block long.
+    const delaysMs = this.deps.postCommitVerifyDelaysMs ?? [0, 250, 600, 1200];
+    for (const delayMs of delaysMs) {
+      if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
+      const settled = await this.tryVerifyAfterCommitOnce(taskId, roundId);
+      if (settled) return;
+    }
+  }
+
+  /** @returns true when the task was completed (or is no longer verifiable). */
+  private async tryVerifyAfterCommitOnce(taskId: string, roundId: string): Promise<boolean> {
     const task = await getTask(taskId);
-    if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return;
+    if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return true;
     const round = this.currentRound(task);
-    if (round.criteria.length === 0) return;
-    if (round.criteria.some(item => item.kind === 'user_confirmed')) return;
+    const automaticCriteria = round.criteria.filter(item => item.kind !== 'user_confirmed');
+    if (automaticCriteria.length === 0) return true;
+    // Mixed plans still need a user click; only pure automatic sets can settle here.
+    if (round.criteria.some(item => item.kind === 'user_confirmed')) return true;
     let observations: ProbeObservation[] = [];
     try {
-      observations = await this.observeTaskCriteria(task, round.criteria);
+      observations = await this.observeTaskCriteria(task, automaticCriteria);
     } catch {
-      return;
+      return false;
     }
     const checked = checkCompletion({
       now: this.deps.now(),
       currentRoundId: round.id,
-      criteria: round.criteria,
+      criteria: automaticCriteria,
       observations,
     });
-    if (!checked.passed) return;
+    if (!checked.passed) return false;
     await this.queueTransition(async () => {
       const current = await getTask(taskId);
       if (!current || current.status !== 'running' || current.currentRoundId !== roundId) return;
@@ -682,6 +706,7 @@ export class TaskManager {
       await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
     });
     await this.stopTaskRuntime(taskId);
+    return true;
   }
 
   private readStringField(value: unknown, key: string): string | undefined {
@@ -905,6 +930,13 @@ export class TaskManager {
 
       const roundId = round.id;
       const isSkillRun = task.sourceSkillId !== undefined;
+      // Freeze instruction-derived success text before the agent acts so baseline is pre-submit.
+      if (!isSkillRun && !this.lockedCriteriaRounds.has(this.roundKey(taskId, roundId))) {
+        const implicit = this.extractImplicitCompletionCriteria(instruction);
+        if (implicit.length > 0) {
+          await this.freezeCriteria(taskId, roundId, implicit);
+        }
+      }
       let driver: ExecutorDriver;
       try {
         driver = await this.deps.createExecutor(
@@ -1164,7 +1196,9 @@ export class TaskManager {
             ),
           ),
       );
-      const baseline = await this.deps.observeCriteria(criteria);
+      // Baseline must probe the task tab. Side-panel / e2e focus would otherwise
+      // rewrite targetRefId + activeTabId to the wrong page and break post-commit verify.
+      const baseline = await this.observeTaskCriteria(task, criteria);
       const pageObservations = baseline.filter(
         observation =>
           observation.source === 'page' &&
@@ -1212,6 +1246,10 @@ export class TaskManager {
     const criteria = await Promise.all(
       drafts.map(draft => this.freezeCriterion(draft, roundId, `tab-${tabId}`, frozenAt, new Set())),
     );
+    // Skill freeze is bound to the start command tab; never baseline against focus drift.
+    if (Number.isSafeInteger(tabId)) {
+      await this.deps.switchTab(tabId);
+    }
     const baseline = await this.deps.observeCriteria(criteria);
     const observations = baseline.filter(
       observation =>
@@ -1300,7 +1338,8 @@ export class TaskManager {
       required: draft.required,
       frozenAt,
       notBefore: frozenAt,
-      timeoutMs: 10_000,
+      // Real agent loops + async page rewrites need more than a few seconds after commit.
+      timeoutMs: 120_000,
       baseline: false,
     };
     switch (draft.kind) {
@@ -1339,6 +1378,31 @@ export class TaskManager {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * When the planner omits completion_criteria, recover observable success text from the user goal.
+   * E.g. "success is Saved successfully" / "until you see Done".
+   */
+  private extractImplicitCompletionCriteria(instruction: string): CompletionCriterionDraft[] {
+    const drafts: CompletionCriterionDraft[] = [];
+    const seen = new Set<string>();
+    const fieldValues = this.extractUserFieldValues(instruction);
+    const patterns = [
+      /\bsuccess\s+is\s+["'“]?([^"'”.;\n]+)/gi,
+      /\buntil\s+(?:you\s+)?(?:see|seeing)\s+["'“]?([^"'”.;\n]+)/gi,
+      /成功(?:标志|信号|文案|是|为)?\s*[:：]?\s*["'「]?([^"'」.;。\n]+)/g,
+      /看到\s*["'「]?([^"'」.;。\n]{2,80})/g,
+    ];
+    for (const pattern of patterns) {
+      for (const match of instruction.matchAll(pattern)) {
+        const expected = match[1]?.replace(/\s+/g, ' ').trim();
+        if (!expected || expected.length > 160 || seen.has(expected) || fieldValues.has(expected)) continue;
+        seen.add(expected);
+        drafts.push({ kind: 'page_text', operator: 'present', expected, required: true });
+      }
+    }
+    return drafts.slice(0, 3);
   }
 
   private extractUserFieldValues(instruction: string): Set<string> {

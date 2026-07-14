@@ -69,6 +69,9 @@ const fakeDriver = (): ExecutorDriver => ({
   stop: vi.fn(),
 });
 
+/** Instant post-commit verify in unit tests (production uses short backoff). */
+const noPostCommitBackoff = { postCommitVerifyDelaysMs: [0] as number[] };
+
 async function taskRoundId(manager: TaskManager, taskId: string): Promise<string> {
   const task = await manager.snapshot(taskId);
   if (!task) throw new Error(`Expected task ${taskId}`);
@@ -93,6 +96,7 @@ describe('TaskManager lifecycle', () => {
       switchTab,
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     const command = {
       type: 'start' as const,
@@ -121,6 +125,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -173,6 +178,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.recover();
     await expect(manager.snapshot('task-1')).resolves.toMatchObject({ status: 'interrupted' });
@@ -188,6 +194,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -211,6 +218,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -238,6 +246,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -271,6 +280,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -319,6 +329,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -377,6 +388,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -437,6 +449,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -474,6 +487,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -515,6 +529,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -560,6 +575,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -621,6 +637,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria,
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -682,6 +699,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => now,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -744,6 +762,146 @@ describe('TaskManager lifecycle', () => {
     expect(JSON.stringify(await manager.snapshot('task-approval'))).not.toContain('secret form value');
   });
 
+  it('freezes success text from the instruction when the planner returns empty criteria', async () => {
+    const driver = fakeDriver();
+    let observeCall = 0;
+    const observeCriteria = vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) => {
+      observeCall += 1;
+      return criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: 100,
+        source: 'page' as const,
+        value: false,
+      }));
+    });
+    let hooks!: ExecutorHooks;
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-implicit',
+      taskId: 'task-implicit',
+      instruction: 'Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.',
+      chatSessionId: 'chat-implicit',
+      instructionMessageId: 'message-implicit',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    // Pre-freeze from instruction before the planner runs.
+    await expect(manager.snapshot('task-implicit')).resolves.toMatchObject({
+      rounds: [
+        {
+          criteria: [
+            expect.objectContaining({
+              kind: 'page_text',
+              targetRefId: 'tab-7',
+              baseline: false,
+            }),
+          ],
+        },
+      ],
+    });
+    const roundId = await taskRoundId(manager, 'task-implicit');
+    // Empty planner criteria must not wipe the already-frozen set.
+    await hooks.onPlan(roundId, []);
+    const snap = await manager.snapshot('task-implicit');
+    expect(snap?.rounds[0]?.criteria).toHaveLength(1);
+    expect(observeCall).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(snap)).not.toContain('Saved successfully');
+    expect(JSON.stringify(snap)).not.toContain('FIELD_SENTINEL_8472');
+  });
+
+  it('settles completed with a receipt right after external_commit when automatic criteria pass', async () => {
+    let hooks!: ExecutorHooks;
+    let now = 100;
+    let observeCall = 0;
+    const driver = fakeDriver();
+    const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
+    const switchTab = vi.fn();
+    const observeCriteria = vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) => {
+      observeCall += 1;
+      // 1 = freeze baseline (absent); 2 = first post-commit probe still absent; 3 = present
+      const value = observeCall >= 3;
+      return criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: now,
+        source: 'page' as const,
+        value,
+      }));
+    });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab,
+      observeCriteria,
+      now: () => now,
+      ...noPostCommitBackoff,
+      // Exercise one backoff step without slowing the whole suite.
+      postCommitVerifyDelaysMs: [0, 20],
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-post-commit',
+      taskId: 'task-post-commit',
+      instruction: 'submit the form',
+      chatSessionId: 'chat-post-commit',
+      instructionMessageId: 'message-post-commit',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-post-commit');
+    await hooks.onPlan(roundId, [
+      { kind: 'page_text', operator: 'present', expected: 'Saved successfully', required: true },
+    ]);
+    now = 160;
+    const pending = hooks.dispatchAction(
+      roundId,
+      new Action(executeExternalCommit, clickElementActionSchema, true),
+      { intent: 'submit the form', index: 1 },
+    );
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-post-commit')).toMatchObject({ status: 'waiting_approval' });
+    });
+    const waiting = await manager.snapshot('task-post-commit');
+    if (!waiting) throw new Error('Expected waiting approval');
+    const round = waiting.rounds.find(item => item.id === waiting.currentRoundId);
+    const approval = round?.approvals[0];
+    if (!approval || !round) throw new Error('Expected approval');
+    await manager.dispatch({
+      type: 'approve',
+      commandId: 'approve-post-commit',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId: round.id,
+      approvalId: approval.id,
+    });
+    await pending;
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-post-commit')).toMatchObject({
+        status: 'completed',
+        rounds: [{ receipt: { taskId: 'task-post-commit' }, attempts: [{ state: 'observed' }] }],
+      });
+    });
+    // freeze + post-commit verify; no candidate_complete path
+    expect(observeCall).toBeGreaterThanOrEqual(2);
+    expect(driver.run).toHaveBeenCalled();
+    expect(switchTab).toHaveBeenCalledWith(7);
+  });
+
   it('does not execute an approved commit after the task is paused', async () => {
     let hooks!: ExecutorHooks;
     let finishRecheck!: (value: typeof store.targetObservation) => void;
@@ -760,6 +918,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -824,6 +983,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -888,6 +1048,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',
@@ -990,6 +1151,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
 
     await manager.recover();
@@ -1054,6 +1216,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
 
     await manager.recover();
@@ -1076,6 +1239,7 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
+      ...noPostCommitBackoff,
     });
     await manager.dispatch({
       type: 'start',

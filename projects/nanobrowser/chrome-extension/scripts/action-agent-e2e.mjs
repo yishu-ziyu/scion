@@ -275,6 +275,62 @@ async function waitForApproval(panel, target) {
   throw new Error('timeout waiting for approval-approve');
 }
 
+function summarizeTask(task) {
+  if (!task || typeof task !== 'object') return task;
+  return {
+    id: task.id,
+    status: task.status,
+    activeTabId: task.activeTabId,
+    criteria: task.rounds?.[0]?.criteria?.map(c => ({
+      kind: c.kind,
+      targetRefId: c.targetRefId,
+      baseline: c.baseline,
+      notBefore: c.notBefore,
+      timeoutMs: c.timeoutMs,
+      expectedDigest: c.expectedDigest,
+    })),
+    attempts: task.rounds?.[0]?.attempts?.map(a => ({
+      actionName: a.actionName,
+      effect: a.effect,
+      state: a.state,
+    })),
+    evidence: task.rounds?.[0]?.evidence?.slice(-4),
+    waitReason: task.rounds?.[0]?.waitReason,
+    receipt: task.rounds?.[0]?.receipt ? true : false,
+  };
+}
+
+async function dumpTaskStorage(panel, label) {
+  const info = await panel.evaluate(async () => {
+    const all = await chrome.storage.local.get(null);
+    const runtime = all['task-runtime-v1'] || {};
+    const tasks = Object.values(runtime).map(task => ({
+      id: task?.id,
+      status: task?.status,
+      activeTabId: task?.activeTabId,
+      criteria: task?.rounds?.[0]?.criteria?.map(c => ({
+        kind: c.kind,
+        targetRefId: c.targetRefId,
+        baseline: c.baseline,
+        notBefore: c.notBefore,
+        timeoutMs: c.timeoutMs,
+        expectedDigest: c.expectedDigest,
+      })),
+      attempts: task?.rounds?.[0]?.attempts?.map(a => ({
+        actionName: a.actionName,
+        effect: a.effect,
+        state: a.state,
+      })),
+      evidence: task?.rounds?.[0]?.evidence?.slice(-4),
+      waitReason: task?.rounds?.[0]?.waitReason,
+      receipt: Boolean(task?.rounds?.[0]?.receipt),
+    }));
+    return { taskCount: tasks.length, tasks, keys: Object.keys(all).slice(0, 40) };
+  });
+  console.log(`[e2e] ${label}`, JSON.stringify(info).slice(0, 3000));
+  return info;
+}
+
 async function waitCompleted(panel, target, expectedCount) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -293,9 +349,14 @@ async function waitCompleted(panel, target, expectedCount) {
     if (['failed', 'cancelled'].includes(snap.status)) {
       throw new Error(`task ${snap.status}: ${snap.body}`);
     }
+    // Mid-run diagnostic once form is already saved but task still running.
+    if (count >= expectedCount && snap.status === 'running' && Date.now() - start > 8_000 && Date.now() - start < 12_000) {
+      await dumpTaskStorage(panel, 'post-submit-still-running');
+    }
     await new Promise(r => setTimeout(r, 2500));
   }
   await dumpPanel(panel, 'completed-timeout');
+  await dumpTaskStorage(panel, 'completed-timeout-storage');
   throw new Error('timeout waiting for completed');
 }
 

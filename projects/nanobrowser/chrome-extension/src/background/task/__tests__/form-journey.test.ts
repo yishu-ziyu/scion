@@ -314,6 +314,7 @@ describe('verified form journey', () => {
       resume: vi.fn(),
       stop: vi.fn(),
     };
+    const switchTab = vi.fn();
     const observeCriteria = vi.fn(async (criteria: CompletionCriterion[]) =>
       criteria.map(item => ({
         criterionId: item.id,
@@ -334,7 +335,7 @@ describe('verified form journey', () => {
         ]);
         return driver;
       },
-      switchTab: vi.fn(),
+      switchTab,
       observeCriteria,
       now: () => 100,
     });
@@ -353,6 +354,10 @@ describe('verified form journey', () => {
     const criterion = snapshot?.rounds[0]?.criteria[0];
 
     expect(observeCriteria).toHaveBeenCalledOnce();
+    // runCurrentRound switches once; freeze baselining switches again onto the task tab.
+    expect(switchTab.mock.calls.filter(call => call[0] === 7).length).toBeGreaterThanOrEqual(2);
+    const freezeObserveOrder = observeCriteria.mock.invocationCallOrder[0];
+    expect(switchTab.mock.invocationCallOrder.some(order => order < freezeObserveOrder)).toBe(true);
     expect(criterion).toMatchObject({
       kind: 'page_text',
       expectedDigest: await sha256('Saved once'),
@@ -360,7 +365,7 @@ describe('verified form journey', () => {
       baseline: false,
       frozenAt: 100,
       notBefore: 100,
-      timeoutMs: 10_000,
+      timeoutMs: 120_000,
     });
     expect(JSON.stringify(snapshot)).not.toContain('Saved once');
     expect(JSON.stringify(snapshot)).not.toContain('Replaced later');
