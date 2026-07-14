@@ -205,6 +205,7 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).toContain('task-round-timeline');
     expect(taskStatusCardSource).toContain('task-approval-card');
     expect(taskStatusCardSource).toContain('completion-receipt');
+    expect(taskStatusCardSource).toContain('completion-receipt-meta');
     expect(taskStatusCardSource).not.toContain('批准一次'); // uses i18n key
     expect(taskStatusCardSource).toContain('chat_task_approve');
   });
@@ -217,5 +218,20 @@ describe('Feature: design/003 task main blocks', () => {
 
   it('header brand is 持节 Chijie', () => {
     expect(sidePanelSource).toContain('持节 Chijie');
+  });
+
+  it('Options overview implements design/003 cards', () => {
+    const overview = readFileSync(resolve(optionsRoot, 'components/OverviewSettings.tsx'), 'utf8');
+    expect(optionsTsx).toContain('OverviewSettings');
+    expect(optionsTsx).toContain('持节 Chijie');
+    expect(overview).toContain('overview-pipeline');
+    expect(overview).toContain('overview-model');
+    expect(overview).toContain('overview-approval');
+    expect(overview).toContain('overview-skill');
+    expect(overview).toContain('overview-receipt');
+    expect(overview).toContain('overview-privacy');
+    expect(overview).toContain('agentCoreBackend');
+    // Skill is task recipe, not tool chip wall
+    expect(overview).toMatch(/可验证任务配方/);
   });
 });

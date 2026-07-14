@@ -13,12 +13,12 @@ last_modified: "2026-07-15"
 
 ## Status
 
-**draft（视觉定稿方向；UI-1 侧栏主路径已开始落地）。**
+**draft（交互稿定稿；UI-1–5 信息架构已落地，像素级与附图可继续微调）。**
 
 - 源图：Owner 确认的两张 ChatGPT 产品交互稿（2026-07-15）。
-- 品牌：持节 / Chijie（非 Nanobrowser、非奕枢、非知识图谱第二大脑）。
-- **2026-07-15 UI-1：** `TaskStatusCard` 已按块 2–5 拆分（任务元数据 / 轮次时间线 / 审批卡 / 回执元数据）；顶栏「持节 Chijie」+ 状态。
-- UI-2/3/Options 总览未完成前不得标 `current`。
+- 品牌：持节 / Chijie。
+- **2026-07-15：** 侧栏 TaskStatusCard 分块 + Options `OverviewSettings`（流水线/模型/审批/Skill 语义/回执/站点占位/隐私）+ 执行核 control|nano 切换。
+- 像素级与附图完全一致、持久化审批开关前可保持 draft；行为契约已接 Task。
 
 ## Summary
 
@@ -125,11 +125,11 @@ Skill     → 本地 Skill 定义（配方），不是原子 tool 开关墙
 
 | Slice | Done when | Status |
 |-------|-----------|--------|
-| UI-1 | 侧栏：任务卡 + 轮次线 + 审批卡视觉对齐附图 | **in progress / partial** |
-| UI-2 | 侧栏：完成回执卡 + 无机器角色泄漏 | partial (meta added) |
-| UI-3 | 设置总览：流水线 + 模型 + 审批 + 隐私四卡 | pending |
-| UI-4 | Skill 条：仅在 PRD Skill 语义下接入，否则隐藏或降级 | pending |
-| UI-5 | 站点权限：只读列表或占位，不阻塞主路径 | pending |
+| UI-1 | 侧栏：任务卡 + 轮次线 + 审批卡视觉对齐附图 | **done** (2026-07-15) |
+| UI-2 | 侧栏：完成回执卡 + 无机器角色泄漏 | **done** (receipt meta + humanize timeline) |
+| UI-3 | 设置总览：流水线 + 模型 + 审批 + 隐私四卡 | **done** (OverviewSettings) |
+| UI-4 | Skill 条：仅在 PRD Skill 语义下接入，否则隐藏或降级 | **done** (overview explains recipe; no tool-chip wall) |
+| UI-5 | 站点权限：只读列表或占位，不阻塞主路径 | **done** (placeholder card) |
 
 ## Visual direction (short)
 

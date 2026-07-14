@@ -2,41 +2,78 @@ import { useState } from 'react';
 import '@src/Options.css';
 import { withErrorBoundary, withSuspense } from '@extension/shared';
 import { t } from '@extension/i18n';
-import { FiSettings, FiCpu, FiShield, FiTrendingUp, FiHelpCircle } from 'react-icons/fi';
+import {
+  FiHome,
+  FiCpu,
+  FiShield,
+  FiCheckSquare,
+  FiFileText,
+  FiGlobe,
+  FiLock,
+  FiSettings,
+  FiTrendingUp,
+  FiHelpCircle,
+} from 'react-icons/fi';
+import { OverviewSettings } from './components/OverviewSettings';
 import { GeneralSettings } from './components/GeneralSettings';
 import { ModelSettings } from './components/ModelSettings';
 import { FirewallSettings } from './components/FirewallSettings';
 import { AnalyticsSettings } from './components/AnalyticsSettings';
 
-type TabTypes = 'general' | 'models' | 'firewall' | 'analytics' | 'help';
+/** design/003 nav + legacy advanced tabs */
+type TabTypes =
+  | 'overview'
+  | 'models'
+  | 'approval'
+  | 'skill'
+  | 'receipt'
+  | 'sites'
+  | 'privacy'
+  | 'general'
+  | 'firewall'
+  | 'analytics'
+  | 'help';
 
 const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
+  { id: 'overview', icon: FiHome, label: '总览' },
+  { id: 'models', icon: FiCpu, label: '模型' },
+  { id: 'approval', icon: FiCheckSquare, label: '审批' },
+  { id: 'skill', icon: FiFileText, label: 'Skill' },
+  { id: 'receipt', icon: FiFileText, label: '回执' },
+  { id: 'sites', icon: FiGlobe, label: '站点权限' },
+  { id: 'privacy', icon: FiLock, label: '隐私' },
   { id: 'general', icon: FiSettings, label: t('options_tabs_general') },
-  { id: 'models', icon: FiCpu, label: t('options_tabs_models') },
   { id: 'firewall', icon: FiShield, label: t('options_tabs_firewall') },
   { id: 'analytics', icon: FiTrendingUp, label: t('options_tabs_analytics') },
   { id: 'help', icon: FiHelpCircle, label: t('options_tabs_help') },
 ];
 
 const Options = () => {
-  const [activeTab, setActiveTab] = useState<TabTypes>('models');
-  // Always 持节 black canvas; isDarkMode kept true for child components that still branch.
+  const [activeTab, setActiveTab] = useState<TabTypes>('overview');
   const isDarkMode = true;
 
   const handleTabClick = (tabId: TabTypes) => {
     if (tabId === 'help') {
-      window.open('https://nanobrowser.ai/docs', '_blank');
-    } else {
-      setActiveTab(tabId);
+      window.open('https://github.com/yishu-ziyu/scion/blob/main/projects/chijie-browser/PRODUCT.md', '_blank');
+      return;
     }
+    setActiveTab(tabId);
   };
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'general':
-        return <GeneralSettings isDarkMode={isDarkMode} />;
+      case 'overview':
+      case 'approval':
+      case 'skill':
+      case 'receipt':
+      case 'sites':
+      case 'privacy':
+        // Single overview implements design/003 cards 1–7; nav anchors scroll intent for now
+        return <OverviewSettings />;
       case 'models':
         return <ModelSettings isDarkMode={isDarkMode} />;
+      case 'general':
+        return <GeneralSettings isDarkMode={isDarkMode} />;
       case 'firewall':
         return <FirewallSettings isDarkMode={isDarkMode} />;
       case 'analytics':
@@ -47,9 +84,10 @@ const Options = () => {
   };
 
   return (
-    <div className="chijie-options-layout">
+    <div className="chijie-options-layout" data-testid="options-root">
       <nav className="chijie-options-nav" aria-label={t('options_nav_header')}>
-        <h1>{t('options_nav_header')}</h1>
+        <h1>持节 Chijie</h1>
+        <p className="mb-4 text-xs text-[var(--chijie-muted)]">浏览器行动 Agent 设置</p>
         <ul className="space-y-2">
           {TABS.map(item => (
             <li key={item.id}>
