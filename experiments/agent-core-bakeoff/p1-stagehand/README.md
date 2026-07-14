@@ -1,42 +1,45 @@
-# P1 Stagehand bake-off harness
+# P1 Stagehand bake-off (MiniMax)
 
-Not production. Product path stays under `projects/nanobrowser` until bake-off decides and L4 is wired.
+Not production. Uses **local Chrome** + **MiniMax-M3** via OpenAI-compatible API.
 
-## Goal
+## Model / key (already on your machine)
 
-Prove **mid-tier models** + Stagehand local control can:
+Harness reads, in order:
 
-1. Form: fill → **approval before submit** → one verified success (`Saved successfully`)
-2. Media: play → follow-up pause → `paused === true`
+1. Process env (`MINIMAX_API_KEY`, `MINIMAX_TOKEN_PLAN_KEY`, …)
+2. `~/.config/ai-providers/env.local` (same as Nanobrowser e2e)
+3. Optional gitignored `projects/nanobrowser/.../secrets.local.ts`
 
-Rules from `docs/product/002-agent-core-bakeoff.md`:
+Defaults:
 
-- **No P0** (do not validate “only stronger models on Nano Core”)
-- Quality first: zero false complete, zero unapproved commit
+| Item | Value |
+|---|---|
+| Base URL | `https://api.minimaxi.com/v1` |
+| Model | `MiniMax-M3` |
+| Auth | `Authorization: Bearer <key>` |
+
+No Browserbase key. No need to paste keys into this folder if `env.local` is set.
 
 ## Setup
 
 ```bash
 cd experiments/agent-core-bakeoff/p1-stagehand
-cp .env.example .env
-# set OPENAI_API_KEY (or compatible) + STAGEHAND_MODEL mid-tier
-pnpm install   # or npm install
+npm install   # already done if node_modules exists
 ```
 
 ## Run fixtures
 
 ```bash
-# Interactive approval prompt
-pnpm fixture:form
+# Form: fill → one-use approval → verify "Saved successfully"
+AUTO_APPROVE=1 npm run fixture:form
 
-# CI-style one-use approval without human
-AUTO_APPROVE=1 pnpm fixture:form
-
-pnpm fixture:media
+# Media: play → pause
+npm run fixture:media
 ```
 
-## Next
+Interactive approval (no AUTO_APPROVE): type `y` when prompted before submit.
 
-1. Stabilize fixture matrix rows into `reports/nanobrowser/bakeoff/`
-2. Owner T1/T2 on Feishu + Bilibili with same scoring
-3. If P1 gates pass → design production adapter: Stagehand/CDP under TaskManager, delete Nano Planner loop
+## What this is for
+
+Bake-off protocol: `docs/product/002-agent-core-bakeoff.md`  
+Goal: mid/simple model + strong control layer; not “buy a flagship model to mask a bad core”.
