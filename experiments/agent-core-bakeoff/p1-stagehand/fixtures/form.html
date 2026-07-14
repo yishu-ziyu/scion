@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>P1 bake-off form fixture</title>
+  </head>
+  <body>
+    <h1>Bake-off form</h1>
+    <form id="fixture-form">
+      <label id="name-label">
+        Name
+        <input id="name" name="name" autocomplete="off" />
+      </label>
+      <button id="submit" type="submit">Submit</button>
+    </form>
+    <script>
+      const form = document.querySelector('#fixture-form');
+      if (new URLSearchParams(location.search).get('order') === 'reversed') {
+        form.prepend(document.querySelector('#submit'));
+      }
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const response = await fetch('/submit', { method: 'POST' });
+        if (response.ok) {
+          form.outerHTML = '<p id="saved">Saved successfully</p>';
+        }
+      });
+    </script>
+  </body>
+</html>

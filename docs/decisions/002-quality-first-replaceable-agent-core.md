@@ -44,8 +44,9 @@ last_modified: "2026-07-15"
 
 ## 后果
 
-- 短期：用 bake-off 比较「现状+强模型」vs「Stagehand/Playwright 系」vs「Browser Use 上限对照」；可选 PageAgent 登录态范式对照。
-- 中期：bake-off 胜出方接入 L4 契约；Nano Core 降级为可删除适配器。
+- 短期：bake-off **从 P1（Stagehand/Playwright 系）起跑**，不做「只换强模型的 P0」。目标是中等模型也能过 PRD 闸门。
+- 可选：P2 Browser Use 作能力上限；P3 PageAgent 作登录态范式对照。
+- 中期：P1（或对照胜出方）接入 L4 契约；Nano Core 降级为可删除适配器。
 - 长期：执行核可再换；产品语言与验收口径稳定在 PRD。
 
 ## 停止 / 升级条件

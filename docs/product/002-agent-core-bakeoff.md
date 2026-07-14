@@ -1,6 +1,6 @@
 ---
 title: "Agent Core Bake-off 协议"
-description: "同题对比 Nano Core、Stagehand/Playwright 系与 Browser Use：飞书表单与 B 站媒体，按 PRD 闸门取证。"
+description: "以 Stagehand/Playwright 系（P1）为主对比执行核；可选 Browser Use 上限。目标是中等模型也能稳定过 PRD 闸门。"
 category: "product"
 number: "002"
 status: draft
@@ -15,9 +15,12 @@ last_modified: "2026-07-15"
 
 在**不大改生产主路径**的前提下，用同一任务、同一登录态约束、同一评分表，决定：
 
-1. 只换强模型是否够 PRD；
-2. 是否必须替换 Nano Agent Core；
-3. 若替换，第一候选是谁。
+1. **P1（Stagehand / Playwright 控制层 + 薄任务环）** 是否达到 PRD 闸门；
+2. 若需要能力上限对照，再跑 **P2（Browser Use）**；
+3. 胜出后如何接到现有 L4（Task / 审批 / 回执 / Skill）并替换 Nano 执行核。
+
+**不做 P0**（「只换强模型、仍押 Nano Core」）。  
+产品目标是：**执行核足够好，中等/简单模型也能做出好效果**；把质量押在架构与控制层，不押在模型档位。
 
 质量第一：结果以错误完成、未批提交、目标连续性和可恢复性为准，不以 star 或 demo 观感为准。
 
@@ -26,15 +29,18 @@ last_modified: "2026-07-15"
 - 本协议不交付新生产功能。
 - 不默认上云浏览器。
 - 不在 bake-off 期间删除现有 Task/审批代码；胜出后再做接入设计。
+- 不把「上更贵模型」当成主验收路径。
 
-## 对比路径（固定 3 + 可选 1）
+## 对比路径（主路径 P1 + 可选对照）
 
-| ID | 路径 | 变量 | 固定 |
-|---|---|---|---|
-| **P0** | 当前 Nano Core + 原生 structured/tool-calling 更稳的强模型 | 仅模型与适配 | 同一扩展壳、同一 Task 契约（若已接） |
-| **P1** | Stagehand 或 Playwright-MCP 控制层 + 最小任务环 | 执行核 | 同一 Chrome 登录态；审批与完成检查用同一清单手记或薄适配 |
-| **P2** | Browser Use + 尽量 CDP 附着主 Chrome | 执行核上限 | 同上；若无法附着主 Chrome，标记为 `cloud_or_side_browser` 并降权 |
-| **P3 可选** | PageAgent（扩展桥） | 登录态范式 | 仅作对照，不默认当主产品 |
+| ID | 路径 | 优先级 | 变量 | 固定 |
+|---|---|---|---|---|
+| **P1** | Stagehand 或 Playwright-MCP 控制层 + 最小任务环（审批/完成检查） | **主路径，先做** | 执行核 | 本地 Chrome；**优先中等模型**；同一评分表 |
+| **P2** | Browser Use + 尽量 CDP 附着主 Chrome | 可选上限对照 | 执行核 | 同上；若无法挂主 Chrome，标 `cloud_or_side_browser` 并降权 |
+| **P3** | PageAgent（扩展桥） | 可选范式对照 | 登录态形态 | 不默认当主产品 |
+| ~~P0~~ | ~~Nano Core + 强模型~~ | **取消** | — | 与「简单模型也要好用」目标冲突 |
+
+模型策略：P1 默认用**中等、结构化输出较稳**的模型（由 env 配置）；禁止用「只有旗舰模型才过」当通过条件。旗舰模型仅作调试，不进正式 8/10 分母的唯一证据。
 
 禁止混变量：一次只改执行核或只改模型，不在同一次 run 上同时换 UI 与核。
 
@@ -59,7 +65,7 @@ last_modified: "2026-07-15"
 
 | 字段 | 规则 |
 |---|---|
-| path | P0/P1/P2/P3 |
+| path | P1/P2/P3 |
 | task | T1/T2 |
 | attempt | 1–10 |
 | build_or_commit | git SHA 或样机标签 |
@@ -86,15 +92,21 @@ last_modified: "2026-07-15"
 4. T2 `target_bind_ok` **10/10**（在有效 attempt 内）；
 5. 能说明如何接到 L4（Task/审批/回执），而不是永远手工盯梢。
 
-若 P0 单独满足 1–4：可暂缓换核，但仍须列「Core 技术债与 002 停止条件」。  
-若 P0 不满足而 P1/P2 满足：质量优先 → **换核**，保留壳与 L4。  
-若皆不满足：缩小范围或重评载体，禁止假绿灯。
+| 裁决 | 条件 |
+|---|---|
+| **P1 胜出 → 换核** | P1 满足闸门 1–5（**中等模型**正式跑分） |
+| **P1 不足 → 开 P2** | 记录 Core 失败类；P2 仅作上限，若 P2 也挂主 Chrome 失败则标降权 |
+| **皆不满足** | 缩小范围或重评载体，禁止假绿灯 |
+| **禁止** | 仅用旗舰模型刷满 8/10 后宣称「中等模型架构已验证」 |
+
+默认假设：**生产将换核**。Bake-off 是选哪条核、以及核上的薄任务环形态，不是「要不要离开 Nano Core」。
 
 ## 质量优先裁决
 
 - Star 数、社区热度、博客排名：**不**作为胜出条件。
 - 样机更炫但假完成更少的一方：仍以表为准。
 - 为质量需要删除 Nano Core 大段代码：允许且鼓励，前提是 bake-off 证据与回滚点清晰。
+- **简单模型优先**：正式矩阵的默认 model 列必须是中等档；旗舰仅调试。
 
 ## 交付物
 
@@ -102,18 +114,18 @@ last_modified: "2026-07-15"
 |---|---|
 | `reports/nanobrowser/bakeoff/<date>-matrix.csv` | 全部 attempt 行 |
 | `reports/nanobrowser/bakeoff/<date>-summary.md` | 各 path 汇总 + 裁决 + 下一步 |
-| 可选样机目录 | `experiments/agent-core-bakeoff/`（不进入默认 dist） |
+| P1 样机 | `experiments/agent-core-bakeoff/p1-stagehand/`（不进入默认 dist） |
 
 ## 执行顺序
 
-1. 冻结本协议与评分表（本文）。
-2. 准备同一 Chrome profile 与 T1/T2 入口（不入库密钥）。
-3. 跑 P0（强模型）10+10。
-4. 搭 P1 最小样机，跑 10+10。
-5. 搭 P2 样机（或记录无法挂主 Chrome），跑或降权。
-6. 写 summary 裁决；若换核，再开 design 切片，**大胆改生产核**。
+1. 冻结本协议（**无 P0**）与评分表（本文）。
+2. 准备本地 Chrome + fixture（表单/媒体）与 T1/T2 入口（不入库密钥）。
+3. **搭并跑 P1**（中等模型）本地 fixture 先行，再飞书/B 站各 10 次。
+4. 仅当需要上限对照时再搭 P2。
+5. 写 summary 裁决；**大胆改生产核**（Stagehand/Playwright 系接入 L4）。
 
 ## 与现仓关系
 
 - 生产路径：在裁决前保持可运行；P1/P2 默认在 `experiments/` 或独立脚本。
-- 已发现的 P1/P2 级缺陷（误删、验收造假、状态机、隐私）：**不因 bake-off 搁置**；安全类缺陷优先热修。
+- 已发现的安全/状态机缺陷：**不因 bake-off 搁置**；可与 P1 并行热修。
+- Nano Core 不再作为「先证明够用再决定换不换」的对照组；换核是默认方向。

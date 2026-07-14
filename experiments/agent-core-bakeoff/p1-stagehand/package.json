@@ -1,0 +1,20 @@
+{
+  "name": "scion-p1-stagehand-bakeoff",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "P1 bake-off: Stagehand local + thin approval/completion harness (not production)",
+  "scripts": {
+    "fixture:form": "node scripts/run-form.mjs",
+    "fixture:media": "node scripts/run-media.mjs",
+    "fixture:all": "node scripts/run-form.mjs && node scripts/run-media.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@browserbasehq/stagehand": "^3.7.0",
+    "dotenv": "^16.4.7",
+    "zod": "^3.25.76"
+  }
+}
