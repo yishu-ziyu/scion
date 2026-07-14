@@ -19,6 +19,13 @@ Gate: non-chat storage must not hold form values / credentials / full page body 
 - LLM control prompt includes page interactive text in memory of the model call (ephemeral, not persisted by design).
 - If a future logger dumps `action_args.text`, that would violate G7 — do not add such logs.
 
+## Re-verify 2026-07-15 (post UI push)
+
+| Suite | Result |
+|-------|--------|
+| `pnpm -F chrome-extension test` | **189/189 pass** (incl. event-privacy, skill-draft, replay-migration, control-backend-journey) |
+| sidepanel humanize + ui-acceptance | **29/29 pass** |
+
 ## G7 claim
 
 **Code paths reviewed and unit/journey protected; not a full runtime dump audit of chrome.storage on a long user session.**  

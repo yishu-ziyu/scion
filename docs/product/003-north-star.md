@@ -108,4 +108,5 @@ M5  总验收 + Tabbit 对齐表 → G8；design current
 ## 下一会话默认
 
 **M3：** 按 `product/005` 在 Owner 日常 Chrome 登录态跑飞书 G3 + B 站 G4；正式分 MiniMax-M3；写 `reports/nanobrowser/golden/*`。  
-**并行可做：** G7 抽检、G8 表填数（模板已在 `reports/nanobrowser/tabbit-alignment.md`）。
+**并行可做：** G7 抽检、G8 表填数（模板已在 `reports/nanobrowser/tabbit-alignment.md`）。  
+**可选后续（外环 RL，暂不执行）：** 规格见 `product/006`（status: draft）；证据目录预留 `reports/nanobrowser/outer-rl/`。不进默认待办，不改变 `current_milestone: M3`。

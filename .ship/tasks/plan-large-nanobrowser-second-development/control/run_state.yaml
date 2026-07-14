@@ -3,7 +3,11 @@ active: true
 current_phase: design
 status: running
 workflow: product-lifecycle-v2
-updated_at: "2026-07-15T01:55:00Z"
+updated_at: "2026-07-15T02:45:00Z"
+ui_design_003: "UI-1–5 IA done (f228d1d); pixel polish optional"
+ui_evidence:
+  - docs/design/003-chijie-ui-interaction.md
+  - projects/chijie-browser/pages/options/src/components/OverviewSettings.tsx
 north_star: docs/product/003-north-star.md
 docs_driven: docs/product/004-docs-driven-dev.md
 accuracy_reference: "Meituan Tabbit 1.0 Agent success 91.8%; web-ops bench 70%"
@@ -32,3 +36,7 @@ g7_evidence:
 g8_status: template_only
 g8_evidence:
   - reports/nanobrowser/tabbit-alignment.md
+outer_rl_status: deferred_plan_only
+outer_rl_spec: docs/product/006-outer-loop-rl-min-plan.md
+outer_rl_evidence_dir: reports/nanobrowser/outer-rl
+outer_rl_note: "Optional future item. Spec only; do not run matrix or treat as default work until Owner explicitly enables outer-loop RL. Does not change current_milestone M3."
