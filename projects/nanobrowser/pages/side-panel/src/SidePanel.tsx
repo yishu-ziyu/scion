@@ -996,21 +996,20 @@ const SidePanel = () => {
   };
 
   return (
-    <div>
-      <div
-        className={`flex h-screen flex-col ${isDarkMode ? 'bg-slate-900' : "bg-[url('/bg.jpg')] bg-cover bg-no-repeat"} overflow-hidden border ${isDarkMode ? 'border-sky-800' : 'border-[rgb(186,230,253)]'} rounded-2xl`}>
-        <header className="header relative">
+    <div className="yishu-shell">
+      <div className="yishu-shell flex h-screen flex-col overflow-hidden">
+        <header className="header relative border-b border-[var(--yishu-border)] bg-[var(--yishu-surface)] px-3 py-3">
           <div className="header-logo">
             {showHistory ? (
               <button
                 type="button"
                 onClick={() => handleBackToChat(false)}
-                className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                className="cursor-pointer text-[var(--yishu-paper)] hover:text-[var(--yishu-accent)]"
                 aria-label={t('nav_back_a11y')}>
                 {t('nav_back')}
               </button>
             ) : (
-              <img src="/icon-128.png" alt="Extension Logo" className="size-6" />
+              <span className="yishu-hand-title">Nanobrowser</span>
             )}
           </div>
           <div className="header-icons">
@@ -1020,7 +1019,7 @@ const SidePanel = () => {
                   type="button"
                   onClick={handleNewChat}
                   onKeyDown={e => e.key === 'Enter' && handleNewChat()}
-                  className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                  className="header-icon cursor-pointer text-[var(--yishu-paper)] hover:text-[var(--yishu-accent)]"
                   aria-label={t('nav_newChat_a11y')}
                   tabIndex={0}>
                   <PiPlusBold size={20} />
@@ -1029,7 +1028,7 @@ const SidePanel = () => {
                   type="button"
                   onClick={handleLoadHistory}
                   onKeyDown={e => e.key === 'Enter' && handleLoadHistory()}
-                  className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+                  className="header-icon cursor-pointer text-[var(--yishu-paper)] hover:text-[var(--yishu-accent)]"
                   aria-label={t('nav_loadHistory_a11y')}
                   tabIndex={0}>
                   <GrHistory size={20} />
@@ -1040,14 +1039,14 @@ const SidePanel = () => {
               href="https://discord.gg/NN3ABHggMK"
               target="_blank"
               rel="noopener noreferrer"
-              className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'}`}>
+              className="header-icon text-[var(--yishu-paper)] hover:text-[var(--yishu-accent)]">
               <RxDiscordLogo size={20} />
             </a>
             <button
               type="button"
               onClick={() => chrome.runtime.openOptionsPage()}
               onKeyDown={e => e.key === 'Enter' && chrome.runtime.openOptionsPage()}
-              className={`header-icon ${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-400 hover:text-sky-500'} cursor-pointer`}
+              className="header-icon cursor-pointer text-[var(--yishu-paper)] hover:text-[var(--yishu-accent)]"
               aria-label={t('nav_settings_a11y')}
               tabIndex={0}>
               <FiSettings size={20} />
@@ -1131,17 +1130,14 @@ const SidePanel = () => {
                     />
                   )}
                 {messages.length > 0 && (
-                  <div
-                    className={`scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-2 ${isDarkMode ? 'bg-slate-900/80' : ''}`}>
-                    <MessageList messages={messages} isDarkMode={isDarkMode} />
+                  <div className="yishu-chat-log scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3">
+                    <MessageList messages={messages} isDarkMode={true} />
                     <div ref={messagesEndRef} />
                   </div>
                 )}
-                {/* Templates / bookmarks stay below chat so hierarchy is: status → chat → run-again → input */}
+                {/* Templates / bookmarks: status → chat → run-again → input */}
                 <div
-                  className={`${messages.length === 0 ? 'flex-1' : 'max-h-40 shrink-0 border-t'} overflow-y-auto ${
-                    isDarkMode ? 'border-sky-900' : 'border-sky-100'
-                  }`}
+                  className={`yishu-bookmarks ${messages.length === 0 ? 'flex-1' : 'max-h-40 shrink-0'} overflow-y-auto`}
                   data-testid="bookmark-list-panel">
                   <BookmarkList
                     bookmarks={favoritePrompts}
@@ -1150,11 +1146,10 @@ const SidePanel = () => {
                     onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
                     onBookmarkDelete={handleBookmarkDelete}
                     onBookmarkReorder={handleBookmarkReorder}
-                    isDarkMode={isDarkMode}
+                    isDarkMode={true}
                   />
                 </div>
-                <div
-                  className={`border-t ${isDarkMode ? 'border-sky-900' : 'border-sky-100'} p-2 shadow-sm backdrop-blur-sm`}>
+                <div className="yishu-composer">
                   <ChatInput
                     onSendMessage={handleSendMessage}
                     onStopTask={handleStopTask}
@@ -1166,7 +1161,7 @@ const SidePanel = () => {
                     setContent={setter => {
                       setInputTextRef.current = setter;
                     }}
-                    isDarkMode={isDarkMode}
+                    isDarkMode={true}
                   />
                 </div>
               </>

@@ -1,0 +1,209 @@
+/**
+ * 奕枢 component primitives for the side panel.
+ * No box-shadow. Hierarchy via paper vs black and accent fill.
+ */
+
+.yishu-shell {
+  min-height: 100vh;
+  background: var(--yishu-background);
+  color: var(--yishu-foreground);
+  font-family: var(--yishu-font-body);
+}
+
+.yishu-mono-label {
+  font-family: var(--yishu-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--yishu-muted);
+}
+
+.yishu-hand-title {
+  font-family: var(--yishu-font-hand);
+  font-size: 28px;
+  line-height: 1.1;
+  color: var(--yishu-paper);
+}
+
+/* 撕纸纸卡：顶大圆底小方 + 蜡笔红边 */
+.yishu-paper-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 8px 12px 0;
+  padding: 16px;
+  border-radius: 20px 20px 4px 4px;
+  border: 1px solid var(--yishu-accent);
+  background: var(--yishu-paper);
+  color: var(--yishu-paper-ink);
+}
+
+.yishu-paper-card[data-attention='true'] {
+  border-color: var(--yishu-accent-signal);
+  background: #f6e8d4;
+}
+
+.yishu-paper-card[data-status='completed'] {
+  border-color: var(--yishu-paper-muted);
+}
+
+.yishu-surface-card {
+  background: var(--yishu-surface);
+  color: var(--yishu-foreground);
+  border: 1px solid var(--yishu-border);
+  border-radius: var(--yishu-radius-xl);
+}
+
+.yishu-action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.yishu-btn-primary,
+.yishu-btn-secondary,
+.yishu-btn-danger {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 60px;
+  padding: 10px 16px;
+  font-family: var(--yishu-font-body);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.yishu-btn-primary {
+  background: var(--yishu-accent);
+  color: #fff8f0;
+  border-color: var(--yishu-accent);
+}
+
+.yishu-btn-primary:hover:not(:disabled) {
+  background: var(--yishu-accent-signal);
+  border-color: var(--yishu-accent-signal);
+}
+
+.yishu-btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.yishu-btn-secondary {
+  background: transparent;
+  color: var(--yishu-paper-ink);
+  border-color: var(--yishu-paper-ink);
+}
+
+.yishu-btn-secondary:hover:not(:disabled) {
+  background: var(--yishu-paper-ink);
+  color: var(--yishu-paper);
+}
+
+.yishu-btn-danger {
+  background: transparent;
+  color: var(--yishu-accent-signal);
+  border-color: var(--yishu-accent-signal);
+}
+
+.yishu-btn-danger:hover:not(:disabled) {
+  background: var(--yishu-accent-subtle);
+}
+
+.yishu-done-block {
+  border-radius: var(--yishu-radius-md);
+  border: 1px solid var(--yishu-paper-ink);
+  background: rgba(26, 26, 26, 0.06);
+  padding: 10px 12px;
+}
+
+.yishu-next-step {
+  border-radius: var(--yishu-radius-md);
+  border: 1px dashed var(--yishu-paper-ink);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.yishu-field {
+  width: 100%;
+  border: 1px solid var(--yishu-border-strong);
+  border-radius: var(--yishu-radius-md);
+  background: var(--yishu-surface-raised);
+  color: var(--yishu-foreground);
+  font-family: var(--yishu-font-body);
+  font-size: 14px;
+  padding: 10px 12px;
+}
+
+.yishu-field:focus {
+  outline: 2px solid var(--yishu-accent);
+  outline-offset: 1px;
+}
+
+.yishu-paper-card .yishu-field {
+  background: #fffaf3;
+  color: var(--yishu-paper-ink);
+  border-color: var(--yishu-paper-muted);
+}
+
+.yishu-bookmarks {
+  border-top: 1px solid var(--yishu-border);
+  background: var(--yishu-surface);
+  color: var(--yishu-foreground);
+}
+
+.yishu-bookmarks h3 {
+  font-family: var(--yishu-font-hand);
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--yishu-paper);
+  margin: 0 0 12px;
+}
+
+.yishu-bookmark-item {
+  border: 1px solid var(--yishu-border);
+  border-radius: var(--yishu-radius-xl);
+  background: var(--yishu-surface-raised);
+  padding: 12px;
+}
+
+.yishu-chat-log {
+  background: var(--yishu-background);
+  color: var(--yishu-foreground);
+}
+
+.yishu-composer {
+  border-top: 1px solid var(--yishu-border);
+  background: var(--yishu-surface);
+  padding: 12px;
+}
+
+.yishu-composer textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: none;
+  border: 1px solid var(--yishu-border-strong);
+  border-radius: var(--yishu-radius-md);
+  background: var(--yishu-surface-raised);
+  color: var(--yishu-foreground);
+  font-family: var(--yishu-font-body);
+  font-size: 14px;
+  padding: 10px 12px;
+}
+
+.yishu-composer textarea:focus {
+  outline: 2px solid var(--yishu-accent);
+  outline-offset: 1px;
+}
+
+.yishu-composer .yishu-btn-primary {
+  width: auto;
+  min-width: 88px;
+}

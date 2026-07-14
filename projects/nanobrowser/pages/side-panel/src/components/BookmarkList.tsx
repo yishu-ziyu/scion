@@ -89,11 +89,9 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
   const hasSkills = bookmarks.some(item => item.kind === 'skill');
 
   return (
-    <div className="p-2" data-testid="bookmark-list">
-      <h3 className={`mb-3 text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-        {hasSkills ? t('chat_bookmarks_skills_header') : t('chat_bookmarks_header')}
-      </h3>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <div className="p-3" data-testid="bookmark-list">
+      <h3>{hasSkills ? t('chat_bookmarks_skills_header') : t('chat_bookmarks_header')}</h3>
+      <div className="grid grid-cols-1 gap-3">
         {bookmarks.map(bookmark => (
           <div
             key={bookmark.id}
@@ -102,9 +100,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
             onDragEnd={handleDragEnd}
             onDragOver={handleDragOver}
             onDrop={e => handleDrop(e, bookmark.id)}
-            className={`group relative rounded-lg p-3 ${
-              isDarkMode ? 'bg-slate-800 hover:bg-slate-700' : 'bg-white hover:bg-sky-50'
-            } border ${isDarkMode ? 'border-slate-700' : 'border-sky-100'}`}>
+            className="yishu-bookmark-item group relative">
             {editingId === bookmark.id ? (
               <div className="flex items-center">
                 <input
@@ -175,7 +171,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                             type="button"
                             data-testid="skill-run-confirm"
                             onClick={() => handleRunSkill(bookmark)}
-                            className="rounded bg-sky-600 px-2 py-1 text-xs text-white">
+                            className="yishu-btn-primary">
                             {t('chat_skills_runConfirm')}
                           </button>
                         </>
@@ -184,7 +180,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                           type="button"
                           data-testid="skill-run"
                           onClick={() => dispatchSkillDraft({ type: 'opened', skillId: bookmark.id })}
-                          className="rounded bg-sky-600 px-2 py-1 text-xs text-white">
+                          className="yishu-btn-primary">
                           {t('chat_skills_run')}
                         </button>
                       )}

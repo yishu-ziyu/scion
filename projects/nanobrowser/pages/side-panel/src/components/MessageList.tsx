@@ -39,13 +39,11 @@ function MessageBlock({ message, isSameActor, isDarkMode = false }: MessageBlock
   return (
     <div
       className={`flex max-w-full gap-3 ${
-        !isSameActor
-          ? `mt-4 border-t ${isDarkMode ? 'border-sky-800/50' : 'border-sky-200/50'} pt-4 first:mt-0 first:border-t-0 first:pt-0`
-          : ''
+        !isSameActor ? 'mt-4 border-t border-[var(--yishu-border)] pt-4 first:mt-0 first:border-t-0 first:pt-0' : ''
       }`}>
       {!isSameActor && (
         <div
-          className="flex size-8 shrink-0 items-center justify-center rounded-full"
+          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-[var(--yishu-border-strong)] bg-[var(--yishu-surface-raised)]"
           style={{ backgroundColor: actor.iconBackground }}>
           <img src={actor.icon} alt={actor.name} className="size-6" />
         </div>
@@ -54,23 +52,21 @@ function MessageBlock({ message, isSameActor, isDarkMode = false }: MessageBlock
 
       <div className="min-w-0 flex-1">
         {!isSameActor && (
-          <div className={`mb-1 text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
-            {actor.name}
-          </div>
+          <div className="yishu-mono-label mb-1 text-[var(--yishu-paper)]">{actor.name}</div>
         )}
 
         <div className="space-y-0.5">
-          <div className={`whitespace-pre-wrap break-words text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+          <div className="whitespace-pre-wrap break-words text-sm text-[var(--yishu-foreground)]">
             {isProgress ? (
-              <div className={`h-1 overflow-hidden rounded ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
-                <div className="h-full animate-progress bg-blue-500" />
+              <div className="h-1 overflow-hidden rounded bg-[var(--yishu-border-strong)]">
+                <div className="h-full animate-progress bg-[var(--yishu-accent)]" />
               </div>
             ) : (
               message.content
             )}
           </div>
           {!isProgress && (
-            <div className={`text-right text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-300'}`}>
+            <div className="yishu-mono-label text-right text-[10px] text-[var(--yishu-muted)]">
               {formatTimestamp(message.timestamp)}
             </div>
           )}

@@ -1,3 +1,34 @@
+@import './design/yishu-tokens.css';
+@import './design/yishu-components.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Keep utilities for layout only; color comes from yishu tokens. */
+
+code {
+  background: var(--yishu-surface-raised);
+  border-radius: var(--yishu-radius-sm);
+  padding: 0.2rem 0.5rem;
+  color: var(--yishu-paper);
+  font-family: var(--yishu-font-mono);
+  font-size: 12px;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--yishu-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--yishu-border-strong);
+  border-radius: var(--yishu-radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--yishu-accent);
+}

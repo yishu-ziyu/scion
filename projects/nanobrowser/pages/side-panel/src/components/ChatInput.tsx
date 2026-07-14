@@ -174,29 +174,21 @@ export default function ChatInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className={`overflow-hidden rounded-lg border transition-colors ${disabled ? 'cursor-not-allowed' : 'focus-within:border-sky-400 hover:border-sky-400'} ${isDarkMode ? 'border-slate-700' : ''}`}
+      className={`overflow-hidden rounded-[12px] border border-[var(--yishu-border-strong)] bg-[var(--yishu-surface-raised)] ${disabled ? 'cursor-not-allowed opacity-80' : ''}`}
       aria-label={t('chat_input_form')}>
       <div className="flex flex-col">
-        {/* File attachments display */}
         {attachedFiles.length > 0 && (
-          <div
-            className={`flex flex-wrap gap-2 border-b p-2 ${
-              isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-gray-50'
-            }`}>
+          <div className="flex flex-wrap gap-2 border-b border-[var(--yishu-border)] p-2">
             {attachedFiles.map((file, index) => (
               <div
                 key={index}
-                className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
-                  isDarkMode ? 'bg-slate-700 text-gray-300' : 'bg-gray-200 text-gray-700'
-                }`}>
+                className="flex items-center gap-1 rounded-[60px] border border-[var(--yishu-border-strong)] px-2 py-1 text-xs text-[var(--yishu-foreground)]">
                 <span className="text-xs">📎</span>
                 <span className="max-w-[150px] truncate">{file.name}</span>
                 <button
                   type="button"
                   onClick={() => handleRemoveFile(index)}
-                  className={`ml-1 rounded-sm transition-colors ${
-                    isDarkMode ? 'hover:bg-slate-600' : 'hover:bg-gray-300'
-                  }`}
+                  className="ml-1 rounded-sm text-[var(--yishu-muted)] hover:text-[var(--yishu-accent)]"
                   aria-label={`Remove ${file.name}`}>
                   <span className="text-xs">✕</span>
                 </button>
@@ -214,42 +206,25 @@ export default function ChatInput({
           disabled={disabled}
           aria-disabled={disabled}
           rows={5}
-          className={`w-full resize-none border-none p-2 focus:outline-none ${
-            disabled
-              ? isDarkMode
-                ? 'cursor-not-allowed bg-slate-800 text-gray-400'
-                : 'cursor-not-allowed bg-gray-100 text-gray-500'
-              : isDarkMode
-                ? 'bg-slate-800 text-gray-200'
-                : 'bg-white'
-          }`}
+          className="w-full resize-none border-none bg-transparent p-3 text-[var(--yishu-foreground)] focus:outline-none disabled:cursor-not-allowed"
           placeholder={attachedFiles.length > 0 ? '添加说明（可选）...' : t('chat_input_placeholder')}
           aria-label={t('chat_input_editor')}
         />
 
-        <div
-          className={`flex items-center justify-between px-2 py-1.5 ${
-            disabled ? (isDarkMode ? 'bg-slate-800' : 'bg-gray-100') : isDarkMode ? 'bg-slate-800' : 'bg-white'
-          }`}>
-          <div className="flex gap-2 text-gray-500">
-            {/* File attachment button */}
+        <div className="flex items-center justify-between gap-2 border-t border-[var(--yishu-border)] px-2 py-2">
+          <div className="flex gap-2 text-[var(--yishu-muted)]">
             <button
               type="button"
               onClick={handleFileSelect}
               disabled={disabled}
               aria-label="附加文件"
               title="附加文本文件（txt、md、json、csv 等）"
-              className={`rounded-md p-1.5 transition-colors ${
-                disabled
-                  ? 'cursor-not-allowed opacity-50'
-                  : isDarkMode
-                    ? 'text-gray-400 hover:bg-slate-700 hover:text-gray-200'
-                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+              className={`rounded-full p-1.5 transition-colors ${
+                disabled ? 'cursor-not-allowed opacity-50' : 'hover:bg-[var(--yishu-surface)] hover:text-[var(--yishu-paper)]'
               }`}>
               <span className="text-lg">📎</span>
             </button>
 
-            {/* Hidden file input */}
             <input
               ref={fileInputRef}
               type="file"
@@ -272,14 +247,12 @@ export default function ChatInput({
                       ? t('chat_stt_recording_stop')
                       : t('chat_stt_input_start')
                 }
-                className={`rounded-md p-1.5 transition-colors ${
+                className={`rounded-full p-1.5 transition-colors ${
                   disabled || isProcessingSpeech
                     ? 'cursor-not-allowed opacity-50'
                     : isRecording
-                      ? 'bg-red-500 text-white hover:bg-red-600'
-                      : isDarkMode
-                        ? 'text-gray-400 hover:bg-slate-700 hover:text-gray-200'
-                        : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                      ? 'bg-[var(--yishu-accent)] text-white'
+                      : 'hover:bg-[var(--yishu-surface)] hover:text-[var(--yishu-paper)]'
                 }`}>
                 {isProcessingSpeech ? (
                   <AiOutlineLoading3Quarters className="size-4 animate-spin" />
@@ -291,10 +264,7 @@ export default function ChatInput({
           </div>
 
           {showStopButton ? (
-            <button
-              type="button"
-              onClick={onStopTask}
-              className="rounded-md bg-red-500 px-3 py-1 text-white transition-colors hover:bg-red-600">
+            <button type="button" onClick={onStopTask} className="yishu-btn-danger w-auto min-w-[88px]">
               {t('chat_buttons_stop')}
             </button>
           ) : (
@@ -303,7 +273,7 @@ export default function ChatInput({
               data-testid="goal-send"
               disabled={isSendButtonDisabled}
               aria-disabled={isSendButtonDisabled}
-              className={`rounded-md bg-[#19C2FF] px-3 py-1 text-white transition-colors hover:enabled:bg-[#0073DC] ${isSendButtonDisabled ? 'cursor-not-allowed opacity-50' : ''}`}>
+              className="yishu-btn-primary w-auto min-w-[88px]">
               {t('chat_buttons_send')}
             </button>
           )}

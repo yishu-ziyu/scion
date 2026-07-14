@@ -1,6 +1,16 @@
-import type { TaskCommand, TaskSnapshot, TaskStatus, WaitReason } from '@extension/storage';
+import type { TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
 import { t } from '@extension/i18n';
 import { useState } from 'react';
+import {
+  actionStackClassName,
+  completionVisibleText,
+  dangerButtonClassName,
+  monoLabelClassName,
+  primaryButtonClassName,
+  secondaryButtonClassName,
+  statusLabelKey,
+  taskCardClassName,
+} from '../design/contracts';
 
 export interface TaskStatusCardProps {
   snapshot: TaskSnapshot;
@@ -8,29 +18,6 @@ export interface TaskStatusCardProps {
   /** Last user goal text - used to prefill skill template. */
   defaultInstruction?: string;
   isDarkMode?: boolean;
-}
-
-function statusLabel(status: TaskStatus): string {
-  switch (status) {
-    case 'running':
-      return t('chat_task_status_running');
-    case 'paused':
-      return t('chat_task_status_paused');
-    case 'waiting_approval':
-      return t('chat_task_status_waiting_approval');
-    case 'waiting_user':
-      return t('chat_task_status_waiting_user');
-    case 'inputs_required':
-      return t('chat_task_status_inputs_required');
-    case 'interrupted':
-      return t('chat_task_status_interrupted');
-    case 'completed':
-      return t('chat_task_status_completed');
-    case 'failed':
-      return t('chat_task_status_failed');
-    case 'cancelled':
-      return t('chat_task_status_cancelled');
-  }
 }
 
 function waitReasonHint(reason: WaitReason | undefined): string | null {
@@ -82,7 +69,6 @@ export function instructionToSkillTemplate(instruction: string): string {
     return text;
   }
 
-  // "with Ada" / "with VALUE" before and/then/punctuation
   const withMatch = text.match(/\bwith\s+([A-Za-z0-9._@+-]{2,80})(?=\s+(?:and|then)\b|[,;.]|$)/i);
   if (withMatch?.[1] && !/^(the|a|an|this|that|my|your)$/i.test(withMatch[1])) {
     return text.replace(withMatch[1], '{{name}}');
@@ -91,19 +77,7 @@ export function instructionToSkillTemplate(instruction: string): string {
   return text;
 }
 
-const primaryBtn =
-  'w-full rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50';
-const secondaryBtn =
-  'w-full rounded-md border border-sky-200 bg-white px-3 py-2 text-sm text-sky-900 hover:bg-sky-50 dark:border-slate-600 dark:bg-slate-800 dark:text-gray-100 dark:hover:bg-slate-700';
-const dangerBtn =
-  'w-full rounded-md border border-red-200 bg-white px-3 py-2 text-sm text-red-700 hover:bg-red-50 dark:border-red-900 dark:bg-slate-800 dark:text-red-300';
-
-export function TaskStatusCard({
-  snapshot,
-  send,
-  defaultInstruction = '',
-  isDarkMode = false,
-}: TaskStatusCardProps) {
+export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: TaskStatusCardProps) {
   const [showSkillForm, setShowSkillForm] = useState(false);
   const [skillTitle, setSkillTitle] = useState('');
   const [skillTemplate, setSkillTemplate] = useState('');
@@ -126,14 +100,6 @@ export function TaskStatusCard({
     snapshot.status === 'failed' ||
     snapshot.status === 'interrupted';
 
-  const shell = isDarkMode
-    ? 'border-sky-900 bg-slate-800/90 text-gray-100'
-    : needsAttention
-      ? 'border-amber-200 bg-amber-50 text-amber-950'
-      : snapshot.status === 'completed'
-        ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
-        : 'border-sky-100 bg-white text-sky-950';
-
   const openSkillForm = () => {
     setShowSkillForm(true);
     setSkillTitle(previous => previous || snapshot.goalSummary.slice(0, 48) || t('chat_skills_defaultTitle'));
@@ -143,33 +109,35 @@ export function TaskStatusCard({
     });
   };
 
+  const completionText = completionVisibleText({
+    doneTitle: t('chat_task_done_title'),
+    doneBody: t('chat_task_done_body'),
+    receiptId: round?.receipt?.id ?? '',
+  });
+
   return (
     <section
       data-testid="task-status"
       data-status={snapshot.status}
-      className={`mx-2 mt-2 flex flex-col gap-3 rounded-lg border p-3 text-sm shadow-sm ${shell}`}>
+      data-attention={needsAttention ? 'true' : 'false'}
+      className={taskCardClassName}>
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-base font-semibold" data-testid="task-status-label">
-            {statusLabel(snapshot.status)}
+          <span className="text-lg font-medium leading-tight" data-testid="task-status-label">
+            {t(statusLabelKey(snapshot.status))}
           </span>
-          {!isTerminal && (
-            <span className="text-xs opacity-70">{t('chat_task_working_on_page')}</span>
-          )}
+          {!isTerminal && <span className={monoLabelClassName}>{t('chat_task_working_on_page')}</span>}
         </div>
-        {snapshot.goalSummary && (
-          <p className="line-clamp-2 text-xs opacity-80">{snapshot.goalSummary}</p>
-        )}
+        {snapshot.goalSummary && <p className="line-clamp-2 text-xs opacity-80">{snapshot.goalSummary}</p>}
       </div>
 
       {round?.receipt && (
-        <div
-          data-testid="completion-receipt"
-          className={`rounded-md px-3 py-2 text-sm ${
-            isDarkMode ? 'bg-emerald-900/40 text-emerald-100' : 'bg-emerald-100 text-emerald-900'
-          }`}>
-          <div className="font-medium">{t('chat_task_done_title')}</div>
-          <div className="mt-0.5 text-xs opacity-90">{t('chat_task_done_body')}</div>
+        <div data-testid="completion-receipt" className="yishu-done-block">
+          {completionText.split('\n').map(line => (
+            <div key={line} className={line === t('chat_task_done_title') ? 'font-medium' : 'mt-0.5 text-xs opacity-90'}>
+              {line}
+            </div>
+          ))}
         </div>
       )}
 
@@ -178,18 +146,14 @@ export function TaskStatusCard({
         snapshot.status === 'interrupted' ||
         snapshot.status === 'waiting_user' ||
         snapshot.status === 'inputs_required') && (
-        <div
-          data-testid="task-next-step"
-          className={`rounded-md px-3 py-2 text-xs leading-relaxed ${
-            isDarkMode ? 'bg-slate-900/60 text-gray-200' : 'bg-white/80 text-gray-800'
-          }`}>
+        <div data-testid="task-next-step" className="yishu-next-step">
           <div className="font-medium">{t('chat_task_next_step_title')}</div>
           <div className="mt-1">{failureNextStep(snapshot)}</div>
         </div>
       )}
 
       {snapshot.status === 'waiting_approval' && round && approval && (
-        <div className="flex flex-col gap-2">
+        <div className={actionStackClassName}>
           <p className="text-xs leading-relaxed opacity-90">
             {t('chat_task_approval_explain')}
             {approval.summary ? `「${approval.summary}」` : ''}
@@ -197,7 +161,7 @@ export function TaskStatusCard({
           <button
             type="button"
             data-testid="approval-approve"
-            className={primaryBtn}
+            className={primaryButtonClassName}
             onClick={() =>
               send({
                 type: 'approve',
@@ -213,7 +177,7 @@ export function TaskStatusCard({
           <button
             type="button"
             data-testid="approval-reject"
-            className={dangerBtn}
+            className={dangerButtonClassName}
             onClick={() =>
               send({
                 type: 'reject',
@@ -236,7 +200,7 @@ export function TaskStatusCard({
             key={confirmation.id}
             type="button"
             data-testid="criterion-confirm"
-            className={primaryBtn}
+            className={primaryButtonClassName}
             onClick={() =>
               send({
                 type: 'confirm_completion',
@@ -252,8 +216,8 @@ export function TaskStatusCard({
         ))}
 
       {round?.receipt && !showSkillForm && (
-        <div className="flex flex-col gap-2">
-          <button type="button" data-testid="skill-save" className={primaryBtn} onClick={openSkillForm}>
+        <div className={actionStackClassName}>
+          <button type="button" data-testid="skill-save" className={primaryButtonClassName} onClick={openSkillForm}>
             {t('chat_skills_save')}
           </button>
           <p className="text-xs opacity-80">{t('chat_task_skill_save_hint')}</p>
@@ -261,7 +225,7 @@ export function TaskStatusCard({
       )}
 
       {round?.receipt && showSkillForm && (
-        <div className="flex flex-col gap-2">
+        <div className={actionStackClassName}>
           <label className="flex flex-col gap-1 text-xs">
             {t('chat_skills_titlePlaceholder')}
             <input
@@ -269,9 +233,7 @@ export function TaskStatusCard({
               value={skillTitle}
               onChange={event => setSkillTitle(event.target.value)}
               placeholder={t('chat_skills_titlePlaceholder')}
-              className={`rounded border px-2 py-1.5 text-sm ${
-                isDarkMode ? 'border-slate-600 bg-slate-900 text-gray-100' : 'border-sky-100 bg-white text-gray-900'
-              }`}
+              className="yishu-field"
             />
           </label>
           <label className="flex flex-col gap-1 text-xs">
@@ -282,16 +244,14 @@ export function TaskStatusCard({
               onChange={event => setSkillTemplate(event.target.value)}
               rows={3}
               placeholder={t('chat_skills_templatePlaceholder')}
-              className={`rounded border px-2 py-1.5 text-sm ${
-                isDarkMode ? 'border-slate-600 bg-slate-900 text-gray-100' : 'border-sky-100 bg-white text-gray-900'
-              }`}
+              className="yishu-field"
             />
           </label>
           <p className="text-xs opacity-70">{t('chat_task_skill_template_help')}</p>
           <button
             type="button"
             data-testid="skill-save-confirm"
-            className={primaryBtn}
+            className={primaryButtonClassName}
             disabled={!skillTemplate.trim()}
             onClick={() => {
               send({
@@ -309,17 +269,17 @@ export function TaskStatusCard({
             }}>
             {t('chat_skills_saveConfirm')}
           </button>
-          <button type="button" className={secondaryBtn} onClick={() => setShowSkillForm(false)}>
+          <button type="button" className={secondaryButtonClassName} onClick={() => setShowSkillForm(false)}>
             {t('chat_task_cancel_edit')}
           </button>
         </div>
       )}
 
-      <div className="flex flex-col gap-2">
+      <div className={actionStackClassName}>
         {snapshot.status === 'running' && (
           <button
             type="button"
-            className={secondaryBtn}
+            className={secondaryButtonClassName}
             onClick={() =>
               send({
                 type: 'pause',
@@ -334,7 +294,7 @@ export function TaskStatusCard({
         {(snapshot.status === 'paused' || snapshot.status === 'interrupted') && (
           <button
             type="button"
-            className={primaryBtn}
+            className={primaryButtonClassName}
             onClick={() =>
               send({
                 type: 'resume',
@@ -349,7 +309,7 @@ export function TaskStatusCard({
         {!isTerminal && (
           <button
             type="button"
-            className={dangerBtn}
+            className={dangerButtonClassName}
             onClick={() =>
               send({
                 type: 'cancel',
