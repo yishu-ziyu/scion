@@ -28,20 +28,20 @@ There is **one** extension folder. Paths are aliases, not copies.
 | **Lab monorepo (this git repo)** | `/Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion` | GitHub: https://github.com/yishu-ziyu/scion |
 | Symlink | `~/projects/scion` → same | Prefer this short path |
 | Compat symlink | `~/projects/oss-forks` → same | Old name; keep until scripts die |
-| **Canonical extension code** | `scion/projects/nanobrowser/` | Edit + build here |
-| **Same folder (symlink)** | `~/projects/nanobrowser` → `scion/projects/nanobrowser` | Chrome path unchanged |
-| Chrome loads | `~/projects/nanobrowser/dist` (= `scion/projects/nanobrowser/dist`) | Extension id: `nnldlldkcjcooleefoflkgcjobimnaol` |
-| Old dual-tree backup | `~/projects/nanobrowser.bak-*` | Former independent copy + upstream `.git`; do not edit for product work |
+| **Canonical extension code** | `scion/projects/yishu-browser/` | Edit + build here |
+| **Same folder (symlink)** | `~/projects/yishu-browser` → `scion/projects/yishu-browser` | Chrome path unchanged |
+| Chrome loads | `~/projects/yishu-browser/dist` (= `scion/projects/yishu-browser/dist`) | Extension id: `nnldlldkcjcooleefoflkgcjobimnaol` |
+| Old dual-tree backup | `~/projects/yishu-browser.bak-*` | Former independent copy + upstream `.git`; do not edit for product work |
 
 ### What this means
 
 - **`scion`**: personal second-dev lab + the only place that commits.
-- **`projects/nanobrowser`**: living graft (not a second clone). `node_modules` / `dist` / `secrets.local.ts` stay on disk, gitignored.
+- **`projects/yishu-browser`**: living graft (not a second clone). `node_modules` / `dist` / `secrets.local.ts` stay on disk, gitignored.
 - **No sync step** between two full trees. Edit once, build once, commit from scion root.
 
 ### Recommended workflow for Codex
 
-1. **Edit and build** in `projects/nanobrowser` (or `~/projects/nanobrowser` - same inode).
+1. **Edit and build** in `projects/yishu-browser` (or `~/projects/yishu-browser` - same inode).
 2. Write / update notes under `scion/reports/nanobrowser/`.
 3. Commit + push **only** from `scion` to `origin` (`yishu-ziyu/scion`).
 4. Do **not** force-push secrets or recreate a second full nanobrowser tree.
@@ -208,7 +208,7 @@ When syncing into scion, copy these paths (not `node_modules`, not `dist`, not `
 ### Build
 
 ```bash
-cd /Users/mahaoxuan/projects/nanobrowser
+cd /Users/mahaoxuan/projects/yishu-browser
 pnpm install          # first time or lockfile change
 pnpm build            # inject secrets → clean dist → turbo build
 ```
@@ -218,7 +218,7 @@ pnpm build            # inject secrets → clean dist → turbo build
 Chrome → Extensions → Developer mode → Load unpacked →
 
 ```text
-/Users/mahaoxuan/projects/nanobrowser/dist
+/Users/mahaoxuan/projects/yishu-browser/dist
 ```
 
 After rebuild: **Reload** the extension card, then reopen the **side panel** (not as a normal tab if testing navigation).
@@ -278,7 +278,7 @@ Other profiles on this machine (do not confuse):
    Automations that open `chrome-extension://.../side-panel/index.html` as a page are not equivalent to `chrome.sidePanel` UX.
 
 5. **Unpacked path**  
-   Chrome Load unpacked should stay on `~/projects/nanobrowser/dist` (symlink → scion graft). After rebuild, reload the extension card.
+   Chrome Load unpacked should stay on `~/projects/yishu-browser/dist` (symlink → scion graft). After rebuild, reload the extension card.
 
 ---
 
@@ -303,7 +303,7 @@ Priority suggestions for Codex (owner can reorder):
 
 1. Optional second provider in personal inventory (e.g. StepFun) without breaking MiniMax default.
 2. Decision: keep bootstrap force-overwrite vs "seed once then respect GUI".
-3. ~~Align dual-tree~~ **DONE 2026-07-14:** single tree + `~/projects/nanobrowser` symlink.
+3. ~~Align dual-tree~~ **DONE 2026-07-14:** single tree + `~/projects/yishu-browser` symlink.
 
 ### P3 - upstream hygiene
 
@@ -329,14 +329,14 @@ Priority suggestions for Codex (owner can reorder):
 No rsync between two copies. Same folder:
 
 ```bash
-cd ~/projects/nanobrowser   # or scion/projects/nanobrowser
+cd ~/projects/yishu-browser   # or scion/projects/yishu-browser
 pnpm build
 # Chrome → reload unpacked extension at this dist/
 
 cd ~/projects/scion
 # optional: write reports/nanobrowser/...
 git status
-git add projects/nanobrowser reports AGENTS.md HANDOVER.md README.md
+git add projects/yishu-browser reports AGENTS.md HANDOVER.md README.md
 # commit; push only when owner says so
 ```
 
@@ -369,14 +369,14 @@ git add projects/nanobrowser reports AGENTS.md HANDOVER.md README.md
 | [reports/nanobrowser/README.md](./reports/nanobrowser/README.md) | report index |
 | [reports/nanobrowser/2026-07-13-minimax-e2e-cdp.md](./reports/nanobrowser/2026-07-13-minimax-e2e-cdp.md) | E2E detail + open risks |
 | `~/bin/chrome-cdp` | main Chrome CDP ensure/repair |
-| Upstream `projects/nanobrowser/CLAUDE.md` / `README.md` | original project conventions |
+| Upstream `projects/yishu-browser/CLAUDE.md` / `README.md` | original project conventions |
 
 ---
 
 ## 14. Suggested first Codex session plan
 
 1. Open this HANDOVER + the E2E report.
-2. `cd ~/projects/nanobrowser && git status` and confirm personal files present.
+2. `cd ~/projects/yishu-browser && git status` and confirm personal files present.
 3. `~/bin/chrome-cdp status` and `pnpm build` if dist is stale.
 4. Pick **one** P1 item (recommend: exclude `chrome-extension://` tabs from Navigator target selection, or harden parse with a fixture-based unit test).
 5. Implement with small diff; rebuild; human-like E2E on main Chrome side panel.

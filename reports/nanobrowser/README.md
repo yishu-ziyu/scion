@@ -1,7 +1,7 @@
 # Nanobrowser 二开报告索引
 
 Upstream: https://github.com/nanobrowser/nanobrowser  
-Local path (dev): `projects/nanobrowser`  
+Local path (dev): `projects/yishu-browser`  
 Extension id (unpacked on this machine): `nnldlldkcjcooleefoflkgcjobimnaol`
 
 ## Start here for agents
@@ -23,7 +23,7 @@ Lab-level handoff (Codex): [../../HANDOVER.md](../../HANDOVER.md)
 - **Failure logs → disk:** `~/bin/nanobrowser-logs` (or `python3 reports/nanobrowser/scripts/capture_logs.py`)
   - Writes `reports/nanobrowser/logs/LATEST.md` + `.jsonl` (gitignored)
   - Agent reads LATEST after you say 「日志好了」
-- Build: `pnpm build` → load unpacked `dist/` via `~/projects/nanobrowser` symlink
+- Build: `pnpm build` → load unpacked `dist/` via `~/projects/yishu-browser` symlink
 - Secrets: `chrome-extension/src/personal/secrets.local.ts` (gitignored)
 - Extension id (current): `pdabbpgmfbchdfkjfgpppeakalckihjh`
 

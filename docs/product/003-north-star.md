@@ -4,7 +4,7 @@ description: "效果对齐美团 Tabbit 披露的 Agent 准确率；日常 Chrom
 category: "product"
 number: "003"
 status: current
-services: ["projects/nanobrowser"]
+services: ["projects/yishu-browser"]
 related: ["product/001", "product/002", "decisions/001", "decisions/002"]
 last_modified: "2026-07-15"
 ---

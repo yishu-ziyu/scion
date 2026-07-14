@@ -12,7 +12,7 @@ Two independent peer dispatches were attempted and timeboxed, but neither produc
 
 - Host/upstream: TaskSession and TaskRound examples stored `goal` and `instruction`, which can duplicate form values already retained in user-authored chat.
 - Second pass: make chat the only durable raw copy; persist message IDs and redacted summaries.
-- Evidence: user messages are already stored at `projects/nanobrowser/pages/side-panel/src/SidePanel.tsx:128-147` and `598-605`; the privacy contract forbids runtime copies.
+- Evidence: user messages are already stored at `projects/yishu-browser/pages/side-panel/src/SidePanel.tsx:128-147` and `598-605`; the privacy contract forbids runtime copies.
 - Disposition: **patched**. `spec.md` now requires an instruction-message reference. Cold normal-task resume reloads that message; Skill-run values remain memory-only and must be re-entered after interruption.
 
 ### 2. Duplicate command acknowledgement

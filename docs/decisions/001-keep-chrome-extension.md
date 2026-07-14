@@ -4,7 +4,7 @@ description: "记录为何本轮在现有扩展内建设任务运行时，而不
 category: "decisions"
 number: "001"
 status: current
-services: ["projects/nanobrowser/chrome-extension", "projects/nanobrowser/pages/side-panel"]
+services: ["projects/yishu-browser/chrome-extension", "projects/yishu-browser/pages/side-panel"]
 related: ["design/001"]
 last_modified: "2026-07-13"
 ---

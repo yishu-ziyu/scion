@@ -4,7 +4,7 @@ description: "定义单任务连续控制、可验证完成、动作审批与本
 category: "product"
 number: "001"
 status: draft
-services: ["projects/nanobrowser/chrome-extension", "projects/nanobrowser/pages/side-panel", "projects/nanobrowser/packages/storage"]
+services: ["projects/yishu-browser/chrome-extension", "projects/yishu-browser/pages/side-panel", "projects/yishu-browser/packages/storage"]
 related: ["decisions/001", "decisions/002", "design/001", "product/003", "product/004"]
 last_modified: "2026-07-15"
 ---

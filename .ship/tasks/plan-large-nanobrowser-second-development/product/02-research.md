@@ -53,11 +53,11 @@ Material gaps:
 - [Tabbit official usage guide](https://www.tabbit.com/guide/usage)
 - [Meituan launch report](https://www.meituan.com/news/NN260612179003187)
 - [OpenAI Atlas deprecation](https://help.openai.com/en/articles/20001371-evolving-atlas-into-chatgpt-for-browser-based-agentic-work)
-- `projects/nanobrowser/chrome-extension/src/background/index.ts`
-- `projects/nanobrowser/chrome-extension/src/background/agent/executor.ts`
-- `projects/nanobrowser/chrome-extension/src/background/agent/actions/builder.ts`
-- `projects/nanobrowser/packages/storage/lib/chat/history.ts`
-- `projects/nanobrowser/packages/storage/lib/prompt/favorites.ts`
+- `projects/yishu-browser/chrome-extension/src/background/index.ts`
+- `projects/yishu-browser/chrome-extension/src/background/agent/executor.ts`
+- `projects/yishu-browser/chrome-extension/src/background/agent/actions/builder.ts`
+- `projects/yishu-browser/packages/storage/lib/chat/history.ts`
+- `projects/yishu-browser/packages/storage/lib/prompt/favorites.ts`
 
 ## Facts vs assumptions
 

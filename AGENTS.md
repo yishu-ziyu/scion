@@ -30,7 +30,7 @@ Global `~/.grok/AGENTS.md` still applies for communication and safety.
 | `CONTEXT.md` | Shared product language (browser action agent, Task, Skill…) |
 | `HANDOVER.md` | Live ops for Nanobrowser (single tree) + MiniMax + CDP |
 
-Active project: **nanobrowser** under `projects/nanobrowser/`.
+Active project: **nanobrowser** under `projects/yishu-browser/`.
 
 ---
 
@@ -39,14 +39,14 @@ Active project: **nanobrowser** under `projects/nanobrowser/`.
 There is no root package manager. Work inside the project:
 
 ```bash
-cd projects/nanobrowser
-# same folder via symlink: ~/projects/nanobrowser
+cd projects/yishu-browser
+# same folder via symlink: ~/projects/yishu-browser
 pnpm install
 pnpm build
 pnpm -F chrome-extension test
 ```
 
-Full command set: `projects/nanobrowser/AGENTS.md`.
+Full command set: `projects/yishu-browser/AGENTS.md`.
 
 ---
 
@@ -54,14 +54,14 @@ Full command set: `projects/nanobrowser/AGENTS.md`.
 
 | Role | Path | Use for |
 |------|------|---------|
-| **Canonical code + git lab** | `scion` → `projects/nanobrowser/` | Edit, build, commit, push |
-| **Short path (symlink)** | `~/projects/nanobrowser` → same folder | Same files; Chrome Load unpacked `dist/` |
+| **Canonical code + git lab** | `scion` → `projects/yishu-browser/` | Edit, build, commit, push |
+| **Short path (symlink)** | `~/projects/yishu-browser` → same folder | Same files; Chrome Load unpacked `dist/` |
 | **Lab root symlink** | `~/projects/scion` → scion root | Docs / reports |
 
 | When | Do |
 |------|----|
-| Change extension or design | Edit **once** under `projects/nanobrowser` (or via `~/projects/nanobrowser`) |
-| Build / load Chrome | `pnpm build` then Load unpacked **`projects/nanobrowser/dist`** (same as `~/projects/nanobrowser/dist`) |
+| Change extension or design | Edit **once** under `projects/yishu-browser` (or via `~/projects/yishu-browser`) |
+| Build / load Chrome | `pnpm build` then Load unpacked **`projects/yishu-browser/dist`** (same as `~/projects/yishu-browser/dist`) |
 | Commit / push | **Only from scion root** to `origin` (`yishu-ziyu/scion`) |
 | Secrets / dist / node_modules | Live on disk; never commit (root `.gitignore`) |
 
@@ -69,7 +69,7 @@ Do **not** invent a second empty Chrome profile for Nanobrowser tests.
 Do **not** recreate a second full copy of the extension outside scion.
 Do **not** point an upstream Nanobrowser `origin` inside this graft without an explicit owner decision.
 
-Old dual-tree backup (read-only, can delete later): `~/projects/nanobrowser.bak-*` (kept upstream `.git` history).
+Old dual-tree backup (read-only, can delete later): `~/projects/yishu-browser.bak-*` (kept upstream `.git` history).
 
 ---
 
@@ -81,7 +81,7 @@ scion/
   CONTEXT.md             # product terms
   HANDOVER.md            # nanobrowser ops handover
   docs/                  # decisions + design
-  projects/nanobrowser/  # code graft (see its AGENTS.md)
+  projects/yishu-browser/  # code graft (see its AGENTS.md)
   reports/nanobrowser/   # E2E + ops notes
 ```
 
@@ -105,9 +105,9 @@ scion/
 | Always | Keep secrets out of git (`secrets.local.ts`, `.env*`, keys) |
 | Always | Use product terms from `CONTEXT.md` for product talk |
 | Always | Prefer main Chrome + existing login state for browser-action work |
-| Always | Single tree: edit/build only `projects/nanobrowser` (symlink OK) |
+| Always | Single tree: edit/build only `projects/yishu-browser` (symlink OK) |
 | Ask first | New top-level projects under `projects/` |
-| Ask first | Breaking the `~/projects/nanobrowser` symlink or re-splitting trees |
+| Ask first | Breaking the `~/projects/yishu-browser` symlink or re-splitting trees |
 | Ask first | Force-push, rewriting published history, changing remotes |
 | Never | Commit API keys or print full keys in logs/chat |
 | Never | Treat model `done` as verified completion without browser evidence |

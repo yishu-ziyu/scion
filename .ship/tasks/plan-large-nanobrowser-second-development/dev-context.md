@@ -3,12 +3,12 @@
 ## Working surface
 
 - Repository: `/Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion`
-- Product package: `projects/nanobrowser`
+- Product package: `projects/yishu-browser`
 - Runtime: Node `22.12.0` from `.nvmrc`, pnpm `9.15.1` through Corepack (the user-level pnpm 10 binary requires a newer Node)
 - Product contract: `plan/spec.md`
 - Implementation plan: `plan/plan.md`
 - Architecture decision: `docs/design/001-browser-action-task-runtime.md`
-- Local conduct: `projects/nanobrowser/AGENTS.md` and `projects/nanobrowser/CLAUDE.md`
+- Local conduct: `projects/yishu-browser/AGENTS.md` and `projects/yishu-browser/CLAUDE.md`
 
 ## Execution shape
 
@@ -27,7 +27,7 @@ corepack pnpm type-check
 corepack pnpm build
 ```
 
-Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `projects/nanobrowser`.
+Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `projects/yishu-browser`.
 
 ## Baseline recorded on 2026-07-13
 
@@ -130,3 +130,11 @@ Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `p
 - Fix commit: persist skill save meta outside TaskSession (`task-skill-save-v1`).
 - Re-verification: skill-journey 8/8, form-journey 10/10, manager 21/21, replay-migration 2/2; storage + sidepanel type-check pass.
 - Concerns residual: see `concerns.md`.
+
+## Story 7 progress (2026-07-14)
+
+- Outcome so far: fixture e2e runner + selectors exist; RUNS=1 full journey passed once; multi-run/media still model-flaky under MiniMax.
+- Product fixes: SidePanel session create when no chatSessionId; planner login_required false-positive guard; e2e fail-fast/reset/goal-send ensure.
+- Evidence: `reports/nanobrowser/action-agent-cycle-1.md`
+- Commit: `259cb4a`
+- Remaining: RUNS=10 green; Feishu/Bilibili owner 8/10; then design status → current.

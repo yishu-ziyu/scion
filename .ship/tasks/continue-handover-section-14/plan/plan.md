@@ -4,12 +4,12 @@
 
 Files:
 
-- `projects/nanobrowser/chrome-extension/src/background/browser/context.ts`
-- `projects/nanobrowser/chrome-extension/src/background/index.ts`
-- `projects/nanobrowser/chrome-extension/src/background/browser/__tests__/context.test.ts`
-- `/Users/mahaoxuan/projects/nanobrowser/chrome-extension/src/background/browser/context.ts`
-- `/Users/mahaoxuan/projects/nanobrowser/chrome-extension/src/background/index.ts`
-- `/Users/mahaoxuan/projects/nanobrowser/chrome-extension/src/background/browser/__tests__/context.test.ts`
+- `projects/yishu-browser/chrome-extension/src/background/browser/context.ts`
+- `projects/yishu-browser/chrome-extension/src/background/index.ts`
+- `projects/yishu-browser/chrome-extension/src/background/browser/__tests__/context.test.ts`
+- `/Users/mahaoxuan/projects/yishu-browser/chrome-extension/src/background/browser/context.ts`
+- `/Users/mahaoxuan/projects/yishu-browser/chrome-extension/src/background/index.ts`
+- `/Users/mahaoxuan/projects/yishu-browser/chrome-extension/src/background/browser/__tests__/context.test.ts`
 - `reports/nanobrowser/2026-07-13-minimax-e2e-cdp.md`
 
 ### Red
@@ -21,7 +21,7 @@ Files:
 - [ ] Add a lifecycle test proving a managed page is detached and current selection cleared when `handleTabUpdated()` receives a forbidden tab snapshot.
 - [ ] Add an attachment-failure test where `Page.prototype.attachPuppeteer` first returns false; expect `Error('Failed to attach to tab 2')`, then make it return true and call `getCurrentPage()` again, proving a second attach occurs and the failed candidate was neither cached nor selected.
 - [ ] Add a current-ID interleaving test: acquire tab A, start `handleTabUpdated(forbidden A)` with `detachPuppeteer` held by a deferred Promise, successfully `switchTab(B)` before releasing A's detach, then assert `getCurrentPage()` returns B and B was neither cleared nor detached.
-- [ ] Run `pnpm -F chrome-extension exec vitest run src/background/browser/__tests__/context.test.ts` in `/Users/mahaoxuan/projects/nanobrowser` and record the expected failures before implementation.
+- [ ] Run `pnpm -F chrome-extension exec vitest run src/background/browser/__tests__/context.test.ts` in `/Users/mahaoxuan/projects/yishu-browser` and record the expected failures before implementation.
 
 ### Green
 
@@ -37,7 +37,7 @@ Files:
 ### Refactor and sync
 
 - [ ] Run `pnpm -F chrome-extension exec prettier --write src/background/browser/context.ts src/background/index.ts src/background/browser/__tests__/context.test.ts` in the daily runtime, then require `git diff --check` to pass and `git diff --stat` to contain only the three enumerated runtime files before syncing.
-- [ ] Copy the three runtime files from `/Users/mahaoxuan/projects/nanobrowser` to scion and prove `diff -q` is silent for each file.
+- [ ] Copy the three runtime files from `/Users/mahaoxuan/projects/yishu-browser` to scion and prove `diff -q` is silent for each file.
 
 ### Verification and durable closeout
 
