@@ -94,7 +94,7 @@ M5  总验收 + Tabbit 对齐表 → G8；design current
 
 - **M1：完成。** G1 表单 **10/10**，G2 媒体 **10/10**（MiniMax-M3）。证据：`reports/nanobrowser/bakeoff/2026-07-14-m1-matrix.csv` 与 `*-m1-summary.md`。
 - 媒体路径说明：Stagehand 点击原生 `<audio>` shadow 控件失败时，经**同一 `#fixture-audio` 元素 API** 完成 play/pause；生产 M2 须把「站点无关媒体动作」做进核，不能依赖 shadow 点击。
-- **M2：下一默认。** 生产换核设计与接入（Stagehand/CDP 或等价 → TaskManager）。
+- **M2：进行中。** `design/002` 已写；多后端工厂 + 脚本化 control 已过 TaskManager 旅程测；**默认仍 nano**；LLM control 与 G6 宣称未完成。证据：`reports/nanobrowser/m2-2026-07-15-seam-progress.md`。
 - 美团 91.8% 真实站对齐：待 M3。
 
 ## 会话纪律
@@ -106,5 +106,4 @@ M5  总验收 + Tabbit 对齐表 → G8；design current
 
 ## 下一会话默认
 
-**M2：** 按 `design/001` + `decisions/002`，把 P1 控制层接到生产 Task/审批/回执壳；Nano Planner 环降为可拔适配器。  
-产出：design 更新或 `design/002` 换核切片 + 最小可运行适配器 + 仍过 G1/G2 回归。
+**M2 续：** 实现 control 的 **LLM policy**（MiniMax-M3 + JSON 硬化），使生产可设 `agentCoreBackend: control` 且无测试脚本；再跑 fixture 旅程；A1–A6 全绿后宣称 G6。

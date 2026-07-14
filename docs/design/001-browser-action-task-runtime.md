@@ -3,17 +3,21 @@ title: "浏览器行动任务运行时"
 description: "定义可验证任务、连续控制、动作审批和本地 Skill 的扩展内架构。"
 category: "design"
 number: "001"
-status: not-implemented
+status: partially-outdated
 services: ["projects/nanobrowser/chrome-extension/src/background", "projects/nanobrowser/pages/side-panel", "projects/nanobrowser/packages/storage"]
-related: ["decisions/001"]
-last_modified: "2026-07-13"
+related: ["decisions/001", "decisions/002", "design/002", "product/003"]
+last_modified: "2026-07-15"
 ---
 
 # 001 — 浏览器行动任务运行时
 
 ## 状态
 
-产品方向和架构选择已确认，设计尚未实现。当前生产代码仍由 `background/index.ts` 中的全局 `currentExecutor` 和 `currentPort` 管理任务。
+**partially-outdated（L4 壳已落地，执行核仍默认 Nano）。**
+
+- 已实现：`TaskManager`、`ActionDispatcher`、`CompletionChecker`、审批令牌、媒体 target digest、本地 Skill 基础、侧栏任务快照与人类时间线。
+- 未按终局实现：生产默认执行核仍为 Nano Planner/Navigator；可换核与 P1 控制环见 **`design/002`**。
+- 文中「空文件 `manager.ts`」「全局 `currentExecutor`」等 2026-07-13 描述已过时；以代码与 `design/002` 为准。
 
 ## 决策摘要
 
@@ -123,9 +127,11 @@ subscribe(listener: (event: TaskEvent) => void): () => void;
 
 ### Executor 适配器接缝
 
-`TaskManager` 通过一个窄的 Executor 工厂接缝创建现有 `Executor`。生产适配器包装真实 Executor；测试适配器产生确定性动作、完成候选和错误。这个接缝有真实与测试两个适配器，能让任务状态机脱离 LLM 和 Chrome 做快速验证。
+`TaskManager` 通过一个窄的 `createExecutor → ExecutorDriver` 工厂接缝创建执行核（见 `task/contracts.ts`）。
 
-调用者只需要：启动或追加指令、取消，以及接收动作/完成候选事件。Executor 内部消息历史、模型实例和 Agent 实现不进入任务存储。
+- 生产可插多个后端：`nano`（现有 Planner/Navigator）、`control`（P1 级控制环，见 `design/002`）。
+- 测试适配器产生确定性动作、完成候选和错误，使任务状态机脱离 LLM 和 Chrome。
+- 调用者只需要：启动或追加指令、取消，以及接收动作/完成候选事件。核内部消息历史、模型实例不进入任务存储。
 
 ### ActionDispatcher
 

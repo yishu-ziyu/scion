@@ -35,4 +35,10 @@ Owner 当轮明确口头/文字纠正
 `.ship/tasks/plan-large-nanobrowser-second-development/control/run_state.yaml`  
 中的 `current_milestone` 为准。
 
-**2026-07-15：M1** — G1+G2 fixture 连续 10/10（MiniMax-M3）。
+| 里程碑 | 状态 | 说明 |
+|---|---|---|
+| M1 | **完成** | G1+G2 fixture 10/10（MiniMax-M3）；证据 `reports/nanobrowser/bakeoff/2026-07-14-m1-*` |
+| **M2** | **进行中** | 生产换核：`design/002` + ExecutorDriver 多后端；Nano 可拔 |
+| M3+ | 未开始 | 飞书/B 站 ≥91.8% 等 |
+
+**下一会话默认：** 只推进 M2（不要开 G3/G4）。

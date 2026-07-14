@@ -47,8 +47,19 @@ last_modified: "2026-07-15"
 | 阶段 | 主目录 | 说明 |
 |---|---|---|
 | M1 | `experiments/agent-core-bakeoff/p1-stagehand/` | 控制层 + 薄审批；不进默认 dist |
+| M2 | `projects/nanobrowser/chrome-extension/src/background/agent/` | 多后端工厂 + control 环；见 `design/002` |
 | M2+ | `projects/nanobrowser/` | 生产壳 + Task；换核适配器 |
 | 报告 | `reports/nanobrowser/` | 矩阵与验收，git 可跟踪非密钥 |
+
+### 命令锚点（M2）
+
+```bash
+cd projects/nanobrowser
+pnpm -F chrome-extension test
+# 关注：task/* journey + agent/backends/*
+```
+
+设计：`docs/design/002-production-core-swap.md`。
 
 ### 禁止
 
