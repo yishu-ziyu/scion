@@ -637,10 +637,51 @@ export class TaskManager {
           await this.persistMediaWait(taskId, roundId, 'target_missing');
         } else if (result.actionResult.error === 'media_target_ambiguous') {
           await this.persistMediaWait(taskId, roundId, 'target_ambiguous');
+        } else if (
+          !result.actionResult.error &&
+          result.attempt.effect === 'external_commit' &&
+          result.attempt.state === 'observed'
+        ) {
+          // Do not wait for the model to restate "done" after a verified commit.
+          await this.tryVerifyAfterCommit(taskId, roundId);
         }
         return result;
       },
     };
+  }
+
+  /**
+   * After a successful external_commit, re-probe frozen criteria immediately.
+   * Real MiniMax loops often keep stepping after form submit without emitting
+   * candidate_complete; page evidence is enough for a verified receipt.
+   */
+  private async tryVerifyAfterCommit(taskId: string, roundId: string): Promise<void> {
+    const task = await getTask(taskId);
+    if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return;
+    const round = this.currentRound(task);
+    if (round.criteria.length === 0) return;
+    if (round.criteria.some(item => item.kind === 'user_confirmed')) return;
+    let observations: ProbeObservation[] = [];
+    try {
+      observations = await this.observeTaskCriteria(task, round.criteria);
+    } catch {
+      return;
+    }
+    const checked = checkCompletion({
+      now: this.deps.now(),
+      currentRoundId: round.id,
+      criteria: round.criteria,
+      observations,
+    });
+    if (!checked.passed) return;
+    await this.queueTransition(async () => {
+      const current = await getTask(taskId);
+      if (!current || current.status !== 'running' || current.currentRoundId !== roundId) return;
+      const currentRound = this.currentRound(current);
+      currentRound.evidence.push(...checked.evidence);
+      await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
+    });
+    await this.stopTaskRuntime(taskId);
   }
 
   private readStringField(value: unknown, key: string): string | undefined {
@@ -963,7 +1004,7 @@ export class TaskManager {
         if (automaticCriteria.length > 0) {
           let observations: ProbeObservation[] = [];
           try {
-            observations = await this.deps.observeCriteria(automaticCriteria);
+            observations = await this.observeTaskCriteria(task, automaticCriteria);
           } catch {
             observations = [];
           }
@@ -996,7 +1037,7 @@ export class TaskManager {
 
       let observations: ProbeObservation[] = [];
       try {
-        observations = await this.deps.observeCriteria(round.criteria);
+        observations = await this.observeTaskCriteria(task, round.criteria);
       } catch {
         observations = [];
       }
@@ -1049,6 +1090,20 @@ export class TaskManager {
 
   private canApplyDriverOutcome(task: TaskSession | null, taskId: string, driver: ExecutorDriver): task is TaskSession {
     return Boolean(task && this.drivers.get(taskId) === driver && task.status === 'running');
+  }
+
+  /**
+   * Probe completion against the task's bound tab, not whatever tab is currently
+   * focused (side-panel tabs / e2e focus steal would otherwise miss page_text).
+   */
+  private async observeTaskCriteria(
+    task: TaskSession,
+    criteria: CompletionCriterion[],
+  ): Promise<ProbeObservation[]> {
+    if (Number.isSafeInteger(task.activeTabId)) {
+      await this.deps.switchTab(task.activeTabId);
+    }
+    return this.deps.observeCriteria(criteria);
   }
 
   private applyOutcome(task: TaskSession, outcome: ExecutorOutcome): void {
