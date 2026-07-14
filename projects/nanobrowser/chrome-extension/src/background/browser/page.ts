@@ -1582,6 +1582,24 @@ export default class Page {
         const digest = await sha256(value);
         if (digest in textMatches) textMatches[digest] = true;
       }
+      // Fallback: plain text can be missing from the interactive tree after form
+      // submit rewrites (e.g. <p>Saved successfully</p>).
+      if (Object.values(textMatches).some(matched => !matched) && this._puppeteerPage) {
+        const bodyText = await this._puppeteerPage.evaluate(() =>
+          (document.body?.innerText || '').replace(/\s+/g, ' ').trim(),
+        );
+        if (bodyText) {
+          const candidates = bodyText
+            .split(/(?<=[.!?。！？])\s+|\n+/)
+            .map(part => part.replace(/\s+/g, ' ').trim())
+            .filter(part => part.length > 0 && part.length <= 160);
+          if (bodyText.length <= 160) candidates.push(bodyText);
+          for (const candidate of candidates) {
+            const digest = await sha256(candidate);
+            if (digest in textMatches) textMatches[digest] = true;
+          }
+        }
+      }
     }
 
     const observations: Array<ProbeObservation | null> = await Promise.all(
