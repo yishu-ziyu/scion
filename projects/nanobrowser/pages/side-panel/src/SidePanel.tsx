@@ -1123,37 +1123,6 @@ const SidePanel = () => {
                   (currentSessionId === taskSnapshot.chatSessionId || taskSnapshot.sourceSkillId !== undefined) && (
                     <TaskStatusCard snapshot={taskSnapshot} send={sendTaskCommand} />
                   )}
-                {messages.length === 0 && (
-                  <>
-                    <div
-                      className={`border-t ${isDarkMode ? 'border-sky-900' : 'border-sky-100'} mb-2 p-2 shadow-sm backdrop-blur-sm`}>
-                      <ChatInput
-                        onSendMessage={handleSendMessage}
-                        onStopTask={handleStopTask}
-                        onMicClick={handleMicClick}
-                        isRecording={isRecording}
-                        isProcessingSpeech={isProcessingSpeech}
-                        disabled={!taskSnapshotLoaded || !inputEnabled || isHistoricalSession}
-                        showStopButton={showStopButton}
-                        setContent={setter => {
-                          setInputTextRef.current = setter;
-                        }}
-                        isDarkMode={isDarkMode}
-                      />
-                    </div>
-                    <div className="flex-1 overflow-y-auto">
-                      <BookmarkList
-                        bookmarks={favoritePrompts}
-                        onBookmarkSelect={handleBookmarkSelect}
-                        onSkillRun={handleSkillRun}
-                        onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
-                        onBookmarkDelete={handleBookmarkDelete}
-                        onBookmarkReorder={handleBookmarkReorder}
-                        isDarkMode={isDarkMode}
-                      />
-                    </div>
-                  </>
-                )}
                 {messages.length > 0 && (
                   <div
                     className={`scrollbar-gutter-stable flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-2 ${isDarkMode ? 'bg-slate-900/80' : ''}`}>
@@ -1161,24 +1130,38 @@ const SidePanel = () => {
                     <div ref={messagesEndRef} />
                   </div>
                 )}
-                {messages.length > 0 && (
-                  <div
-                    className={`border-t ${isDarkMode ? 'border-sky-900' : 'border-sky-100'} p-2 shadow-sm backdrop-blur-sm`}>
-                    <ChatInput
-                      onSendMessage={handleSendMessage}
-                      onStopTask={handleStopTask}
-                      onMicClick={handleMicClick}
-                      isRecording={isRecording}
-                      isProcessingSpeech={isProcessingSpeech}
-                      disabled={!taskSnapshotLoaded || !inputEnabled || isHistoricalSession}
-                      showStopButton={showStopButton}
-                      setContent={setter => {
-                        setInputTextRef.current = setter;
-                      }}
-                      isDarkMode={isDarkMode}
-                    />
-                  </div>
-                )}
+                {/* Skills must stay reachable after a completed chat; empty-only list blocked skill-run e2e. */}
+                <div
+                  className={`${messages.length === 0 ? 'flex-1' : 'max-h-48 shrink-0 border-t'} overflow-y-auto ${
+                    isDarkMode ? 'border-sky-900' : 'border-sky-100'
+                  }`}
+                  data-testid="bookmark-list-panel">
+                  <BookmarkList
+                    bookmarks={favoritePrompts}
+                    onBookmarkSelect={handleBookmarkSelect}
+                    onSkillRun={handleSkillRun}
+                    onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
+                    onBookmarkDelete={handleBookmarkDelete}
+                    onBookmarkReorder={handleBookmarkReorder}
+                    isDarkMode={isDarkMode}
+                  />
+                </div>
+                <div
+                  className={`border-t ${isDarkMode ? 'border-sky-900' : 'border-sky-100'} p-2 shadow-sm backdrop-blur-sm`}>
+                  <ChatInput
+                    onSendMessage={handleSendMessage}
+                    onStopTask={handleStopTask}
+                    onMicClick={handleMicClick}
+                    isRecording={isRecording}
+                    isProcessingSpeech={isProcessingSpeech}
+                    disabled={!taskSnapshotLoaded || !inputEnabled || isHistoricalSession}
+                    showStopButton={showStopButton}
+                    setContent={setter => {
+                      setInputTextRef.current = setter;
+                    }}
+                    isDarkMode={isDarkMode}
+                  />
+                </div>
               </>
             )}
           </>

@@ -337,17 +337,33 @@ async function waitCompleted(panel, target, expectedCount) {
     const snap = await panel.evaluate(() => ({
       status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status'),
       receipt: document.querySelector('[data-testid="completion-receipt"]')?.textContent || null,
+      hasApprove: Boolean(document.querySelector('[data-testid="approval-approve"]')),
       body: (document.body?.innerText || '').slice(0, 400),
     }));
     const formText = await target.evaluate(() => document.body.innerText);
     const count = Number(await (await fetch(`${origin}/count`)).text());
     console.log(`[e2e] poll status=${snap.status} count=${count} form=${JSON.stringify(formText.slice(0, 40))}`);
-    if (snap.status === 'completed' && snap.receipt) {
-      assert.equal(count, expectedCount, `submission count expected ${expectedCount}`);
+    // Skill re-runs (and late form approvals) need the external_commit gate clicked.
+    if (snap.hasApprove && count < expectedCount) {
+      await target.bringToFront();
+      try {
+        await click(panel, 'approval-approve');
+      } catch (error) {
+        console.log('[e2e] approval click race', error?.message || error);
+      }
+      await new Promise(r => setTimeout(r, 800));
+      continue;
+    }
+    // Prior completed receipt may still be on panel after skill-run starts; require count match.
+    if (snap.status === 'completed' && snap.receipt && count === expectedCount) {
       return snap;
     }
-    if (['failed', 'cancelled'].includes(snap.status)) {
+    if (['failed', 'cancelled'].includes(snap.status) && count >= expectedCount) {
       throw new Error(`task ${snap.status}: ${snap.body}`);
+    }
+    if (['failed', 'cancelled'].includes(snap.status) && count < expectedCount) {
+      // Stale terminal from previous task while a new skill run should start.
+      console.log('[e2e] ignoring stale terminal while waiting for next submission');
     }
     // Mid-run diagnostic once form is already saved but task still running.
     if (count >= expectedCount && snap.status === 'running' && Date.now() - start > 8_000 && Date.now() - start < 12_000) {
@@ -398,9 +414,36 @@ async function runAllScenarios(extensionId, run) {
   await click(panel, 'skill-save');
   await setValue(panel, 'skill-template', 'Fill Name with {{name}} and submit; success is Saved successfully.');
   await click(panel, 'skill-save-confirm');
+  // Wait for favorites storage to surface the skill (subscribe + render).
+  {
+    const start = Date.now();
+    let found = false;
+    while (Date.now() - start < 15_000) {
+      const fav = await panel.evaluate(async () => {
+        const all = await chrome.storage.local.get(null);
+        const favorites = all.favorites || all['favorites'] || {};
+        const prompts = favorites.prompts || [];
+        return {
+          skillCount: prompts.filter(p => p?.kind === 'skill').length,
+          titles: prompts.filter(p => p?.kind === 'skill').map(p => p.title),
+          hasRun: Boolean(document.querySelector('[data-testid="skill-run"]')),
+          hasPanel: Boolean(document.querySelector('[data-testid="bookmark-list-panel"]')),
+        };
+      });
+      console.log('[e2e] skill-save wait', JSON.stringify(fav));
+      if (fav.skillCount >= 1 && fav.hasRun) {
+        found = true;
+        break;
+      }
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (!found) {
+      await dumpPanel(panel, 'skill-save-missing-run');
+      throw new Error('skill-run not visible after skill-save');
+    }
+  }
   await target.goto(`${origin}/form?order=reversed&run=${run}`, { waitUntil: 'domcontentloaded' });
   await target.bringToFront();
-  await panel.reload({ waitUntil: 'domcontentloaded' });
   await waitForTestId(panel, 'skill-run');
   await target.bringToFront();
   await click(panel, 'skill-run');
@@ -422,10 +465,23 @@ async function runAllScenarios(extensionId, run) {
   console.log(`[e2e] run${run} media PASS`);
 
   const stored = await panel.evaluate(() => chrome.storage.local.get(null));
-  const nonChat = Object.fromEntries(Object.entries(stored).filter(([key]) => !key.startsWith('chat_messages_')));
+  // User-authored chat is the allowed place for raw instruction text.
+  const nonChat = Object.fromEntries(
+    Object.entries(stored).filter(([key]) => !key.startsWith('chat_messages_') && !key.startsWith('chat_sessions_')),
+  );
   assert(!Object.keys(stored).some(key => key.startsWith('chat_agent_step_')));
-  assert(!JSON.stringify(nonChat).includes('FIELD_SENTINEL_8472'));
-  assert(!JSON.stringify(nonChat).includes('FIELD_SENTINEL_CHANGED_9521'));
+  const leak8472 = [];
+  const leak9521 = [];
+  for (const [key, value] of Object.entries(nonChat)) {
+    const text = JSON.stringify(value);
+    if (text.includes('FIELD_SENTINEL_8472')) leak8472.push(key);
+    if (text.includes('FIELD_SENTINEL_CHANGED_9521')) leak9521.push(key);
+  }
+  if (leak8472.length || leak9521.length) {
+    console.error('[e2e] privacy leaks', { leak8472, leak9521 });
+  }
+  assert.equal(leak8472.length, 0, `FIELD_SENTINEL_8472 leaked in ${leak8472.join(',')}`);
+  assert.equal(leak9521.length, 0, `FIELD_SENTINEL_CHANGED_9521 leaked in ${leak9521.join(',')}`);
   console.log(`[e2e] run${run} privacy PASS`);
   await Promise.all([target.close(), media.close(), panel.close(), mediaPanel.close()]);
 }
