@@ -25,7 +25,7 @@ vi.mock('../../../../personal/config', () => ({
 
 vi.mock('@extension/storage', () => ({
   generalSettingsStore: {
-    getSettings: vi.fn(async () => ({ agentCoreBackend: 'nano' })),
+    getSettings: vi.fn(async () => ({ agentCoreBackend: 'control' })),
   },
   agentModelStore: {},
   llmProviderStore: {},
@@ -47,8 +47,20 @@ const createNanoExecutorDriver = vi.fn(async () => ({
   stop: vi.fn(),
 }));
 
+const createLlmControlDriver = vi.fn(async () => ({
+  run: vi.fn(),
+  addFollowUp: vi.fn(),
+  pause: vi.fn(),
+  resume: vi.fn(),
+  stop: vi.fn(),
+}));
+
 vi.mock('../nano', () => ({
   createNanoExecutorDriver: (...args: unknown[]) => createNanoExecutorDriver(...args),
+}));
+
+vi.mock('../control-llm', () => ({
+  createLlmControlDriver: (...args: unknown[]) => createLlmControlDriver(...args),
 }));
 
 import { createExecutorDriver, resolveAgentCoreBackend } from '../../factory';
@@ -59,8 +71,8 @@ describe('factory multi-backend (design/002)', () => {
     vi.clearAllMocks();
   });
 
-  it('resolveAgentCoreBackend defaults to nano', async () => {
-    await expect(resolveAgentCoreBackend()).resolves.toBe('nano');
+  it('resolveAgentCoreBackend defaults to control (M2)', async () => {
+    await expect(resolveAgentCoreBackend()).resolves.toBe('control');
   });
 
   it('resolveAgentCoreBackend honors explicit control', async () => {
@@ -77,15 +89,15 @@ describe('factory multi-backend (design/002)', () => {
     expect(createNanoExecutorDriver).toHaveBeenCalledOnce();
   });
 
-  it('createExecutorDriver control without steps throws', async () => {
+  it('createExecutorDriver control without steps uses LLM control driver', async () => {
     const hooks = { onPlan: vi.fn(), dispatchAction: vi.fn() };
-    await expect(
-      createExecutorDriver(
-        { taskId: 't', roundId: 'r', instruction: 'i', tabId: 1 },
-        hooks,
-        { backend: 'control' },
-      ),
-    ).rejects.toThrow(/control backend requires/);
+    await createExecutorDriver(
+      { taskId: 't', roundId: 'r', instruction: 'i', tabId: 1 },
+      hooks,
+      { backend: 'control' },
+    );
+    expect(createLlmControlDriver).toHaveBeenCalledOnce();
+    expect(createNanoExecutorDriver).not.toHaveBeenCalled();
   });
 
   it('createExecutorDriver control with steps returns runnable driver', async () => {
@@ -112,5 +124,6 @@ describe('factory multi-backend (design/002)', () => {
     const outcome = await driver.run('r');
     expect(outcome.kind).toBe('candidate_complete');
     expect(createNanoExecutorDriver).not.toHaveBeenCalled();
+    expect(createLlmControlDriver).not.toHaveBeenCalled();
   });
 });

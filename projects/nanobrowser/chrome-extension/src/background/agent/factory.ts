@@ -4,6 +4,7 @@ import { createLogger } from '../log';
 import type { AgentEvent } from './event/types';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput } from '../task/contracts';
 import { createNanoExecutorDriver } from './backends/nano';
+import { createLlmControlDriver } from './backends/control-llm';
 import {
   createControlLoopDriver,
   type ControlLoopOptions,
@@ -25,14 +26,14 @@ export type { AgentCoreBackend, ControlScriptStep, ControlLoopOptions };
 export interface CreateExecutorDriverOptions {
   /** Force backend (tests / explicit wiring). */
   backend?: AgentCoreBackend;
-  /** When backend is control, required scripted steps until LLM policy lands. */
+  /** Scripted control steps (tests / deterministic fixtures). */
   control?: ControlLoopOptions;
   onEvent?: (event: AgentEvent) => void;
 }
 
 /**
- * Resolve production backend: explicit option → personal config → general settings → default nano.
- * design/002: default stays nano until control is stable; then flip default to control.
+ * Resolve production backend: explicit option → personal config → general settings → default.
+ * After LLM control ships, default may flip to `control` (design/002).
  */
 export async function resolveAgentCoreBackend(explicit?: AgentCoreBackend): Promise<AgentCoreBackend> {
   if (explicit) return explicit;
@@ -65,12 +66,11 @@ export async function createExecutorDriver(
   logger.info('createExecutorDriver', { backend, taskId: input.taskId });
 
   if (backend === 'control') {
-    if (!options.control?.steps?.length) {
-      throw new Error(
-        'control backend requires CreateExecutorDriverOptions.control.steps until LLM control policy ships (design/002 M2)',
-      );
+    if (options.control?.steps?.length) {
+      return createControlLoopDriver(input, hooks, options.control);
     }
-    return createControlLoopDriver(input, hooks, options.control);
+    // Production: LLM control under TaskManager (G6)
+    return createLlmControlDriver(input, hooks, browserContext);
   }
 
   return createNanoExecutorDriver(input, hooks, browserContext, options.onEvent);

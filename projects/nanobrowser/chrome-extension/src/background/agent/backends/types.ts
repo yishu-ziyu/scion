@@ -5,7 +5,8 @@
  */
 export type AgentCoreBackend = 'nano' | 'control';
 
-export const DEFAULT_AGENT_CORE_BACKEND: AgentCoreBackend = 'nano';
+/** Production default after M2 LLM control ships (design/002). Fallback: set generalSettings.agentCoreBackend = 'nano'. */
+export const DEFAULT_AGENT_CORE_BACKEND: AgentCoreBackend = 'control';
 
 export function parseAgentCoreBackend(value: unknown): AgentCoreBackend {
   return value === 'control' ? 'control' : 'nano';
