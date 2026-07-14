@@ -1,0 +1,42 @@
+#app-container {
+  text-align: center;
+  width: 100vw;
+  height: 100vh;
+  background: var(--chijie-background);
+  color: var(--chijie-foreground);
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+.App {
+  width: 100vw;
+  height: 100vh;
+  font-size: calc(10px + 2vmin);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+code {
+  background: var(--chijie-surface-raised);
+  border-radius: var(--chijie-radius-sm);
+  padding: 0.2rem 0.5rem;
+  color: var(--chijie-paper);
+  font-family: var(--chijie-font-mono);
+}
+
+.dark-mode-text {
+  color: var(--chijie-foreground) !important;
+}
+
+.dark-mode-bg {
+  background-color: var(--chijie-surface) !important;
+}
+
+.dark-mode-border {
+  border-color: var(--chijie-border) !important;
+}

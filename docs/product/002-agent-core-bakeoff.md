@@ -4,7 +4,7 @@ description: "以 Stagehand/Playwright 系（P1）为主对比执行核；可选
 category: "product"
 number: "002"
 status: draft
-services: ["projects/yishu-browser"]
+services: ["projects/chijie-browser"]
 related: ["product/001", "decisions/001", "decisions/002"]
 last_modified: "2026-07-15"
 ---

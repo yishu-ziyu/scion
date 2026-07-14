@@ -3,8 +3,8 @@
 ## Decision
 
 Stop maintaining two full copies of the nanobrowser graft.
-Canonical path: `scion/projects/yishu-browser/`.
-`~/projects/yishu-browser` is a **symlink** to that folder (Chrome Load unpacked path unchanged).
+Canonical path: `scion/projects/chijie-browser/`.
+`~/projects/chijie-browser` is a **symlink** to that folder (Chrome Load unpacked path unchanged).
 
 ## Why
 
@@ -13,17 +13,17 @@ Merge was optional; owner asked to merge.
 
 ## What was done
 
-1. Rsynced latest runtime copy into `scion/projects/yishu-browser` (excluded nested `.git`).
-2. Moved old independent tree to `~/projects/yishu-browser.bak-20260714-210044` (keeps upstream `.git` for archaeology).
-3. Symlinked `~/projects/yishu-browser` → `scion/projects/yishu-browser`.
-4. Updated `AGENTS.md`, `HANDOVER.md`, `README.md`, `projects/yishu-browser/AGENTS.md`.
+1. Rsynced latest runtime copy into `scion/projects/chijie-browser` (excluded nested `.git`).
+2. Moved old independent tree to `~/projects/chijie-browser.bak-20260714-210044` (keeps upstream `.git` for archaeology).
+3. Symlinked `~/projects/chijie-browser` → `scion/projects/chijie-browser`.
+4. Updated `AGENTS.md`, `HANDOVER.md`, `README.md`, `projects/chijie-browser/AGENTS.md`.
 
 ## Verify
 
-- `readlink ~/projects/yishu-browser` points at scion graft.
+- `readlink ~/projects/chijie-browser` points at scion graft.
 - `pnpm build` works from either path.
-- Chrome still loads `~/projects/yishu-browser/dist`.
+- Chrome still loads `~/projects/chijie-browser/dist`.
 
 ## Cleanup later (optional)
 
-Delete `~/projects/yishu-browser.bak-*` when sure nothing is needed from old upstream git history.
+Delete `~/projects/chijie-browser.bak-*` when sure nothing is needed from old upstream git history.

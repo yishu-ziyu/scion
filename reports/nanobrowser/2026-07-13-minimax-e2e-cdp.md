@@ -6,7 +6,7 @@ Make a personal Nanobrowser fork usable with MiniMax Token Plan (`MiniMax-M3`) w
 
 ## What we changed (code)
 
-Under `projects/yishu-browser`:
+Under `projects/chijie-browser`:
 
 - **zh_CN** i18n + default locale force Chinese UI
 - **personal bootstrap** (`chrome-extension/src/personal/`): inject MiniMax provider + Planner/Navigator agents at runtime
@@ -70,7 +70,7 @@ Deprecated: `~/bin/chrome-debug-launcher.sh` now redirects to `chrome-cdp ensure
 | Type | custom_openai |
 | Base URL | https://api.minimaxi.com/v1 |
 | Agents | planner + navigator both MiniMax-M3 |
-| Unpacked path | .../projects/yishu-browser/dist |
+| Unpacked path | .../projects/chijie-browser/dist |
 
 ## Open risks
 

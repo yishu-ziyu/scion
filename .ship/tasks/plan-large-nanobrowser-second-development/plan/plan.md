@@ -22,7 +22,7 @@
 
 ## Canonical contracts used by every story
 
-Persisted definitions from `TaskStatus` through `TaskEvent` live in `projects/yishu-browser/packages/storage/lib/task/types.ts`. Runtime-only definitions live from Story 2 onward in `projects/yishu-browser/chrome-extension/src/background/task/contracts.ts`, which imports `Action`, `ActionResult`, and persisted task types. Later stories implement behavior, not new names or incompatible shapes.
+Persisted definitions from `TaskStatus` through `TaskEvent` live in `projects/chijie-browser/packages/storage/lib/task/types.ts`. Runtime-only definitions live from Story 2 onward in `projects/chijie-browser/chrome-extension/src/background/task/contracts.ts`, which imports `Action`, `ActionResult`, and persisted task types. Later stories implement behavior, not new names or incompatible shapes.
 
 ```ts
 export type TaskStatus =
@@ -203,17 +203,17 @@ One `TaskSession.revision` is authoritative. A new task starts at revision 1. Ev
 
 **Files:**
 
-- Modify: `projects/yishu-browser/packages/storage/lib/chat/types.ts:32-71`
-- Modify: `projects/yishu-browser/packages/storage/lib/chat/history.ts:32-49,156-163,228-255`
-- Modify: `projects/yishu-browser/packages/storage/lib/settings/generalSettings.ts:5-67`
-- Modify: `projects/yishu-browser/pages/options/src/components/GeneralSettings.tsx:200-231`
-- Modify: `projects/yishu-browser/pages/side-panel/src/SidePanel.tsx:24-44,78-93,400-531,552-644,1123-1182`
-- Modify: `projects/yishu-browser/pages/side-panel/src/components/ChatInput.tsx:1-330`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/index.ts:1-31,235-259`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/executor.ts:24-27,224-235,368-440`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/agents/navigator.ts:28-39,461-627`
-- Modify: `projects/yishu-browser/packages/i18n/locales/{en,pt_BR,zh_CN,zh_TW}/messages.json`
-- Test: `projects/yishu-browser/chrome-extension/src/background/task/__tests__/replay-migration.test.ts`
+- Modify: `projects/chijie-browser/packages/storage/lib/chat/types.ts:32-71`
+- Modify: `projects/chijie-browser/packages/storage/lib/chat/history.ts:32-49,156-163,228-255`
+- Modify: `projects/chijie-browser/packages/storage/lib/settings/generalSettings.ts:5-67`
+- Modify: `projects/chijie-browser/pages/options/src/components/GeneralSettings.tsx:200-231`
+- Modify: `projects/chijie-browser/pages/side-panel/src/SidePanel.tsx:24-44,78-93,400-531,552-644,1123-1182`
+- Modify: `projects/chijie-browser/pages/side-panel/src/components/ChatInput.tsx:1-330`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/index.ts:1-31,235-259`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/executor.ts:24-27,224-235,368-440`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/agents/navigator.ts:28-39,461-627`
+- Modify: `projects/chijie-browser/packages/i18n/locales/{en,pt_BR,zh_CN,zh_TW}/messages.json`
+- Test: `projects/chijie-browser/chrome-extension/src/background/task/__tests__/replay-migration.test.ts`
 
 - [x] **Step 1: Write the failing prefix-migration test**
 
@@ -263,7 +263,7 @@ describe('legacy replay migration', () => {
 
 - [x] **Step 2: Run the migration test and confirm the missing export**
 
-Run: `pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/replay-migration.test.ts`
+Run: `pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/replay-migration.test.ts`
 
 Expected: FAIL because `removeLegacyAgentStepHistories` is not exported.
 
@@ -312,11 +312,11 @@ The runtime event allowlist is `actionName`, `elementIndex`, `effect`, `state`, 
 Run:
 
 ```bash
-pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/replay-migration.test.ts
-rg -n "replayHistoricalTasks|replayHistory|executeHistoryStep|storeAgentStepHistory|loadAgentStepHistory|chat_agent_step_" projects/yishu-browser --glob '!pnpm-lock.yaml'
-pnpm --dir projects/yishu-browser --filter chrome-extension type-check
-pnpm --dir projects/yishu-browser --filter @extension/sidepanel type-check
-pnpm --dir projects/yishu-browser --filter @extension/storage type-check
+pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/replay-migration.test.ts
+rg -n "replayHistoricalTasks|replayHistory|executeHistoryStep|storeAgentStepHistory|loadAgentStepHistory|chat_agent_step_" projects/chijie-browser --glob '!pnpm-lock.yaml'
+pnpm --dir projects/chijie-browser --filter chrome-extension type-check
+pnpm --dir projects/chijie-browser --filter @extension/sidepanel type-check
+pnpm --dir projects/chijie-browser --filter @extension/storage type-check
 ```
 
 Expected: migration test PASS; `rg` returns only the migration prefix and its test; type checks PASS or reproduce only a separately recorded pre-existing error unchanged by this story.
@@ -324,7 +324,7 @@ Expected: migration test PASS; `rg` returns only the migration prefix and its te
 - [x] **Step 7: Commit**
 
 ```bash
-git add projects/yishu-browser
+git add projects/chijie-browser
 git commit -m "security: remove raw task replay"
 ```
 
@@ -336,18 +336,18 @@ git commit -m "security: remove raw task replay"
 
 **Files:**
 
-- Create: `projects/yishu-browser/packages/storage/lib/task/types.ts`
-- Create: `projects/yishu-browser/packages/storage/lib/task/runtime.ts`
-- Create: `projects/yishu-browser/packages/storage/lib/task/index.ts`
-- Create: `projects/yishu-browser/chrome-extension/src/background/task/contracts.ts`
-- Modify: `projects/yishu-browser/packages/storage/lib/index.ts:1-8`
-- Fill: `projects/yishu-browser/chrome-extension/src/background/task/manager.ts`
-- Create: `projects/yishu-browser/chrome-extension/src/background/agent/factory.ts`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/executor.ts:31-128,135-237,323-365`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/index.ts:1-31,91-163,274-383`
-- Create: `projects/yishu-browser/pages/side-panel/src/components/TaskStatusCard.tsx`
-- Modify: `projects/yishu-browser/pages/side-panel/src/SidePanel.tsx:24-188,298-398,552-670,1123-1188`
-- Test: `projects/yishu-browser/chrome-extension/src/background/task/__tests__/manager.test.ts`
+- Create: `projects/chijie-browser/packages/storage/lib/task/types.ts`
+- Create: `projects/chijie-browser/packages/storage/lib/task/runtime.ts`
+- Create: `projects/chijie-browser/packages/storage/lib/task/index.ts`
+- Create: `projects/chijie-browser/chrome-extension/src/background/task/contracts.ts`
+- Modify: `projects/chijie-browser/packages/storage/lib/index.ts:1-8`
+- Fill: `projects/chijie-browser/chrome-extension/src/background/task/manager.ts`
+- Create: `projects/chijie-browser/chrome-extension/src/background/agent/factory.ts`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/executor.ts:31-128,135-237,323-365`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/index.ts:1-31,91-163,274-383`
+- Create: `projects/chijie-browser/pages/side-panel/src/components/TaskStatusCard.tsx`
+- Modify: `projects/chijie-browser/pages/side-panel/src/SidePanel.tsx:24-188,298-398,552-670,1123-1188`
+- Test: `projects/chijie-browser/chrome-extension/src/background/task/__tests__/manager.test.ts`
 
 - [x] **Step 1: Write failing lifecycle/idempotency tests through the TaskManager interface**
 
@@ -455,7 +455,7 @@ describe('TaskManager lifecycle', () => {
 
 - [x] **Step 2: Run the manager test and confirm the task module is absent**
 
-Run: `pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/manager.test.ts`
+Run: `pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/manager.test.ts`
 
 Expected: FAIL because TaskManager and task storage types do not exist.
 
@@ -549,10 +549,10 @@ export function TaskStatusCard({ snapshot, send }: TaskStatusCardProps) {
 Run:
 
 ```bash
-pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/manager.test.ts src/background/browser/__tests__/context.test.ts
-pnpm --dir projects/yishu-browser --filter chrome-extension type-check
-pnpm --dir projects/yishu-browser --filter @extension/sidepanel type-check
-pnpm --dir projects/yishu-browser --filter @extension/storage type-check
+pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/manager.test.ts src/background/browser/__tests__/context.test.ts
+pnpm --dir projects/chijie-browser --filter chrome-extension type-check
+pnpm --dir projects/chijie-browser --filter @extension/sidepanel type-check
+pnpm --dir projects/chijie-browser --filter @extension/storage type-check
 ```
 
 Expected: tests PASS; type checks PASS or only the recorded unchanged pre-existing failure remains.
@@ -560,7 +560,7 @@ Expected: tests PASS; type checks PASS or only the recorded unchanged pre-existi
 - [x] **Step 10: Commit**
 
 ```bash
-git add projects/yishu-browser
+git add projects/chijie-browser
 git commit -m "feat: add durable browser task lifecycle"
 ```
 
@@ -572,17 +572,17 @@ git commit -m "feat: add durable browser task lifecycle"
 
 **Files:**
 
-- Create: `projects/yishu-browser/chrome-extension/src/background/task/action-dispatcher.ts`
-- Create: `projects/yishu-browser/chrome-extension/src/background/task/digest.ts`
-- Modify: `projects/yishu-browser/packages/storage/lib/task/types.ts`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/task/manager.ts`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/actions/builder.ts:44-127,152-330,568-579`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/agents/navigator.ts:41-91,158-220,366-459`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/executor.ts`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/browser/page.ts:723-760,1285-1335`
-- Modify: `projects/yishu-browser/pages/side-panel/src/components/TaskStatusCard.tsx`
-- Test: `projects/yishu-browser/chrome-extension/src/background/task/__tests__/action-dispatcher.test.ts`
-- Test: `projects/yishu-browser/chrome-extension/src/background/task/__tests__/commit-recovery.test.ts`
+- Create: `projects/chijie-browser/chrome-extension/src/background/task/action-dispatcher.ts`
+- Create: `projects/chijie-browser/chrome-extension/src/background/task/digest.ts`
+- Modify: `projects/chijie-browser/packages/storage/lib/task/types.ts`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/task/manager.ts`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/actions/builder.ts:44-127,152-330,568-579`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/agents/navigator.ts:41-91,158-220,366-459`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/executor.ts`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/browser/page.ts:723-760,1285-1335`
+- Modify: `projects/chijie-browser/pages/side-panel/src/components/TaskStatusCard.tsx`
+- Test: `projects/chijie-browser/chrome-extension/src/background/task/__tests__/action-dispatcher.test.ts`
+- Test: `projects/chijie-browser/chrome-extension/src/background/task/__tests__/commit-recovery.test.ts`
 
 - [x] **Step 1: Write failing policy and bypass tests**
 
@@ -645,7 +645,7 @@ it('does not invoke an external commit before approval and invokes it once after
 
 - [x] **Step 2: Run the dispatcher tests and confirm the seam is absent**
 
-Run: `pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/action-dispatcher.test.ts`
+Run: `pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/action-dispatcher.test.ts`
 
 Expected: FAIL because ActionDispatcher/EffectPolicy do not exist.
 
@@ -805,9 +805,9 @@ Only cold `executing` becomes `uncertain`; no cold state calls the effect. TaskM
 Run:
 
 ```bash
-pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/action-dispatcher.test.ts src/background/task/__tests__/commit-recovery.test.ts src/background/services/guardrails/__tests__/guardrails.test.ts
-rg -n "\.call\(actionArgs\)|JSON\.stringify\(actionArgs" projects/yishu-browser/chrome-extension/src/background
-pnpm --dir projects/yishu-browser --filter chrome-extension type-check
+pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/action-dispatcher.test.ts src/background/task/__tests__/commit-recovery.test.ts src/background/services/guardrails/__tests__/guardrails.test.ts
+rg -n "\.call\(actionArgs\)|JSON\.stringify\(actionArgs" projects/chijie-browser/chrome-extension/src/background
+pnpm --dir projects/chijie-browser --filter chrome-extension type-check
 ```
 
 Expected: tests PASS; `rg` returns no execution bypass or raw-arg log; type check PASS or only the recorded unrelated baseline error.
@@ -815,7 +815,7 @@ Expected: tests PASS; `rg` returns no execution bypass or raw-arg log; type chec
 - [x] **Step 10: Commit**
 
 ```bash
-git add projects/yishu-browser
+git add projects/chijie-browser
 git commit -m "feat: require crash-safe action approval"
 ```
 
@@ -827,17 +827,17 @@ git commit -m "feat: require crash-safe action approval"
 
 **Files:**
 
-- Create: `projects/yishu-browser/chrome-extension/src/background/task/completion.ts`
-- Modify: `projects/yishu-browser/packages/storage/lib/task/types.ts`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/task/manager.ts`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/agents/planner.ts:21-110`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/prompts/templates/planner.ts:3-84`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/prompts/templates/navigator.ts:62-69,121-124`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/executor.ts:116-190,239-320`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/browser/page.ts`
-- Modify: `projects/yishu-browser/pages/side-panel/src/components/TaskStatusCard.tsx`
-- Test: `projects/yishu-browser/chrome-extension/src/background/task/__tests__/completion.test.ts`
-- Test: `projects/yishu-browser/chrome-extension/src/background/task/__tests__/form-journey.test.ts`
+- Create: `projects/chijie-browser/chrome-extension/src/background/task/completion.ts`
+- Modify: `projects/chijie-browser/packages/storage/lib/task/types.ts`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/task/manager.ts`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/agents/planner.ts:21-110`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/prompts/templates/planner.ts:3-84`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/prompts/templates/navigator.ts:62-69,121-124`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/executor.ts:116-190,239-320`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/browser/page.ts`
+- Modify: `projects/chijie-browser/pages/side-panel/src/components/TaskStatusCard.tsx`
+- Test: `projects/chijie-browser/chrome-extension/src/background/task/__tests__/completion.test.ts`
+- Test: `projects/chijie-browser/chrome-extension/src/background/task/__tests__/form-journey.test.ts`
 
 - [x] **Step 1: Write failing baseline, round, freshness, and confirmation tests**
 
@@ -910,7 +910,7 @@ describe('CompletionChecker', () => {
 
 - [x] **Step 2: Run completion tests and confirm the checker is absent**
 
-Run: `pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/completion.test.ts`
+Run: `pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/completion.test.ts`
 
 Expected: FAIL because CompletionChecker does not exist.
 
@@ -1083,9 +1083,9 @@ The CompletionChecker table in Step 1 covers rejected, old-round, wrong-target, 
 Run:
 
 ```bash
-pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/completion.test.ts src/background/task/__tests__/form-journey.test.ts src/background/services/guardrails/__tests__/guardrails.test.ts
-pnpm --dir projects/yishu-browser --filter chrome-extension type-check
-pnpm --dir projects/yishu-browser --filter @extension/sidepanel type-check
+pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/completion.test.ts src/background/task/__tests__/form-journey.test.ts src/background/services/guardrails/__tests__/guardrails.test.ts
+pnpm --dir projects/chijie-browser --filter chrome-extension type-check
+pnpm --dir projects/chijie-browser --filter @extension/sidepanel type-check
 ```
 
 Expected: all listed tests PASS; no false completion case passes.
@@ -1093,7 +1093,7 @@ Expected: all listed tests PASS; no false completion case passes.
 - [x] **Step 10: Commit**
 
 ```bash
-git add projects/yishu-browser
+git add projects/chijie-browser
 git commit -m "feat: verify browser task completion"
 ```
 
@@ -1105,14 +1105,14 @@ git commit -m "feat: verify browser task completion"
 
 **Files:**
 
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/actions/schemas.ts:1-216`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/agent/actions/builder.ts:1-30,143-707`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/browser/page.ts`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/task/action-dispatcher.ts`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/task/completion.ts`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/task/manager.ts`
-- Modify: `projects/yishu-browser/packages/storage/lib/task/types.ts`
-- Test: `projects/yishu-browser/chrome-extension/src/background/task/__tests__/media-journey.test.ts`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/actions/schemas.ts:1-216`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/agent/actions/builder.ts:1-30,143-707`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/browser/page.ts`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/task/action-dispatcher.ts`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/task/completion.ts`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/task/manager.ts`
+- Modify: `projects/chijie-browser/packages/storage/lib/task/types.ts`
+- Test: `projects/chijie-browser/chrome-extension/src/background/task/__tests__/media-journey.test.ts`
 
 - [x] **Step 1: Write the failing continuous-control journey**
 
@@ -1174,7 +1174,7 @@ describe('continuous media control', () => {
 
 - [x] **Step 2: Run the media test and confirm the action/page methods are absent**
 
-Run: `pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/media-journey.test.ts`
+Run: `pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/media-journey.test.ts`
 
 Expected: FAIL because `control_media`, `observeMedia`, and `controlMedia` do not exist.
 
@@ -1261,8 +1261,8 @@ expect(rebound).toMatchObject({ kind: 'ready', args: { target_digest: 'media-1' 
 Run:
 
 ```bash
-pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/media-journey.test.ts src/background/task/__tests__/action-dispatcher.test.ts src/background/browser/__tests__/context.test.ts
-pnpm --dir projects/yishu-browser --filter chrome-extension type-check
+pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/media-journey.test.ts src/background/task/__tests__/action-dispatcher.test.ts src/background/browser/__tests__/context.test.ts
+pnpm --dir projects/chijie-browser --filter chrome-extension type-check
 ```
 
 Expected: listed tests PASS; no `bilibili`, `b23`, or site selector appears in new runtime code.
@@ -1270,7 +1270,7 @@ Expected: listed tests PASS; no `bilibili`, `b23`, or site selector appears in n
 - [x] **Step 8: Commit**
 
 ```bash
-git add projects/yishu-browser
+git add projects/chijie-browser
 git commit -m "feat: add continuous html media control"
 ```
 
@@ -1282,14 +1282,14 @@ git commit -m "feat: add continuous html media control"
 
 **Files:**
 
-- Modify: `projects/yishu-browser/packages/storage/lib/prompt/favorites.ts:1-208`
-- Modify: `projects/yishu-browser/packages/storage/lib/task/types.ts`
-- Modify: `projects/yishu-browser/chrome-extension/src/background/task/manager.ts`
-- Modify: `projects/yishu-browser/pages/side-panel/src/components/BookmarkList.tsx:1-199`
-- Modify: `projects/yishu-browser/pages/side-panel/src/components/TaskStatusCard.tsx`
-- Modify: `projects/yishu-browser/pages/side-panel/src/SidePanel.tsx:731-810,1123-1188`
-- Modify: `projects/yishu-browser/packages/i18n/locales/{en,pt_BR,zh_CN,zh_TW}/messages.json`
-- Test: `projects/yishu-browser/chrome-extension/src/background/task/__tests__/skill-journey.test.ts`
+- Modify: `projects/chijie-browser/packages/storage/lib/prompt/favorites.ts:1-208`
+- Modify: `projects/chijie-browser/packages/storage/lib/task/types.ts`
+- Modify: `projects/chijie-browser/chrome-extension/src/background/task/manager.ts`
+- Modify: `projects/chijie-browser/pages/side-panel/src/components/BookmarkList.tsx:1-199`
+- Modify: `projects/chijie-browser/pages/side-panel/src/components/TaskStatusCard.tsx`
+- Modify: `projects/chijie-browser/pages/side-panel/src/SidePanel.tsx:731-810,1123-1188`
+- Modify: `projects/chijie-browser/packages/i18n/locales/{en,pt_BR,zh_CN,zh_TW}/messages.json`
+- Test: `projects/chijie-browser/chrome-extension/src/background/task/__tests__/skill-journey.test.ts`
 
 - [x] **Step 1: Write failing template and value-retention tests**
 
@@ -1327,7 +1327,7 @@ describe('local semantic Skill', () => {
 
 - [x] **Step 2: Run the Skill test and confirm the union/helpers are absent**
 
-Run: `pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/skill-journey.test.ts`
+Run: `pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/skill-journey.test.ts`
 
 Expected: FAIL because Skill storage/template helpers do not exist.
 
@@ -1524,9 +1524,9 @@ it('replans a Skill when DOM indexes change and retains no resolved value', asyn
 Run:
 
 ```bash
-pnpm --dir projects/yishu-browser --filter chrome-extension test -- src/background/task/__tests__/skill-journey.test.ts src/background/task/__tests__/form-journey.test.ts src/background/task/__tests__/replay-migration.test.ts
-pnpm --dir projects/yishu-browser --filter @extension/storage type-check
-pnpm --dir projects/yishu-browser --filter @extension/sidepanel type-check
+pnpm --dir projects/chijie-browser --filter chrome-extension test -- src/background/task/__tests__/skill-journey.test.ts src/background/task/__tests__/form-journey.test.ts src/background/task/__tests__/replay-migration.test.ts
+pnpm --dir projects/chijie-browser --filter @extension/storage type-check
+pnpm --dir projects/chijie-browser --filter @extension/sidepanel type-check
 ```
 
 Expected: tests and type checks PASS; sentinel values are absent from persisted/runtime-generated artifacts.
@@ -1534,7 +1534,7 @@ Expected: tests and type checks PASS; sentinel values are absent from persisted/
 - [x] **Step 9: Commit**
 
 ```bash
-git add projects/yishu-browser
+git add projects/chijie-browser
 git commit -m "feat: save verified tasks as local skills"
 ```
 
@@ -1546,13 +1546,13 @@ git commit -m "feat: save verified tasks as local skills"
 
 **Files:**
 
-- Create: `projects/yishu-browser/chrome-extension/test/fixtures/form.html`
-- Create: `projects/yishu-browser/chrome-extension/test/fixtures/media.html`
-- Create: `projects/yishu-browser/chrome-extension/scripts/action-agent-e2e.mjs`
-- Modify: `projects/yishu-browser/chrome-extension/package.json:6-16`
-- Modify: `projects/yishu-browser/package.json:11-28`
-- Modify: `projects/yishu-browser/pages/side-panel/src/components/TaskStatusCard.tsx`
-- Modify: `projects/yishu-browser/pages/side-panel/src/SidePanel.tsx`
+- Create: `projects/chijie-browser/chrome-extension/test/fixtures/form.html`
+- Create: `projects/chijie-browser/chrome-extension/test/fixtures/media.html`
+- Create: `projects/chijie-browser/chrome-extension/scripts/action-agent-e2e.mjs`
+- Modify: `projects/chijie-browser/chrome-extension/package.json:6-16`
+- Modify: `projects/chijie-browser/package.json:11-28`
+- Modify: `projects/chijie-browser/pages/side-panel/src/components/TaskStatusCard.tsx`
+- Modify: `projects/chijie-browser/pages/side-panel/src/SidePanel.tsx`
 - Create: `reports/nanobrowser/action-agent-cycle-1.md`
 - Modify: `docs/design/001-browser-action-task-runtime.md:1-16,365-405`
 
@@ -1667,7 +1667,7 @@ try {
 
 - [ ] **Step 2: Run once and verify the runner fails before fixtures/selectors exist**
 
-Run: `pnpm --dir projects/yishu-browser build && MINIMAX_API_KEY="$MINIMAX_API_KEY" RUNS=1 node projects/yishu-browser/chrome-extension/scripts/action-agent-e2e.mjs`
+Run: `pnpm --dir projects/chijie-browser build && MINIMAX_API_KEY="$MINIMAX_API_KEY" RUNS=1 node projects/chijie-browser/chrome-extension/scripts/action-agent-e2e.mjs`
 
 Expected: FAIL with `ENOENT .../test/fixtures/form.html` or timeout for `[data-testid="goal-input"]`; it must not report a passing scenario.
 
@@ -1760,7 +1760,7 @@ Do not add a test-only runtime branch, fake LLM, site-specific selector, or dire
 
 Add Chrome-extension script `"e2e:action-agent": "node scripts/action-agent-e2e.mjs"` and root script `"e2e:action-agent": "pnpm build && pnpm --filter chrome-extension e2e:action-agent"`.
 
-Run: `RUNS=1 pnpm --dir projects/yishu-browser e2e:action-agent`
+Run: `RUNS=1 pnpm --dir projects/chijie-browser e2e:action-agent`
 
 Expected: one form, media, reconnect, and Skill scenario PASS in real unpacked Chrome using the configured MiniMax model.
 
@@ -1769,11 +1769,11 @@ Expected: one form, media, reconnect, and Skill scenario PASS in real unpacked C
 Run:
 
 ```bash
-pnpm --dir projects/yishu-browser --filter chrome-extension test
-pnpm --dir projects/yishu-browser type-check
-pnpm --dir projects/yishu-browser lint
-pnpm --dir projects/yishu-browser build
-RUNS=10 pnpm --dir projects/yishu-browser e2e:action-agent
+pnpm --dir projects/chijie-browser --filter chrome-extension test
+pnpm --dir projects/chijie-browser type-check
+pnpm --dir projects/chijie-browser lint
+pnpm --dir projects/chijie-browser build
+RUNS=10 pnpm --dir projects/chijie-browser e2e:action-agent
 ```
 
 Expected: all unit/integration checks and build PASS; fixture scenarios pass 10/10. Any unchanged pre-existing type/lint failure must be recorded with exact file/line and cannot hide a new failure.
@@ -1783,12 +1783,12 @@ Expected: all unit/integration checks and build PASS; fixture scenarios pass 10/
 Build and launch a dedicated persistent acceptance profile:
 
 ```bash
-pnpm --dir projects/yishu-browser build
+pnpm --dir projects/chijie-browser build
 mkdir -p .tmp/scion-owner-acceptance
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   --user-data-dir="$PWD/.tmp/scion-owner-acceptance" \
-  --disable-extensions-except="$PWD/projects/yishu-browser/dist" \
-  --load-extension="$PWD/projects/yishu-browser/dist"
+  --disable-extensions-except="$PWD/projects/chijie-browser/dist" \
+  --load-extension="$PWD/projects/chijie-browser/dist"
 ```
 
 Log in manually once; credentials/CAPTCHA must leave the task in typed `waiting_user`, never be entered by the Agent. Then execute this fixed protocol 10 times per journey:
@@ -1804,7 +1804,7 @@ Expected: Feishu and Bilibili each reach at least 8/10 verified completions; zer
 The runner's `chrome.storage.local.get(null)` assertion is the executable privacy check. Add this source/storage sweep and keep the JSON output only on failure:
 
 ```bash
-rg -n "chat_agent_step_|FIELD_SENTINEL_8472|FIELD_SENTINEL_CHANGED_9521|JSON\.stringify\(actionArgs" projects/yishu-browser --glob '!**/test/**' --glob '!**/scripts/action-agent-e2e.mjs'
+rg -n "chat_agent_step_|FIELD_SENTINEL_8472|FIELD_SENTINEL_CHANGED_9521|JSON\.stringify\(actionArgs" projects/chijie-browser --glob '!**/test/**' --glob '!**/scripts/action-agent-e2e.mjs'
 ```
 
 Expected: no runtime match for replay keys, sentinels, or raw action serialization. The runner already asserts resolved Skill/form values are absent from all non-user-chat storage.
@@ -1820,7 +1820,7 @@ Expected: index generation succeeds and links the current design and decision re
 - [ ] **Step 9: Commit**
 
 ```bash
-git add projects/yishu-browser reports/nanobrowser/action-agent-cycle-1.md docs
+git add projects/chijie-browser reports/nanobrowser/action-agent-cycle-1.md docs
 git commit -m "test: verify browser action agent cycle one"
 ```
 

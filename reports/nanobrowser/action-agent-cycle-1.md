@@ -55,12 +55,12 @@ Runtime (non-test) match for `chat_agent_step_` only in migration cleanup (`pack
 Not run this session. Protocol from PRD / plan Story 7 Step 6:
 
 ```bash
-pnpm --dir projects/yishu-browser build
+pnpm --dir projects/chijie-browser build
 mkdir -p .tmp/scion-owner-acceptance
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   --user-data-dir="$PWD/.tmp/scion-owner-acceptance" \
-  --disable-extensions-except="$PWD/projects/yishu-browser/dist" \
-  --load-extension="$PWD/projects/yishu-browser/dist"
+  --disable-extensions-except="$PWD/projects/chijie-browser/dist" \
+  --load-extension="$PWD/projects/chijie-browser/dist"
 ```
 
 Record 10 attempts each; pass bar ≥8/10 verified; zero false completed; zero unapproved external commits.
@@ -75,6 +75,6 @@ Keep `docs/design/001-browser-action-task-runtime.md` as `not-implemented` until
 ## Next actions
 
 1. Land Story 7 product/e2e hardening commits.
-2. Re-run `RUNS=10 pnpm --dir projects/yishu-browser e2e:action-agent` after commit.
+2. Re-run `RUNS=10 pnpm --dir projects/chijie-browser e2e:action-agent` after commit.
 3. Owner login acceptance for Feishu form + Bilibili media.
 4. Only then flip design status to `current` and regenerate docs index.

@@ -37,7 +37,7 @@ Authority: `docs/design/002`, `docs/product/003` M2 / G6
 ## Commands
 
 ```bash
-cd projects/yishu-browser
+cd projects/chijie-browser
 pnpm -F chrome-extension exec vitest run \
   src/background/agent/backends/__tests__/ \
   src/background/task/__tests__/control-backend-journey.test.ts

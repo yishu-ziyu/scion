@@ -21,10 +21,10 @@
 扩展目录（刷新用）：
 
 ```text
-/Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion/projects/yishu-browser/dist
+/Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion/projects/chijie-browser/dist
 ```
 
-等同：`~/projects/yishu-browser/dist`
+等同：`~/projects/chijie-browser/dist`
 
 ## 建议测的两句
 

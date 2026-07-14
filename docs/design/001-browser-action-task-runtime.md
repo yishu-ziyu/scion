@@ -4,7 +4,7 @@ description: "定义可验证任务、连续控制、动作审批和本地 Skill
 category: "design"
 number: "001"
 status: partially-outdated
-services: ["projects/yishu-browser/chrome-extension/src/background", "projects/yishu-browser/pages/side-panel", "projects/yishu-browser/packages/storage"]
+services: ["projects/chijie-browser/chrome-extension/src/background", "projects/chijie-browser/pages/side-panel", "projects/chijie-browser/packages/storage"]
 related: ["decisions/001", "decisions/002", "design/002", "product/003"]
 last_modified: "2026-07-15"
 ---

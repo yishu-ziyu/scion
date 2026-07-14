@@ -33,9 +33,9 @@ Sources: [OpenAI Atlas deprecation notice](https://help.openai.com/en/articles/2
 
 Local evidence:
 
-- `projects/yishu-browser/chrome-extension/src/background/agent/actions/schemas.ts`
-- `projects/yishu-browser/chrome-extension/src/background/index.ts`
-- `projects/yishu-browser/chrome-extension/src/background/agent/executor.ts`
+- `projects/chijie-browser/chrome-extension/src/background/agent/actions/schemas.ts`
+- `projects/chijie-browser/chrome-extension/src/background/index.ts`
+- `projects/chijie-browser/chrome-extension/src/background/agent/executor.ts`
 
 ## The real second-development gap
 

@@ -4,7 +4,7 @@ description: "M2：在 Task/审批/回执壳下接入 P1 级控制环；Nano Pla
 category: "design"
 number: "002"
 status: current
-services: ["projects/yishu-browser/chrome-extension/src/background"]
+services: ["projects/chijie-browser/chrome-extension/src/background"]
 related: ["design/001", "decisions/001", "decisions/002", "product/002", "product/003", "product/004"]
 last_modified: "2026-07-15"
 ---

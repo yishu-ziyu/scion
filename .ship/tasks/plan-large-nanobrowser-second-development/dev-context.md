@@ -3,12 +3,12 @@
 ## Working surface
 
 - Repository: `/Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion`
-- Product package: `projects/yishu-browser`
+- Product package: `projects/chijie-browser`
 - Runtime: Node `22.12.0` from `.nvmrc`, pnpm `9.15.1` through Corepack (the user-level pnpm 10 binary requires a newer Node)
 - Product contract: `plan/spec.md`
 - Implementation plan: `plan/plan.md`
 - Architecture decision: `docs/design/001-browser-action-task-runtime.md`
-- Local conduct: `projects/yishu-browser/AGENTS.md` and `projects/yishu-browser/CLAUDE.md`
+- Local conduct: `projects/chijie-browser/AGENTS.md` and `projects/chijie-browser/CLAUDE.md`
 
 ## Execution shape
 
@@ -27,7 +27,7 @@ corepack pnpm type-check
 corepack pnpm build
 ```
 
-Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `projects/yishu-browser`.
+Targeted Vitest files run with `pnpm -F chrome-extension test -- <path>` from `projects/chijie-browser`.
 
 ## Baseline recorded on 2026-07-13
 

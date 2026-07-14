@@ -4,7 +4,7 @@ description: "M3 G3/G4 可复现协议：任务句、证据、禁止假完成；
 category: "product"
 number: "005"
 status: draft
-services: ["projects/yishu-browser"]
+services: ["projects/chijie-browser"]
 related: ["product/001", "product/003", "design/002"]
 last_modified: "2026-07-15"
 ---

@@ -1,0 +1,43 @@
+@import './design/chijie-tokens.css';
+@import './design/chijie-components.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Layout utilities only; color comes from chijie tokens. */
+
+body {
+  margin: 0;
+  font-family: var(--chijie-font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--chijie-background);
+  color: var(--chijie-foreground);
+}
+
+code {
+  background: var(--chijie-surface-raised);
+  border-radius: var(--chijie-radius-sm);
+  padding: 0.2rem 0.5rem;
+  color: var(--chijie-paper);
+  font-family: var(--chijie-font-mono);
+  font-size: 12px;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--chijie-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--chijie-border-strong);
+  border-radius: var(--chijie-radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--chijie-accent);
+}

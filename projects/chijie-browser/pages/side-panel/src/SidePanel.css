@@ -1,0 +1,116 @@
+/* Side panel chrome - 持节 tokens only. No sky/slate SaaS palette. */
+
+body {
+  border-color: var(--chijie-border) !important;
+  background: var(--chijie-background);
+  color: var(--chijie-foreground);
+}
+
+code {
+  background: var(--chijie-surface-raised);
+  border-radius: var(--chijie-radius-sm);
+  padding: 0.2rem 0.5rem;
+  color: var(--chijie-paper);
+  font-family: var(--chijie-font-mono);
+  font-size: 12px;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--chijie-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--chijie-border-strong);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--chijie-accent);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background-color: transparent;
+  border-bottom: 1px solid var(--chijie-border);
+}
+
+.header-logo {
+  display: flex;
+  align-items: center;
+}
+
+.header-icons {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.header-icon {
+  color: var(--chijie-paper);
+  cursor: pointer;
+  transition: color 0.2s ease;
+  opacity: 0.9;
+}
+
+.header-icon:hover {
+  color: var(--chijie-accent);
+  opacity: 1;
+}
+
+.send-button {
+  color: var(--chijie-paper);
+  cursor: pointer;
+  transition: color 0.2s ease;
+  opacity: 0.9;
+}
+
+.send-button:hover {
+  color: var(--chijie-accent);
+  opacity: 1;
+}
+
+.send-button:disabled {
+  color: var(--chijie-muted);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
+}
+
+.scrollbar-gutter-stable::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scrollbar-gutter-stable::-webkit-scrollbar-track {
+  background: var(--chijie-background);
+}
+
+.scrollbar-gutter-stable::-webkit-scrollbar-thumb {
+  background: var(--chijie-border-strong);
+  border-radius: 4px;
+}
+
+.scrollbar-gutter-stable::-webkit-scrollbar-thumb:hover {
+  background: var(--chijie-accent);
+}
+
+.dark-mode-text {
+  color: var(--chijie-foreground) !important;
+}
+
+.dark-mode-bg {
+  background-color: var(--chijie-surface) !important;
+}
+
+.dark-mode-border {
+  border-color: var(--chijie-border) !important;
+}
