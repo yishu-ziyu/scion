@@ -6,6 +6,7 @@ import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome, Obs
 const state = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
   skills: new Map<number, unknown>(),
+  skillSave: new Map<string, { templates: unknown[]; unsafe: boolean }>(),
   nextSkillId: 1,
 }));
 
@@ -14,6 +15,20 @@ vi.mock('@extension/storage/lib/task', () => ({
   getActiveTask: async () => [...state.sessions.values()].at(-1) ?? null,
   saveTask: async (task: { id: string }) => {
     state.sessions.set(task.id, structuredClone(task));
+  },
+  putSkillSaveMeta: async (
+    taskId: string,
+    roundId: string,
+    meta: { templates: unknown[]; unsafe: boolean },
+  ) => {
+    state.skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
+  },
+  getSkillSaveMeta: async (taskId: string, roundId: string) =>
+    structuredClone(state.skillSave.get(`${taskId}:${roundId}`) ?? null),
+  clearSkillSaveMetaForTask: async (taskId: string) => {
+    for (const key of [...state.skillSave.keys()]) {
+      if (key.startsWith(`${taskId}:`)) state.skillSave.delete(key);
+    }
   },
 }));
 
@@ -49,6 +64,7 @@ describe('local semantic Skill', () => {
   beforeEach(() => {
     state.sessions.clear();
     state.skills.clear();
+    state.skillSave.clear();
     state.nextSkillId = 1;
   });
 
@@ -195,6 +211,92 @@ describe('local semantic Skill', () => {
       status: 'inputs_required',
       rounds: [{ status: 'inputs_required', waitReason: 'skill_inputs_required' }],
     });
+  });
+
+  it('saves a Skill after cold restart using persisted criterion templates', async () => {
+    state.sessions.set('cold-save-task', {
+      id: 'cold-save-task',
+      goalSummary: 'User task',
+      status: 'completed',
+      revision: 3,
+      activeTabId: 7,
+      currentRoundId: 'round-cold',
+      targetRefs: [],
+      rounds: [
+        {
+          id: 'round-cold',
+          instructionSummary: 'User instruction',
+          status: 'completed',
+          commandAcks: {},
+          criteria: [
+            {
+              id: 'criterion-1',
+              roundId: 'round-cold',
+              targetRefId: 'tab-7',
+              required: true,
+              frozenAt: 1,
+              notBefore: 1,
+              timeoutMs: 10_000,
+              baseline: false,
+              kind: 'page_text',
+              operator: 'present',
+              expectedDigest: '75de35db68a4bca7acd4039f13855f1c447fc5c62caac4d981ed0d32e5c42729',
+            },
+          ],
+          attempts: [],
+          approvals: [],
+          evidence: [],
+          receipt: {
+            id: 'receipt-cold',
+            taskId: 'cold-save-task',
+            roundId: 'round-cold',
+            verifiedAt: 2,
+            criterionIds: ['criterion-1'],
+            evidenceDigests: ['digest'],
+          },
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    state.skillSave.set('cold-save-task:round-cold', {
+      templates: [
+        {
+          kind: 'page_text',
+          operator: 'present',
+          expectedTemplate: 'Saved successfully',
+          required: true,
+        },
+      ],
+      unsafe: false,
+    });
+    // Fresh manager with empty in-memory template maps simulates SW recycle.
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver()),
+      switchTab: vi.fn(async () => undefined),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 300,
+    });
+
+    const saved = await manager.dispatch({
+      type: 'save_skill',
+      commandId: 'save-cold',
+      taskId: 'cold-save-task',
+      expectedRevision: 3,
+      roundId: 'round-cold',
+      title: 'Cold form skill',
+      instructionTemplate: 'Fill {{name}} at {{url}}',
+    });
+
+    expect(saved.accepted).toBe(true);
+    expect(state.skills.size).toBe(1);
+    const skill = state.skills.get(1) as Favorites.FavoriteSkill;
+    expect(skill.criteria).toEqual([
+      { kind: 'page_text', operator: 'present', expectedTemplate: 'Saved successfully', required: true },
+    ]);
+    expect(JSON.stringify(skill)).not.toContain('Ada');
+    // Snapshot privacy: success proof text lives in skill-save store, not TaskSession.
+    expect(JSON.stringify(await manager.snapshot('cold-save-task'))).not.toContain('Saved successfully');
   });
 
   it('rejects saving a completion criterion copied from a user field value', async () => {

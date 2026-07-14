@@ -27,11 +27,28 @@ const store = vi.hoisted(() => ({
   observeMedia: vi.fn(),
 }));
 
-vi.mock('@extension/storage/lib/task', () => ({
-  getTask: async (id: string) => store.sessions.get(id) ?? null,
-  getActiveTask: async () => [...store.sessions.values()].at(-1) ?? null,
-  saveTask: store.saveTask,
-}));
+vi.mock('@extension/storage/lib/task', () => {
+  const skillSave = new Map<string, { templates: unknown[]; unsafe: boolean }>();
+  return {
+    getTask: async (id: string) => store.sessions.get(id) ?? null,
+    getActiveTask: async () => [...store.sessions.values()].at(-1) ?? null,
+    saveTask: store.saveTask,
+    putSkillSaveMeta: async (
+      taskId: string,
+      roundId: string,
+      meta: { templates: unknown[]; unsafe: boolean },
+    ) => {
+      skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
+    },
+    getSkillSaveMeta: async (taskId: string, roundId: string) =>
+      structuredClone(skillSave.get(`${taskId}:${roundId}`) ?? null),
+    clearSkillSaveMetaForTask: async (taskId: string) => {
+      for (const key of [...skillSave.keys()]) {
+        if (key.startsWith(`${taskId}:`)) skillSave.delete(key);
+      }
+    },
+  };
+});
 
 vi.mock('../../agent/factory', () => ({
   browserContext: {

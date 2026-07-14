@@ -8,13 +8,30 @@ const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
 }));
 
-vi.mock('@extension/storage/lib/task', () => ({
-  getTask: async (id: string) => store.sessions.get(id) ?? null,
-  getActiveTask: async () => [...store.sessions.values()].at(-1) ?? null,
-  saveTask: async (task: { id: string }) => {
-    store.sessions.set(task.id, structuredClone(task));
-  },
-}));
+vi.mock('@extension/storage/lib/task', () => {
+  const skillSave = new Map<string, { templates: unknown[]; unsafe: boolean }>();
+  return {
+    getTask: async (id: string) => store.sessions.get(id) ?? null,
+    getActiveTask: async () => [...store.sessions.values()].at(-1) ?? null,
+    saveTask: async (task: { id: string }) => {
+      store.sessions.set(task.id, structuredClone(task));
+    },
+    putSkillSaveMeta: async (
+      taskId: string,
+      roundId: string,
+      meta: { templates: unknown[]; unsafe: boolean },
+    ) => {
+      skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
+    },
+    getSkillSaveMeta: async (taskId: string, roundId: string) =>
+      structuredClone(skillSave.get(`${taskId}:${roundId}`) ?? null),
+    clearSkillSaveMetaForTask: async (taskId: string) => {
+      for (const key of [...skillSave.keys()]) {
+        if (key.startsWith(`${taskId}:`)) skillSave.delete(key);
+      }
+    },
+  };
+});
 
 describe('verified form journey', () => {
   beforeEach(() => store.sessions.clear());

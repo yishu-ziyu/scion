@@ -1,4 +1,10 @@
-import { getActiveTask, getTask, saveTask } from '@extension/storage/lib/task';
+import {
+  getActiveTask,
+  getSkillSaveMeta,
+  getTask,
+  putSkillSaveMeta,
+  saveTask,
+} from '@extension/storage/lib/task';
 import favoritesStorage, {
   assertExactSkillInputs,
   compileSkillTemplate,
@@ -252,7 +258,9 @@ export class TaskManager {
     command: Extract<TaskCommand, { type: 'save_skill' }>,
   ): Promise<CommandAck> {
     const round = task.rounds.find(item => item.id === command.roundId);
-    const templates = this.criterionTemplates.get(this.roundKey(task.id, command.roundId));
+    const key = this.roundKey(task.id, command.roundId);
+    const persisted = await getSkillSaveMeta(task.id, command.roundId);
+    const templates = this.criterionTemplates.get(key) ?? persisted?.templates;
     if (
       task.status !== 'completed' ||
       task.currentRoundId !== command.roundId ||
@@ -262,7 +270,7 @@ export class TaskManager {
     ) {
       return this.reject(task, command.commandId, 'invalid_transition');
     }
-    if (this.unsafeSkillCriteriaRounds.has(this.roundKey(task.id, command.roundId))) {
+    if (this.unsafeSkillCriteriaRounds.has(key) || persisted?.unsafe) {
       return this.reject(task, command.commandId, 'invalid_input');
     }
 
@@ -345,8 +353,13 @@ export class TaskManager {
     };
     this.instructions.set(task.id, renderedInstruction);
     renderedInstruction = '';
-    this.criterionTemplates.set(this.roundKey(task.id, roundId), structuredClone(skill.criteria));
-    this.lockedCriteriaRounds.add(this.roundKey(task.id, roundId));
+    const templateKey = this.roundKey(task.id, roundId);
+    this.criterionTemplates.set(templateKey, structuredClone(skill.criteria));
+    this.lockedCriteriaRounds.add(templateKey);
+    await putSkillSaveMeta(task.id, roundId, {
+      templates: structuredClone(skill.criteria),
+      unsafe: false,
+    });
     await this.persist(task);
     void this.runCurrentRound(task.id);
     return ack;
@@ -1117,12 +1130,17 @@ export class TaskManager {
       }
       if (task.currentRoundId !== expectedRoundId) return;
       round.criteria = criteria;
-      task.revision += 1;
-      await this.persist(task);
       const key = this.roundKey(task.id, round.id);
-      this.criterionTemplates.set(key, this.templatesFromCriteria(drafts, criteria));
+      const templates = this.templatesFromCriteria(drafts, criteria);
+      this.criterionTemplates.set(key, templates);
       if (copiedFieldCriterion) this.unsafeSkillCriteriaRounds.add(key);
       else this.unsafeSkillCriteriaRounds.delete(key);
+      await putSkillSaveMeta(task.id, round.id, {
+        templates: structuredClone(templates),
+        unsafe: copiedFieldCriterion,
+      });
+      task.revision += 1;
+      await this.persist(task);
     });
   }
 
