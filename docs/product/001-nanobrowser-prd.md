@@ -5,8 +5,8 @@ category: "product"
 number: "001"
 status: draft
 services: ["projects/nanobrowser/chrome-extension", "projects/nanobrowser/pages/side-panel", "projects/nanobrowser/packages/storage"]
-related: ["decisions/001", "design/001"]
-last_modified: "2026-07-14"
+related: ["decisions/001", "decisions/002", "design/001", "product/003", "product/004"]
+last_modified: "2026-07-15"
 ---
 
 # 001 — Nanobrowser 二开：可验证浏览器行动 Agent PRD
@@ -251,13 +251,17 @@ last_modified: "2026-07-14"
 
 ### 发布闸门
 
-- 两条确定性测试旅程各连续 10 次全部通过。
-- 飞书和 B 站两条真实浏览器黄金旅程在固定有效尝试协议下各至少完成 8/10 次。
+准确率标尺见 `product/003`（对齐美团 Tabbit 披露的 Agent **91.8%** / 网页操作 **70%**）。正式分用中等模型（默认 MiniMax-M3）。
+
+- 两条确定性测试旅程各连续 **10/10** 全部通过（G1/G2）。
+- 飞书和 B 站黄金旅程：verified 成功率 **≥91.8%**（n≥50 或操作上 10/10）；探路可用 9/10，**不得**据此宣称已对齐 Tabbit（G3/G4）。
+- 长尾网页操作池 verified **≥70%**（对齐对方网页操作线）。
 - 测试与 Owner 验收中错误成功声明为 0。
 - 未记录批准却执行的外部提交为 0。
 - 外部提交各持久化边界的重启注入均不造成重复提交。
 - 至少一个 Skill 在更换输入及元素顺序后重新完成。
 - 确定性媒体后续指令目标绑定成功率为 10/10。
+- 对外「达标」材料满足 G8（分母、n、模型、失败分类可审计）。
 
 ### 产品观察指标
 
@@ -325,11 +329,13 @@ last_modified: "2026-07-14"
 
 ## 参考
 
+- `docs/README.md` — 文档入口与优先级
+- `docs/product/003-north-star.md` — 唯一最终目标与闸门
+- `docs/product/004-docs-driven-dev.md` — 文档驱动开发
+- `docs/product/002-agent-core-bakeoff.md` — 执行核 bake-off
 - `CONTEXT.md`
 - `docs/decisions/001-keep-chrome-extension.md`
+- `docs/decisions/002-quality-first-replaceable-agent-core.md`
 - `docs/design/001-browser-action-task-runtime.md`
-- `.ship/tasks/plan-large-nanobrowser-second-development/product/00b-scope-challenge.md`
-- `.ship/tasks/plan-large-nanobrowser-second-development/product/06-experience-spec.md`
-- `.ship/tasks/plan-large-nanobrowser-second-development/product/07-data-permission-analytics.md`
-- `.ship/tasks/plan-large-nanobrowser-second-development/product/08-prd.md`
+- `.ship/tasks/plan-large-nanobrowser-second-development/product/*`
 

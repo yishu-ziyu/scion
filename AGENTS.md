@@ -8,7 +8,15 @@ Global `~/.grok/AGENTS.md` still applies for communication and safety.
 
 **Read first for Nanobrowser runtime continuity:** [HANDOVER.md](./HANDOVER.md)
 **Product vocabulary:** [CONTEXT.md](./CONTEXT.md)
+**Docs drive development:** [docs/README.md](./docs/README.md) → [docs/product/003-north-star.md](./docs/product/003-north-star.md) → [docs/product/004-docs-driven-dev.md](./docs/product/004-docs-driven-dev.md)
 **Doc index:** [docs/DOCS_INDEX.md](./docs/DOCS_INDEX.md)
+
+### Docs-driven rule (hard)
+
+1. Before coding browser-agent features, open `docs/product/003-north-star.md` and confirm `current_milestone` in `.ship/tasks/plan-large-nanobrowser-second-development/control/run_state.yaml`.
+2. Every change must map to a gate **G#** or a PRD requirement; otherwise update docs first.
+3. Accuracy parity target: Meituan Tabbit public **Agent ~91.8%** / web-ops **≥70%** (see 003). Mid-model MiniMax-M3 for official scores.
+4. Do not thrash: finish current M before starting the next.
 
 ---
 

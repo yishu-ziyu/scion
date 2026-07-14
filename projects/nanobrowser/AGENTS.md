@@ -5,8 +5,12 @@ Upstream: https://github.com/nanobrowser/nanobrowser · local version ~0.1.13
 
 Lab parent: `../../AGENTS.md` · ops handover: `../../HANDOVER.md` · product terms: `../../CONTEXT.md`
 
+**Product docs (drive work):** `../../docs/README.md` → `../../docs/product/003-north-star.md` + `004-docs-driven-dev.md` + `001-nanobrowser-prd.md`.
+
 This file is **ops for the extension monorepo**. MiniMax / CDP detail lives in HANDOVER — open it for runtime continuity, not as chat filler.
 **Single tree:** this directory is the only copy; `~/projects/nanobrowser` is a symlink here.
+
+When implementing product behavior, prefer PRD + north-star gates over historical Nano upstream patterns.
 
 ---
 

@@ -7,7 +7,8 @@
   "scripts": {
     "fixture:form": "node scripts/run-form.mjs",
     "fixture:media": "node scripts/run-media.mjs",
-    "fixture:all": "node scripts/run-form.mjs && node scripts/run-media.mjs"
+    "fixture:all": "node scripts/run-form.mjs && node scripts/run-media.mjs",
+    "matrix": "node scripts/run-matrix.mjs"
   },
   "engines": {
     "node": ">=22"

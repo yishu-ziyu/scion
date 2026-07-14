@@ -46,3 +46,8 @@ Correctness, safety, verified completion, privacy, and maintainability beat deli
 
 Single end goal: `docs/product/003-north-star.md`.
 Gates G1–G7 beat intermediate thrash. Current milestone is always named there.
+
+## Docs-driven development
+
+See `docs/README.md` and `docs/product/004-docs-driven-dev.md`.
+North star and gates: `docs/product/003-north-star.md`.
