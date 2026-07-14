@@ -44,6 +44,17 @@
 - Lost target tab: explain which target was lost and offer to rebind to the active tab.
 - Unsupported completion proof: show observed state and ask the user to confirm; do not claim success.
 
+## Chat timeline (human-facing) — 2026-07-14
+
+Locked product defaults for the side-panel message stream:
+
+1. **Roles:** only 你 / 助手. Never surface Planner, Navigator, Validator as labels.
+2. **Light process:** at most one live progress line while running; optional short human prose for meaningful steps; no `step_failed` / raw enums as primary text.
+3. **Failure:** one consolidated Chinese sentence + CTA (retry / rephrase) + optional collapsible technical detail.
+4. **Status authority:** TaskStatusCard is the primary status surface; chat does not re-enact the full state machine.
+
+Engineering slice: `plan/human-timeline-spec.md` + `plan/human-timeline-plan.md`.
+
 ## Golden Journeys
 
 ### Journey A — form completion

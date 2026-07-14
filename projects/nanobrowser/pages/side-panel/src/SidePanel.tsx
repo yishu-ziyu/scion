@@ -23,6 +23,11 @@ import { TaskStatusCard } from './components/TaskStatusCard';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import { shouldPersistExecutionEvent } from './event-persistence';
 import { mergeTaskSnapshot } from './task-snapshot';
+import {
+  PROGRESS_MESSAGE_CONTENT,
+  classifyAgentEvent,
+  shouldMergeFailure,
+} from './presentation/humanize-message';
 import './SidePanel.css';
 
 // Declare chrome API types
@@ -33,7 +38,7 @@ declare global {
 }
 
 const SidePanel = () => {
-  const progressMessage = '正在执行...';
+  const progressMessage = PROGRESS_MESSAGE_CONTENT;
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputEnabled, setInputEnabled] = useState(true);
   const [showStopButton, setShowStopButton] = useState(false);
@@ -170,136 +175,90 @@ const SidePanel = () => {
   const handleTaskState = useCallback(
     (event: AgentEvent) => {
       const { actor, state, timestamp, data } = event;
-      const content = data?.details;
-      let skip = true;
-      let displayProgress = false;
+      const details = data?.details ?? '';
 
-      switch (actor) {
-        case Actors.SYSTEM:
-          switch (state) {
-            case ExecutionState.TASK_START:
-              // Reset historical session flag when a new task starts
-              setIsHistoricalSession(false);
-              break;
-            case ExecutionState.TASK_OK:
-              setIsFollowUpMode(true);
-              setInputEnabled(true);
-              setShowStopButton(false);
-              break;
-            case ExecutionState.TASK_FAIL:
-              setIsFollowUpMode(true);
-              setInputEnabled(true);
-              setShowStopButton(false);
-              skip = false;
-              break;
-            case ExecutionState.TASK_CANCEL:
-              setIsFollowUpMode(false);
-              setInputEnabled(true);
-              setShowStopButton(false);
-              skip = false;
-              break;
-            case ExecutionState.TASK_PAUSE:
-              break;
-            case ExecutionState.TASK_RESUME:
-              break;
-            default:
-              console.error('Invalid task state', state);
-              return;
-          }
-          break;
-        case Actors.USER:
-          break;
-        case Actors.PLANNER:
-          switch (state) {
-            case ExecutionState.STEP_START:
-              displayProgress = true;
-              break;
-            case ExecutionState.STEP_OK:
-              skip = false;
-              break;
-            case ExecutionState.STEP_FAIL:
-              skip = false;
-              break;
-            case ExecutionState.STEP_CANCEL:
-              break;
-            default:
-              console.error('Invalid step state', state);
-              return;
-          }
-          break;
-        case Actors.NAVIGATOR:
-          switch (state) {
-            case ExecutionState.STEP_START:
-              displayProgress = true;
-              break;
-            case ExecutionState.STEP_OK:
-              displayProgress = false;
-              break;
-            case ExecutionState.STEP_FAIL:
-              skip = false;
-              displayProgress = false;
-              break;
-            case ExecutionState.STEP_CANCEL:
-              displayProgress = false;
-              break;
-            case ExecutionState.ACT_START:
-              // Action events are runtime telemetry and must never enter durable chat history.
-              break;
-            case ExecutionState.ACT_OK:
-              skip = true;
-              break;
-            case ExecutionState.ACT_FAIL:
-              // Task/step failures surface durable user-facing errors without action arguments.
-              break;
-            default:
-              console.error('Invalid action', state);
-              return;
-          }
-          break;
-        case Actors.VALIDATOR:
-          // Handle legacy validator events from historical messages
-          switch (state) {
-            case ExecutionState.STEP_START:
-              displayProgress = true;
-              break;
-            case ExecutionState.STEP_OK:
-              skip = false;
-              break;
-            case ExecutionState.STEP_FAIL:
-              skip = false;
-              break;
-            default:
-              console.error('Invalid validation', state);
-              return;
-          }
-          break;
-        default:
-          console.error('Unknown actor', actor);
-          return;
+      // Side effects for task lifecycle (input lock, follow-up) - not chat labels
+      if (actor === Actors.SYSTEM) {
+        switch (state) {
+          case ExecutionState.TASK_START:
+            setIsHistoricalSession(false);
+            break;
+          case ExecutionState.TASK_OK:
+            setIsFollowUpMode(true);
+            setInputEnabled(true);
+            setShowStopButton(false);
+            break;
+          case ExecutionState.TASK_FAIL:
+            setIsFollowUpMode(true);
+            setInputEnabled(true);
+            setShowStopButton(false);
+            break;
+          case ExecutionState.TASK_CANCEL:
+            setIsFollowUpMode(false);
+            setInputEnabled(true);
+            setShowStopButton(false);
+            break;
+          default:
+            break;
+        }
       }
 
-      if (!skip) {
+      const ui = classifyAgentEvent({ actor, state, details });
+
+      if (ui.action === 'suppress') {
+        return;
+      }
+
+      if (ui.action === 'progress') {
+        appendMessage({
+          actor: Actors.SYSTEM,
+          content: progressMessage,
+          timestamp,
+        });
+        return;
+      }
+
+      if (ui.action === 'append_failure') {
+        const failureMessage: Message = {
+          actor: Actors.SYSTEM,
+          content: ui.detail ? `${ui.content}\n\n«${ui.detail}»` : ui.content,
+          timestamp,
+        };
+        setMessages(prev => {
+          // Drop trailing progress bubble, then merge consecutive failures
+          let next = prev.filter(
+            (msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1),
+          );
+          const last = next[next.length - 1];
+          if (shouldMergeFailure(last, timestamp)) {
+            next = next.slice(0, -1);
+          }
+          return [...next, failureMessage];
+        });
+        const sessionId = sessionIdRef.current;
+        if (sessionId && shouldPersistExecutionEvent(state)) {
+          void chatHistoryStore.addMessage(sessionId, {
+            ...failureMessage,
+            content: failureMessage.content,
+          });
+        }
+        return;
+      }
+
+      if (ui.action === 'append_assistant' || ui.action === 'append_system') {
         appendMessage(
           {
-            actor,
-            content: content || '',
-            timestamp: timestamp,
+            actor: Actors.SYSTEM,
+            content: ui.content,
+            timestamp,
           },
           undefined,
           undefined,
           shouldPersistExecutionEvent(state),
         );
       }
-
-      if (displayProgress) {
-        appendMessage({
-          actor,
-          content: progressMessage,
-          timestamp: timestamp,
-        });
-      }
     },
-    [appendMessage],
+    [appendMessage, progressMessage],
   );
 
   // Stop heartbeat and close connection
@@ -1124,7 +1083,25 @@ const SidePanel = () => {
                   )}
                 {messages.length > 0 && (
                   <div className="yishu-chat-log scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3">
-                    <MessageList messages={messages} isDarkMode={true} />
+                    <MessageList
+                      messages={messages}
+                      isDarkMode={true}
+                      onRetry={() => {
+                        const lastUser = [...messages].reverse().find(m => m.actor === Actors.USER);
+                        if (lastUser?.content) {
+                          void handleSendMessage(lastUser.content);
+                        } else {
+                          setInputTextRef.current?.('');
+                        }
+                      }}
+                      onRephrase={() => {
+                        // Focus composer by clearing nothing - ChatInput keeps focus via click target
+                        const el = document.querySelector(
+                          '.yishu-composer textarea',
+                        ) as HTMLTextAreaElement | null;
+                        el?.focus();
+                      }}
+                    />
                     <div ref={messagesEndRef} />
                   </div>
                 )}

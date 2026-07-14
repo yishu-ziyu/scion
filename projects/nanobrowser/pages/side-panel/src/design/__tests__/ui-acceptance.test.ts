@@ -186,4 +186,15 @@ describe('Feature: Side panel uses 奕枢 design system', () => {
       expect(sidePanelCss).toMatch(/--yishu-/);
     });
   });
+
+  describe('Scenario: Chat timeline is human-facing (no Planner/step_failed labels)', () => {
+    it('MessageList humanizes messages and does not render ACTOR_PROFILES English names', () => {
+      const messageList = readFileSync(resolve(here, '../../components/MessageList.tsx'), 'utf8');
+      expect(messageList).toContain('humanizeStoredMessage');
+      expect(messageList).not.toContain('ACTOR_PROFILES');
+      expect(messageList).not.toContain('actor.name');
+      const sidePanel = readFileSync(resolve(here, '../../SidePanel.tsx'), 'utf8');
+      expect(sidePanel).toContain('classifyAgentEvent');
+    });
+  });
 });
