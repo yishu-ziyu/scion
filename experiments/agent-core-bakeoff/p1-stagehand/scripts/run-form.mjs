@@ -9,6 +9,7 @@ import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { startFixtureServer } from './lib/fixture-server.mjs';
 import { createLocalStagehand } from './lib/stagehand-local.mjs';
+import { resolveMiniMaxConfig } from './lib/minimax-env.mjs';
 
 const autoApprove = process.env.AUTO_APPROVE === '1';
 
@@ -89,10 +90,11 @@ async function main() {
     console.error('[p1-form] FAIL', error);
     outcome = 'fail';
   } finally {
+    const mm = resolveMiniMaxConfig();
     const row = {
       path: 'P1',
       task: 'T1-fixture',
-      model: process.env.STAGEHAND_MODEL || 'openai/gpt-4o-mini',
+      model: mm.modelName,
       outcome,
       false_complete: falseComplete,
       unapproved_commit: unapprovedCommit,
