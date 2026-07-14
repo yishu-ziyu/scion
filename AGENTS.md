@@ -20,7 +20,7 @@ Global `~/.grok/AGENTS.md` still applies for communication and safety.
 | `reports/<name>/` | E2E notes, decisions indexes, run evidence |
 | `docs/` | Design + ADR (ship-managed index) |
 | `CONTEXT.md` | Shared product language (browser action agent, Task, Skill…) |
-| `HANDOVER.md` | Live ops for Nanobrowser dual-tree + MiniMax + CDP |
+| `HANDOVER.md` | Live ops for Nanobrowser (single tree) + MiniMax + CDP |
 
 Active project: **nanobrowser** under `projects/nanobrowser/`.
 
@@ -31,7 +31,8 @@ Active project: **nanobrowser** under `projects/nanobrowser/`.
 There is no root package manager. Work inside the project:
 
 ```bash
-cd projects/nanobrowser   # or ~/projects/nanobrowser for runtime build
+cd projects/nanobrowser
+# same folder via symlink: ~/projects/nanobrowser
 pnpm install
 pnpm build
 pnpm -F chrome-extension test
@@ -41,25 +42,26 @@ Full command set: `projects/nanobrowser/AGENTS.md`.
 
 ---
 
-## Critical decision: two trees
+## Critical decision: one tree (merged 2026-07-14)
 
 | Role | Path | Use for |
 |------|------|---------|
-| **This git lab** | `/Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion` (`~/projects/scion`) | Edit product docs, commit, push to `yishu-ziyu/scion` |
-| **Runtime build** | `/Users/mahaoxuan/projects/nanobrowser` | `pnpm build`, load unpacked `dist/`, Chrome CDP E2E |
+| **Canonical code + git lab** | `scion` → `projects/nanobrowser/` | Edit, build, commit, push |
+| **Short path (symlink)** | `~/projects/nanobrowser` → same folder | Same files; Chrome Load unpacked `dist/` |
+| **Lab root symlink** | `~/projects/scion` → scion root | Docs / reports |
 
 | When | Do |
 |------|----|
-| Change product docs / design / reports | Edit in **scion** |
-| Change extension runtime behavior | Prefer edit+build in **`~/projects/nanobrowser`**, then sync tracked paths into `scion/projects/nanobrowser` |
-| Commit / push | **Only from scion** to `origin` |
-| Secrets / dist / node_modules | Never commit (root `.gitignore`) |
+| Change extension or design | Edit **once** under `projects/nanobrowser` (or via `~/projects/nanobrowser`) |
+| Build / load Chrome | `pnpm build` then Load unpacked **`projects/nanobrowser/dist`** (same as `~/projects/nanobrowser/dist`) |
+| Commit / push | **Only from scion root** to `origin` (`yishu-ziyu/scion`) |
+| Secrets / dist / node_modules | Live on disk; never commit (root `.gitignore`) |
 
 Do **not** invent a second empty Chrome profile for Nanobrowser tests.
-Do **not** point upstream Nanobrowser remote at scion without an explicit owner decision.
+Do **not** recreate a second full copy of the extension outside scion.
+Do **not** point an upstream Nanobrowser `origin` inside this graft without an explicit owner decision.
 
-Sync after a coherent change set (tracked paths only; no `node_modules`, `dist`, `secrets.local.ts`).
-File map: `HANDOVER.md` §6.
+Old dual-tree backup (read-only, can delete later): `~/projects/nanobrowser.bak-*` (kept upstream `.git` history).
 
 ---
 
@@ -83,7 +85,7 @@ scion/
 - Conventional, factual messages (what changed and why)
 - Never auto-add AI co-author
 - Push only to scion `origin` unless the user says otherwise
-- Upstream Nanobrowser history stays separate in the runtime tree
+- Extension graft has **no nested `.git`**; history is scion only (upstream history may exist only in `nanobrowser.bak-*`)
 
 ---
 
@@ -95,8 +97,9 @@ scion/
 | Always | Keep secrets out of git (`secrets.local.ts`, `.env*`, keys) |
 | Always | Use product terms from `CONTEXT.md` for product talk |
 | Always | Prefer main Chrome + existing login state for browser-action work |
+| Always | Single tree: edit/build only `projects/nanobrowser` (symlink OK) |
 | Ask first | New top-level projects under `projects/` |
-| Ask first | Changing dual-tree workflow or relocating the runtime tree |
+| Ask first | Breaking the `~/projects/nanobrowser` symlink or re-splitting trees |
 | Ask first | Force-push, rewriting published history, changing remotes |
 | Never | Commit API keys or print full keys in logs/chat |
 | Never | Treat model `done` as verified completion without browser evidence |

@@ -20,6 +20,27 @@ export const dangerButtonClassName = 'yishu-btn-danger';
 export const actionStackClassName = 'yishu-action-stack';
 export const monoLabelClassName = 'yishu-mono-label';
 export const shellClassName = 'yishu-shell';
+export const welcomeClassName = 'yishu-welcome';
+export const welcomeCardClassName = 'yishu-welcome-card';
+export const optionsLayoutClassName = 'yishu-options-layout';
+export const optionsNavClassName = 'yishu-options-nav';
+export const optionsMainClassName = 'yishu-options-main';
+export const settingsCardClassName = 'yishu-settings-card';
+
+/** Banned stock SaaS chrome fragments for side panel + options shell. */
+export const BANNED_SKY_CHROME = [
+  'text-sky-',
+  'bg-sky-',
+  'border-sky-',
+  '#0EA5E9',
+  '#0ea5e9',
+  '#19C2FF',
+  'bg-[#0EA5E9]',
+] as const;
+
+export function sourceHasBannedSkyChrome(source: string): boolean {
+  return BANNED_SKY_CHROME.some(token => source.includes(token));
+}
 
 export function statusLabelKey(status: TaskStatus): `chat_task_status_${TaskStatus}` {
   return `chat_task_status_${status}`;

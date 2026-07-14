@@ -13,7 +13,13 @@ import {
   taskCardClassName,
   primaryButtonClassName,
   shellClassName,
+  welcomeClassName,
+  welcomeCardClassName,
+  optionsLayoutClassName,
+  optionsNavClassName,
+  optionsMainClassName,
   stylesUseBoxShadow,
+  sourceHasBannedSkyChrome,
 } from '../contracts';
 import { instructionToSkillTemplate } from '../../components/TaskStatusCard';
 
@@ -22,7 +28,17 @@ const tokensCss = readFileSync(resolve(here, '../yishu-tokens.css'), 'utf8');
 const componentsCss = readFileSync(resolve(here, '../yishu-components.css'), 'utf8');
 const taskStatusCardSource = readFileSync(resolve(here, '../../components/TaskStatusCard.tsx'), 'utf8');
 const sidePanelSource = readFileSync(resolve(here, '../../SidePanel.tsx'), 'utf8');
+const sidePanelCss = readFileSync(resolve(here, '../../SidePanel.css'), 'utf8');
 const indexCss = readFileSync(resolve(here, '../../index.css'), 'utf8');
+const optionsRoot = resolve(here, '../../../../options/src');
+const optionsTsx = readFileSync(resolve(optionsRoot, 'Options.tsx'), 'utf8');
+const optionsIndexCss = readFileSync(resolve(optionsRoot, 'index.css'), 'utf8');
+const optionsCss = readFileSync(resolve(optionsRoot, 'Options.css'), 'utf8');
+const optionsTokensCss = readFileSync(resolve(optionsRoot, 'design/yishu-tokens.css'), 'utf8');
+const optionsComponentsCss = readFileSync(resolve(optionsRoot, 'design/yishu-components.css'), 'utf8');
+const firewallSettings = readFileSync(resolve(optionsRoot, 'components/FirewallSettings.tsx'), 'utf8');
+const analyticsSettings = readFileSync(resolve(optionsRoot, 'components/AnalyticsSettings.tsx'), 'utf8');
+const modelSettings = readFileSync(resolve(optionsRoot, 'components/ModelSettings.tsx'), 'utf8');
 
 describe('Feature: Side panel uses 奕枢 design system', () => {
   describe('Scenario: Design tokens are the only color source for the shell', () => {
@@ -114,6 +130,60 @@ describe('Feature: Side panel uses 奕枢 design system', () => {
       expect(indexCss).toMatch(/yishu-tokens\.css/);
       expect(indexCss).toMatch(/yishu-components\.css/);
       expect(sidePanelSource).toContain(shellClassName);
+    });
+  });
+
+  describe('Scenario: Welcome empty state uses 奕枢 paper card (not sky chrome)', () => {
+    it('binds welcome block to yishu classes and drops sky utilities', () => {
+      expect(sidePanelSource).toContain(welcomeClassName);
+      expect(sidePanelSource).toContain(welcomeCardClassName);
+      expect(sidePanelSource).toContain(primaryButtonClassName);
+      expect(componentsCss).toContain('.yishu-welcome-card');
+      expect(componentsCss).toMatch(/border-radius:\s*20px\s+20px\s+4px\s+4px/);
+      // welcome region must not use stock sky chrome
+      const welcomeSlice = sidePanelSource.slice(
+        sidePanelSource.indexOf('hasConfiguredModels === false'),
+        sidePanelSource.indexOf('hasConfiguredModels === true'),
+      );
+      expect(welcomeSlice.length).toBeGreaterThan(50);
+      expect(welcomeSlice).not.toMatch(/text-sky-/);
+      expect(welcomeSlice).not.toMatch(/bg-sky-/);
+      expect(welcomeSlice).not.toMatch(/border-sky-/);
+    });
+  });
+
+  describe('Scenario: Options settings page uses 奕枢 shell (not sky chrome)', () => {
+    it('imports tokens and uses options layout contracts', () => {
+      expect(optionsIndexCss).toMatch(/yishu-tokens\.css/);
+      expect(optionsIndexCss).toMatch(/yishu-components\.css/);
+      expect(optionsTokensCss).toMatch(/--yishu-background:\s*#000000/i);
+      expect(optionsTokensCss).toMatch(/--yishu-accent:\s*#e35342/i);
+      expect(optionsComponentsCss).toContain('.yishu-options-layout');
+      expect(optionsComponentsCss).toContain('.yishu-options-nav');
+      expect(optionsTsx).toContain(optionsLayoutClassName);
+      expect(optionsTsx).toContain(optionsNavClassName);
+      expect(optionsTsx).toContain(optionsMainClassName);
+      expect(sourceHasBannedSkyChrome(optionsTsx)).toBe(false);
+      expect(optionsTsx).not.toMatch(/bg-sky-/);
+      expect(optionsTsx).not.toContain('#0EA5E9');
+      expect(stylesUseBoxShadow(optionsComponentsCss)).toBe(false);
+    });
+
+    it('settings controls do not use stock blue as primary chrome', () => {
+      expect(firewallSettings).not.toMatch(/bg-blue-500|bg-blue-600/);
+      expect(analyticsSettings).not.toMatch(/bg-blue-500|bg-blue-600/);
+      expect(modelSettings).not.toMatch(/bg-blue-600|bg-blue-100|text-blue-800|border-blue-/);
+      expect(optionsCss).not.toMatch(/#7dd3fc|#e2e8f0|#1e293b/);
+    });
+  });
+
+  describe('Scenario: SidePanel.css has no legacy sky scrollbar/header chrome', () => {
+    it('uses yishu tokens instead of sky/slate palette', () => {
+      expect(sidePanelCss).not.toMatch(/#0ea5e9/i);
+      expect(sidePanelCss).not.toMatch(/#19C2FF/i);
+      expect(sidePanelCss).not.toMatch(/#7dd3fc/i);
+      expect(sidePanelCss).not.toMatch(/#38bdf8/i);
+      expect(sidePanelCss).toMatch(/--yishu-/);
     });
   });
 });

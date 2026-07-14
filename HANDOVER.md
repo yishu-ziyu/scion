@@ -2,8 +2,8 @@
 
 **Audience:** Codex (or any agent) continuing development on this machine.  
 **Owner:** yishu-ziyu  
-**Date:** 2026-07-13  
-**Status:** MiniMax-M3 personal fork is usable on main Chrome; multi-step Navigator E2E passed with known flaky mid-parse; extension-tab target isolation is closed through attach-time regression review.
+**Date:** 2026-07-14 (single-tree merge)  
+**Status:** MiniMax-M3 personal fork is usable on main Chrome; **one code tree only** (dual-tree retired). multi-step Navigator E2E passed with known flaky mid-parse; extension-tab target isolation closed through attach-time regression review.
 
 Read this file first.
 Then skim `reports/nanobrowser/2026-07-13-minimax-e2e-cdp.md`.
@@ -19,42 +19,32 @@ Broader product intent (later): BYOK AI browser agent (Planner / Navigator), Chr
 
 ---
 
-## 2. Where things live (critical)
+## 2. Where things live (critical) — single tree since 2026-07-14
 
-There are **two trees**. Mixing them up is the #1 footgun.
+There is **one** extension folder. Paths are aliases, not copies.
 
 | Role | Path | Notes |
 |------|------|--------|
 | **Lab monorepo (this git repo)** | `/Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion` | GitHub: https://github.com/yishu-ziyu/scion |
 | Symlink | `~/projects/scion` → same | Prefer this short path |
 | Compat symlink | `~/projects/oss-forks` → same | Old name; keep until scripts die |
-| **Active runtime build tree** | `/Users/mahaoxuan/projects/nanobrowser` | Has `node_modules`, `dist`, `secrets.local.ts` |
-| Chrome loads | `.../projects/nanobrowser/dist` (unpacked) | Extension id on this machine: `nnldlldkcjcooleefoflkgcjobimnaol` |
+| **Canonical extension code** | `scion/projects/nanobrowser/` | Edit + build here |
+| **Same folder (symlink)** | `~/projects/nanobrowser` → `scion/projects/nanobrowser` | Chrome path unchanged |
+| Chrome loads | `~/projects/nanobrowser/dist` (= `scion/projects/nanobrowser/dist`) | Extension id: `nnldlldkcjcooleefoflkgcjobimnaol` |
+| Old dual-tree backup | `~/projects/nanobrowser.bak-*` | Former independent copy + upstream `.git`; do not edit for product work |
 
-### What each tree is for
+### What this means
 
-- **`scion`**: personal second-dev lab.
-  Layout: `projects/<name>/` (code snapshot) + `reports/<name>/` (E2E + decisions).
-  Source for personal Nanobrowser changes is under `projects/nanobrowser/`.
-  No `node_modules` / `dist` / secrets in git (see root `.gitignore`).
-
-- **`~/projects/nanobrowser`**: the tree you **build and load into Chrome**.
-  Remote is still **upstream** `https://github.com/nanobrowser/nanobrowser.git` (branch `master`).
-  Personal changes are mostly **uncommitted** relative to that upstream remote.
-  Source for key personal files was verified **byte-identical** to `scion/projects/nanobrowser` on 2026-07-13 (except gitignored secrets).
+- **`scion`**: personal second-dev lab + the only place that commits.
+- **`projects/nanobrowser`**: living graft (not a second clone). `node_modules` / `dist` / `secrets.local.ts` stay on disk, gitignored.
+- **No sync step** between two full trees. Edit once, build once, commit from scion root.
 
 ### Recommended workflow for Codex
 
-1. **Edit and build in** `~/projects/nanobrowser` when changing runtime behavior.
-2. After a coherent change set, **sync the same files into** `scion/projects/nanobrowser` (rsync or copy of tracked paths only).
-3. Write / update notes under `scion/reports/nanobrowser/`.
-4. Commit + push **only** from `scion` to `origin` (`yishu-ziyu/scion`).
-5. Do **not** force-push personal secrets or point upstream Nanobrowser `origin` at scion without an explicit owner decision.
-
-Optional later cleanup (not done yet):
-
-- Add `git remote add personal git@github.com:yishu-ziyu/scion.git` is wrong for the nested app; keep app history separate or vendor as monorepo only.
-- Or relocate active build tree next to scion and symlink `~/projects/nanobrowser`.
+1. **Edit and build** in `projects/nanobrowser` (or `~/projects/nanobrowser` - same inode).
+2. Write / update notes under `scion/reports/nanobrowser/`.
+3. Commit + push **only** from `scion` to `origin` (`yishu-ziyu/scion`).
+4. Do **not** force-push secrets or recreate a second full nanobrowser tree.
 
 ---
 
@@ -276,8 +266,8 @@ Other profiles on this machine (do not confuse):
 4. **CDP != human side panel**  
    Automations that open `chrome-extension://.../side-panel/index.html` as a page are not equivalent to `chrome.sidePanel` UX.
 
-5. **Unpacked path drift**  
-   Chrome remembers the unpacked folder. If you build only under scion without copying to the path Chrome loads, you will test stale code.
+5. **Unpacked path**  
+   Chrome Load unpacked should stay on `~/projects/nanobrowser/dist` (symlink → scion graft). After rebuild, reload the extension card.
 
 ---
 
@@ -302,7 +292,7 @@ Priority suggestions for Codex (owner can reorder):
 
 1. Optional second provider in personal inventory (e.g. StepFun) without breaking MiniMax default.
 2. Decision: keep bootstrap force-overwrite vs "seed once then respect GUI".
-3. Align remotes: either document dual-tree forever, or co-locate active tree under `AI产品经理/自研产品` + symlink.
+3. ~~Align dual-tree~~ **DONE 2026-07-14:** single tree + `~/projects/nanobrowser` symlink.
 
 ### P3 - upstream hygiene
 
@@ -323,33 +313,21 @@ Priority suggestions for Codex (owner can reorder):
 
 ---
 
-## 11. How to sync daily tree → scion (after coding)
+## 11. After coding (single tree)
 
-Example (adjust excludes as needed):
+No rsync between two copies. Same folder:
 
 ```bash
-DAILY=/Users/mahaoxuan/projects/nanobrowser
-SCION=/Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion/projects/nanobrowser
+cd ~/projects/nanobrowser   # or scion/projects/nanobrowser
+pnpm build
+# Chrome → reload unpacked extension at this dist/
 
-rsync -a \
-  --exclude node_modules --exclude dist --exclude dist-zip \
-  --exclude .turbo --exclude coverage \
-  --exclude secrets.local.ts --exclude .env --exclude .env.local \
-  "$DAILY/" "$SCION/"
-
-# then in scion:
-cd /Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion
-# write/update reports/nanobrowser/...
+cd ~/projects/scion
+# optional: write reports/nanobrowser/...
 git status
-git add projects/nanobrowser reports
-# commit message in complete sentences; no AI co-author trailer
-git push origin main
+git add projects/nanobrowser reports AGENTS.md HANDOVER.md README.md
+# commit; push only when owner says so
 ```
-
-If Codex only works inside the scion checkout, either:
-
-- `pnpm install && pnpm build` under `scion/projects/nanobrowser` and point Chrome Load unpacked at **that** `dist`, or
-- keep using daily tree as runtime (preferred today).
 
 ---
 

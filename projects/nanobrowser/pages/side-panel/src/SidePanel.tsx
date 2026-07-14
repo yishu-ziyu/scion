@@ -1068,46 +1068,39 @@ const SidePanel = () => {
           <>
             {/* Show loading state while checking model configuration */}
             {hasConfiguredModels === null && (
-              <div
-                className={`flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-sky-300' : 'text-sky-600'}`}>
+              <div className="yishu-welcome">
                 <div className="text-center">
-                  <div className="mx-auto mb-4 size-8 animate-spin rounded-full border-2 border-sky-400 border-t-transparent"></div>
-                  <p>{t('status_checkingConfig')}</p>
+                  <div
+                    className="mx-auto mb-4 size-8 animate-spin rounded-full border-2 border-[var(--yishu-accent)] border-t-transparent"
+                    aria-hidden
+                  />
+                  <p className="text-[var(--yishu-muted)]">{t('status_checkingConfig')}</p>
                 </div>
               </div>
             )}
 
             {/* Show setup message when no models are configured */}
             {hasConfiguredModels === false && (
-              <div
-                className={`flex flex-1 items-center justify-center p-8 ${isDarkMode ? 'text-sky-300' : 'text-sky-600'}`}>
-                <div className="max-w-md text-center">
+              <div className="yishu-welcome">
+                <div className="yishu-welcome-card">
                   <img src="/icon-128.png" alt="Nanobrowser Logo" className="mx-auto mb-4 size-12" />
-                  <h3 className={`mb-2 text-lg font-semibold ${isDarkMode ? 'text-sky-200' : 'text-sky-700'}`}>
-                    {t('welcome_title')}
-                  </h3>
+                  <h3>{t('welcome_title')}</h3>
                   <p className="mb-4">{t('welcome_instruction')}</p>
                   <button
+                    type="button"
                     onClick={() => chrome.runtime.openOptionsPage()}
-                    className={`my-4 rounded-lg px-4 py-2 font-medium transition-colors ${
-                      isDarkMode ? 'bg-sky-600 text-white hover:bg-sky-700' : 'bg-sky-500 text-white hover:bg-sky-600'
-                    }`}>
+                    className="yishu-btn-primary">
                     {t('welcome_openSettings')}
                   </button>
-                  <div className="mt-4 text-sm opacity-75">
+                  <div className="mt-4 text-sm">
                     <a
                       href="https://github.com/nanobrowser/nanobrowser?tab=readme-ov-file#-quick-start"
                       target="_blank"
-                      rel="noopener noreferrer"
-                      className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-700 hover:text-sky-600'}`}>
+                      rel="noopener noreferrer">
                       {t('welcome_quickStart')}
                     </a>
-                    <span className="mx-2">•</span>
-                    <a
-                      href="https://discord.gg/NN3ABHggMK"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`${isDarkMode ? 'text-sky-400 hover:text-sky-300' : 'text-sky-700 hover:text-sky-600'}`}>
+                    <span className="mx-2">·</span>
+                    <a href="https://discord.gg/NN3ABHggMK" target="_blank" rel="noopener noreferrer">
                       {t('welcome_joinCommunity')}
                     </a>
                   </div>

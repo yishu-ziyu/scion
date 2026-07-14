@@ -17,12 +17,15 @@ Symlinks:
 
 - `~/projects/scion` → this directory (preferred)
 - `~/projects/oss-forks` → same path (compat alias)
+- `~/projects/nanobrowser` → `projects/nanobrowser` (same folder; Chrome Load unpacked path)
+
+**One tree:** extension code lives only under `projects/nanobrowser/`. No second copy to sync.
 
 ## Layout
 
 ```
 projects/          # forked / customized codebases
-  nanobrowser/     # AI browser agent extension (MiniMax / zh-CN / harness)
+  nanobrowser/     # AI browser agent extension (MiniMax / zh-CN / harness) — sole build tree
 reports/           # E2E notes, design decisions, run evidence indexes
   nanobrowser/
 ```
@@ -39,7 +42,7 @@ Rules (lean, layered):
 
 - Lab: **[AGENTS.md](./AGENTS.md)**
 - Extension monorepo: **[projects/nanobrowser/AGENTS.md](./projects/nanobrowser/AGENTS.md)**
-- Ops narrative: **[HANDOVER.md](./HANDOVER.md)** (dual trees, MiniMax, CDP, E2E)
+- Ops narrative: **[HANDOVER.md](./HANDOVER.md)** (single tree, MiniMax, CDP, E2E)
 
 `CLAUDE.md` under nanobrowser is a thin pointer to `AGENTS.md` only.
 
@@ -53,13 +56,14 @@ Rules (lean, layered):
 ## Nanobrowser quick start (local)
 
 ```bash
-cd projects/nanobrowser
+cd projects/nanobrowser   # or: cd ~/projects/nanobrowser  (symlink)
 pnpm install
-# copy personal secrets (gitignored)
+# copy personal secrets (gitignored) if missing
 # cp chrome-extension/src/personal/secrets.local.example.ts \
 #    chrome-extension/src/personal/secrets.local.ts
 pnpm build
-# Chrome → Load unpacked → projects/nanobrowser/dist
+# Chrome → Load unpacked → ~/projects/nanobrowser/dist
+# (same as scion/projects/nanobrowser/dist)
 ```
 
 See [reports/nanobrowser/](./reports/nanobrowser/) for E2E and ops notes.

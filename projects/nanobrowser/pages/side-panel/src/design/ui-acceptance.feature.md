@@ -46,3 +46,26 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 
 - Given yishu component styles
 - Then task card / primary button styles do not set `box-shadow`
+
+## Scenario: Welcome empty state uses 奕枢 paper card (not sky chrome)
+
+- Given models are not configured
+- When the welcome block is rendered
+- Then it uses `yishu-welcome` / `yishu-welcome-card` classes
+- And source has no `text-sky-*` / `bg-sky-*` on the welcome block
+- And primary CTA uses the pill primary button contract
+
+## Scenario: Options settings page uses 奕枢 shell (not sky chrome)
+
+- Given the Options page shell and design tokens
+- Then Options imports yishu tokens/components
+- And layout uses `yishu-options-layout` / `yishu-options-nav` / `yishu-options-main`
+- And Options.tsx has no `#0EA5E9` / `bg-sky-*` / sky utility stacks
+- And settings surfaces use yishu border/surface tokens (not stock blue toggles as primary chrome)
+- And yishu component styles for options do not set `box-shadow`
+
+## Scenario: SidePanel.css has no legacy sky scrollbar/header chrome
+
+- Given SidePanel.css
+- Then scrollbar and header icon colors use `--yishu-*` tokens (or paper/accent hex from DESIGN.md)
+- And source does not contain `#0ea5e9` / `#19C2FF` / sky-blue palette

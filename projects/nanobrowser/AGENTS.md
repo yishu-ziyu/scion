@@ -5,7 +5,8 @@ Upstream: https://github.com/nanobrowser/nanobrowser · local version ~0.1.13
 
 Lab parent: `../../AGENTS.md` · ops handover: `../../HANDOVER.md` · product terms: `../../CONTEXT.md`
 
-This file is **ops for the extension monorepo**. Dual-tree / MiniMax / CDP detail lives in HANDOVER — open it for runtime continuity, not as chat filler.
+This file is **ops for the extension monorepo**. MiniMax / CDP detail lives in HANDOVER — open it for runtime continuity, not as chat filler.
+**Single tree:** this directory is the only copy; `~/projects/nanobrowser` is a symlink here.
 
 ---
 
@@ -14,7 +15,7 @@ This file is **ops for the extension monorepo**. Dual-tree / MiniMax / CDP detai
 Package manager: **pnpm only**. Node: `>=22.12.0` (see `.nvmrc`; `nvm use` before install).
 
 ```bash
-# From this directory (or ~/projects/nanobrowser for the daily build tree)
+# From this directory (same as ~/projects/nanobrowser via symlink)
 pnpm install
 pnpm inject:personal    # writes gitignored secrets.local.ts from env sources
 pnpm build              # inject → clean dist → turbo ready/build
@@ -97,7 +98,8 @@ t('act_click_ok', ['5', 'Submit Button']);
 ## Git / change policy
 
 - Minimal scoped diffs; no mass reformat
-- After coherent runtime changes in `~/projects/nanobrowser`, sync tracked paths into this tree; commit from **scion** only
+- Edit and build **here** (or via `~/projects/nanobrowser` symlink - same files)
+- Commit from **scion root** only (`yishu-ziyu/scion`); no nested `.git` in this graft
 - No AI co-author on commits
 
 ---

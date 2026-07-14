@@ -2,6 +2,8 @@
   text-align: center;
   width: 100vw;
   height: 100vh;
+  background: var(--yishu-background);
+  color: var(--yishu-foreground);
 }
 
 .App-logo {
@@ -20,27 +22,21 @@
 }
 
 code {
-  background: rgba(148, 163, 184, 0.5);
-  border-radius: 0.25rem;
+  background: var(--yishu-surface-raised);
+  border-radius: var(--yishu-radius-sm);
   padding: 0.2rem 0.5rem;
+  color: var(--yishu-paper);
+  font-family: var(--yishu-font-mono);
 }
 
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-  code {
-    background: rgba(30, 58, 138, 0.4);
-    color: #7dd3fc;
-  }
-  
-  .dark-mode-text {
-    color: #e2e8f0 !important; /* slate-200 */
-  }
-  
-  .dark-mode-bg {
-    background-color: #1e293b !important; /* slate-800 */
-  }
-  
-  .dark-mode-border {
-    border-color: #475569 !important; /* slate-600 */
-  }
+.dark-mode-text {
+  color: var(--yishu-foreground) !important;
+}
+
+.dark-mode-bg {
+  background-color: var(--yishu-surface) !important;
+}
+
+.dark-mode-border {
+  border-color: var(--yishu-border) !important;
 }
