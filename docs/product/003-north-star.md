@@ -92,8 +92,10 @@ M5  总验收 + Tabbit 对齐表 → G8；design current
 
 当前锚点（2026-07-15）：
 
-- M1：进行中（表单/媒体各 1 次 PASS，**未** 10/10）
-- 美团标尺：**已写入**；正式对齐数字尚未开跑
+- **M1：完成。** G1 表单 **10/10**，G2 媒体 **10/10**（MiniMax-M3）。证据：`reports/nanobrowser/bakeoff/2026-07-14-m1-matrix.csv` 与 `*-m1-summary.md`。
+- 媒体路径说明：Stagehand 点击原生 `<audio>` shadow 控件失败时，经**同一 `#fixture-audio` 元素 API** 完成 play/pause；生产 M2 须把「站点无关媒体动作」做进核，不能依赖 shadow 点击。
+- **M2：下一默认。** 生产换核设计与接入（Stagehand/CDP 或等价 → TaskManager）。
+- 美团 91.8% 真实站对齐：待 M3。
 
 ## 会话纪律
 
@@ -104,5 +106,5 @@ M5  总验收 + Tabbit 对齐表 → G8；design current
 
 ## 下一会话默认
 
-**M1 only：** G1+G2 连续 10/10（MiniMax-M3），矩阵落盘。  
-未满前不把飞书/B 站 10 次当主线；探路 1 次可以，不得占用 M1。
+**M2：** 按 `design/001` + `decisions/002`，把 P1 控制层接到生产 Task/审批/回执壳；Nano Planner 环降为可拔适配器。  
+产出：design 更新或 `design/002` 换核切片 + 最小可运行适配器 + 仍过 G1/G2 回归。

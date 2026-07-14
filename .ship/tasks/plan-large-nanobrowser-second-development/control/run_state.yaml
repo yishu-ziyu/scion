@@ -1,11 +1,20 @@
 task_id: plan-large-nanobrowser-second-development
 active: true
-current_phase: dev
+current_phase: design
 status: running
 workflow: product-lifecycle-v2
-updated_at: "2026-07-15T02:00:00Z"
+updated_at: "2026-07-15T01:22:00Z"
 north_star: docs/product/003-north-star.md
-accuracy_reference: "Meituan Tabbit 1.0 Agent success 91.8%; web-ops bench 70% (public reports)"
-parity_target: "verified success >= 91.8% on golden journeys (mid model MiniMax-M3)"
-current_milestone: M1
-current_milestone_goal: "G1+G2 consecutive 10/10 fixtures"
+docs_driven: docs/product/004-docs-driven-dev.md
+accuracy_reference: "Meituan Tabbit 1.0 Agent success 91.8%; web-ops bench 70%"
+parity_target: "verified success >= 91.8% on golden journeys (MiniMax-M3)"
+current_milestone: M2
+current_milestone_goal: "Production core swap design + adapter under TaskManager; Nano loop optional"
+m1_status: complete
+m1_evidence:
+  - reports/nanobrowser/bakeoff/2026-07-14-m1-matrix.csv
+  - reports/nanobrowser/bakeoff/2026-07-14-m1-summary.md
+m1_gates:
+  G1: "10/10"
+  G2: "10/10"
+  model: MiniMax-M3
