@@ -37,8 +37,9 @@ Owner 当轮明确口头/文字纠正
 
 | 里程碑 | 状态 | 说明 |
 |---|---|---|
-| M1 | **完成** | G1+G2 fixture 10/10（MiniMax-M3）；证据 `reports/nanobrowser/bakeoff/2026-07-14-m1-*` |
-| **M2** | **进行中** | 生产换核：`design/002` + ExecutorDriver 多后端；Nano 可拔 |
-| M3+ | 未开始 | 飞书/B 站 ≥91.8% 等 |
+| M1 | **完成** | G1+G2 fixture 10/10；`bakeoff/2026-07-14-m1-*` |
+| M2 | **完成** | G6 可换核；默认 `control`；`design/002` current |
+| **M3** | **进行中 / 等 Owner** | 飞书+B 站；协议 `product/005` |
+| M4–M5 | 未开始 | Skill/隐私抽检 + G8 填数 |
 
-**下一会话默认：** 只推进 M2（不要开 G3/G4）。
+**下一会话默认：** 只推进 M3（需 Owner 登录态）；无登录时不要假装 G3/G4 绿。

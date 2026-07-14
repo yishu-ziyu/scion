@@ -3,13 +3,13 @@ active: true
 current_phase: design
 status: running
 workflow: product-lifecycle-v2
-updated_at: "2026-07-15T01:26:00Z"
+updated_at: "2026-07-15T01:55:00Z"
 north_star: docs/product/003-north-star.md
 docs_driven: docs/product/004-docs-driven-dev.md
 accuracy_reference: "Meituan Tabbit 1.0 Agent success 91.8%; web-ops bench 70%"
 parity_target: "verified success >= 91.8% on golden journeys (MiniMax-M3)"
-current_milestone: M2
-current_milestone_goal: "LLM control policy + production control path; then G6 claim"
+current_milestone: M3
+current_milestone_goal: "Feishu G3 + Bilibili G4 verified >=91.8% (MiniMax-M3); protocol product/005"
 m1_status: complete
 m1_evidence:
   - reports/nanobrowser/bakeoff/2026-07-14-m1-matrix.csv
@@ -18,12 +18,17 @@ m1_gates:
   G1: "10/10"
   G2: "10/10"
   model: MiniMax-M3
-m2_status: in_progress
-m2_slice: "seam + scripted control (not G6 yet)"
+m2_status: complete
+m2_gates:
+  G6: claimable
 m2_evidence:
   - docs/design/002-production-core-swap.md
-  - reports/nanobrowser/m2-2026-07-15-seam-progress.md
-m2_remaining:
-  - LLM control policy (MiniMax-M3)
-  - production control without scripts
-  - design/002 → current; G6 claim
+  - reports/nanobrowser/m2-2026-07-15-g6-complete.md
+m3_status: blocked_on_owner_login
+m3_protocol: docs/product/005-golden-journeys-protocol.md
+g7_status: code_audit_pass
+g7_evidence:
+  - reports/nanobrowser/g7-privacy-audit-2026-07-15.md
+g8_status: template_only
+g8_evidence:
+  - reports/nanobrowser/tabbit-alignment.md

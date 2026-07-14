@@ -3,7 +3,7 @@ title: "生产换核：可替换 ExecutorDriver 与 P1 控制环"
 description: "M2：在 Task/审批/回执壳下接入 P1 级控制环；Nano Planner 环降为可拔适配器；媒体走元素 API。"
 category: "design"
 number: "002"
-status: not-implemented
+status: current
 services: ["projects/nanobrowser/chrome-extension/src/background"]
 related: ["design/001", "decisions/001", "decisions/002", "product/002", "product/003", "product/004"]
 last_modified: "2026-07-15"
@@ -13,17 +13,17 @@ last_modified: "2026-07-15"
 
 ## Status
 
-**not-implemented（规范已定；接缝与 control 脚本核已落地，默认核仍为 nano；LLM control 未完成）。**
+**current（M2 / G6 接缝已上线）。**
 
-- M1 在 `experiments/agent-core-bakeoff/p1-stagehand/` 上已用 MiniMax-M3 过 **G1/G2 = 10/10**。
-- **已落地（2026-07-15）：**
-  - `agent/backends/types.ts` — `nano` | `control`
-  - `agent/backends/nano.ts` — 原 Planner/Navigator 适配器抽出
-  - `agent/backends/control-loop.ts` — 脚本化 control 环（经 hooks 出副作用）
-  - `agent/factory.ts` — 多后端工厂；`generalSettings.agentCoreBackend`
-  - 单测：backends + `task/__tests__/control-backend-journey.test.ts`（批前 0 提交、批后 1、verified）
-- **未完成：** LLM control policy（无脚本时生产选 control 会 throw）；默认仍 `nano`；G6 不可宣称。
-- 全部 A1–A6 绿后改 `status: current`。
+- M1：P1 harness MiniMax-M3 **G1/G2 = 10/10**（`reports/nanobrowser/bakeoff/2026-07-14-m1-matrix.csv`）。
+- **已落地：**
+  - `agent/backends/types.ts` — `nano` | `control`；默认 **`control`**
+  - `agent/backends/nano.ts` — Planner/Navigator（可拔）
+  - `agent/backends/control-loop.ts` — 脚本化 control
+  - `agent/backends/control-llm.ts` + `control-policy.ts` — 生产 LLM control（MiniMax JSON 硬化）
+  - `agent/factory.ts` — 多后端；无脚本时走 LLM control
+  - 单测：backends + control journey（批前 0 / 批后 1 / 回执）
+- **残余：** 扩展内真实页 e2e 仍依赖 Owner 加载 unpacked；真实站 G3/G4 属 M3。
 
 ## Summary
 

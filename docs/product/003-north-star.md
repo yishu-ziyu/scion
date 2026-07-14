@@ -94,7 +94,8 @@ M5  总验收 + Tabbit 对齐表 → G8；design current
 
 - **M1：完成。** G1 表单 **10/10**，G2 媒体 **10/10**（MiniMax-M3）。证据：`reports/nanobrowser/bakeoff/2026-07-14-m1-matrix.csv` 与 `*-m1-summary.md`。
 - 媒体路径说明：Stagehand 点击原生 `<audio>` shadow 控件失败时，经**同一 `#fixture-audio` 元素 API** 完成 play/pause；生产 M2 须把「站点无关媒体动作」做进核，不能依赖 shadow 点击。
-- **M2：进行中。** `design/002` 已写；多后端工厂 + 脚本化 control 已过 TaskManager 旅程测；**默认仍 nano**；LLM control 与 G6 宣称未完成。证据：`reports/nanobrowser/m2-2026-07-15-seam-progress.md`。
+- **M2：完成（G6）。** 默认执行核 `control`（LLM + ActionBuilder + hooks）；`nano` 可拔；`design/002` = current。证据：`reports/nanobrowser/m2-2026-07-15-g6-complete.md`。
+- **M3：下一默认。** 飞书 + B 站黄金旅程 ≥91.8%（协议：`product/005`；需 Owner 登录）。
 - 美团 91.8% 真实站对齐：待 M3。
 
 ## 会话纪律
@@ -106,4 +107,5 @@ M5  总验收 + Tabbit 对齐表 → G8；design current
 
 ## 下一会话默认
 
-**M2 续：** 实现 control 的 **LLM policy**（MiniMax-M3 + JSON 硬化），使生产可设 `agentCoreBackend: control` 且无测试脚本；再跑 fixture 旅程；A1–A6 全绿后宣称 G6。
+**M3：** 按 `product/005` 在 Owner 日常 Chrome 登录态跑飞书 G3 + B 站 G4；正式分 MiniMax-M3；写 `reports/nanobrowser/golden/*`。  
+**并行可做：** G7 抽检、G8 表填数（模板已在 `reports/nanobrowser/tabbit-alignment.md`）。
