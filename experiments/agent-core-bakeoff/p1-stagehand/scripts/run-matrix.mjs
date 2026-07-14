@@ -13,9 +13,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const runs = Number(process.env.RUNS || 10);
 const reportDir = path.resolve(root, '../../../reports/nanobrowser/bakeoff');
-const stamp = new Date().toISOString().slice(0, 10);
-const csvPath = path.join(reportDir, `${stamp}-m1-matrix.csv`);
-const summaryPath = path.join(reportDir, `${stamp}-m1-summary.md`);
+// Local calendar date + optional label so re-runs do not clobber prior evidence.
+const stamp =
+  process.env.MATRIX_STAMP ||
+  new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }); // YYYY-MM-DD
+const label = process.env.MATRIX_LABEL || 'matrix';
+const csvPath = path.join(reportDir, `${stamp}-${label}.csv`);
+const summaryPath = path.join(reportDir, `${stamp}-${label}-summary.md`);
 
 function runScript(script) {
   return new Promise(resolve => {
@@ -121,11 +125,12 @@ async function main() {
   const g1 = formPass === runs;
   const g2 = mediaPass === runs;
 
-  const summary = `# M1 matrix ${stamp}
+  const summary = `# Fixture matrix ${stamp} (${label})
 
 - Model: ${mm.modelName}
 - Base: ${mm.baseURL}
 - Runs: ${runs}
+- Label: ${label}
 - CSV: \`${path.relative(path.resolve(root, '../../..'), csvPath)}\`
 
 | Gate | Result | Detail |
@@ -133,11 +138,11 @@ async function main() {
 | G1 form | ${g1 ? 'PASS' : 'FAIL'} | ${formPass}/${runs} |
 | G2 media | ${g2 ? 'PASS' : 'FAIL'} | ${mediaPass}/${runs} |
 
-Tabbit parity note: fixture 10/10 is required before claiming progress toward Agent 91.8% on real sites.
+Tabbit parity note: fixture continuous 10/10 is required before claiming progress toward Agent 91.8% on real sites.
 
 ## Next
 
-${g1 && g2 ? 'M1 complete → start M2 (production core swap design).' : 'Stay on M1: fix failures, re-run matrix.'}
+${g1 && g2 ? 'G1/G2 green for this run.' : 'Fix failures and re-run matrix.'}
 `;
 
   await writeFile(summaryPath, summary, 'utf8');
