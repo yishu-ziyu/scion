@@ -1121,18 +1121,25 @@ const SidePanel = () => {
               <>
                 {taskSnapshot &&
                   (currentSessionId === taskSnapshot.chatSessionId || taskSnapshot.sourceSkillId !== undefined) && (
-                    <TaskStatusCard snapshot={taskSnapshot} send={sendTaskCommand} />
+                    <TaskStatusCard
+                      snapshot={taskSnapshot}
+                      send={sendTaskCommand}
+                      isDarkMode={isDarkMode}
+                      defaultInstruction={
+                        [...messages].reverse().find(message => message.actor === Actors.USER)?.content ?? ''
+                      }
+                    />
                   )}
                 {messages.length > 0 && (
                   <div
-                    className={`scrollbar-gutter-stable flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-2 ${isDarkMode ? 'bg-slate-900/80' : ''}`}>
+                    className={`scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-2 ${isDarkMode ? 'bg-slate-900/80' : ''}`}>
                     <MessageList messages={messages} isDarkMode={isDarkMode} />
                     <div ref={messagesEndRef} />
                   </div>
                 )}
-                {/* Skills must stay reachable after a completed chat; empty-only list blocked skill-run e2e. */}
+                {/* Templates / bookmarks stay below chat so hierarchy is: status → chat → run-again → input */}
                 <div
-                  className={`${messages.length === 0 ? 'flex-1' : 'max-h-48 shrink-0 border-t'} overflow-y-auto ${
+                  className={`${messages.length === 0 ? 'flex-1' : 'max-h-40 shrink-0 border-t'} overflow-y-auto ${
                     isDarkMode ? 'border-sky-900' : 'border-sky-100'
                   }`}
                   data-testid="bookmark-list-panel">

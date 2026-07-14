@@ -86,10 +86,12 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
     }
   }, [editingId]);
 
+  const hasSkills = bookmarks.some(item => item.kind === 'skill');
+
   return (
-    <div className="p-2">
+    <div className="p-2" data-testid="bookmark-list">
       <h3 className={`mb-3 text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-        {t('chat_bookmarks_header')}
+        {hasSkills ? t('chat_bookmarks_skills_header') : t('chat_bookmarks_header')}
       </h3>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {bookmarks.map(bookmark => (
