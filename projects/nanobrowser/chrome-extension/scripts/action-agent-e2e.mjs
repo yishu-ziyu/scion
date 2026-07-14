@@ -207,12 +207,42 @@ async function openPanelForTarget(extensionId, target, { seed = false } = {}) {
   return panel;
 }
 
+async function ensureGoalSend(panel) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const state = await panel.evaluate(() => {
+      const status = document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status');
+      const hasSend = Boolean(document.querySelector('[data-testid="goal-send"]'));
+      const stop = [...document.querySelectorAll('button')].find(button =>
+        /停止|Stop/i.test(button.textContent || ''),
+      );
+      return { status, hasSend, hasStop: Boolean(stop) };
+    });
+    if (state.hasSend) return;
+    // Residual busy snapshot: cancel so the next goal can start.
+    if (state.hasStop && (state.status === 'running' || state.status === 'waiting_approval' || !state.status)) {
+      await panel.evaluate(() => {
+        const stop = [...document.querySelectorAll('button')].find(button =>
+          /停止|Stop/i.test(button.textContent || ''),
+        );
+        stop?.click();
+      });
+    }
+    await new Promise(r => setTimeout(r, 400));
+  }
+  await dumpPanel(panel, 'goal-send-missing');
+  throw new Error('timeout waiting for goal-send');
+}
+
 async function sendGoal(panel, target, instruction) {
+  await waitForTestId(panel, 'goal-input');
+  await ensureGoalSend(panel);
   await setValue(panel, 'goal-input', instruction);
   const typed = await panel.$eval('[data-testid="goal-input"]', el => el.value);
   assert.equal(typed, instruction, 'goal input did not accept value');
   await target.bringToFront();
   await new Promise(r => setTimeout(r, 150));
+  await ensureGoalSend(panel);
   await click(panel, 'goal-send');
 }
 
@@ -269,6 +299,11 @@ async function waitForApproval(panel, target) {
     if (['failed', 'cancelled'].includes(snap.status)) {
       throw new Error(`task ${snap.status} before approval: ${snap.body}`);
     }
+    if (snap.status === 'waiting_user') {
+      await dumpPanel(panel, 'waiting-user-before-approval');
+      await dumpTaskStorage(panel, 'waiting-user-before-approval-storage');
+      throw new Error(`task waiting_user before approval: ${snap.body}`);
+    }
     await new Promise(r => setTimeout(r, 1500));
   }
   await dumpPanel(panel, 'approval-timeout');
@@ -308,6 +343,7 @@ async function dumpTaskStorage(panel, label) {
       id: task?.id,
       status: task?.status,
       activeTabId: task?.activeTabId,
+      goalSummary: task?.goalSummary,
       criteria: task?.rounds?.[0]?.criteria?.map(c => ({
         kind: c.kind,
         targetRefId: c.targetRefId,
@@ -325,14 +361,30 @@ async function dumpTaskStorage(panel, label) {
       waitReason: task?.rounds?.[0]?.waitReason,
       receipt: Boolean(task?.rounds?.[0]?.receipt),
     }));
-    return { taskCount: tasks.length, tasks, keys: Object.keys(all).slice(0, 40) };
+    // Chat agent messages may hold last failure human text (allowed); keep short.
+    const chatKeys = Object.keys(all).filter(k => k.startsWith('chat_messages_'));
+    const lastChat = [];
+    for (const key of chatKeys.slice(-2)) {
+      const messages = all[key];
+      if (Array.isArray(messages)) {
+        for (const msg of messages.slice(-6)) {
+          lastChat.push({
+            actor: msg.actor,
+            state: msg.state,
+            content: String(msg.content || '').slice(0, 120),
+          });
+        }
+      }
+    }
+    return { taskCount: tasks.length, tasks, lastChat, keys: Object.keys(all).slice(0, 40) };
   });
-  console.log(`[e2e] ${label}`, JSON.stringify(info).slice(0, 3000));
+  console.log(`[e2e] ${label}`, JSON.stringify(info).slice(0, 4000));
   return info;
 }
 
 async function waitCompleted(panel, target, expectedCount) {
   const start = Date.now();
+  let seenRunning = false;
   while (Date.now() - start < timeout) {
     const snap = await panel.evaluate(() => ({
       status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status'),
@@ -340,6 +392,7 @@ async function waitCompleted(panel, target, expectedCount) {
       hasApprove: Boolean(document.querySelector('[data-testid="approval-approve"]')),
       body: (document.body?.innerText || '').slice(0, 400),
     }));
+    if (snap.status === 'running' || snap.status === 'waiting_approval') seenRunning = true;
     const formText = await target.evaluate(() => document.body.innerText);
     const count = Number(await (await fetch(`${origin}/count`)).text());
     console.log(`[e2e] poll status=${snap.status} count=${count} form=${JSON.stringify(formText.slice(0, 40))}`);
@@ -358,12 +411,19 @@ async function waitCompleted(panel, target, expectedCount) {
     if (snap.status === 'completed' && snap.receipt && count === expectedCount) {
       return snap;
     }
-    if (['failed', 'cancelled'].includes(snap.status) && count >= expectedCount) {
-      throw new Error(`task ${snap.status}: ${snap.body}`);
-    }
-    if (['failed', 'cancelled'].includes(snap.status) && count < expectedCount) {
-      // Stale terminal from previous task while a new skill run should start.
-      console.log('[e2e] ignoring stale terminal while waiting for next submission');
+    if (['failed', 'cancelled'].includes(snap.status)) {
+      // Only treat completed-from-prior as stale when we still see the prior receipt
+      // and a new run has not yet left completed for running. Once we saw running,
+      // a terminal without submission is a real failure.
+      if (count < expectedCount && snap.status === 'completed') {
+        console.log('[e2e] ignoring prior completed while waiting for next submission');
+      } else if (count < expectedCount && !seenRunning) {
+        console.log('[e2e] ignoring early terminal before new run starts', snap.status);
+      } else {
+        await dumpPanel(panel, `task-${snap.status}`);
+        await dumpTaskStorage(panel, `task-${snap.status}-storage`);
+        throw new Error(`task ${snap.status} before submit count=${count}: ${snap.body}`);
+      }
     }
     // Mid-run diagnostic once form is already saved but task still running.
     if (count >= expectedCount && snap.status === 'running' && Date.now() - start > 8_000 && Date.now() - start < 12_000) {
@@ -376,11 +436,33 @@ async function waitCompleted(panel, target, expectedCount) {
   throw new Error('timeout waiting for completed');
 }
 
+async function resetExtensionState(panel) {
+  // Isolate multi-run fixtures: drop prior tasks/skills so run N does not inherit run N-1.
+  await panel.evaluate(async () => {
+    const all = await chrome.storage.local.get(null);
+    const remove = Object.keys(all).filter(
+      key =>
+        key === 'task-runtime-v1' ||
+        key === 'task-skill-save-v1' ||
+        key === 'favorites' ||
+        key.startsWith('chat_messages_') ||
+        key.startsWith('chat_sessions'),
+    );
+    if (remove.length) await chrome.storage.local.remove(remove);
+  });
+}
+
 async function runAllScenarios(extensionId, run) {
   submissions = 0;
   const target = await browser.newPage();
   await target.goto(`${origin}/form?run=${run}`, { waitUntil: 'domcontentloaded' });
   let panel = await openPanelForTarget(extensionId, target, { seed: true });
+  await resetExtensionState(panel);
+  await seedMiniMax(panel);
+  await panel.reload({ waitUntil: 'domcontentloaded' });
+  await waitForTestId(panel, 'goal-input');
+  await target.bringToFront();
+  await new Promise(r => setTimeout(r, 500));
   await sendGoal(
     panel,
     target,

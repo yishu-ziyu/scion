@@ -157,7 +157,10 @@ const SidePanel = () => {
     const requiresExplicitResume = taskSnapshot.status === 'interrupted' || taskSnapshot.status === 'inputs_required';
     setInputEnabled(!busy && !requiresExplicitResume);
     setShowStopButton(busy);
-    setIsFollowUpMode(['running', 'paused', 'waiting_user', 'completed'].includes(taskSnapshot.status));
+    // Follow-up needs a chat session bound to the task (skill runs have none).
+    // Without a session, treat the next goal as a fresh start so instruction can persist.
+    const followable = ['running', 'paused', 'waiting_user', 'completed'].includes(taskSnapshot.status);
+    setIsFollowUpMode(followable && Boolean(taskSnapshot.chatSessionId));
   }, [taskSnapshot]);
 
   useEffect(() => {
@@ -497,8 +500,9 @@ const SidePanel = () => {
       setInputEnabled(false);
       setShowStopButton(true);
 
-      // Create a new chat session for this task if not in follow-up mode
-      if (!isFollowUpMode) {
+      // Create a chat session when this is a fresh start, or when follow-up has no session yet
+      // (e.g. reopened panel after a skill-only task left a completed snapshot without chatSessionId).
+      if (!isFollowUpMode || !sessionIdRef.current) {
         // Use display text for session title if available, otherwise use full text
         const titleText = displayText || text;
         const newSession = await chatHistoryStore.createSession(
@@ -527,9 +531,11 @@ const SidePanel = () => {
       }
 
       const canFollowUp =
+        Boolean(taskSnapshot?.chatSessionId) &&
         taskSnapshot?.id === sessionIdRef.current &&
+        taskSnapshot.chatSessionId === sessionIdRef.current &&
         ['running', 'paused', 'waiting_user', 'completed'].includes(taskSnapshot.status);
-      if (canFollowUp) {
+      if (canFollowUp && taskSnapshot) {
         sendTaskCommand({
           type: 'follow_up',
           commandId: crypto.randomUUID(),

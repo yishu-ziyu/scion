@@ -40,8 +40,9 @@ describe('Planner completion contract', () => {
   });
 
   it('keeps login and CAPTCHA prompts out of automated success paths', () => {
-    expect(plannerSystemPromptTemplate).toContain('set done=false and waiting_user.reason="login_required"');
-    expect(plannerSystemPromptTemplate).toContain('set done=false and waiting_user.reason="captcha_required"');
+    expect(plannerSystemPromptTemplate).toContain('waiting_user.reason="login_required" ONLY when the page shows a real sign-in wall');
+    expect(plannerSystemPromptTemplate).toContain('waiting_user.reason="captcha_required" ONLY when a CAPTCHA/challenge is visible');
+    expect(plannerSystemPromptTemplate).toContain('ordinary data-entry form is NOT login');
     expect(navigatorSystemPromptTemplate).not.toContain('try to solve it');
     expect(navigatorSystemPromptTemplate).toContain('never solve or bypass it');
   });

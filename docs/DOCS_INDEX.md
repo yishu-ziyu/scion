@@ -6,3 +6,4 @@
 |----------|---|--------|------|-------------|---------------|------|
 | decisions | 001 | current | 保留 Chrome 扩展作为浏览器行动载体 | 记录为何本轮在现有扩展内建设任务运行时，而不是新造浏览器或云端执行器。 | 2026-07-13 | [001](docs/decisions/001-keep-chrome-extension.md) |
 | design | 001 | not-implemented | 浏览器行动任务运行时 | 定义可验证任务、连续控制、动作审批和本地 Skill 的扩展内架构。 | 2026-07-13 | [001](docs/design/001-browser-action-task-runtime.md) |
+| product | 001 | draft | Nanobrowser 二开：可验证浏览器行动 Agent PRD | 定义单任务连续控制、可验证完成、动作审批与本地 Skill 复用的首个产品闭环。 | 2026-07-14 | [001](docs/product/001-nanobrowser-prd.md) |
