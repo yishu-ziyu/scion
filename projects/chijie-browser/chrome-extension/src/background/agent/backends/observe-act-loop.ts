@@ -74,6 +74,8 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
 
   let failures = 0;
   const budget = Math.max(1, maxFailures);
+  // Successful reobserve feeds the next decide; avoids a redundant observe.
+  let carriedState: string | undefined;
 
   for (let step = 0; step < maxSteps; step++) {
     if (isStopped()) return { kind: 'cancelled' };
@@ -81,13 +83,18 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
     if (isStopped()) return { kind: 'cancelled' };
 
     let stateText: string;
-    try {
-      onPhase?.({ phase: 'observe', step, detail: 'page_state' });
-      stateText = await observe();
-    } catch {
-      failures += 1;
-      if (failures >= budget) return { kind: 'failed', category: 'observe_failed' };
-      continue;
+    if (carriedState !== undefined) {
+      stateText = carriedState;
+      carriedState = undefined;
+    } else {
+      try {
+        onPhase?.({ phase: 'observe', step, detail: 'page_state' });
+        stateText = await observe();
+      } catch {
+        failures += 1;
+        if (failures >= budget) return { kind: 'failed', category: 'observe_failed' };
+        continue;
+      }
     }
 
     if (isStopped()) return { kind: 'cancelled' };
@@ -145,9 +152,10 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
     if (reobserve) {
       try {
         onPhase?.({ phase: 'reobserve', step, detail: 'after_act' });
-        await reobserve();
+        carriedState = await reobserve();
       } catch {
-        // re-observe failure is soft: next loop iteration will observe again
+        // Soft failure: next iteration falls back to a full observe.
+        carriedState = undefined;
       }
     }
   }

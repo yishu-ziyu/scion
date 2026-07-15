@@ -88,11 +88,15 @@ function failureNextStep(snapshot: TaskSnapshot): string {
   const hint = waitReasonHint(round?.waitReason);
   if (hint) return hint;
   if (snapshot.status === 'failed') {
-    // Prefer product taxonomy label; fall back to executor-specific i18n, then generic.
-    if (round?.failureCategory) {
-      return productFailureLabel(round.failureCategory);
+    const category = round?.failureCategory;
+    if (category) {
+      // Known product codes keep the coarse label; "other" surfaces executor-specific i18n.
+      if (toProductFailureCode(category) === 'other') {
+        return failureCategoryHint(category) ?? productFailureLabel(category);
+      }
+      return productFailureLabel(category);
     }
-    return failureCategoryHint(round?.failureCategory) ?? t('chat_task_hint_failed_generic');
+    return t('chat_task_hint_failed_generic');
   }
   if (snapshot.status === 'cancelled') return t('chat_task_hint_cancelled');
   if (snapshot.status === 'interrupted') return t('chat_task_hint_interrupted');

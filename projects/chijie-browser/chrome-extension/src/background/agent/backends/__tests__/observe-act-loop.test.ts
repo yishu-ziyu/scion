@@ -11,6 +11,7 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
     const phases: LoopPhaseEvent[] = [];
     let observeCount = 0;
     let decideCount = 0;
+    let reobserveCount = 0;
 
     const outcome = await runObserveActLoop({
       maxSteps: 5,
@@ -19,7 +20,7 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
       waitIfPaused: async () => undefined,
       observe: async () => {
         observeCount += 1;
-        return observeCount === 1 ? 'url=about:blank' : 'url=https://www.youtube.com/';
+        return 'url=about:blank';
       },
       decide: async (state, step): Promise<LoopDecision> => {
         decideCount += 1;
@@ -27,6 +28,7 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
           expect(state).toContain('about:blank');
           return { kind: 'action', name: 'go_to_url', args: { url: 'https://www.youtube.com/' } };
         }
+        // Second decide must consume reobserve output, not a fresh observe.
         expect(state).toContain('youtube.com');
         return { kind: 'done', summary: 'YouTube opened' };
       },
@@ -34,19 +36,17 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
         expect(action.name).toBe('go_to_url');
         return { error: null };
       },
-      reobserve: async () => 'url=https://www.youtube.com/',
+      reobserve: async () => {
+        reobserveCount += 1;
+        return 'url=https://www.youtube.com/';
+      },
       onPhase: e => phases.push(e),
     });
 
     expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'YouTube opened' });
-    expect(phases.map(p => p.phase)).toEqual([
-      'observe',
-      'decide',
-      'act',
-      'reobserve',
-      'observe',
-      'decide',
-    ]);
+    expect(phases.map(p => p.phase)).toEqual(['observe', 'decide', 'act', 'reobserve', 'decide']);
+    expect(observeCount).toBe(1);
+    expect(reobserveCount).toBe(1);
     expect(decideCount).toBe(2);
   });
 

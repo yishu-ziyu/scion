@@ -127,7 +127,6 @@ async function extensionIdFromBrowser(browser) {
         timeout: 8000,
       });
       if (res && !res.status()?.toString().startsWith('4')) {
-        await page.close();
         return host;
       }
       // also ok if body has 持节 / goal-input after load
@@ -135,7 +134,6 @@ async function extensionIdFromBrowser(browser) {
         Boolean(document.querySelector('[data-testid="goal-input"]') || /持节|Chijie|Nanobrowser/i.test(document.body?.innerText || '')),
       );
       if (ok) {
-        await page.close();
         return host;
       }
     } catch {
@@ -227,6 +225,8 @@ async function main() {
 
   const deadline = Date.now() + timeout;
   let finalStatus = null;
+  let hasReceipt = false;
+  let hasSteps = false;
   let panelText = '';
   while (Date.now() < deadline) {
     const snap = await panel.evaluate(() => ({
@@ -237,7 +237,9 @@ async function main() {
     }));
     finalStatus = snap.status;
     panelText = snap.body;
-    if (snap.status === 'completed' && snap.hasReceipt) break;
+    if (snap.hasReceipt) hasReceipt = true;
+    if (snap.hasSteps) hasSteps = true;
+    if (snap.status === 'completed' && snap.hasReceipt && snap.hasSteps) break;
     if (snap.status === 'failed' || snap.status === 'cancelled') break;
     await new Promise(r => setTimeout(r, 1500));
   }
@@ -251,8 +253,11 @@ async function main() {
     }
   }
 
+  // Ticket 03: completed + receipt + steps + real youtube content tab.
   const pass =
     finalStatus === 'completed' &&
+    hasReceipt &&
+    hasSteps &&
     yt.length > 0 &&
     !yt.some(u => u.startsWith('chrome-extension://'));
 
@@ -268,6 +273,8 @@ async function main() {
 - CDP: ${connectUrl || 'launched temp profile'}
 - Extension: ${extensionId}
 - Task status: ${finalStatus}
+- Has receipt: ${hasReceipt}
+- Has steps: ${hasSteps}
 - YouTube content tabs: ${yt.length ? yt.join(', ') : '(none)'}
 - Result: **${pass ? 'PASS' : 'FAIL'}**
 
@@ -279,12 +286,12 @@ ${panelText}
 
 ## Notes
 
-- Ticket 03 minimum green.
+- Ticket 03 minimum green: completed + receipt + steps + youtube.com content tab.
 - If FAIL: reload unpacked extension, keep a content tab active, open real side panel, retry.
 `;
   writeFileSync(reportPath, report, 'utf8');
   console.log('[slice-a] report', reportPath);
-  console.log('[slice-a]', pass ? 'PASS' : 'FAIL', { finalStatus, yt });
+  console.log('[slice-a]', pass ? 'PASS' : 'FAIL', { finalStatus, hasReceipt, hasSteps, yt });
 
   if (ownsBrowser) await browser.close();
   else browser.disconnect();
