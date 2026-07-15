@@ -231,7 +231,12 @@ async function main() {
   while (Date.now() < deadline) {
     const snap = await panel.evaluate(() => ({
       status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status') || null,
-      hasSteps: Boolean(document.querySelector('[data-testid="task-execution-steps"], [data-testid="task-round-step"]')),
+      // Expanded list unmounts on completed (defaultStepsExpanded=false); toggle/timeline stay mounted.
+      hasSteps: Boolean(
+        document.querySelector(
+          '[data-testid="task-execution-steps"], [data-testid="task-round-step"], [data-testid="task-steps-toggle"], [data-testid="task-round-timeline"]',
+        ),
+      ),
       hasReceipt: Boolean(document.querySelector('[data-testid="completion-receipt"]')),
       body: (document.body?.innerText || '').slice(0, 800),
     }));
@@ -239,7 +244,8 @@ async function main() {
     panelText = snap.body;
     if (snap.hasReceipt) hasReceipt = true;
     if (snap.hasSteps) hasSteps = true;
-    if (snap.status === 'completed' && snap.hasReceipt && snap.hasSteps) break;
+    // Sticky latches: do not require expanded-only nodes on the same sample as completed.
+    if (snap.status === 'completed' && hasReceipt && hasSteps) break;
     if (snap.status === 'failed' || snap.status === 'cancelled') break;
     await new Promise(r => setTimeout(r, 1500));
   }
