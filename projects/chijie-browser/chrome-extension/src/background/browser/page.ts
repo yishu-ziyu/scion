@@ -1336,10 +1336,26 @@ export default class Page {
       // Scroll element into view if needed
       await this._scrollIntoViewIfNeeded(element);
 
-      await Promise.race([
-        element.click(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Click timeout')), 2000)),
-      ]);
+      const expectedHref = elementNode.attributes.href?.trim();
+      if (elementNode.tagName?.toLowerCase() === 'a' && expectedHref) {
+        const activated = await element.evaluate((candidate, observedHref) => {
+          if (!(candidate instanceof HTMLAnchorElement) || !candidate.isConnected) return false;
+          const liveHref = candidate.getAttribute('href');
+          if (!liveHref) return false;
+          try {
+            if (new URL(liveHref, document.baseURI).href !== new URL(observedHref, document.baseURI).href) return false;
+          } catch {
+            return false;
+          }
+          candidate.click();
+          return true;
+        }, expectedHref);
+        if (!activated) throw new Error('Navigation target changed before activation');
+      } else {
+        // A started pointer click cannot be cancelled. Await it so a slow approved
+        // submit is never marked uncertain while the same click later commits.
+        await element.click();
+      }
       await this._checkAndHandleNavigation();
     } catch (error) {
       throw new Error(
@@ -1584,15 +1600,16 @@ export default class Page {
       // Fallback: plain text can be missing from the interactive tree after form
       // submit rewrites (e.g. <p>Saved successfully</p>).
       if (Object.values(textMatches).some(matched => !matched) && this._puppeteerPage) {
-        const bodyText = await this._puppeteerPage.evaluate(() =>
-          (document.body?.innerText || '').replace(/\s+/g, ' ').trim(),
-        );
+        const bodyText = await this._puppeteerPage.evaluate(() => document.body?.innerText || '');
         if (bodyText) {
-          const candidates = bodyText
+          const boundedBodyText = bodyText.slice(0, 200_000);
+          const candidates = boundedBodyText
             .split(/(?<=[.!?。！？])\s+|\n+/)
             .map(part => part.replace(/\s+/g, ' ').trim())
-            .filter(part => part.length > 0 && part.length <= 160);
-          if (bodyText.length <= 160) candidates.push(bodyText);
+            .filter(part => part.length > 0 && part.length <= 160)
+            .slice(0, 2000);
+          const normalizedBodyText = boundedBodyText.replace(/\s+/g, ' ').trim();
+          if (normalizedBodyText.length <= 160) candidates.push(normalizedBodyText);
           for (const candidate of candidates) {
             const digest = await sha256(candidate);
             if (digest in textMatches) textMatches[digest] = true;
