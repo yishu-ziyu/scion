@@ -1,9 +1,11 @@
 task_id: tabbit-class-product
 active: true
-current_phase: to-tickets
-status: tickets_ready
+current_phase: implement
+status: ticket_01_done
 workflow: matt-main-flow
-updated_at: "2026-07-15T04:45:00Z"
+updated_at: "2026-07-15T04:55:00Z"
+ticket_01_commit: 0228f22
+frontier_next: "02"
 spec_path: .ship/tasks/tabbit-class-product/spec/SPEC.md
 product_index: docs/product/008-tabbit-class-agent-task-loop-spec.md
 parent_issue: https://github.com/yishu-ziyu/scion/issues/1
