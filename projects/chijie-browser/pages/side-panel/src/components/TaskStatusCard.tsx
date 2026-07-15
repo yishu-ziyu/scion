@@ -94,8 +94,7 @@ function failureNextStep(snapshot: TaskSnapshot): string {
           evidence => evidence.criterionId === criterion.id && evidence.source === 'user' && evidence.passed,
         ),
     ) ?? false;
-  const waitReason =
-    round?.waitReason === 'proof_required' && !hasConfirmable ? undefined : round?.waitReason;
+  const waitReason = round?.waitReason === 'proof_required' && !hasConfirmable ? undefined : round?.waitReason;
   const hint = waitReasonHint(waitReason);
   if (hint) return hint;
   if (snapshot.status === 'failed') {
@@ -423,7 +422,9 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
       {showVerifiedDone && round?.receipt && (
         <div data-testid="completion-receipt" className="chijie-done-block">
           {completionText.split('\n').map(line => (
-            <div key={line} className={line === t('chat_task_done_title') ? 'font-medium' : 'mt-0.5 text-xs opacity-90'}>
+            <div
+              key={line}
+              className={line === t('chat_task_done_title') ? 'font-medium' : 'mt-0.5 text-xs opacity-90'}>
               {line}
             </div>
           ))}

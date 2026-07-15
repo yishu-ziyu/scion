@@ -53,10 +53,7 @@ const SCHEMA_BY_NAME: Record<string, ActionSchema> = {
   wait: waitActionSchema,
 };
 
-function makeAction(
-  name: string,
-  handlers?: ControlLoopOptions['actionHandlers'],
-): Action {
+function makeAction(name: string, handlers?: ControlLoopOptions['actionHandlers']): Action {
   const schema = SCHEMA_BY_NAME[name];
   if (!schema) {
     throw new Error(`control-loop: unsupported action "${name}"`);
@@ -88,7 +85,7 @@ export function createControlLoopDriver(
 ): ExecutorDriver {
   let paused = false;
   let stopped = false;
-  let followUps: string[] = [];
+  const followUps: string[] = [];
   let resumeWaiters: Array<() => void> = [];
 
   const waitIfPaused = async () => {
@@ -193,10 +190,7 @@ export function fixtureFormControlSteps(opts?: {
  * Navigate-first script (ticket 02): plan url → go_to_url → wait → candidate complete.
  * Demoable without LLM; TaskManager still records attempts for side-panel steps.
  */
-export function fixtureNavigateControlSteps(opts?: {
-  url?: string;
-  urlStartsWith?: string;
-}): ControlScriptStep[] {
+export function fixtureNavigateControlSteps(opts?: { url?: string; urlStartsWith?: string }): ControlScriptStep[] {
   const url = opts?.url ?? 'https://www.youtube.com/';
   const expected = opts?.urlStartsWith ?? 'https://www.youtube.com';
   return [
@@ -221,9 +215,7 @@ export function fixtureNavigateControlSteps(opts?: {
 /**
  * Fixture media script: plan media_state → play → pause same digest path → candidate complete.
  */
-export function fixtureMediaControlSteps(opts?: {
-  playDigest?: string;
-}): ControlScriptStep[] {
+export function fixtureMediaControlSteps(opts?: { playDigest?: string }): ControlScriptStep[] {
   const digest = opts?.playDigest;
   return [
     {

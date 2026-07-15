@@ -31,7 +31,6 @@ export default function ChatInput({
   disabled,
   showStopButton,
   setContent,
-  isDarkMode = false,
 }: ChatInputProps) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
@@ -219,7 +218,7 @@ export default function ChatInput({
           aria-label={t('chat_input_editor')}
         />
 
-        <div className="flex items-center justify-between gap-2 border-t border-[var(--chijie-border)] px-2 py-2">
+        <div className="flex items-center justify-between gap-2 border-t border-[var(--chijie-border)] p-2">
           <div className="flex gap-2 text-[var(--chijie-muted)]">
             <button
               type="button"
@@ -228,7 +227,9 @@ export default function ChatInput({
               aria-label="附加文件"
               title="附加文本文件（txt、md、json、csv 等）"
               className={`rounded-full p-1.5 transition-colors ${
-                disabled ? 'cursor-not-allowed opacity-50' : 'hover:bg-[var(--chijie-surface)] hover:text-[var(--chijie-paper)]'
+                disabled
+                  ? 'cursor-not-allowed opacity-50'
+                  : 'hover:bg-[var(--chijie-surface)] hover:text-[var(--chijie-paper)]'
               }`}>
               <span className="text-lg">📎</span>
             </button>

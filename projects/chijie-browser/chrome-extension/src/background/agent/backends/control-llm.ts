@@ -21,17 +21,11 @@ import { ActionBuilder } from '../actions/builder';
 import { AgentContext, AgentStepInfo, DEFAULT_AGENT_OPTIONS } from '../types';
 import MessageManager from '../messages/service';
 import { EventManager } from '../event/manager';
-import { extractJsonFromModelOutput } from '../messages/utils';
-import { wrapUntrustedContent } from '../messages/utils';
+import { extractJsonFromModelOutput, wrapUntrustedContent } from '../messages/utils';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome } from '../../task/contracts';
 import { CONTROL_SYSTEM_PROMPT, parseControlPolicyDecision } from './control-policy';
 import type { Action } from '../actions/builder';
-import {
-  isForbiddenTaskContentUrl,
-  runObserveActLoop,
-  type LoopDecision,
-  type LoopOutcome,
-} from './observe-act-loop';
+import { isForbiddenTaskContentUrl, runObserveActLoop, type LoopDecision, type LoopOutcome } from './observe-act-loop';
 
 const logger = createLogger('ControlLlmBackend');
 
@@ -52,10 +46,7 @@ async function contentToString(content: unknown): Promise<string> {
 async function buildStateText(context: AgentContext): Promise<string> {
   const browserState = await context.browserContext.getState(context.options.useVision);
   const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
-  const elementsText =
-    rawElementsText !== ''
-      ? wrapUntrustedContent(rawElementsText)
-      : 'empty interactive list';
+  const elementsText = rawElementsText !== '' ? wrapUntrustedContent(rawElementsText) : 'empty interactive list';
   let mediaLine = 'media: none';
   try {
     const page = await context.browserContext.getCurrentPage();
@@ -132,7 +123,7 @@ export async function createLlmControlDriver(
 
   let paused = false;
   let stopped = false;
-  let followUps: string[] = [];
+  const followUps: string[] = [];
   let resumeWaiters: Array<() => void> = [];
   let criteriaLocked = false;
 
@@ -195,10 +186,7 @@ export async function createLlmControlDriver(
 
           let rawText = '';
           try {
-            const response = await llm.invoke([
-              new SystemMessage(CONTROL_SYSTEM_PROMPT),
-              new HumanMessage(userPrompt),
-            ]);
+            const response = await llm.invoke([new SystemMessage(CONTROL_SYSTEM_PROMPT), new HumanMessage(userPrompt)]);
             rawText = await contentToString(response.content);
           } catch (error) {
             logger.error('LLM invoke failed', error);

@@ -60,17 +60,7 @@ export interface ObserveActLoopOptions {
  * Recoverable decide/observe/act failures increment failure budget; success resets it.
  */
 export async function runObserveActLoop(options: ObserveActLoopOptions): Promise<LoopOutcome> {
-  const {
-    maxSteps,
-    maxFailures,
-    isStopped,
-    waitIfPaused,
-    observe,
-    decide,
-    act,
-    reobserve,
-    onPhase,
-  } = options;
+  const { maxSteps, maxFailures, isStopped, waitIfPaused, observe, decide, act, reobserve, onPhase } = options;
 
   let failures = 0;
   const budget = Math.max(1, maxFailures);

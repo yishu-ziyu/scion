@@ -14,19 +14,24 @@
                         └──► 05 external-commit approval ─────────────────────► (also blocks 06)
 ```
 
-## Frontier (start now)
+## Status
+
+Tickets **01–05** implemented. Remaining frontier:
 
 | ID | Title | Blocked by | GitHub |
 |----|--------|------------|--------|
-| **01** | Task mode + steps + done UI | None | #2 |
-| 02 | Observe→act loop navigate | 01 | #3 |
-| 03 | Slice A YouTube E2E | 02 | #4 |
-| 04 | Failure categories | 01 | #5 |
-| 05 | External-commit approval | 01 | #6 |
-| 06 | Slice B Feishu | 03, 05 | #7 |
-| 07 | Slice C media pause | 03 | #8 |
+| **06** | Slice B Feishu | 03, 05 | #7 |
+| **07** | Slice C media pause | 03 | #8 |
 
-**First implement:** `01` only → `/implement` + `/tdd` on #2.
+## Done
+
+| ID | Title | Status |
+|----|--------|--------|
+| 01 | Task mode + steps + done UI | implemented |
+| 02 | Observe→act loop navigate | implemented |
+| 03 | Slice A YouTube E2E | implemented (protocol + runner; live MiniMax may need Owner reload) |
+| 04 | Failure categories | implemented |
+| 05 | External-commit approval | implemented |
 
 ## Out of these tickets
 

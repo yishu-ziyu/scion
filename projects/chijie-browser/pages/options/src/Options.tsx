@@ -103,7 +103,7 @@ const Options = () => {
                 onClick={() => handleTabClick(item.id)}
                 data-active={activeTab === item.id ? 'true' : 'false'}
                 className="chijie-options-nav-item">
-                <item.icon className="h-4 w-4" />
+                <item.icon className="size-4" />
                 <span>{item.label}</span>
               </button>
             </li>

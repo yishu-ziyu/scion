@@ -23,11 +23,7 @@ import { TaskStatusCard } from './components/TaskStatusCard';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import { shouldPersistExecutionEvent } from './event-persistence';
 import { mergeTaskSnapshot } from './task-snapshot';
-import {
-  PROGRESS_MESSAGE_CONTENT,
-  classifyAgentEvent,
-  shouldMergeFailure,
-} from './presentation/humanize-message';
+import { PROGRESS_MESSAGE_CONTENT, classifyAgentEvent, shouldMergeFailure } from './presentation/humanize-message';
 import './SidePanel.css';
 
 // Declare chrome API types
@@ -229,9 +225,7 @@ const SidePanel = () => {
         };
         setMessages(prev => {
           // Drop trailing progress bubble, then merge consecutive failures
-          let next = prev.filter(
-            (msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1),
-          );
+          let next = prev.filter((msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1));
           const last = next[next.length - 1];
           if (shouldMergeFailure(last, timestamp)) {
             next = next.slice(0, -1);
@@ -963,7 +957,7 @@ const SidePanel = () => {
   return (
     <div className="chijie-shell">
       <div className="chijie-shell flex h-screen flex-col overflow-hidden">
-        <header className="header relative border-b border-[var(--chijie-border)] bg-[var(--chijie-surface)] px-3 py-3">
+        <header className="header relative border-b border-[var(--chijie-border)] bg-[var(--chijie-surface)] p-3">
           <div className="header-logo">
             {showHistory ? (
               <button
@@ -1068,10 +1062,7 @@ const SidePanel = () => {
                   />
                   <h3>{t('welcome_title')}</h3>
                   <p className="mb-4">{t('welcome_instruction')}</p>
-                  <button
-                    type="button"
-                    onClick={() => chrome.runtime.openOptionsPage()}
-                    className="chijie-btn-primary">
+                  <button type="button" onClick={() => chrome.runtime.openOptionsPage()} className="chijie-btn-primary">
                     {t('welcome_openSettings')}
                   </button>
                   <div className="mt-4 text-sm">
@@ -1119,9 +1110,7 @@ const SidePanel = () => {
                       }}
                       onRephrase={() => {
                         // Focus composer by clearing nothing - ChatInput keeps focus via click target
-                        const el = document.querySelector(
-                          '.chijie-composer textarea',
-                        ) as HTMLTextAreaElement | null;
+                        const el = document.querySelector('.chijie-composer textarea') as HTMLTextAreaElement | null;
                         el?.focus();
                       }}
                     />

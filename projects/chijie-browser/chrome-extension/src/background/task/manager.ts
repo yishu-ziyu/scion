@@ -1,10 +1,4 @@
-import {
-  getActiveTask,
-  getSkillSaveMeta,
-  getTask,
-  putSkillSaveMeta,
-  saveTask,
-} from '@extension/storage/lib/task';
+import { getActiveTask, getSkillSaveMeta, getTask, putSkillSaveMeta, saveTask } from '@extension/storage/lib/task';
 import favoritesStorage, {
   assertExactSkillInputs,
   compileSkillTemplate,
@@ -1186,10 +1180,7 @@ export class TaskManager {
    * Probe completion against the task's bound tab, not whatever tab is currently
    * focused (side-panel tabs / e2e focus steal would otherwise miss page_text).
    */
-  private async observeTaskCriteria(
-    task: TaskSession,
-    criteria: CompletionCriterion[],
-  ): Promise<ProbeObservation[]> {
+  private async observeTaskCriteria(task: TaskSession, criteria: CompletionCriterion[]): Promise<ProbeObservation[]> {
     if (Number.isSafeInteger(task.activeTabId)) {
       await this.deps.switchTab(task.activeTabId);
     }
