@@ -85,7 +85,18 @@ export function failureCategoryHint(category: string | undefined): string | null
 
 function failureNextStep(snapshot: TaskSnapshot): string {
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
-  const hint = waitReasonHint(round?.waitReason);
+  // proof_required copy mentions the confirm button; only show it when one exists.
+  const hasConfirmable =
+    round?.criteria.some(
+      criterion =>
+        criterion.kind === 'user_confirmed' &&
+        !round.evidence.some(
+          evidence => evidence.criterionId === criterion.id && evidence.source === 'user' && evidence.passed,
+        ),
+    ) ?? false;
+  const waitReason =
+    round?.waitReason === 'proof_required' && !hasConfirmable ? undefined : round?.waitReason;
+  const hint = waitReasonHint(waitReason);
   if (hint) return hint;
   if (snapshot.status === 'failed') {
     const category = round?.failureCategory;

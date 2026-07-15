@@ -1000,7 +1000,7 @@ export class TaskManager {
     let verificationRetries = 0;
     for (;;) {
       const outcome = await driver.run(runRoundId);
-      const task = await getTask(taskId);
+      let task = await getTask(taskId);
       if (!this.canApplyDriverOutcome(task, taskId, driver)) return;
       if (task.currentRoundId !== runRoundId) {
         runRoundId = task.currentRoundId;
@@ -1026,8 +1026,50 @@ export class TaskManager {
         return;
       }
 
-      const round = task.rounds.find(item => item.id === runRoundId);
+      let round = task.rounds.find(item => item.id === runRoundId);
       if (!round) return;
+      if (round.criteria.length === 0) {
+        // Live open-site goals often omit planner criteria; re-derive from the instruction
+        // while still running so we can verify the page URL and emit a receipt.
+        const instruction = this.instructions.get(taskId) ?? '';
+        const recoveryDrafts = this.extractImplicitCompletionCriteria(instruction);
+        if (recoveryDrafts.length > 0) {
+          await this.freezeCriteria(taskId, runRoundId, recoveryDrafts);
+          const afterFreeze = await getTask(taskId);
+          if (
+            afterFreeze &&
+            this.canApplyDriverOutcome(afterFreeze, taskId, driver) &&
+            afterFreeze.currentRoundId === runRoundId &&
+            this.currentRound(afterFreeze).criteria.length > 0
+          ) {
+            // Freeze may have run after navigate, so baseline already matches the page.
+            // Clear baselines so post-act page evidence can pass checkCompletion.
+            await this.queueTransition(async () => {
+              const current = await getTask(taskId);
+              if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+              if (current.currentRoundId !== runRoundId) return;
+              if (current.status !== 'running') return;
+              const currentRound = this.currentRound(current);
+              for (const criterion of currentRound.criteria) {
+                if (criterion.kind === 'url') criterion.baseline = '';
+                else if (typeof criterion.baseline === 'boolean') criterion.baseline = false;
+              }
+              current.revision += 1;
+              await this.persist(current);
+            });
+            const recovered = await getTask(taskId);
+            if (
+              recovered &&
+              this.canApplyDriverOutcome(recovered, taskId, driver) &&
+              recovered.currentRoundId === runRoundId &&
+              this.currentRound(recovered).criteria.length > 0
+            ) {
+              task = recovered;
+              round = this.currentRound(recovered);
+            }
+          }
+        }
+      }
       if (round.criteria.length === 0) {
         let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
@@ -1398,13 +1440,21 @@ export class TaskManager {
   }
 
   /**
-   * When the planner omits completion_criteria, recover observable success text from the user goal.
-   * E.g. "success is Saved successfully" / "until you see Done".
+   * When the planner omits completion_criteria, recover observable success signals from the user goal.
+   * - Open-site goals ("打开 YouTube" / "open youtube") → url starts_with
+   * - Explicit success text ("success is Saved successfully" / "until you see Done") → page_text
    */
   private extractImplicitCompletionCriteria(instruction: string): CompletionCriterionDraft[] {
     const drafts: CompletionCriterionDraft[] = [];
     const seen = new Set<string>();
     const fieldValues = this.extractUserFieldValues(instruction);
+
+    const openSiteUrl = this.extractOpenSiteUrl(instruction);
+    if (openSiteUrl && !seen.has(openSiteUrl)) {
+      seen.add(openSiteUrl);
+      drafts.push({ kind: 'url', operator: 'starts_with', expected: openSiteUrl, required: true });
+    }
+
     const patterns = [
       /\bsuccess\s+is\s+["'“]?([^"'”.;\n]+)/gi,
       /\buntil\s+(?:you\s+)?(?:see|seeing)\s+["'“]?([^"'”.;\n]+)/gi,
@@ -1420,6 +1470,42 @@ export class TaskManager {
       }
     }
     return drafts.slice(0, 3);
+  }
+
+  /** Map well-known "open / 打开 <site>" goals to a stable https origin for url criteria. */
+  private extractOpenSiteUrl(instruction: string): string | null {
+    const OPEN_SITE_URLS: Record<string, string> = {
+      youtube: 'https://www.youtube.com',
+      'you tube': 'https://www.youtube.com',
+      油管: 'https://www.youtube.com',
+      google: 'https://www.google.com',
+      github: 'https://github.com',
+      bilibili: 'https://www.bilibili.com',
+      哔哩哔哩: 'https://www.bilibili.com',
+      b站: 'https://www.bilibili.com',
+    };
+    const text = instruction.replace(/\s+/g, ' ').trim();
+    if (!text) return null;
+    const match =
+      text.match(/^\s*(?:打开|open)\s+(?:一下\s*|the\s+)?(.+?)\s*$/i) ||
+      text.match(/(?:打开|open)\s+(?:一下\s*|the\s+)?(youtube|you\s*tube|google|github|bilibili|油管|哔哩哔哩|b站)\b/i);
+    if (!match?.[1]) return null;
+    const raw = match[1].replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!raw) return null;
+    if (OPEN_SITE_URLS[raw]) return OPEN_SITE_URLS[raw];
+    for (const [name, url] of Object.entries(OPEN_SITE_URLS)) {
+      if (raw.includes(name)) return url;
+    }
+    // Bare host / URL fragment: "open example.com" or "打开 https://example.com/foo"
+    try {
+      const asUrl = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
+      const parsed = new URL(asUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+      if (!parsed.hostname.includes('.')) return null;
+      return `${parsed.origin}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+    } catch {
+      return null;
+    }
   }
 
   private extractUserFieldValues(instruction: string): Set<string> {

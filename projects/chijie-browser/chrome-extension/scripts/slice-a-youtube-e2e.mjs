@@ -80,24 +80,34 @@ function resolveMiniMaxApiKey() {
 async function seedMiniMax(page) {
   const key = resolveMiniMaxApiKey();
   if (!key) throw new Error('MiniMax API key not found (env or secrets.local.ts)');
-  await page.evaluate(apiKey => {
-    const provider = {
-      id: 'minimax',
-      name: 'MiniMax',
-      type: 'custom_openai',
-      baseUrl: 'https://api.minimaxi.com/v1',
-      apiKey,
-      modelNames: ['MiniMax-M3'],
-    };
-    return chrome.storage.local.set({
-      'llm-providers': { minimax: provider },
-      'agent-models': {
-        planner: { provider: 'minimax', modelName: 'MiniMax-M3', parameters: { temperature: 0.3, topP: 0.6 } },
-        navigator: { provider: 'minimax', modelName: 'MiniMax-M3', parameters: { temperature: 0.2, topP: 0.5 } },
-      },
-      'general-settings': { agentCoreBackend: 'control' },
-    });
-  }, key);
+  const model = process.env.MINIMAX_MODEL || 'MiniMax-M3';
+  const baseUrl = process.env.MINIMAX_BASE_URL || 'https://api.minimaxi.com/v1';
+  await page.evaluate(
+    ({ apiKey, model, baseUrl }) =>
+      chrome.storage.local.set({
+        // Match packages/storage contracts used by the extension runtime.
+        'llm-api-keys': {
+          providers: {
+            minimax: {
+              name: 'MiniMax',
+              type: 'custom_openai',
+              apiKey,
+              baseUrl,
+              modelNames: [model],
+              createdAt: Date.now(),
+            },
+          },
+        },
+        'agent-models': {
+          agents: {
+            planner: { provider: 'minimax', modelName: model, parameters: { temperature: 0.1, topP: 0.1 } },
+            navigator: { provider: 'minimax', modelName: model, parameters: { temperature: 0.1, topP: 0.1 } },
+          },
+        },
+        'general-settings': { agentCoreBackend: 'control' },
+      }),
+    { apiKey: key, model, baseUrl },
+  );
 }
 
 async function extensionIdFromBrowser(browser) {
@@ -176,6 +186,9 @@ async function main() {
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
         `--user-data-dir=${profilePath}`,
+        // Chrome 137+ / 149: --load-extension is gated unless this feature is disabled.
+        '--disable-features=DisableLoadExtensionCommandLineSwitch',
+        '--enable-extensions',
         '--no-first-run',
         '--no-default-browser-check',
       ],
@@ -206,11 +219,8 @@ async function main() {
     throw new Error('goal-input not ready — extension may need reload or bootstrap failed');
   }
 
-  // Focus content as active tab before send (SidePanel uses active tab)
-  await content.bringToFront();
-  await new Promise(r => setTimeout(r, 500));
+  // Type goal while panel is focused, then make content tab active before send.
   await panel.bringToFront();
-
   await panel.evaluate(() => {
     const el = document.querySelector('[data-testid="goal-input"]');
     if (!el) throw new Error('missing goal-input');
@@ -219,6 +229,9 @@ async function main() {
     setter ? setter.call(el, '打开 YouTube') : (el.value = '打开 YouTube');
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
+  // Side panel start binds to chrome.tabs active tab — content must be active at click.
+  await content.bringToFront();
+  await new Promise(r => setTimeout(r, 300));
   await panel.evaluate(() => {
     document.querySelector('[data-testid="goal-send"]')?.click();
   });
@@ -229,6 +242,18 @@ async function main() {
   let hasSteps = false;
   let panelText = '';
   while (Date.now() < deadline) {
+    // Optional confirm path when a real user_confirmed criterion is present.
+    await panel
+      .evaluate(() => {
+        const status = document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status');
+        if (status !== 'waiting_user') return false;
+        const btn = document.querySelector('[data-testid="criterion-confirm"]');
+        if (!btn) return false;
+        btn.click();
+        return true;
+      })
+      .catch(() => false);
+
     const snap = await panel.evaluate(() => ({
       status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status') || null,
       // Expanded list unmounts on completed (defaultStepsExpanded=false); toggle/timeline stay mounted.

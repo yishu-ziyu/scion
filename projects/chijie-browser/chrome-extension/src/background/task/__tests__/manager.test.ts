@@ -821,6 +821,117 @@ describe('TaskManager lifecycle', () => {
     expect(JSON.stringify(snap)).not.toContain('FIELD_SENTINEL_8472');
   });
 
+  it('freezes open-site url criteria from the instruction when the planner omits them', async () => {
+    const driver = fakeDriver();
+    const observeCriteria = vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+      criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: 100,
+        source: 'page' as const,
+        value: item.kind === 'url' ? 'about:blank' : false,
+      })),
+    );
+    let hooks!: ExecutorHooks;
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-open-site',
+      taskId: 'task-open-site',
+      instruction: '打开 YouTube',
+      chatSessionId: 'chat-open-site',
+      instructionMessageId: 'message-open-site',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    await expect(manager.snapshot('task-open-site')).resolves.toMatchObject({
+      rounds: [
+        {
+          criteria: [
+            expect.objectContaining({
+              kind: 'url',
+              operator: 'starts_with',
+              expected: 'https://www.youtube.com/',
+              targetRefId: 'tab-7',
+            }),
+          ],
+        },
+      ],
+    });
+    const roundId = await taskRoundId(manager, 'task-open-site');
+    await hooks.onPlan(roundId, []);
+    const snap = await manager.snapshot('task-open-site');
+    expect(snap?.rounds[0]?.criteria).toHaveLength(1);
+    expect(snap?.rounds[0]?.criteria[0]).toMatchObject({
+      kind: 'url',
+      operator: 'starts_with',
+      expected: 'https://www.youtube.com/',
+    });
+  });
+
+  it('recovers open-site criteria after candidate_complete and completes with a receipt', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    // Pre-run freeze baselines about:blank; post-complete probe sees YouTube.
+    let observeCall = 0;
+    const observeCriteria = vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) => {
+      observeCall += 1;
+      return criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: 100,
+        source: 'page' as const,
+        value: item.kind === 'url' ? (observeCall >= 2 ? 'https://www.youtube.com/' : 'about:blank') : false,
+      }));
+    });
+    let hooks!: ExecutorHooks;
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-open-complete',
+      taskId: 'task-open-complete',
+      instruction: 'open youtube',
+      chatSessionId: 'chat-open-complete',
+      instructionMessageId: 'message-open-complete',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-open-complete');
+    // Simulate live MiniMax: no planner criteria at all (already frozen from instruction).
+    await hooks.onPlan(roundId, []);
+    finish({ kind: 'candidate_complete', summary: 'opened' });
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-open-complete'))?.status).toBe('completed');
+    });
+    const snap = await manager.snapshot('task-open-complete');
+    expect(snap?.rounds[0]?.receipt).toBeTruthy();
+    expect(snap?.rounds[0]?.criteria[0]).toMatchObject({
+      kind: 'url',
+      expected: 'https://www.youtube.com/',
+    });
+  });
+
   it('settles completed with a receipt right after external_commit when automatic criteria pass', async () => {
     let hooks!: ExecutorHooks;
     let now = 100;
