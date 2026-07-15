@@ -643,13 +643,16 @@ export class TaskManager {
           await this.persistMediaWait(taskId, roundId, 'target_missing');
         } else if (result.actionResult.error === 'media_target_ambiguous') {
           await this.persistMediaWait(taskId, roundId, 'target_ambiguous');
-        } else if (
-          !result.actionResult.error &&
-          result.attempt.effect === 'external_commit' &&
-          result.attempt.state === 'observed'
-        ) {
-          // Do not wait for the model to restate "done" after a verified commit.
-          await this.tryVerifyAfterCommit(taskId, roundId);
+        } else if (!result.actionResult.error && result.attempt.state === 'observed') {
+          // Page evidence beats model "done": settle when criteria already hold.
+          // external_commit: retry with backoff (async form rewrite).
+          // reversible/read (nav, video click): one immediate probe so we stop on /watch
+          // without stalling the next step behind multi-second backoff.
+          if (result.attempt.effect === 'external_commit') {
+            await this.tryVerifyAfterSuccessfulAct(taskId, roundId);
+          } else {
+            await this.tryVerifyAfterSuccessfulActOnce(taskId, roundId);
+          }
         }
         return result;
       },
@@ -657,25 +660,25 @@ export class TaskManager {
   }
 
   /**
-   * After a successful external_commit, re-probe frozen criteria.
-   * Real MiniMax loops often keep stepping after form submit without emitting
+   * After a successful act (navigate, click, or approved external commit), re-probe
+   * frozen criteria. Real MiniMax loops often keep stepping without emitting
    * candidate_complete; page evidence is enough for a verified receipt.
    * Fixture/real forms often rewrite DOM after an async fetch - one immediate
    * probe races the update, so retry with short backoff.
    * Only automatic criteria participate - user_confirmed still needs the panel.
    */
-  private async tryVerifyAfterCommit(taskId: string, roundId: string): Promise<void> {
+  private async tryVerifyAfterSuccessfulAct(taskId: string, roundId: string): Promise<void> {
     // Immediate + short backoff: form fixtures rewrite after async fetch; do not block long.
     const delaysMs = this.deps.postCommitVerifyDelaysMs ?? [0, 250, 600, 1200];
     for (const delayMs of delaysMs) {
       if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
-      const settled = await this.tryVerifyAfterCommitOnce(taskId, roundId);
+      const settled = await this.tryVerifyAfterSuccessfulActOnce(taskId, roundId);
       if (settled) return;
     }
   }
 
   /** @returns true when the task was completed (or is no longer verifiable). */
-  private async tryVerifyAfterCommitOnce(taskId: string, roundId: string): Promise<boolean> {
+  private async tryVerifyAfterSuccessfulActOnce(taskId: string, roundId: string): Promise<boolean> {
     const task = await getTask(taskId);
     if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return true;
     const round = this.currentRound(task);
@@ -1435,7 +1438,8 @@ export class TaskManager {
 
   /**
    * When the planner omits completion_criteria, recover observable success signals from the user goal.
-   * - Open-site goals ("打开 YouTube" / "open youtube") → url starts_with
+   * - Open-site goals ("打开 YouTube" / "open youtube") → url starts_with origin
+   * - Open + open first video ("打开YouTube并点击第一个视频") → url starts_with /watch (or site equivalent)
    * - Explicit success text ("success is Saved successfully" / "until you see Done") → page_text
    */
   private extractImplicitCompletionCriteria(instruction: string): CompletionCriterionDraft[] {
@@ -1443,17 +1447,17 @@ export class TaskManager {
     const seen = new Set<string>();
     const fieldValues = this.extractUserFieldValues(instruction);
 
-    const openSiteUrl = this.extractOpenSiteUrl(instruction);
-    if (openSiteUrl && !seen.has(openSiteUrl)) {
-      seen.add(openSiteUrl);
-      drafts.push({ kind: 'url', operator: 'starts_with', expected: openSiteUrl, required: true });
+    const completionUrl = this.extractOpenSiteCompletionUrl(instruction);
+    if (completionUrl && !seen.has(completionUrl)) {
+      seen.add(completionUrl);
+      drafts.push({ kind: 'url', operator: 'starts_with', expected: completionUrl, required: true });
     }
 
     const patterns = [
       /\bsuccess\s+is\s+["'“]?([^"'”.;\n]+)/gi,
       /\buntil\s+(?:you\s+)?(?:see|seeing)\s+["'“]?([^"'”.;\n]+)/gi,
       /成功(?:标志|信号|文案|是|为)?\s*[:：]?\s*["'「]?([^"'」.;。\n]+)/g,
-      /看到\s*["'「]?([^"'」.;。\n]{2,80})/g,
+      /看到\s*["'“「]?([^"'”」.;。\n]{2,80}?)(?=\s*["'”」]?\s*后\s*(?:[，,]\s*)?(?:完成|结束)|["'”」.;。\n]|$)/g,
     ];
     for (const pattern of patterns) {
       for (const match of instruction.matchAll(pattern)) {
@@ -1464,6 +1468,55 @@ export class TaskManager {
       }
     }
     return drafts.slice(0, 3);
+  }
+
+  /**
+   * Resolve the strongest url criterion for an open-site style goal.
+   * Plain open → site origin. Open + click/play first video → watch/player path.
+   */
+  private extractOpenSiteCompletionUrl(instruction: string): string | null {
+    const siteUrl = this.extractOpenSiteUrl(instruction);
+    if (!siteUrl) return null;
+    if (this.instructionRequestsOpenMedia(instruction)) {
+      return this.mediaWatchUrlForSite(siteUrl) ?? siteUrl;
+    }
+    return siteUrl;
+  }
+
+  /** True when the user asked to open/click/play a video, not only land on the site home. */
+  private instructionRequestsOpenMedia(instruction: string): boolean {
+    const text = instruction.replace(/\s+/g, ' ').trim();
+    if (!text) return false;
+    return (
+      /点击.{0,32}(视频|影片)/.test(text) ||
+      /打开.{0,48}(视频|影片)/.test(text) ||
+      /看.{0,16}(一个|第一个|首个)?(视频|影片)/.test(text) ||
+      /click.{0,40}(the\s+)?(first\s+)?video/i.test(text) ||
+      /open.{0,48}(and\s+)?(play|watch).{0,24}video/i.test(text) ||
+      /watch\s+(the\s+)?(first\s+)?video/i.test(text) ||
+      /play\s+(the\s+)?(first\s+)?video/i.test(text)
+    );
+  }
+
+  /** Site-specific watch/player URL prefix used as starts_with evidence. */
+  private mediaWatchUrlForSite(siteUrl: string): string | null {
+    try {
+      const host = new URL(siteUrl).hostname.toLowerCase();
+      if (
+        host === 'youtu.be' ||
+        host === 'www.youtube.com' ||
+        host === 'youtube.com' ||
+        host.endsWith('.youtube.com')
+      ) {
+        return 'https://www.youtube.com/watch';
+      }
+      if (host === 'www.bilibili.com' || host === 'bilibili.com' || host.endsWith('.bilibili.com')) {
+        return 'https://www.bilibili.com/video';
+      }
+    } catch {
+      return null;
+    }
+    return null;
   }
 
   /** Map well-known "open / 打开 <site>" goals to a stable https origin for url criteria. */
@@ -1480,9 +1533,10 @@ export class TaskManager {
     };
     const text = instruction.replace(/\s+/g, ' ').trim();
     if (!text) return null;
+    // Optional whitespace: users often write "打开YouTube" without a space.
     const match =
-      text.match(/^\s*(?:打开|open)\s+(?:一下\s*|the\s+)?(.+?)\s*$/i) ||
-      text.match(/(?:打开|open)\s+(?:一下\s*|the\s+)?(youtube|you\s*tube|google|github|bilibili|油管|哔哩哔哩|b站)\b/i);
+      text.match(/^\s*(?:打开|open)\s*(?:一下\s*|the\s+)?(.+?)\s*$/i) ||
+      text.match(/(?:打开|open)\s*(?:一下\s*|the\s+)?(youtube|you\s*tube|google|github|bilibili|油管|哔哩哔哩|b站)\b/i);
     if (!match?.[1]) return null;
     const raw = match[1].replace(/\s+/g, ' ').trim().toLowerCase();
     if (!raw) return null;

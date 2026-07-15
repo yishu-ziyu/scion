@@ -25,11 +25,7 @@ vi.mock('@extension/storage/lib/task', () => {
     saveTask: async (task: { id: string }) => {
       store.sessions.set(task.id, structuredClone(task));
     },
-    putSkillSaveMeta: async (
-      taskId: string,
-      roundId: string,
-      meta: { templates: unknown[]; unsafe: boolean },
-    ) => {
+    putSkillSaveMeta: async (taskId: string, roundId: string, meta: { templates: unknown[]; unsafe: boolean }) => {
       skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
     },
     getSkillSaveMeta: async (taskId: string, roundId: string) =>
@@ -196,10 +192,11 @@ describe('control backend under TaskManager (G6 seam)', () => {
     expect(round?.receipt).toBeTruthy();
     const actionNames = (round?.attempts ?? []).map(a => a.actionName);
     expect(actionNames).toContain('go_to_url');
-    expect(actionNames).toContain('wait');
+    // May complete right after go_to_url when url criteria already pass (no need to wait).
     expect(currentUrl).toBe('https://www.youtube.com/');
     // Side panel / extension pages must not be the navigated content target
     expect(isForbiddenTaskContentUrl(currentUrl)).toBe(false);
+    expect(round?.approvals ?? []).toHaveLength(0);
   });
 
   it('ticket 05: go_to_url never waits approval; form submit does (single commit after approve)', async () => {
@@ -317,9 +314,7 @@ describe('control backend under TaskManager (G6 seam)', () => {
           steps: [
             {
               type: 'plan',
-              criteria: [
-                { kind: 'url', operator: 'starts_with', expected: 'https://www.youtube.com', required: true },
-              ],
+              criteria: [{ kind: 'url', operator: 'starts_with', expected: 'https://www.youtube.com', required: true }],
             },
             { type: 'action', name: 'go_to_url', args: { url: 'https://www.youtube.com/' } },
             { type: 'fail', category: 'action_failed' },
