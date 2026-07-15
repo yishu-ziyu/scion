@@ -64,6 +64,27 @@
   "chat_input_placeholder": {
     "message": "我能帮你做什么？"
   },
+  "chat_task_mode_badge": {
+    "message": "任务：代理任务"
+  },
+  "chat_task_input_placeholder": {
+    "message": "描述需要完成的任务，持节将为你执行"
+  },
+  "chat_task_steps_heading": {
+    "message": "执行步骤"
+  },
+  "chat_task_rating_prompt": {
+    "message": "本次任务完成得怎么样？"
+  },
+  "chat_task_rate_success": {
+    "message": "成功交付"
+  },
+  "chat_task_rate_partial": {
+    "message": "部分完成"
+  },
+  "chat_task_rate_fail": {
+    "message": "未完成"
+  },
   "chat_input_form": {
     "message": "对话输入表单"
   },

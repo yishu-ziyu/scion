@@ -1,6 +1,6 @@
 import type { ActionAttempt, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
 import { t } from '@extension/i18n';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   actionStackClassName,
   completionVisibleText,
@@ -11,6 +11,15 @@ import {
   statusLabelKey,
   taskCardClassName,
 } from '../design/contracts';
+import {
+  TASK_OUTCOME_RATING_LABELS,
+  type TaskOutcomeRating,
+  defaultStepsExpanded,
+  ratingStorageKey,
+  shouldShowExecutionSteps,
+  shouldShowOutcomeRating,
+  shouldShowVerifiedDone,
+} from '../presentation/task-loop-ui';
 
 export interface TaskStatusCardProps {
   snapshot: TaskSnapshot;
@@ -172,6 +181,8 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
   const [showSkillForm, setShowSkillForm] = useState(false);
   const [skillTitle, setSkillTitle] = useState('');
   const [skillTemplate, setSkillTemplate] = useState('');
+  const [stepsExpanded, setStepsExpanded] = useState(() => defaultStepsExpanded(snapshot.status));
+  const [outcomeRating, setOutcomeRating] = useState<TaskOutcomeRating | null>(null);
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
   const approval = round?.approvals.find(item => item.status === 'pending');
   const attempts = round?.attempts ?? [];
@@ -196,6 +207,24 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
   const totalHint = Math.max(attempts.length + (snapshot.status === 'waiting_approval' ? 1 : 0), attempts.length, 1);
   const progressLabel = `${Math.min(doneSteps + (snapshot.status === 'waiting_approval' ? 1 : 0), totalHint)}/${Math.max(totalHint, 7)}`;
 
+  useEffect(() => {
+    setStepsExpanded(defaultStepsExpanded(snapshot.status));
+  }, [snapshot.id, snapshot.status, round?.id]);
+
+  useEffect(() => {
+    const receiptId = round?.receipt?.id;
+    if (!receiptId || typeof localStorage === 'undefined') {
+      setOutcomeRating(null);
+      return;
+    }
+    const stored = localStorage.getItem(ratingStorageKey(receiptId));
+    if (stored === 'success' || stored === 'partial' || stored === 'fail') {
+      setOutcomeRating(stored);
+    } else {
+      setOutcomeRating(null);
+    }
+  }, [round?.receipt?.id]);
+
   const openSkillForm = () => {
     setShowSkillForm(true);
     setSkillTitle(previous => previous || snapshot.goalSummary.slice(0, 48) || t('chat_skills_defaultTitle'));
@@ -217,6 +246,18 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
       .slice()
       .reverse()
       .find(a => a.id === approval.attemptId || a.effect === 'external_commit');
+
+  const showSteps = shouldShowExecutionSteps(attempts);
+  const showVerifiedDone = shouldShowVerifiedDone(round?.receipt);
+  const showRating = shouldShowOutcomeRating(round?.receipt);
+
+  const selectRating = (rating: TaskOutcomeRating) => {
+    setOutcomeRating(rating);
+    const receiptId = round?.receipt?.id;
+    if (receiptId && typeof localStorage !== 'undefined') {
+      localStorage.setItem(ratingStorageKey(receiptId), rating);
+    }
+  };
 
   return (
     <section
@@ -268,35 +309,47 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
         )}
       </div>
 
-      {/* Block 3: Round timeline */}
-      {attempts.length > 0 && (
+      {/* Block 3: Collapsible execution steps (Tabbit-class) */}
+      {showSteps && (
         <div data-testid="task-round-timeline" className="chijie-task-section">
-          <div className={monoLabelClassName}>{t('chat_task_section_rounds')}</div>
-          <ol className="chijie-round-timeline">
-            {attempts.map((attempt, index) => {
-              const isPendingCommit =
-                Boolean(pendingCommitAttempt) &&
-                attempt.id === pendingCommitAttempt?.id &&
-                snapshot.status === 'waiting_approval';
-              return (
-                <li
-                  key={attempt.id}
-                  data-testid="task-round-step"
-                  data-state={attempt.state}
-                  data-pending={isPendingCommit ? 'true' : 'false'}
-                  className={isPendingCommit ? 'is-pending' : undefined}>
-                  <span className="chijie-round-time">{formatTime(attempt.proposedAt)}</span>
-                  <span className="chijie-round-body">
-                    <span className="chijie-round-title">{humanActionLabel(attempt.actionName)}</span>
-                    <span className="chijie-round-state">{attemptLineState(attempt, isPendingCommit)}</span>
-                  </span>
-                  <span className="chijie-round-index" aria-hidden>
-                    {index + 1}
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
+          <button
+            type="button"
+            data-testid="task-steps-toggle"
+            className={`${monoLabelClassName} flex w-full items-center justify-between gap-2 text-left`}
+            aria-expanded={stepsExpanded}
+            onClick={() => setStepsExpanded(open => !open)}>
+            <span>
+              {t('chat_task_steps_heading')} {stepsExpanded ? '⌃' : '⌄'}
+            </span>
+            <span className="opacity-70">{attempts.length}</span>
+          </button>
+          {stepsExpanded && (
+            <ol data-testid="task-execution-steps" className="chijie-round-timeline">
+              {attempts.map((attempt, index) => {
+                const isPendingCommit =
+                  Boolean(pendingCommitAttempt) &&
+                  attempt.id === pendingCommitAttempt?.id &&
+                  snapshot.status === 'waiting_approval';
+                return (
+                  <li
+                    key={attempt.id}
+                    data-testid="task-round-step"
+                    data-state={attempt.state}
+                    data-pending={isPendingCommit ? 'true' : 'false'}
+                    className={isPendingCommit ? 'is-pending' : undefined}>
+                    <span className="chijie-round-time">{formatTime(attempt.proposedAt)}</span>
+                    <span className="chijie-round-body">
+                      <span className="chijie-round-title">{humanActionLabel(attempt.actionName)}</span>
+                      <span className="chijie-round-state">{attemptLineState(attempt, isPendingCommit)}</span>
+                    </span>
+                    <span className="chijie-round-index" aria-hidden>
+                      {index + 1}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
         </div>
       )}
 
@@ -346,8 +399,8 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
         </div>
       )}
 
-      {/* Block 5: Completion receipt */}
-      {round?.receipt && (
+      {/* Block 5: Verified completion only (receipt required) */}
+      {showVerifiedDone && round?.receipt && (
         <div data-testid="completion-receipt" className="chijie-done-block">
           {completionText.split('\n').map(line => (
             <div key={line} className={line === t('chat_task_done_title') ? 'font-medium' : 'mt-0.5 text-xs opacity-90'}>
@@ -368,6 +421,39 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
               <dd>{siteLabel(snapshot)}</dd>
             </div>
           </dl>
+        </div>
+      )}
+
+      {/* Optional outcome rating after verified done (Tabbit-class) */}
+      {showRating && round?.receipt && (
+        <div data-testid="task-outcome-rating" className="chijie-task-section">
+          <div className={monoLabelClassName}>{t('chat_task_rating_prompt')}</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              data-testid="task-rate-success"
+              data-active={outcomeRating === 'success' ? 'true' : 'false'}
+              className={outcomeRating === 'success' ? primaryButtonClassName : secondaryButtonClassName}
+              onClick={() => selectRating('success')}>
+              {TASK_OUTCOME_RATING_LABELS.success}
+            </button>
+            <button
+              type="button"
+              data-testid="task-rate-partial"
+              data-active={outcomeRating === 'partial' ? 'true' : 'false'}
+              className={outcomeRating === 'partial' ? primaryButtonClassName : secondaryButtonClassName}
+              onClick={() => selectRating('partial')}>
+              {TASK_OUTCOME_RATING_LABELS.partial}
+            </button>
+            <button
+              type="button"
+              data-testid="task-rate-fail"
+              data-active={outcomeRating === 'fail' ? 'true' : 'false'}
+              className={outcomeRating === 'fail' ? primaryButtonClassName : secondaryButtonClassName}
+              onClick={() => selectRating('fail')}>
+              {TASK_OUTCOME_RATING_LABELS.fail}
+            </button>
+          </div>
         </div>
       )}
 

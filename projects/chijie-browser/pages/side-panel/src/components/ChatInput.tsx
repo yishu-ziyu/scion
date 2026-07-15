@@ -174,9 +174,17 @@ export default function ChatInput({
   return (
     <form
       onSubmit={handleSubmit}
+      data-testid="task-mode-input"
       className={`overflow-hidden rounded-[12px] border border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] ${disabled ? 'cursor-not-allowed opacity-80' : ''}`}
       aria-label={t('chat_input_form')}>
       <div className="flex flex-col">
+        <div className="flex items-center gap-2 border-b border-[var(--chijie-border)] px-3 py-2">
+          <span
+            data-testid="task-mode-badge"
+            className="rounded-full border border-[var(--chijie-border-strong)] bg-[var(--chijie-surface)] px-2.5 py-0.5 text-xs font-medium text-[var(--chijie-foreground)]">
+            {t('chat_task_mode_badge')}
+          </span>
+        </div>
         {attachedFiles.length > 0 && (
           <div className="flex flex-wrap gap-2 border-b border-[var(--chijie-border)] p-2">
             {attachedFiles.map((file, index) => (
@@ -207,7 +215,7 @@ export default function ChatInput({
           aria-disabled={disabled}
           rows={5}
           className="w-full resize-none border-none bg-transparent p-3 text-[var(--chijie-foreground)] focus:outline-none disabled:cursor-not-allowed"
-          placeholder={attachedFiles.length > 0 ? '添加说明（可选）...' : t('chat_input_placeholder')}
+          placeholder={attachedFiles.length > 0 ? '添加说明（可选）...' : t('chat_task_input_placeholder')}
           aria-label={t('chat_input_editor')}
         />
 

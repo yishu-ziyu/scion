@@ -243,3 +243,33 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).not.toMatch(/可看上方聊天里的失败说明/);
   });
 });
+
+describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
+  it('ChatInput is labeled task/agent mode with task placeholder keys', () => {
+    const chatInput = readFileSync(resolve(here, '../../components/ChatInput.tsx'), 'utf8');
+    expect(chatInput).toContain('data-testid="task-mode-badge"');
+    expect(chatInput).toContain('chat_task_mode_badge');
+    expect(chatInput).toContain('chat_task_input_placeholder');
+    expect(chatInput).not.toMatch(/Planner|Navigator|step_failed/);
+  });
+
+  it('TaskStatusCard has collapsible execution steps and outcome rating after receipt', () => {
+    expect(taskStatusCardSource).toContain('data-testid="task-steps-toggle"');
+    expect(taskStatusCardSource).toContain('data-testid="task-execution-steps"');
+    expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
+    expect(taskStatusCardSource).toContain('data-testid="task-outcome-rating"');
+    expect(taskStatusCardSource).toContain('data-testid="task-rate-success"');
+    expect(taskStatusCardSource).toContain('data-testid="task-rate-partial"');
+    expect(taskStatusCardSource).toContain('data-testid="task-rate-fail"');
+    expect(taskStatusCardSource).toContain('TASK_OUTCOME_RATING_LABELS');
+    const loopUi = readFileSync(resolve(here, '../../presentation/task-loop-ui.ts'), 'utf8');
+    expect(loopUi).toContain('成功交付');
+    expect(loopUi).toContain('部分完成');
+    expect(loopUi).toContain('未完成');
+  });
+
+  it('completion block is gated on receipt helper (no bare model done)', () => {
+    expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
+    expect(taskStatusCardSource).toMatch(/shouldShowVerifiedDone\(round\?\.receipt\)/);
+  });
+});

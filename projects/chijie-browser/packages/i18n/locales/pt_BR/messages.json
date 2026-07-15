@@ -64,6 +64,27 @@
   "chat_input_placeholder": {
     "message": "Como posso ajudar?"
   },
+  "chat_task_mode_badge": {
+    "message": "Tarefa: agente"
+  },
+  "chat_task_input_placeholder": {
+    "message": "Descreva a tarefa; o agente executará no navegador"
+  },
+  "chat_task_steps_heading": {
+    "message": "Etapas de execução"
+  },
+  "chat_task_rating_prompt": {
+    "message": "Como foi esta tarefa?"
+  },
+  "chat_task_rate_success": {
+    "message": "Sucesso"
+  },
+  "chat_task_rate_partial": {
+    "message": "Parcial"
+  },
+  "chat_task_rate_fail": {
+    "message": "Não concluída"
+  },
   "chat_input_form": {
     "message": "Formulário de entrada de chat"
   },

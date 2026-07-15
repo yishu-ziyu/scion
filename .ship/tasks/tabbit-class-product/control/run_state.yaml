@@ -1,0 +1,23 @@
+task_id: tabbit-class-product
+active: true
+current_phase: to-tickets
+status: tickets_ready
+workflow: matt-main-flow
+updated_at: "2026-07-15T04:45:00Z"
+spec_path: .ship/tasks/tabbit-class-product/spec/SPEC.md
+product_index: docs/product/008-tabbit-class-agent-task-loop-spec.md
+parent_issue: https://github.com/yishu-ziyu/scion/issues/1
+tickets_dir: .ship/tasks/tabbit-class-product/issues
+frontier:
+  - "01"
+next: implement ticket 01 with tdd
+seams: S1-S5 accepted
+decisions_locked:
+  - mvp_loop: agent_task_loop_tabbit_style
+  - shell: chrome_extension
+  - core: ts_agent_loop_plus_extension_browser_control
+  - approval: per_action_external_commit_only
+  - slices: A_youtube_then_B_feishu_and_or_C_bilibili
+  - scope: task_loop_extension_minimax
+  - later_intent:
+      - cross_conversation_memory

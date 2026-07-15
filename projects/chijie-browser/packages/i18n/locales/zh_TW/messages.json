@@ -64,6 +64,27 @@
   "chat_input_placeholder": {
     "message": "有什麼需要協助的嗎？"
   },
+  "chat_task_mode_badge": {
+    "message": "任務：代理任務"
+  },
+  "chat_task_input_placeholder": {
+    "message": "描述需要完成的任務，持節將為你執行"
+  },
+  "chat_task_steps_heading": {
+    "message": "執行步驟"
+  },
+  "chat_task_rating_prompt": {
+    "message": "本次任務完成得怎麼樣？"
+  },
+  "chat_task_rate_success": {
+    "message": "成功交付"
+  },
+  "chat_task_rate_partial": {
+    "message": "部分完成"
+  },
+  "chat_task_rate_fail": {
+    "message": "未完成"
+  },
   "chat_input_form": {
     "message": "對話輸入表單"
   },

@@ -64,6 +64,27 @@
   "chat_input_placeholder": {
     "message": "我能帮你做什么？"
   },
+  "chat_task_mode_badge": {
+    "message": "Task: agent task"
+  },
+  "chat_task_input_placeholder": {
+    "message": "Describe the task; 持节 will run it in your browser"
+  },
+  "chat_task_steps_heading": {
+    "message": "Execution steps"
+  },
+  "chat_task_rating_prompt": {
+    "message": "How did this task go?"
+  },
+  "chat_task_rate_success": {
+    "message": "Success"
+  },
+  "chat_task_rate_partial": {
+    "message": "Partial"
+  },
+  "chat_task_rate_fail": {
+    "message": "Not done"
+  },
   "chat_input_form": {
     "message": "对话输入表单"
   },
