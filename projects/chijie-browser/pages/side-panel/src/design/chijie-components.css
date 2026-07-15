@@ -307,6 +307,15 @@
   min-width: 0;
 }
 
+.chijie-header-logo {
+  display: block;
+  height: 28px;
+  width: auto;
+  max-width: 160px;
+  object-fit: contain;
+  object-position: left center;
+}
+
 .chijie-header-brand-title {
   font-family: var(--chijie-font-hand);
   font-size: 24px;

@@ -216,14 +216,16 @@ describe('Feature: design/003 task main blocks', () => {
     expect(humanActionLabel('control_media')).toBe('媒体控制');
   });
 
-  it('header brand is 持节 Chijie', () => {
-    expect(sidePanelSource).toContain('持节 Chijie');
+  it('header brand uses scion logo asset', () => {
+    expect(sidePanelSource).toContain('logo-header.png');
+    expect(sidePanelSource).toContain('data-testid="header-logo"');
+    expect(sidePanelSource).toContain('logo-mark.png');
   });
 
   it('Options overview implements design/003 cards', () => {
     const overview = readFileSync(resolve(optionsRoot, 'components/OverviewSettings.tsx'), 'utf8');
     expect(optionsTsx).toContain('OverviewSettings');
-    expect(optionsTsx).toContain('持节 Chijie');
+    expect(optionsTsx).toContain('logo-header.png');
     expect(overview).toContain('overview-pipeline');
     expect(overview).toContain('overview-model');
     expect(overview).toContain('overview-approval');

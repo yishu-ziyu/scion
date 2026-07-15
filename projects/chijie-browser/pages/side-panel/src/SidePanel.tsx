@@ -975,7 +975,12 @@ const SidePanel = () => {
               </button>
             ) : (
               <div className="chijie-header-brand">
-                <span className="chijie-header-brand-title">持节 Chijie</span>
+                <img
+                  src={chrome.runtime.getURL('logo-header.png')}
+                  alt="scion"
+                  className="chijie-header-logo"
+                  data-testid="header-logo"
+                />
                 <span className="chijie-header-brand-sub" data-testid="header-task-status">
                   {taskSnapshot
                     ? t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
@@ -1055,7 +1060,12 @@ const SidePanel = () => {
             {hasConfiguredModels === false && (
               <div className="chijie-welcome">
                 <div className="chijie-welcome-card">
-                  <img src="/icon-128.png" alt="持节 Logo" className="mx-auto mb-4 size-12" />
+                  <img
+                    src={chrome.runtime.getURL('logo-mark.png')}
+                    alt="scion"
+                    className="mx-auto mb-4 size-12"
+                    data-testid="welcome-logo"
+                  />
                   <h3>{t('welcome_title')}</h3>
                   <p className="mb-4">{t('welcome_instruction')}</p>
                   <button
