@@ -21,6 +21,7 @@ import {
   stylesUseBoxShadow,
   sourceHasBannedSkyChrome,
 } from '../contracts';
+import { t } from '@extension/i18n';
 import {
   approvalActionLabel,
   humanApprovalSummary,
@@ -28,17 +29,16 @@ import {
 } from '../../components/TaskStatusCard';
 import { commandRejectionMessage } from '../../SidePanel';
 
-const testMessages: Record<string, string> = {
-  chat_task_action_input: '填写表单',
-  chat_task_action_media: '媒体控制',
-  chat_task_approval_action_click: '执行一次页面确认操作',
-  chat_task_command_stale: '任务状态已刷新',
-  chat_task_command_invalid_transition: '操作已失效',
-};
+// Ready/dev i18n resolves via t.devLocale, not chrome.i18n. Pin zh_CN so
+// product-copy assertions stay stable on English host machines.
+t.devLocale = 'zh_CN';
 
 vi.stubGlobal('chrome', {
   i18n: {
-    getMessage: (key: string) => testMessages[key] ?? key,
+    getMessage: (key: string) => {
+      t.devLocale = 'zh_CN';
+      return t(key as Parameters<typeof t>[0]);
+    },
   },
 });
 
