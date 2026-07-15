@@ -123,12 +123,98 @@
   padding: 10px 12px;
 }
 
-/* design/003 — task / rounds / approval */
+/* design/003 — task / rounds / approval
+ * Reading order (BDD): status → goal → steps → actions
+ */
+.chijie-task-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chijie-task-status-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 60%;
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: rgba(26, 26, 26, 0.08);
+  color: var(--chijie-paper-ink);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+}
+
+.chijie-task-status-pill[data-status='running'] {
+  background: rgba(227, 83, 66, 0.14);
+  color: var(--chijie-accent-signal);
+}
+
+.chijie-task-status-pill[data-status='completed'] {
+  background: rgba(26, 26, 26, 0.08);
+  color: var(--chijie-paper-ink);
+}
+
+.chijie-task-status-pill[data-status='failed'],
+.chijie-task-status-pill[data-status='waiting_approval'],
+.chijie-task-status-pill[data-status='waiting_user'] {
+  background: rgba(215, 25, 33, 0.12);
+  color: var(--chijie-accent-signal);
+}
+
+.chijie-task-site-chip {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--chijie-font-mono);
+  font-size: 11px;
+  color: var(--chijie-muted);
+  text-align: right;
+}
+
+.chijie-task-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.chijie-task-goal-kicker {
+  margin: 0;
+  font-family: var(--chijie-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--chijie-muted);
+}
+
+.chijie-task-goal-text {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--chijie-paper-ink);
+  word-break: break-word;
+}
+
+.chijie-task-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
 .chijie-task-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-top: 4px;
+  padding-top: 10px;
   border-top: 1px solid rgba(26, 26, 26, 0.1);
 }
 
@@ -164,11 +250,9 @@
 }
 
 .chijie-progress-track {
-  display: inline-block;
-  width: 72px;
+  display: block;
+  flex: 1;
   height: 6px;
-  margin-right: 8px;
-  vertical-align: middle;
   border-radius: 99px;
   background: rgba(26, 26, 26, 0.12);
   overflow: hidden;
@@ -182,6 +266,7 @@
 }
 
 .chijie-progress-text {
+  flex-shrink: 0;
   font-family: var(--chijie-font-mono);
   font-size: 11px;
   color: var(--chijie-paper-ink);
@@ -195,43 +280,104 @@
   opacity: 0.85;
 }
 
+.chijie-task-steps-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--chijie-paper-ink);
+  font-family: var(--chijie-font-body);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chijie-task-steps-count {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: rgba(26, 26, 26, 0.08);
+  font-family: var(--chijie-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--chijie-muted);
+}
+
+.chijie-task-steps-caret {
+  color: var(--chijie-muted);
+  font-size: 11px;
+}
+
 .chijie-round-timeline {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .chijie-round-timeline li {
   display: grid;
-  grid-template-columns: 2.75rem 1fr 1rem;
-  gap: 8px;
+  grid-template-columns: 1.5rem 1fr;
+  gap: 10px;
   align-items: start;
-  font-size: 12px;
-  line-height: 1.4;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(26, 26, 26, 0.04);
+  font-size: 13px;
+  line-height: 1.35;
 }
 
-.chijie-round-timeline li.is-pending .chijie-round-title {
+.chijie-round-timeline li.is-pending,
+.chijie-round-timeline li.is-active {
+  background: rgba(227, 83, 66, 0.1);
+}
+
+.chijie-round-timeline li.is-pending .chijie-round-title,
+.chijie-round-timeline li.is-active .chijie-round-title {
   color: var(--chijie-accent-signal);
   font-weight: 600;
 }
 
-.chijie-round-time {
+.chijie-round-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 99px;
+  background: rgba(26, 26, 26, 0.1);
   font-family: var(--chijie-font-mono);
-  font-size: 10px;
-  color: var(--chijie-muted);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--chijie-paper-ink);
+  line-height: 1;
 }
 
 .chijie-round-body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .chijie-round-title {
   color: var(--chijie-paper-ink);
+  font-weight: 500;
+}
+
+.chijie-round-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
 }
 
 .chijie-round-state {
@@ -239,11 +385,11 @@
   color: var(--chijie-muted);
 }
 
-.chijie-round-index {
+.chijie-round-time {
   font-family: var(--chijie-font-mono);
   font-size: 10px;
   color: var(--chijie-muted);
-  text-align: right;
+  opacity: 0.85;
 }
 
 .chijie-approval-card {

@@ -196,6 +196,37 @@ function siteLabel(snapshot: TaskSnapshot): string {
   return t('chat_task_working_on_page');
 }
 
+/** Prefer a short hostname for the card chrome; full URL only when needed. */
+function siteHostLabel(snapshot: TaskSnapshot): string {
+  const raw = siteLabel(snapshot);
+  try {
+    if (raw.startsWith('http')) return new URL(raw).hostname.replace(/^www\./, '');
+  } catch {
+    /* keep raw */
+  }
+  return raw;
+}
+
+/**
+ * What the user asked for.
+ * Prefer chat message text: task snapshots intentionally keep generic
+ * goalSummary ("User task") so secrets never land in storage.
+ */
+export function displayGoalText(
+  snapshot: TaskSnapshot,
+  roundInstruction: string | undefined,
+  defaultInstruction = '',
+): string {
+  const isPlaceholder = (s: string) => !s || /^user\s+(task|instruction)$/i.test(s);
+  const fromChat = defaultInstruction.replace(/\s+/g, ' ').trim();
+  if (fromChat && !isPlaceholder(fromChat)) return fromChat;
+  for (const c of [snapshot.goalSummary, roundInstruction]) {
+    const text = (c ?? '').replace(/\s+/g, ' ').trim();
+    if (!isPlaceholder(text)) return text;
+  }
+  return fromChat || '—';
+}
+
 export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: TaskStatusCardProps) {
   const [showSkillForm, setShowSkillForm] = useState(false);
   const [skillTitle, setSkillTitle] = useState('');
@@ -223,8 +254,14 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
     snapshot.status === 'interrupted';
 
   const doneSteps = attempts.filter(a => a.state === 'observed' || a.state === 'approved').length;
-  const totalHint = Math.max(attempts.length + (snapshot.status === 'waiting_approval' ? 1 : 0), attempts.length, 1);
-  const progressLabel = `${Math.min(doneSteps + (snapshot.status === 'waiting_approval' ? 1 : 0), totalHint)}/${Math.max(totalHint, 7)}`;
+  // Real counts only - never invent a fake "/7" denominator.
+  const totalSteps = Math.max(attempts.length, doneSteps, snapshot.status === 'waiting_approval' ? doneSteps + 1 : 0, 0);
+  const progressDone = Math.min(doneSteps + (snapshot.status === 'waiting_approval' ? 1 : 0), Math.max(totalSteps, 1));
+  const progressTotal = Math.max(totalSteps, progressDone, 1);
+  const progressLabel = totalSteps > 0 ? `${progressDone}/${progressTotal}` : '—';
+  const progressPct =
+    totalSteps > 0 ? Math.min(100, Math.round((progressDone / progressTotal) * 100)) : snapshot.status === 'completed' ? 100 : 0;
+  const goalText = displayGoalText(snapshot, round?.instructionSummary, defaultInstruction);
 
   useEffect(() => {
     setStepsExpanded(defaultStepsExpanded(snapshot.status));
@@ -284,43 +321,30 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
       data-status={snapshot.status}
       data-attention={needsAttention ? 'true' : 'false'}
       className={taskCardClassName}>
-      {/* Header: status */}
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-lg font-medium leading-tight" data-testid="task-status-label">
-            {t(statusLabelKey(snapshot.status))}
-          </span>
-          {!isTerminal && <span className={monoLabelClassName}>{t('chat_task_working_on_page')}</span>}
-        </div>
-      </div>
+      {/* 1. Status strip: what phase + where (one glance) */}
+      <header className="chijie-task-head">
+        <span className="chijie-task-status-pill" data-testid="task-status-label" data-status={snapshot.status}>
+          {t(statusLabelKey(snapshot.status))}
+        </span>
+        <span className="chijie-task-site-chip" data-testid="task-site" title={siteLabel(snapshot)}>
+          {siteHostLabel(snapshot)}
+        </span>
+      </header>
 
-      {/* Block 2: Task card (design/003) */}
-      <div data-testid="task-goal-block" className="chijie-task-section">
-        <div className={monoLabelClassName}>{t('chat_task_section_task')}</div>
-        <dl className="chijie-task-meta">
-          <div>
-            <dt>{t('chat_task_current_goal')}</dt>
-            <dd data-testid="task-goal-summary">{snapshot.goalSummary || round?.instructionSummary || '—'}</dd>
+      {/* 2. Goal hero: what you asked for */}
+      <div data-testid="task-goal-block" className="chijie-task-goal">
+        <p className="chijie-task-goal-kicker">{t('chat_task_current_goal')}</p>
+        <p className="chijie-task-goal-text" data-testid="task-goal-summary">
+          {goalText}
+        </p>
+        {totalSteps > 0 && (
+          <div className="chijie-task-progress-row" data-testid="task-progress">
+            <span className="chijie-progress-track" aria-hidden>
+              <span className="chijie-progress-fill" style={{ width: `${progressPct}%` }} />
+            </span>
+            <span className="chijie-progress-text">{progressLabel}</span>
           </div>
-          <div>
-            <dt>{t('chat_task_current_site')}</dt>
-            <dd data-testid="task-site">{siteLabel(snapshot)}</dd>
-          </div>
-          <div>
-            <dt>{t('chat_task_progress')}</dt>
-            <dd data-testid="task-progress">
-              <span className="chijie-progress-track" aria-hidden>
-                <span
-                  className="chijie-progress-fill"
-                  style={{
-                    width: `${Math.min(100, Math.round((Number(progressLabel.split('/')[0]) / Number(progressLabel.split('/')[1] || 1)) * 100))}%`,
-                  }}
-                />
-              </span>
-              <span className="chijie-progress-text">{progressLabel}</span>
-            </dd>
-          </div>
-        </dl>
+        )}
         {snapshot.status === 'waiting_approval' && (
           <p className="chijie-policy-hint" data-testid="task-policy-hint">
             {t('chat_task_policy_external')}
@@ -328,19 +352,22 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
         )}
       </div>
 
-      {/* Block 3: Collapsible execution steps (Tabbit-class) */}
+      {/* 3. Steps: numbered story of what happened */}
       {showSteps && (
-        <div data-testid="task-round-timeline" className="chijie-task-section">
+        <div data-testid="task-round-timeline" className="chijie-task-section chijie-task-steps">
           <button
             type="button"
             data-testid="task-steps-toggle"
-            className={`${monoLabelClassName} flex w-full items-center justify-between gap-2 text-left`}
+            className="chijie-task-steps-toggle"
             aria-expanded={stepsExpanded}
             onClick={() => setStepsExpanded(open => !open)}>
             <span>
-              {t('chat_task_steps_heading')} {stepsExpanded ? '⌃' : '⌄'}
+              {t('chat_task_steps_heading')}
+              <span className="chijie-task-steps-count">{attempts.length}</span>
             </span>
-            <span className="opacity-70">{attempts.length}</span>
+            <span className="chijie-task-steps-caret" aria-hidden>
+              {stepsExpanded ? '⌃' : '⌄'}
+            </span>
           </button>
           {stepsExpanded && (
             <ol data-testid="task-execution-steps" className="chijie-round-timeline">
@@ -349,20 +376,23 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
                   Boolean(pendingCommitAttempt) &&
                   attempt.id === pendingCommitAttempt?.id &&
                   snapshot.status === 'waiting_approval';
+                const isActive = attempt.state === 'executing' || attempt.state === 'proposed' || isPendingCommit;
                 return (
                   <li
                     key={attempt.id}
                     data-testid="task-round-step"
                     data-state={attempt.state}
                     data-pending={isPendingCommit ? 'true' : 'false'}
-                    className={isPendingCommit ? 'is-pending' : undefined}>
-                    <span className="chijie-round-time">{formatTime(attempt.proposedAt)}</span>
-                    <span className="chijie-round-body">
-                      <span className="chijie-round-title">{humanActionLabel(attempt.actionName)}</span>
-                      <span className="chijie-round-state">{attemptLineState(attempt, isPendingCommit)}</span>
-                    </span>
+                    className={[isPendingCommit ? 'is-pending' : '', isActive ? 'is-active' : ''].filter(Boolean).join(' ') || undefined}>
                     <span className="chijie-round-index" aria-hidden>
                       {index + 1}
+                    </span>
+                    <span className="chijie-round-body">
+                      <span className="chijie-round-title">{humanActionLabel(attempt.actionName)}</span>
+                      <span className="chijie-round-meta">
+                        <span className="chijie-round-state">{attemptLineState(attempt, isPendingCommit)}</span>
+                        <span className="chijie-round-time">{formatTime(attempt.proposedAt)}</span>
+                      </span>
                     </span>
                   </li>
                 );

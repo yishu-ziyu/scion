@@ -224,10 +224,10 @@
     "message": "使用大型語言模型的視覺能力 (將會消耗更多的 token 以取得更好的結果)"
   },
   "options_general_displayHighlights": {
-    "message": "顯示醒目標示"
+    "message": "顯示元素高亮（偵錯）"
   },
   "options_general_displayHighlights_desc": {
-    "message": "在可互動的元素 (如按鈕、連結等) 上顯示視覺化醒目標示"
+    "message": "在網頁上為可點元素畫編號彩框。預設關閉，一般使用不需開啟。"
   },
   "options_general_planningInterval": {
     "message": "重新規劃頻率"

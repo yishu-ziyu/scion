@@ -432,10 +432,9 @@ export default class Page {
       await this.removeHighlight();
 
       // Get DOM content (equivalent to dom_service.get_clickable_elements)
-      // This part would need to be implemented based on your DomService logic
-      // showHighlightElements is true if either useVision or displayHighlights is true
-      const displayHighlights = this._config.displayHighlights || useVision;
-      const content = await this.getClickableElements(displayHighlights, focusElement);
+      // Paint overlays only when displayHighlights is on (debug). Never force
+      // overlays for useVision - screenshots must not cover the page with boxes.
+      const content = await this.getClickableElements(this._config.displayHighlights, focusElement);
       if (!content) {
         logger.warning('Failed to get clickable elements');
         // Return last known good state if available

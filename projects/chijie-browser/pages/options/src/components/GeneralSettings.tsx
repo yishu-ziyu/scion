@@ -21,8 +21,7 @@ export const GeneralSettings = ({ isDarkMode = false }: GeneralSettingsProps) =>
  // Call the store to update the setting
  await generalSettingsStore.updateSettings({ [key]: value } as Partial<GeneralSettingsConfig>);
 
- // After the store update (which might have side effects, e.g., useVision affecting displayHighlights),
- // fetch the latest settings from the store and update the local state again to ensure UI consistency.
+ // Re-fetch after write so UI matches store (including one-time migrations).
  const latestSettings = await generalSettingsStore.getSettings();
  setSettings(latestSettings);
  };

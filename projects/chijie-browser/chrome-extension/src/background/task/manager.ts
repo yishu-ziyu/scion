@@ -219,6 +219,9 @@ export class TaskManager {
       taskId: command.taskId,
       revision: 1,
     };
+    // goalSummary/instructionSummary stay generic on purpose: snapshots must not
+    // embed the raw instruction (secrets / success phrases). UI shows the user
+    // text from the chat message via defaultInstruction.
     const round: TaskRound = {
       id: roundId,
       instructionMessageId: command.instructionMessageId,
