@@ -72,8 +72,9 @@ export interface BrowserContextConfig {
   homePageUrl: string;
 
   /**
-   * Display highlights on interactive elements
-   * @default true
+   * Display numbered color boxes on interactive elements (debug only).
+   * Off by default so humans see a clean page; agent still gets DOM indices.
+   * @default false
    */
   displayHighlights: boolean;
 }
@@ -89,7 +90,7 @@ export const DEFAULT_BROWSER_CONTEXT_CONFIG: BrowserContextConfig = {
   deniedUrls: [],
   includeDynamicAttributes: true,
   homePageUrl: 'about:blank',
-  displayHighlights: true,
+  displayHighlights: false,
 };
 
 export interface PageState extends DOMState {

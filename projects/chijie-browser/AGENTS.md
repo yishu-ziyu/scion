@@ -179,6 +179,9 @@ Full change list + CDP commands: **`../../HANDOVER.md`**.
 | Dual tree, CDP, E2E status | `../../HANDOVER.md` |
 | Product vocabulary | `../../CONTEXT.md` |
 | Why Chrome extension | `../../docs/decisions/001-keep-chrome-extension.md` |
-| Task runtime design (not built yet) | `../../docs/design/001-browser-action-task-runtime.md` |
+| Task runtime (L4 shell; partially-outdated) | `../../docs/design/001-browser-action-task-runtime.md` |
+| Production core swap (default `control`) | `../../docs/design/002-production-core-swap.md` |
+| Tabbit-class task loop index | `../../docs/product/008-tabbit-class-agent-task-loop-spec.md` |
+| Calm task console (visual/three-state) | `../../docs/design/004-chijie-calm-task-console.md` |
 | E2E evidence index | `../../reports/nanobrowser/` |
 | Upstream-style long style essay (backup) | `AGENTS.md.bak-20260714` |

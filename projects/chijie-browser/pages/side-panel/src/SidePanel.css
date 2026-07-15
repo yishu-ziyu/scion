@@ -10,7 +10,7 @@ code {
   background: var(--chijie-surface-raised);
   border-radius: var(--chijie-radius-sm);
   padding: 0.2rem 0.5rem;
-  color: var(--chijie-paper);
+  color: var(--chijie-foreground);
   font-family: var(--chijie-font-mono);
   font-size: 12px;
 }
@@ -34,10 +34,11 @@ code {
 
 .header {
   display: flex;
+  min-height: 56px;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem;
-  background-color: transparent;
+  padding: 10px 12px;
+  background-color: var(--chijie-surface);
   border-bottom: 1px solid var(--chijie-border);
 }
 
@@ -48,24 +49,34 @@ code {
 
 .header-icons {
   display: flex;
-  gap: 0.75rem;
+  gap: 8px;
   align-items: center;
 }
 
 .header-icon {
-  color: var(--chijie-paper);
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--chijie-border);
+  border-radius: 50%;
+  background: var(--chijie-surface-raised);
+  color: var(--chijie-foreground);
   cursor: pointer;
   transition: color 0.2s ease;
   opacity: 0.9;
 }
 
 .header-icon:hover {
+  border-color: var(--chijie-border-strong);
+  background: var(--chijie-accent-subtle);
   color: var(--chijie-accent);
   opacity: 1;
 }
 
 .send-button {
-  color: var(--chijie-paper);
+  color: var(--chijie-foreground);
   cursor: pointer;
   transition: color 0.2s ease;
   opacity: 0.9;

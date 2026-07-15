@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
+import { connect, launch } from 'puppeteer-core';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../dist');
@@ -13,6 +13,9 @@ const profilePath = path.join(os.tmpdir(), `scion-action-e2e-${process.pid}`);
 const runs = Number(process.env.RUNS || 1);
 const timeout = Number(process.env.E2E_TIMEOUT_MS || 180_000);
 const connectUrl = process.env.CDP_URL || process.env.CONNECT_URL || '';
+/** CDP/CONNECT attaches to owner Chrome — never wipe favorites/chat/Task/Skill unless FORCE_RESET=1. */
+const forceReset = process.env.FORCE_RESET === '1';
+const isConnectMode = Boolean(connectUrl);
 let submissions = 0;
 let browser;
 let ownsBrowser = false;
@@ -213,9 +216,7 @@ async function ensureGoalSend(panel) {
     const state = await panel.evaluate(() => {
       const status = document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status');
       const hasSend = Boolean(document.querySelector('[data-testid="goal-send"]'));
-      const stop = [...document.querySelectorAll('button')].find(button =>
-        /停止|Stop/i.test(button.textContent || ''),
-      );
+      const stop = [...document.querySelectorAll('button')].find(button => /停止|Stop/i.test(button.textContent || ''));
       return { status, hasSend, hasStop: Boolean(stop) };
     });
     if (state.hasSend) return;
@@ -272,67 +273,69 @@ async function seedMiniMax(panel) {
             navigator: { provider: 'minimax', modelName: model, parameters: { temperature: 0.1, topP: 0.1 } },
           },
         },
+        // Full defaults: chrome.storage.set replaces the whole key; do not leave maxFailures undefined.
+        'general-settings': {
+          maxSteps: 100,
+          maxActionsPerStep: 5,
+          maxFailures: 3,
+          useVision: false,
+          useVisionForPlanner: false,
+          planningInterval: 3,
+          displayHighlights: false,
+          minWaitPageLoad: 250,
+          agentCoreBackend: 'control',
+        },
       }),
     { apiKey, model, baseUrl },
   );
 }
 
-async function waitForApproval(panel, target) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    const snap = await panel.evaluate(() => ({
-      status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status'),
-      hasApprove: Boolean(document.querySelector('[data-testid="approval-approve"]')),
-      hasReceipt: Boolean(document.querySelector('[data-testid="completion-receipt"]')),
-      body: (document.body?.innerText || '').slice(0, 400),
-    }));
-    const formText = await target.evaluate(() => document.body.innerText).catch(() => '');
-    const count = Number(await (await fetch(`${origin}/count`)).text());
-    if (Date.now() - start > 5000 && (Date.now() - start) % 15000 < 2000) {
-      console.log(
-        `[e2e] approval-wait status=${snap.status} count=${count} form=${JSON.stringify(formText.slice(0, 40))}`,
-      );
+async function readReceiptId(panel) {
+  return panel.evaluate(() => {
+    const meta = document.querySelector('[data-testid="completion-receipt-meta"]');
+    if (meta) {
+      const idRow = [...meta.querySelectorAll('div')].find(row => {
+        const dt = row.querySelector('dt')?.textContent || '';
+        return /回执|Receipt|ID/i.test(dt);
+      });
+      const id = idRow?.querySelector('dd')?.textContent?.trim();
+      if (id) return id;
     }
-    if (snap.hasApprove) return snap;
-    // Some models submit without a visible approval gate; accept verified completion.
-    if (snap.status === 'completed' && snap.hasReceipt && count >= 1) return snap;
-    if (['failed', 'cancelled'].includes(snap.status)) {
-      throw new Error(`task ${snap.status} before approval: ${snap.body}`);
-    }
-    if (snap.status === 'waiting_user') {
-      await dumpPanel(panel, 'waiting-user-before-approval');
-      await dumpTaskStorage(panel, 'waiting-user-before-approval-storage');
-      throw new Error(`task waiting_user before approval: ${snap.body}`);
-    }
-    await new Promise(r => setTimeout(r, 1500));
-  }
-  await dumpPanel(panel, 'approval-timeout');
-  throw new Error('timeout waiting for approval-approve');
+    const text = document.querySelector('[data-testid="completion-receipt"]')?.textContent || null;
+    return text;
+  });
 }
 
-function summarizeTask(task) {
-  if (!task || typeof task !== 'object') return task;
-  return {
-    id: task.id,
-    status: task.status,
-    activeTabId: task.activeTabId,
-    criteria: task.rounds?.[0]?.criteria?.map(c => ({
-      kind: c.kind,
-      targetRefId: c.targetRefId,
-      baseline: c.baseline,
-      notBefore: c.notBefore,
-      timeoutMs: c.timeoutMs,
-      expectedDigest: c.expectedDigest,
-    })),
-    attempts: task.rounds?.[0]?.attempts?.map(a => ({
-      actionName: a.actionName,
-      effect: a.effect,
-      state: a.state,
-    })),
-    evidence: task.rounds?.[0]?.evidence?.slice(-4),
-    waitReason: task.rounds?.[0]?.waitReason,
-    receipt: task.rounds?.[0]?.receipt ? true : false,
-  };
+async function readLatestMediaFacts(panel) {
+  return panel.evaluate(async () => {
+    const all = await chrome.storage.local.get(['task-runtime-v1']);
+    const runtime = all['task-runtime-v1'] || {};
+    const tasks = Object.values(runtime).filter(Boolean);
+    // Prefer the newest task that has a media targetRef.
+    const ranked = tasks
+      .map(task => {
+        const mediaRefs = (task.targetRefs || []).filter(ref => ref?.kind === 'media' && ref.digest);
+        const rounds = task.rounds || [];
+        const lastRound = rounds[rounds.length - 1];
+        const receiptId = lastRound?.receipt?.id || null;
+        const updatedAt = task.updatedAt || lastRound?.receipt?.verifiedAt || task.createdAt || 0;
+        return {
+          taskId: task.id,
+          status: task.status,
+          receiptId,
+          digests: mediaRefs.map(ref => ref.digest),
+          mediaTargetRefIds: mediaRefs.map(ref => ref.id),
+          updatedAt,
+        };
+      })
+      .filter(item => item.digests.length > 0)
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    return ranked[0] || null;
+  });
+}
+
+async function readSubmitCount() {
+  return Number(await (await fetch(`${origin}/count`)).text());
 }
 
 async function dumpTaskStorage(panel, label) {
@@ -356,35 +359,54 @@ async function dumpTaskStorage(panel, label) {
         actionName: a.actionName,
         effect: a.effect,
         state: a.state,
+        error: typeof a.error === 'string' ? a.error.slice(0, 160) : (a.error ?? null),
       })),
       evidence: task?.rounds?.[0]?.evidence?.slice(-4),
       waitReason: task?.rounds?.[0]?.waitReason,
+      failureCategory: task?.failureCategory || task?.rounds?.[0]?.failureCategory || null,
+      lastError: task?.lastError || task?.rounds?.[0]?.lastError || null,
       receipt: Boolean(task?.rounds?.[0]?.receipt),
+      targetRefs: (task?.targetRefs || []).slice(-4).map(ref => ({
+        kind: ref?.kind,
+        id: ref?.id,
+        digest: ref?.digest ? String(ref.digest).slice(0, 16) : null,
+      })),
     }));
-    // Chat agent messages may hold last failure human text (allowed); keep short.
-    const chatKeys = Object.keys(all).filter(k => k.startsWith('chat_messages_'));
-    const lastChat = [];
-    for (const key of chatKeys.slice(-2)) {
-      const messages = all[key];
-      if (Array.isArray(messages)) {
-        for (const msg of messages.slice(-6)) {
-          lastChat.push({
-            actor: msg.actor,
-            state: msg.state,
-            content: String(msg.content || '').slice(0, 120),
-          });
-        }
-      }
-    }
-    return { taskCount: tasks.length, tasks, lastChat, keys: Object.keys(all).slice(0, 40) };
+    // Do not dump chat bodies (privacy / raw instruction leakage).
+    return {
+      taskCount: tasks.length,
+      tasks,
+      keys: Object.keys(all)
+        .filter(k => !k.startsWith('chat_messages_') && !k.startsWith('chat_sessions'))
+        .slice(0, 40),
+    };
   });
   console.log(`[e2e] ${label}`, JSON.stringify(info).slice(0, 4000));
   return info;
 }
 
-async function waitCompleted(panel, target, expectedCount) {
+/**
+ * Drive external-commit approval until fixture submit count hits expectedCount.
+ *
+ * Contract (form/skill):
+ * - Must observe approval-approve at least once
+ * - count stays at maxCountBefore until an approve click; no unapproved submit
+ * - Exactly one approve click may advance count to expectedCount (the real commit)
+ * - Intermediate over-gated clicks may need extra approve clicks while count still baseline
+ * - Never green on prior completed receipt alone
+ */
+async function approveOnceAndWaitCompleted(
+  panel,
+  target,
+  { maxCountBefore, expectedCount, notBeforeReceiptId = null },
+) {
   const start = Date.now();
-  let seenRunning = false;
+  let seenActiveRun = false;
+  let sawApproval = false;
+  let gateClicks = 0;
+  let commitClicks = 0;
+  let lastClickAt = 0;
+
   while (Date.now() - start < timeout) {
     const snap = await panel.evaluate(() => ({
       status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status'),
@@ -392,52 +414,161 @@ async function waitCompleted(panel, target, expectedCount) {
       hasApprove: Boolean(document.querySelector('[data-testid="approval-approve"]')),
       body: (document.body?.innerText || '').slice(0, 400),
     }));
-    if (snap.status === 'running' || snap.status === 'waiting_approval') seenRunning = true;
-    const formText = await target.evaluate(() => document.body.innerText);
-    const count = Number(await (await fetch(`${origin}/count`)).text());
-    console.log(`[e2e] poll status=${snap.status} count=${count} form=${JSON.stringify(formText.slice(0, 40))}`);
-    // Skill re-runs (and late form approvals) need the external_commit gate clicked.
+    if (snap.status === 'running' || snap.status === 'waiting_approval') seenActiveRun = true;
+    const formText = await target.evaluate(() => document.body.innerText).catch(() => '');
+    const count = await readSubmitCount();
+    const receiptId = await readReceiptId(panel);
+    console.log(
+      `[e2e] poll status=${snap.status} count=${count} hasApprove=${snap.hasApprove} gates=${gateClicks} commits=${commitClicks} form=${JSON.stringify(formText.slice(0, 40))}`,
+    );
+
+    // Unapproved external commit landed — hard fail.
+    if (count > maxCountBefore && !sawApproval) {
+      await dumpPanel(panel, 'submit-without-approval');
+      throw new Error(`submit count=${count} without observing approval-approve`);
+    }
+    if (count > expectedCount) {
+      throw new Error(`submit count=${count} exceeded expectedCount=${expectedCount}`);
+    }
+
     if (snap.hasApprove && count < expectedCount) {
-      await target.bringToFront();
-      try {
-        await click(panel, 'approval-approve');
-      } catch (error) {
-        console.log('[e2e] approval click race', error?.message || error);
+      // Debounce: same gate must not be multi-clicked within a short window.
+      if (Date.now() - lastClickAt < 800) {
+        await new Promise(r => setTimeout(r, 300));
+        continue;
       }
-      await new Promise(r => setTimeout(r, 800));
+      assert.ok(
+        count === maxCountBefore || count === expectedCount - 1,
+        `approve only when count is baseline (${maxCountBefore}) or mid-leg; got ${count}`,
+      );
+      // Real form/skill commit: count must still be baseline when approving the submit that lands expectedCount.
+      if (count > maxCountBefore) {
+        throw new Error(`approval visible after count already advanced to ${count}`);
+      }
+      sawApproval = true;
+      await target.bringToFront();
+      await click(panel, 'approval-approve');
+      gateClicks += 1;
+      lastClickAt = Date.now();
+      await new Promise(r => setTimeout(r, 500));
+      const countAfterClick = await readSubmitCount();
+      if (countAfterClick > count) {
+        commitClicks += 1;
+        assert.equal(countAfterClick, expectedCount, 'a single approve click must land exactly expectedCount');
+        assert.equal(commitClicks, 1, 'only one approve click may advance the submit counter');
+        console.log(`[e2e] commit approve landed count ${count}→${countAfterClick} (gateClicks=${gateClicks})`);
+      } else {
+        console.log(`[e2e] intermediate approve click #${gateClicks} (count still ${countAfterClick})`);
+      }
       continue;
     }
-    // Prior completed receipt may still be on panel after skill-run starts; require count match.
+
     if (snap.status === 'completed' && snap.receipt && count === expectedCount) {
-      return snap;
-    }
-    if (['failed', 'cancelled'].includes(snap.status)) {
-      // Only treat completed-from-prior as stale when we still see the prior receipt
-      // and a new run has not yet left completed for running. Once we saw running,
-      // a terminal without submission is a real failure.
-      if (count < expectedCount && snap.status === 'completed') {
-        console.log('[e2e] ignoring prior completed while waiting for next submission');
-      } else if (count < expectedCount && !seenRunning) {
-        console.log('[e2e] ignoring early terminal before new run starts', snap.status);
+      if (notBeforeReceiptId && receiptId && receiptId === notBeforeReceiptId && !seenActiveRun) {
+        console.log('[e2e] ignoring prior completed receipt while waiting for new run');
+      } else if (notBeforeReceiptId && receiptId && receiptId === notBeforeReceiptId) {
+        throw new Error(`completed with same receipt ${receiptId}; refuse stale-receipt pass`);
       } else {
-        await dumpPanel(panel, `task-${snap.status}`);
-        await dumpTaskStorage(panel, `task-${snap.status}-storage`);
-        throw new Error(`task ${snap.status} before submit count=${count}: ${snap.body}`);
+        assert.equal(sawApproval, true, 'must observe approval-approve before verified completion');
+        assert.equal(commitClicks, 1, 'submit counter must advance from exactly one approve click');
+        assert.equal(count, expectedCount);
+        assert.ok(snap.receipt, 'verified completion receipt required');
+        return { ...snap, receiptId, count, gateClicks, commitClicks };
       }
     }
-    // Mid-run diagnostic once form is already saved but task still running.
-    if (count >= expectedCount && snap.status === 'running' && Date.now() - start > 8_000 && Date.now() - start < 12_000) {
+
+    if (['failed', 'cancelled'].includes(snap.status) && seenActiveRun) {
+      await dumpPanel(panel, `task-${snap.status}`);
+      await dumpTaskStorage(panel, `task-${snap.status}-storage`);
+      throw new Error(`task ${snap.status} before submit count=${count}: ${snap.body}`);
+    }
+    if (snap.status === 'completed' && snap.receipt && seenActiveRun && count < expectedCount) {
+      await dumpPanel(panel, 'completed-without-submit');
+      throw new Error(`completed with receipt but count=${count} < expected=${expectedCount}`);
+    }
+    if (
+      count >= expectedCount &&
+      snap.status === 'running' &&
+      Date.now() - start > 8_000 &&
+      Date.now() - start < 12_000
+    ) {
       await dumpTaskStorage(panel, 'post-submit-still-running');
     }
-    await new Promise(r => setTimeout(r, 2500));
+    await new Promise(r => setTimeout(r, 1500));
   }
   await dumpPanel(panel, 'completed-timeout');
   await dumpTaskStorage(panel, 'completed-timeout-storage');
-  throw new Error('timeout waiting for completed');
+  throw new Error(
+    `timeout waiting for completed (sawApproval=${sawApproval} gateClicks=${gateClicks} commitClicks=${commitClicks})`,
+  );
+}
+
+/**
+ * Media leg: prove playing with receipt R1 + digest D, then pause same D with new receipt R2 + paused.
+ */
+async function waitMediaState(panel, mediaPage, { expectPaused, notBeforeReceiptId = null, label }) {
+  const start = Date.now();
+  let seenRunning = false;
+  while (Date.now() - start < timeout) {
+    const snap = await panel.evaluate(() => ({
+      status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status'),
+      hasReceipt: Boolean(document.querySelector('[data-testid="completion-receipt"]')),
+      body: (document.body?.innerText || '').slice(0, 400),
+    }));
+    if (snap.status === 'running' || snap.status === 'waiting_approval' || snap.status === 'waiting_user') {
+      seenRunning = true;
+    }
+    const paused = await mediaPage.$eval('#fixture-audio', el => el.paused).catch(() => null);
+    const receiptId = await readReceiptId(panel);
+    const facts = await readLatestMediaFacts(panel);
+    if (Date.now() - start > 5000 && (Date.now() - start) % 12000 < 2000) {
+      console.log(
+        `[e2e] media-wait ${label} status=${snap.status} paused=${paused} receipt=${receiptId} digest=${facts?.digests?.[0] || null}`,
+      );
+    }
+    if (['failed', 'cancelled'].includes(snap.status) && seenRunning) {
+      await dumpPanel(panel, `media-${label}-${snap.status}`);
+      await dumpTaskStorage(panel, `media-${label}-${snap.status}-storage`);
+      throw new Error(`media ${label} task ${snap.status}: ${snap.body}`);
+    }
+    if (snap.status === 'completed' && snap.hasReceipt) {
+      const stale = notBeforeReceiptId && receiptId && receiptId === notBeforeReceiptId && !seenRunning;
+      if (stale) {
+        console.log(`[e2e] media ${label}: ignoring prior receipt ${receiptId}`);
+      } else if (notBeforeReceiptId && receiptId && receiptId === notBeforeReceiptId && seenRunning) {
+        // Still showing old receipt id after a new run — keep waiting for a new one.
+        console.log(`[e2e] media ${label}: waiting for receipt change from ${notBeforeReceiptId}`);
+      } else if (paused === null) {
+        // media page not ready
+      } else if (expectPaused === true && paused !== true) {
+        // completed but media not paused yet — not done
+      } else if (expectPaused === false && paused !== false) {
+        // completed but not playing
+      } else {
+        if (notBeforeReceiptId && receiptId && receiptId === notBeforeReceiptId) {
+          // Seen running but receipt unchanged — reject false-complete on old receipt.
+          throw new Error(`media ${label}: completed with same receipt ${receiptId}; refuse stale-receipt pass`);
+        }
+        return { snap, paused, receiptId, facts };
+      }
+    }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  await dumpPanel(panel, `media-${label}-timeout`);
+  await dumpTaskStorage(panel, `media-${label}-timeout-storage`);
+  throw new Error(`timeout waiting for media ${label}`);
 }
 
 async function resetExtensionState(panel) {
-  // Isolate multi-run fixtures: drop prior tasks/skills so run N does not inherit run N-1.
+  // Owner Chrome (CDP/CONNECT): never delete favorites, chat, Task, or Skill.
+  if (isConnectMode && !forceReset) {
+    console.log('[e2e] connect mode: skip wipe of favorites/chat/Task/Skill (set FORCE_RESET=1 to override)');
+    return;
+  }
+  if (isConnectMode && forceReset) {
+    console.log('[e2e] connect mode FORCE_RESET=1: wiping task/skill/chat/favorites isolation keys');
+  }
+  // Temp profile only (or forced): drop prior tasks/skills so run N does not inherit run N-1.
   await panel.evaluate(async () => {
     const all = await chrome.storage.local.get(null);
     const remove = Object.keys(all).filter(
@@ -463,27 +594,21 @@ async function runAllScenarios(extensionId, run) {
   await waitForTestId(panel, 'goal-input');
   await target.bringToFront();
   await new Promise(r => setTimeout(r, 500));
-  await sendGoal(
-    panel,
-    target,
-    'Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.',
-  );
+
+  const formReceiptBefore = await readReceiptId(panel);
+  await sendGoal(panel, target, 'Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.');
   await dumpPanel(panel, `run${run}-after-send`);
 
-  const beforeApprove = await waitForApproval(panel, target);
-  if (beforeApprove.hasApprove) {
-    assert.equal(Number(await (await fetch(`${origin}/count`)).text()), 0);
-    await target.bringToFront();
-    await click(panel, 'approval-approve');
-  }
-  await waitCompleted(panel, target, 1);
+  // Form: observe approval, count 0 before, single click, count 1 after; no old-receipt pass.
+  const formDone = await approveOnceAndWaitCompleted(panel, target, {
+    maxCountBefore: 0,
+    expectedCount: 1,
+    notBeforeReceiptId: formReceiptBefore,
+  });
   await waitForTestId(panel, 'completion-receipt');
-  console.log(`[e2e] run${run} form PASS`);
+  console.log(`[e2e] run${run} form PASS receipt=${formDone.receiptId || 'text'}`);
 
-  const beforeReconnect = await panel.$eval(
-    '[data-testid="completion-receipt"]',
-    element => element.textContent,
-  );
+  const beforeReconnect = await panel.$eval('[data-testid="completion-receipt"]', element => element.textContent);
   await panel.close();
   panel = await openPanelForTarget(extensionId, target);
   await waitStatus(panel, 'completed');
@@ -524,6 +649,7 @@ async function runAllScenarios(extensionId, run) {
       throw new Error('skill-run not visible after skill-save');
     }
   }
+  const skillReceiptBefore = await readReceiptId(panel);
   await target.goto(`${origin}/form?order=reversed&run=${run}`, { waitUntil: 'domcontentloaded' });
   await target.bringToFront();
   await waitForTestId(panel, 'skill-run');
@@ -532,19 +658,54 @@ async function runAllScenarios(extensionId, run) {
   await setValue(panel, 'skill-input-name', 'FIELD_SENTINEL_CHANGED_9521');
   await target.bringToFront();
   await click(panel, 'skill-run-confirm');
-  await waitCompleted(panel, target, 2);
+  // Skill re-run is a second external commit: count stays 1 until one approval, then 2.
+  const skillDone = await approveOnceAndWaitCompleted(panel, target, {
+    maxCountBefore: 1,
+    expectedCount: 2,
+    notBeforeReceiptId: skillReceiptBefore,
+  });
   await waitForTestId(panel, 'completion-receipt');
-  console.log(`[e2e] run${run} skill PASS`);
+  console.log(`[e2e] run${run} skill PASS receipt=${skillDone.receiptId || 'text'}`);
 
   const media = await browser.newPage();
   await media.goto(`${origin}/media?run=${run}`, { waitUntil: 'domcontentloaded' });
+  // Fixture starts paused; prove play before pause.
+  assert.equal(await media.$eval('#fixture-audio', el => el.paused), true, 'fixture must start paused');
   const mediaPanel = await openPanelForTarget(extensionId, media);
   await sendGoal(mediaPanel, media, 'Play the visible audio.');
-  await waitStatus(mediaPanel, 'completed');
+  const playResult = await waitMediaState(mediaPanel, media, {
+    expectPaused: false,
+    notBeforeReceiptId: null,
+    label: 'play',
+  });
+  assert.equal(playResult.paused, false, 'must prove playing after play task');
+  assert.ok(playResult.receiptId || playResult.snap.hasReceipt, 'play must produce a receipt');
+  const playDigest = playResult.facts?.digests?.[0] || (await readLatestMediaFacts(mediaPanel))?.digests?.[0] || null;
+  assert.ok(playDigest, 'play must bind a media digest');
+  console.log(`[e2e] run${run} media play PASS digest=${playDigest} receipt=${playResult.receiptId}`);
+
   await sendGoal(mediaPanel, media, '暂停这个音频');
-  await waitStatus(mediaPanel, 'completed');
+  const pauseResult = await waitMediaState(mediaPanel, media, {
+    expectPaused: true,
+    notBeforeReceiptId: playResult.receiptId,
+    label: 'pause',
+  });
+  assert.equal(pauseResult.paused, true, 'must prove paused after pause task');
+  assert.ok(pauseResult.receiptId, 'pause must produce a new receipt');
+  if (playResult.receiptId) {
+    assert.notEqual(
+      pauseResult.receiptId,
+      playResult.receiptId,
+      'pause must produce a new receipt (not reuse play receipt)',
+    );
+  }
+  const pauseDigest = pauseResult.facts?.digests?.[0] || (await readLatestMediaFacts(mediaPanel))?.digests?.[0] || null;
+  assert.ok(pauseDigest, 'pause must resolve a media digest');
+  assert.equal(pauseDigest, playDigest, 'pause must use the same media digest as play');
   assert.equal(await media.$eval('#fixture-audio', element => element.paused), true);
-  console.log(`[e2e] run${run} media PASS`);
+  console.log(
+    `[e2e] run${run} media PASS digest=${pauseDigest} playReceipt=${playResult.receiptId} pauseReceipt=${pauseResult.receiptId}`,
+  );
 
   const stored = await panel.evaluate(() => chrome.storage.local.get(null));
   // User-authored chat is the allowed place for raw instruction text.
@@ -587,12 +748,12 @@ try {
   console.log('[e2e] hasMiniMaxKey=', Boolean(resolveMiniMaxApiKey()));
 
   if (connectUrl) {
-    console.log('[e2e] connect mode', connectUrl);
-    browser = await puppeteer.connect({ browserURL: connectUrl, defaultViewport: null });
+    console.log('[e2e] connect mode', connectUrl, forceReset ? 'FORCE_RESET=1' : 'no-wipe');
+    browser = await connect({ browserURL: connectUrl, defaultViewport: null });
     ownsBrowser = false;
   } else {
     console.log('[e2e] chromePath=', chromePath);
-    browser = await puppeteer.launch({
+    browser = await launch({
       executablePath: chromePath,
       headless: false,
       userDataDir: profilePath,

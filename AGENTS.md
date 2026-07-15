@@ -123,7 +123,7 @@ From `CONTEXT.md` and `docs/decisions/001`:
 - **Skill** = reusable semantic recipe (inputs, outcome, approval); not replaying stale element indexes
 - This cycle: keep **Chrome extension** as the carrier (no fork Chromium, no cloud browser)
 
-Design not yet implemented: `docs/design/001-browser-action-task-runtime.md` — load when building task runtime / continuous control / local Skill.
+Task runtime L4 shell is landed (TaskManager / ActionDispatcher / CompletionChecker); default production core is `control` (`docs/design/002`). `docs/design/001` remains partially-outdated historical architecture - load with `design/002` + `product/008` + `design/004` for current task loop and calm console.
 
 ---
 

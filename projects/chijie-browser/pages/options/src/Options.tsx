@@ -86,8 +86,15 @@ const Options = () => {
   return (
     <div className="chijie-options-layout" data-testid="options-root">
       <nav className="chijie-options-nav" aria-label={t('options_nav_header')}>
-        <h1>持节 Chijie</h1>
-        <p className="mb-4 text-xs text-[var(--chijie-muted)]">浏览器行动 Agent 设置</p>
+        <div className="mb-3 flex items-center gap-2">
+          <img
+            src={chrome.runtime.getURL('logo-header.png')}
+            alt="scion"
+            className="h-7 w-auto max-w-[140px] object-contain object-left"
+            data-testid="options-logo"
+          />
+        </div>
+        <p className="mb-4 text-xs text-[var(--chijie-muted)]">持节 · 浏览器行动 Agent 设置</p>
         <ul className="space-y-2">
           {TABS.map(item => (
             <li key={item.id}>
@@ -96,7 +103,7 @@ const Options = () => {
                 onClick={() => handleTabClick(item.id)}
                 data-active={activeTab === item.id ? 'true' : 'false'}
                 className="chijie-options-nav-item">
-                <item.icon className="h-4 w-4" />
+                <item.icon className="size-4" />
                 <span>{item.label}</span>
               </button>
             </li>

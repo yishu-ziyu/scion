@@ -1,0 +1,30 @@
+task_id: tabbit-class-product
+active: true
+current_phase: implement
+status: tickets_01_through_05_landed
+workflow: matt-main-flow
+updated_at: "2026-07-15T05:20:00Z"
+ticket_01_commit: 0228f22
+ticket_02_branch: feature/ticket-02-observe-act-loop
+frontier_next: "06 Slice B / 07 Slice C (need Owner login for real Feishu/Bilibili)"
+notes: >
+  Build green. Logo verified on CDP side panel (header-logo + logo-header.png).
+  Slice A live MiniMax E2E may still need Owner side-panel open after reload if goal-input missing.
+spec_path: .ship/tasks/tabbit-class-product/spec/SPEC.md
+product_index: docs/product/008-tabbit-class-agent-task-loop-spec.md
+parent_issue: https://github.com/yishu-ziyu/scion/issues/1
+tickets_dir: .ship/tasks/tabbit-class-product/issues
+frontier:
+  - "06"
+  - "07"
+next: implement ticket 06 Slice B and/or 07 Slice C (Owner login for real Feishu/Bilibili)
+seams: S1-S5 accepted
+decisions_locked:
+  - mvp_loop: agent_task_loop_tabbit_style
+  - shell: chrome_extension
+  - core: ts_agent_loop_plus_extension_browser_control
+  - approval: per_action_external_commit_only
+  - slices: A_youtube_then_B_feishu_and_or_C_bilibili
+  - scope: task_loop_extension_minimax
+  - later_intent:
+      - cross_conversation_memory

@@ -1,0 +1,1911 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scion / 持节 UI 方向评审</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --page: #eef1ed;
+        --canvas: #f7f8f5;
+        --panel: #ffffff;
+        --panel-subtle: #f2f5f1;
+        --ink: #16231f;
+        --ink-soft: #52615c;
+        --ink-faint: #78847f;
+        --line: #dbe1dc;
+        --line-strong: #c8d0ca;
+        --green: #176c52;
+        --green-soft: #e6f2ed;
+        --green-mid: #87b5a4;
+        --amber: #93641a;
+        --amber-soft: #fff6e5;
+        --amber-line: #e9cf9d;
+        --red: #b63f38;
+        --red-soft: #fbecea;
+        --shadow: 0 22px 60px rgba(29, 52, 44, 0.1);
+        --radius-xl: 26px;
+        --radius-lg: 18px;
+        --radius-md: 13px;
+        --radius-sm: 9px;
+        --font-body: "Space Grotesk", "Noto Sans SC", system-ui, sans-serif;
+        --font-mono: "Space Mono", ui-monospace, monospace;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: var(--page);
+        color: var(--ink);
+        font-family: var(--font-body);
+      }
+
+      body {
+        margin: 0;
+        min-width: 0;
+        background:
+          radial-gradient(circle at 8% 0%, rgba(74, 138, 114, 0.1), transparent 30rem),
+          linear-gradient(180deg, #f6f8f4 0, var(--page) 34rem);
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      img,
+      svg,
+      canvas,
+      iframe {
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+
+      :where(p, h1, h2, h3, h4, li, dd, figcaption, .label, .chip, .state-copy) {
+        overflow-wrap: anywhere;
+      }
+
+      :where(.layout, .hero-grid, .comparison-grid, .state-layout, .principle-grid, .evidence-grid, .decision-options) > * {
+        min-width: 0;
+      }
+
+      .page {
+        width: min(1440px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 36px 0 80px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 44px;
+      }
+
+      .topbar-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .topbar-mark {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.76);
+        color: var(--green);
+      }
+
+      .topbar-copy strong {
+        display: block;
+        font-size: 14px;
+        letter-spacing: 0.01em;
+      }
+
+      .topbar-copy span {
+        color: var(--ink-faint);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .lock-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        max-width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #c9dfd6;
+        border-radius: 999px;
+        background: rgba(235, 246, 241, 0.86);
+        color: var(--green);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .hero {
+        margin-bottom: 40px;
+      }
+
+      .eyebrow {
+        margin: 0 0 12px;
+        color: var(--green);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 980px;
+        margin: 0;
+        font-size: clamp(36px, 6vw, 76px);
+        font-weight: 500;
+        letter-spacing: -0.04em;
+        line-height: 1.08;
+        padding: 0.02em 4px 0.08em;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.8fr);
+        gap: 34px;
+        align-items: end;
+        margin-top: 26px;
+      }
+
+      .hero-lede {
+        max-width: 780px;
+        margin: 0;
+        color: var(--ink-soft);
+        font-size: clamp(17px, 2vw, 22px);
+        line-height: 1.65;
+      }
+
+      .locked-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-start;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.78);
+        color: var(--ink-soft);
+        font-size: 12px;
+      }
+
+      .section {
+        margin-top: 32px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        background: rgba(250, 251, 248, 0.92);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+        overflow: hidden;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 26px 28px 22px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .section-number {
+        color: var(--green);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+      }
+
+      .section-title {
+        margin: 5px 0 0;
+        font-size: clamp(23px, 3vw, 34px);
+        font-weight: 500;
+        letter-spacing: -0.035em;
+      }
+
+      .section-note {
+        max-width: 460px;
+        margin: 0;
+        color: var(--ink-soft);
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      .comparison-grid {
+        display: grid;
+        grid-template-columns: minmax(280px, 0.72fr) minmax(440px, 1.28fr);
+        min-width: 0;
+      }
+
+      .current-side,
+      .target-side {
+        min-width: 0;
+        padding: 28px;
+      }
+
+      .current-side {
+        border-right: 1px solid var(--line);
+        background: #f0f2ef;
+      }
+
+      .side-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .side-label h3 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 600;
+      }
+
+      .side-label span {
+        color: var(--ink-faint);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        text-transform: uppercase;
+      }
+
+      .screenshot-frame {
+        width: min(100%, 390px);
+        margin: 0 auto;
+        border: 1px solid #171b19;
+        border-radius: 22px;
+        background: #000;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .screenshot-frame img {
+        width: 100%;
+      }
+
+      .diagnosis {
+        display: grid;
+        gap: 8px;
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .diagnosis li {
+        display: grid;
+        grid-template-columns: 24px minmax(0, 1fr);
+        gap: 9px;
+        align-items: start;
+        color: var(--ink-soft);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .diagnosis-index {
+        display: grid;
+        width: 22px;
+        height: 22px;
+        place-items: center;
+        border: 1px solid #e3c1bd;
+        border-radius: 50%;
+        background: var(--red-soft);
+        color: var(--red);
+        font-family: var(--font-mono);
+        font-size: 9px;
+      }
+
+      .target-side {
+        background:
+          radial-gradient(circle at 80% 12%, rgba(23, 108, 82, 0.06), transparent 22rem),
+          #fafbf8;
+      }
+
+      .state-switcher {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        width: min(100%, 620px);
+        margin: 0 auto 18px;
+        padding: 5px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #edf1ed;
+      }
+
+      .state-switcher button {
+        min-width: 0;
+        padding: 9px 8px;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .state-switcher button[aria-selected="true"] {
+        background: #fff;
+        color: var(--ink);
+        box-shadow: 0 1px 5px rgba(28, 49, 42, 0.1);
+      }
+
+      .target-wrap {
+        display: grid;
+        grid-template-columns: minmax(320px, 440px) minmax(230px, 0.7fr);
+        gap: 24px;
+        align-items: start;
+        justify-content: center;
+      }
+
+      .sidepanel {
+        width: 100%;
+        min-height: 760px;
+        border: 1px solid var(--line-strong);
+        border-radius: 22px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .app-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 66px;
+        padding: 12px 14px 11px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .app-brand {
+        min-width: 0;
+      }
+
+      .app-brand img {
+        width: 110px;
+        height: 32px;
+        object-fit: contain;
+        object-position: left center;
+      }
+
+      .app-header-actions {
+        display: flex;
+        gap: 6px;
+      }
+
+      .icon-button {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--ink-soft);
+      }
+
+      .icon-button:hover {
+        background: var(--panel-subtle);
+        color: var(--ink);
+      }
+
+      .app-scroll {
+        min-height: 568px;
+        padding: 14px;
+        background: #fbfcfa;
+      }
+
+      .status-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px 9px;
+        border-radius: 999px;
+        background: var(--green-soft);
+        color: var(--green);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .status-badge[data-tone="amber"] {
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .status-badge[data-tone="success"] {
+        background: #e8f4ea;
+        color: #276c3d;
+      }
+
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .running .status-dot {
+        animation: breathe 1.8s ease-in-out infinite;
+      }
+
+      .site-label {
+        max-width: 50%;
+        overflow: hidden;
+        color: var(--ink-faint);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .task-card {
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: #fff;
+      }
+
+      .task-kicker {
+        margin: 0 0 8px;
+        color: var(--ink-faint);
+        font-family: var(--font-mono);
+        font-size: 9px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .task-title {
+        margin: 0;
+        color: var(--ink);
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.018em;
+        line-height: 1.45;
+      }
+
+      .now-card {
+        display: grid;
+        grid-template-columns: 36px minmax(0, 1fr);
+        gap: 12px;
+        align-items: start;
+        margin-top: 12px;
+        padding: 12px;
+        border-radius: var(--radius-md);
+        background: var(--green-soft);
+      }
+
+      .now-icon {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 11px;
+        background: #fff;
+        color: var(--green);
+        box-shadow: 0 2px 8px rgba(34, 94, 73, 0.08);
+      }
+
+      .now-copy strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .now-copy span {
+        display: block;
+        margin-top: 4px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .progress-track {
+        width: 100%;
+        height: 4px;
+        margin-top: 12px;
+        border-radius: 999px;
+        background: #e8ece8;
+        overflow: hidden;
+      }
+
+      .progress-track span {
+        display: block;
+        width: 60%;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--green);
+        transition: width 220ms ease;
+      }
+
+      .step-list {
+        display: grid;
+        gap: 0;
+        margin: 12px 0 0;
+        padding: 0 2px;
+        list-style: none;
+      }
+
+      .step-item {
+        position: relative;
+        display: grid;
+        grid-template-columns: 24px minmax(0, 1fr) auto;
+        gap: 9px;
+        align-items: center;
+        min-height: 46px;
+        padding: 5px 0;
+        color: var(--ink-soft);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .step-item:not(:last-child)::after {
+        position: absolute;
+        top: 31px;
+        bottom: 0;
+        left: 11px;
+        width: 1px;
+        background: var(--line);
+        content: "";
+      }
+
+      .step-mark {
+        display: grid;
+        width: 22px;
+        height: 22px;
+        place-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: 50%;
+        background: #fff;
+        color: var(--ink-faint);
+      }
+
+      .step-item.done .step-mark {
+        border-color: #abd0c1;
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .step-item.active {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .step-item.active .step-mark {
+        border-color: var(--green);
+        background: var(--green);
+        color: #fff;
+      }
+
+      .step-time {
+        color: var(--ink-faint);
+        font-family: var(--font-mono);
+        font-size: 9px;
+        font-weight: 400;
+      }
+
+      .task-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .button {
+        display: inline-flex;
+        min-height: 38px;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 8px 13px;
+        border: 1px solid transparent;
+        border-radius: 11px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .button-primary {
+        border-color: var(--green);
+        background: var(--green);
+        color: #fff;
+      }
+
+      .button-secondary {
+        border-color: var(--line-strong);
+        background: #fff;
+        color: var(--ink);
+      }
+
+      .button-ghost {
+        border-color: transparent;
+        background: transparent;
+        color: var(--ink-soft);
+      }
+
+      .collapsed-summary {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 13px 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: #fff;
+      }
+
+      .collapsed-summary strong {
+        display: block;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .collapsed-summary span {
+        display: block;
+        margin-top: 3px;
+        color: var(--ink-faint);
+        font-size: 10px;
+      }
+
+      .approval-card {
+        margin-top: 12px;
+        padding: 15px;
+        border: 1px solid var(--amber-line);
+        border-radius: var(--radius-lg);
+        background: var(--amber-soft);
+      }
+
+      .approval-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .approval-head-icon {
+        display: grid;
+        width: 36px;
+        height: 36px;
+        place-items: center;
+        border-radius: 12px;
+        background: #fff;
+        color: var(--amber);
+      }
+
+      .approval-head strong {
+        display: block;
+        font-size: 14px;
+      }
+
+      .approval-head span {
+        display: block;
+        margin-top: 2px;
+        color: #7f6a47;
+        font-size: 10px;
+      }
+
+      .approval-detail {
+        display: grid;
+        gap: 7px;
+        margin: 13px 0 0;
+        padding: 12px;
+        border-radius: 11px;
+        background: rgba(255, 255, 255, 0.72);
+      }
+
+      .approval-detail div {
+        display: grid;
+        grid-template-columns: 64px minmax(0, 1fr);
+        gap: 10px;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .approval-detail dt {
+        color: #8d7650;
+      }
+
+      .approval-detail dd {
+        margin: 0;
+        color: var(--ink);
+        font-weight: 500;
+      }
+
+      .approval-card .task-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 0.7fr);
+      }
+
+      .approval-card .button-primary {
+        border-color: #8d601b;
+        background: #8d601b;
+      }
+
+      .one-use {
+        margin: 10px 0 0;
+        color: #7f6a47;
+        font-size: 10px;
+        line-height: 1.5;
+        text-align: center;
+      }
+
+      .verified-card {
+        padding: 17px;
+        border: 1px solid #bedac8;
+        border-radius: var(--radius-lg);
+        background: #f2f8f3;
+      }
+
+      .verified-icon {
+        display: grid;
+        width: 40px;
+        height: 40px;
+        place-items: center;
+        border-radius: 14px;
+        background: #dcefe2;
+        color: #276c3d;
+      }
+
+      .verified-title {
+        margin: 12px 0 0;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      .verified-copy {
+        margin: 5px 0 0;
+        color: #536b5a;
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .evidence-box {
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        margin-top: 13px;
+        padding: 11px;
+        border: 1px solid #d4e5da;
+        border-radius: 11px;
+        background: rgba(255, 255, 255, 0.8);
+      }
+
+      .evidence-icon {
+        display: grid;
+        width: 32px;
+        height: 32px;
+        place-items: center;
+        border-radius: 10px;
+        background: var(--panel-subtle);
+        color: var(--green);
+      }
+
+      .evidence-copy strong {
+        display: block;
+        font-size: 12px;
+      }
+
+      .evidence-copy span {
+        display: block;
+        margin-top: 3px;
+        color: var(--ink-soft);
+        font-size: 10px;
+        line-height: 1.5;
+      }
+
+      details.receipt-details {
+        margin-top: 12px;
+        border-top: 1px solid #d4e5da;
+        padding-top: 10px;
+      }
+
+      details.receipt-details summary {
+        color: var(--ink-soft);
+        cursor: pointer;
+        font-size: 11px;
+      }
+
+      .receipt-grid {
+        display: grid;
+        gap: 6px;
+        margin-top: 9px;
+        color: var(--ink-faint);
+        font-family: var(--font-mono);
+        font-size: 9px;
+      }
+
+      .post-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .rating {
+        display: flex;
+        gap: 5px;
+      }
+
+      .rating button {
+        padding: 6px 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--ink-soft);
+        font-size: 10px;
+      }
+
+      .save-skill {
+        border: 0;
+        background: transparent;
+        color: var(--green);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .conversation-divider {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 14px 0 10px;
+        color: var(--ink-faint);
+        font-size: 10px;
+      }
+
+      .conversation-divider::before,
+      .conversation-divider::after {
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+        content: "";
+      }
+
+      .chat-note {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        gap: 9px;
+        align-items: start;
+        color: var(--ink-soft);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      .chat-avatar {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border-radius: 10px;
+        background: var(--panel-subtle);
+        color: var(--green);
+      }
+
+      .composer {
+        padding: 12px;
+        border-top: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .composer-shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 8px 8px 12px;
+        border: 1px solid var(--line-strong);
+        border-radius: 14px;
+        background: #fbfcfa;
+      }
+
+      .composer-placeholder {
+        min-width: 0;
+        color: var(--ink-faint);
+        font-size: 11px;
+      }
+
+      .composer-send {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 0;
+        border-radius: 11px;
+        background: var(--green);
+        color: #fff;
+      }
+
+      .motion-rail {
+        position: sticky;
+        top: 18px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .motion-card {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.82);
+      }
+
+      .motion-card strong {
+        display: block;
+        font-size: 12px;
+      }
+
+      .motion-card p {
+        margin: 6px 0 0;
+        color: var(--ink-soft);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .motion-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 9px;
+      }
+
+      .motion-meta span {
+        padding: 4px 6px;
+        border-radius: 7px;
+        background: var(--panel-subtle);
+        color: var(--ink-faint);
+        font-family: var(--font-mono);
+        font-size: 8px;
+      }
+
+      .mock-state {
+        display: none;
+      }
+
+      .mock-state.active {
+        display: block;
+        animation: stateIn 220ms cubic-bezier(0.2, 0.75, 0.25, 1);
+      }
+
+      .state-caption {
+        margin: 15px auto 0;
+        max-width: 620px;
+        color: var(--ink-soft);
+        font-size: 12px;
+        line-height: 1.6;
+        text-align: center;
+      }
+
+      .evidence-strip {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        padding: 28px;
+      }
+
+      .evidence-item {
+        min-width: 0;
+      }
+
+      .evidence-item figure {
+        margin: 0;
+        border: 1px solid var(--line-strong);
+        border-radius: 16px;
+        background: #111;
+        overflow: hidden;
+      }
+
+      .evidence-item img {
+        width: 100%;
+        aspect-ratio: 0.54;
+        object-fit: cover;
+        object-position: top;
+      }
+
+      .evidence-item figcaption {
+        margin-top: 9px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .principle-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 0;
+      }
+
+      .principle {
+        min-width: 0;
+        padding: 22px;
+        border-right: 1px solid var(--line);
+      }
+
+      .principle:last-child {
+        border-right: 0;
+      }
+
+      .principle-icon {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 1px solid #cfe0d8;
+        border-radius: 11px;
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .principle h3 {
+        margin: 16px 0 6px;
+        font-size: 14px;
+      }
+
+      .principle p {
+        margin: 0;
+        color: var(--ink-soft);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .deep-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        padding: 28px;
+      }
+
+      .deep-card {
+        min-width: 0;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: #fff;
+      }
+
+      .deep-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding-bottom: 13px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .deep-head strong {
+        font-size: 15px;
+      }
+
+      .deep-head span {
+        color: var(--green);
+        font-family: var(--font-mono);
+        font-size: 9px;
+      }
+
+      .deep-block {
+        margin-top: 14px;
+      }
+
+      .deep-block h4 {
+        margin: 0 0 7px;
+        color: var(--ink-faint);
+        font-family: var(--font-mono);
+        font-size: 9px;
+        font-weight: 500;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .deep-list {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .deep-list li {
+        position: relative;
+        padding-left: 13px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .deep-list li::before {
+        position: absolute;
+        top: 0.62em;
+        left: 0;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--green-mid);
+        content: "";
+      }
+
+      .contract-note {
+        margin-top: 14px;
+        padding: 11px;
+        border: 1px solid #d6e4dd;
+        border-radius: 11px;
+        background: var(--panel-subtle);
+        color: var(--ink-soft);
+        font-size: 10px;
+        line-height: 1.55;
+      }
+
+      .contract-note strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--ink);
+        font-size: 11px;
+      }
+
+      .compound-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+        gap: 0;
+      }
+
+      .diagram-wrap {
+        min-width: 0;
+        padding: 30px;
+        border-right: 1px solid var(--line);
+        background: #fbfcfa;
+      }
+
+      .mermaid {
+        min-width: 0;
+        overflow-x: auto;
+      }
+
+      .mechanism-card {
+        padding: 30px;
+        background: #f2f5f1;
+      }
+
+      .mechanism-card h3 {
+        margin: 0 0 14px;
+        font-size: 17px;
+      }
+
+      .field-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .field-list li {
+        display: grid;
+        grid-template-columns: 94px minmax(0, 1fr);
+        gap: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--line);
+        color: var(--ink-soft);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      .field-list strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .decision {
+        padding: 30px;
+      }
+
+      .decision-intro {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(250px, 0.55fr);
+        gap: 24px;
+        align-items: end;
+        margin-bottom: 20px;
+      }
+
+      .decision-intro h2 {
+        margin: 0;
+        font-size: clamp(24px, 4vw, 38px);
+        font-weight: 500;
+        letter-spacing: -0.04em;
+      }
+
+      .decision-intro p {
+        margin: 0;
+        color: var(--ink-soft);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .decision-options {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .decision-option {
+        position: relative;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 12px;
+        padding: 18px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-lg);
+        background: #fff;
+      }
+
+      .decision-option:has(input:checked) {
+        border-color: var(--green);
+        box-shadow: 0 0 0 3px rgba(23, 108, 82, 0.08);
+      }
+
+      .decision-option[data-active="true"] {
+        border-color: var(--green);
+        box-shadow: 0 0 0 3px rgba(23, 108, 82, 0.08);
+      }
+
+      .decision-option input {
+        width: 18px;
+        height: 18px;
+        margin: 2px 0 0;
+        accent-color: var(--green);
+      }
+
+      .decision-option strong {
+        display: block;
+        font-size: 14px;
+      }
+
+      .decision-option p {
+        margin: 7px 0 0;
+        color: var(--ink-soft);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .lane-status {
+        display: inline-flex;
+        width: fit-content;
+        align-items: center;
+        gap: 7px;
+        margin-top: 8px;
+        padding: 5px 8px;
+        border-radius: 8px;
+        background: var(--green-soft);
+        color: var(--green);
+        font-family: var(--font-mono);
+        font-size: 9px;
+        font-weight: 500;
+      }
+
+      .recommended {
+        display: inline-flex;
+        margin-left: 7px;
+        padding: 3px 6px;
+        border-radius: 6px;
+        background: var(--green-soft);
+        color: var(--green);
+        font-family: var(--font-mono);
+        font-size: 8px;
+        vertical-align: middle;
+      }
+
+      .decision-submit {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        margin-top: 16px;
+      }
+
+      .queue-status {
+        color: var(--ink-faint);
+        font-size: 11px;
+      }
+
+      .decision-submit button {
+        min-height: 44px;
+        padding: 10px 18px;
+        border: 1px solid var(--green);
+        border-radius: 12px;
+        background: var(--green);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .footer-note {
+        margin: 24px auto 0;
+        color: var(--ink-faint);
+        font-size: 11px;
+        line-height: 1.6;
+        text-align: center;
+      }
+
+      @keyframes breathe {
+        0%, 100% { opacity: 0.45; transform: scale(0.86); }
+        50% { opacity: 1; transform: scale(1); }
+      }
+
+      @keyframes stateIn {
+        from { opacity: 0; transform: translateY(7px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      @media (max-width: 1120px) {
+        .comparison-grid,
+        .compound-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .current-side,
+        .diagram-wrap {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .target-wrap {
+          grid-template-columns: minmax(320px, 440px) minmax(220px, 320px);
+        }
+
+        .principle-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .deep-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .principle {
+          border-bottom: 1px solid var(--line);
+        }
+      }
+
+      @media (max-width: 820px) {
+        .page {
+          width: min(100% - 20px, 720px);
+          padding-top: 20px;
+        }
+
+        .topbar,
+        .section-head,
+        .decision-intro {
+          align-items: flex-start;
+          flex-direction: column;
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .hero-grid,
+        .target-wrap {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .motion-rail {
+          position: static;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .evidence-strip,
+        .principle-grid,
+        .decision-options,
+        .deep-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 560px) {
+        .page {
+          width: min(100% - 12px, 520px);
+        }
+
+        h1 {
+          font-size: 39px;
+        }
+
+        .section-head,
+        .current-side,
+        .target-side,
+        .evidence-strip,
+        .diagram-wrap,
+        .mechanism-card,
+        .decision {
+          padding: 20px;
+        }
+
+        .motion-rail,
+        .evidence-strip,
+        .principle-grid,
+        .decision-options,
+        .deep-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .principle {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .state-switcher button {
+          padding-inline: 4px;
+          font-size: 10px;
+        }
+
+        .sidepanel {
+          min-height: 700px;
+        }
+
+        .decision-submit {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .decision-submit button {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <div class="topbar">
+        <div class="topbar-brand">
+          <div class="topbar-mark"><i data-lucide="sprout" width="19" height="19"></i></div>
+          <div class="topbar-copy">
+            <strong>Scion / 持节</strong>
+            <span>UI direction review · 01</span>
+          </div>
+        </div>
+        <div class="lock-status"><i data-lucide="lock-keyhole" width="13" height="13"></i>视觉方向已锁定</div>
+      </div>
+
+      <header class="hero">
+        <p class="eyebrow">Calm task console</p>
+        <h1>让任务状态变得可见，<br />而不是把日志变得更漂亮。</h1>
+        <div class="hero-grid">
+          <p class="hero-lede">
+            方向不是“换一套浅色皮肤”，而是重新建立侧栏的主次关系：真实网页是舞台，当前任务是控制面，聊天只负责补充意图。
+          </p>
+          <div class="locked-list" aria-label="已确认设计决定">
+            <span class="chip"><i data-lucide="sun" width="12" height="12"></i>浅色、安静</span>
+            <span class="chip"><i data-lucide="type" width="12" height="12"></i>保留现有字体</span>
+            <span class="chip"><i data-lucide="panel-top" width="12" height="12"></i>任务优先</span>
+            <span class="chip"><i data-lucide="git-branch" width="12" height="12"></i>三态并行</span>
+            <span class="chip"><i data-lucide="leaf" width="12" height="12"></i>持节绿色</span>
+            <span class="chip"><i data-lucide="shield-check" width="12" height="12"></i>证据优先</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="section" aria-labelledby="comparison-title">
+        <div class="section-head">
+          <div>
+            <span class="section-number">01 / 当前与目标</span>
+            <h2 class="section-title" id="comparison-title">同一个审批任务，两种信息秩序</h2>
+          </div>
+          <p class="section-note">左侧来自今天 17:41 的真实侧栏证据；右侧是讨论稿。它们使用同一产品契约，没有改写功能范围。</p>
+        </div>
+
+        <div class="comparison-grid">
+          <div class="current-side">
+            <div class="side-label"><h3>当前实现</h3><span>real evidence</span></div>
+            <figure class="screenshot-frame">
+              <img src="scion-ui-direction-assets/current-approval.png" alt="当前持节侧栏等待审批状态截图" />
+            </figure>
+            <ol class="diagnosis">
+              <li><span class="diagnosis-index">01</span><span>黑底、奶油纸、红色描边彼此争抢，任务本身不是第一视觉焦点。</span></li>
+              <li><span class="diagnosis-index">02</span><span>审批、停止、失败共用危险红，用户难以判断现在是“需要确认”还是“系统出错”。</span></li>
+              <li><span class="diagnosis-index">03</span><span>大卡片、聊天记录和输入框同时占据主叙事，纵向空间很快被用尽。</span></li>
+            </ol>
+          </div>
+
+          <div class="target-side">
+            <div class="side-label"><h3>目标方向</h3><span>interactive draft</span></div>
+            <div class="state-switcher" role="tablist" aria-label="切换关键任务状态">
+              <button type="button" role="tab" data-state-target="running" aria-selected="true">运行中</button>
+              <button type="button" role="tab" data-state-target="approval" aria-selected="false">等待批准</button>
+              <button type="button" role="tab" data-state-target="verified" aria-selected="false">已验证</button>
+            </div>
+
+            <div class="target-wrap">
+              <div class="sidepanel" aria-label="持节浅色任务控制台交互稿">
+                <header class="app-header">
+                  <div class="app-brand"><img src="scion-ui-direction-assets/logo-header.png" alt="Scion 持节" /></div>
+                  <div class="app-header-actions">
+                    <button class="icon-button" type="button" aria-label="新任务"><i data-lucide="plus" width="18" height="18"></i></button>
+                    <button class="icon-button" type="button" aria-label="历史任务"><i data-lucide="history" width="18" height="18"></i></button>
+                    <button class="icon-button" type="button" aria-label="设置"><i data-lucide="settings-2" width="18" height="18"></i></button>
+                  </div>
+                </header>
+
+                <div class="app-scroll">
+                  <section class="mock-state running active" data-state-panel="running" aria-label="运行中状态">
+                    <div class="status-row">
+                      <span class="status-badge"><span class="status-dot"></span>正在执行</span>
+                      <span class="site-label">feishu.cn</span>
+                    </div>
+                    <article class="task-card">
+                      <p class="task-kicker">当前任务</p>
+                      <h3 class="task-title">新建供应商，并在提交前停下来等我批准</h3>
+                      <div class="now-card">
+                        <div class="now-icon"><i data-lucide="scan-search" width="17" height="17"></i></div>
+                        <div class="now-copy">
+                          <strong>正在填写联系人信息</strong>
+                          <span>已识别当前表单，继续完成可逆操作。</span>
+                        </div>
+                      </div>
+                      <ol class="step-list">
+                        <li class="step-item done"><span class="step-mark"><i data-lucide="check" width="12" height="12"></i></span><span>打开供应商页面</span><span class="step-time">10:21</span></li>
+                        <li class="step-item done"><span class="step-mark"><i data-lucide="check" width="12" height="12"></i></span><span>找到新建表单</span><span class="step-time">10:22</span></li>
+                        <li class="step-item active"><span class="step-mark"><i data-lucide="pencil-line" width="12" height="12"></i></span><span>填写供应商资料</span><span class="step-time">现在</span></li>
+                        <li class="step-item"><span class="step-mark"></span><span>等待提交批准</span><span class="step-time">下一步</span></li>
+                      </ol>
+                      <div class="task-actions"><button class="button button-secondary" type="button"><i data-lucide="pause" width="13" height="13"></i>暂停</button></div>
+                    </article>
+                    <div class="conversation-divider">对话</div>
+                    <div class="chat-note"><span class="chat-avatar"><i data-lucide="message-circle-more" width="14" height="14"></i></span><span>你可以补充说明；持节会在安全边界处停下来。</span></div>
+                  </section>
+
+                  <section class="mock-state approval" data-state-panel="approval" aria-label="等待批准状态">
+                    <div class="status-row">
+                      <span class="status-badge" data-tone="amber"><span class="status-dot"></span>等待你的批准</span>
+                      <span class="site-label">feishu.cn</span>
+                    </div>
+                    <div class="collapsed-summary">
+                      <div><strong>新建供应商</strong><span>可逆步骤已完成 · 4 项资料已填写</span></div>
+                      <button class="icon-button" type="button" aria-label="展开任务详情"><i data-lucide="chevron-down" width="16" height="16"></i></button>
+                    </div>
+                    <article class="approval-card">
+                      <div class="approval-head">
+                        <span class="approval-head-icon"><i data-lucide="shield-alert" width="18" height="18"></i></span>
+                        <div><strong>将提交供应商表单</strong><span>这是一次对外提交，执行后会产生真实记录</span></div>
+                      </div>
+                      <dl class="approval-detail">
+                        <div><dt>对象</dt><dd>供应商资料表</dd></div>
+                        <div><dt>站点</dt><dd>飞书 · 供应商管理</dd></div>
+                        <div><dt>包含</dt><dd>公司、类别、联系人、邮箱、地址</dd></div>
+                        <div><dt>动作</dt><dd>提交一次，不自动重复</dd></div>
+                      </dl>
+                      <div class="task-actions">
+                        <button class="button button-primary" type="button"><i data-lucide="check" width="14" height="14"></i>批准并提交一次</button>
+                        <button class="button button-secondary" type="button">返回修改</button>
+                      </div>
+                      <p class="one-use">本次批准只对这一个动作有效；页面变化后自动失效。</p>
+                    </article>
+                  </section>
+
+                  <section class="mock-state verified" data-state-panel="verified" aria-label="已验证状态">
+                    <div class="status-row">
+                      <span class="status-badge" data-tone="success"><span class="status-dot"></span>已验证完成</span>
+                      <span class="site-label">feishu.cn</span>
+                    </div>
+                    <article class="verified-card">
+                      <div class="verified-icon"><i data-lucide="badge-check" width="21" height="21"></i></div>
+                      <h3 class="verified-title">供应商已创建</h3>
+                      <p class="verified-copy">页面结果已核对通过，可以放心结束这次任务。</p>
+                      <div class="evidence-box">
+                        <span class="evidence-icon"><i data-lucide="scan-eye" width="16" height="16"></i></span>
+                        <div class="evidence-copy"><strong>页面证据</strong><span>页面成功标志已出现，目标仍为飞书供应商管理。</span></div>
+                      </div>
+                      <details class="receipt-details">
+                        <summary>查看完成回执</summary>
+                        <div class="receipt-grid"><span>2026-07-15 10:27:41</span><span>RCPT-20260715-102741</span></div>
+                      </details>
+                    </article>
+                    <div class="post-actions">
+                      <div class="rating" aria-label="任务结果评价">
+                        <button type="button">成功</button><button type="button">部分完成</button><button type="button">未完成</button>
+                      </div>
+                      <button class="save-skill" type="button">保存为 Skill</button>
+                    </div>
+                    <div class="conversation-divider">继续</div>
+                    <div class="chat-note"><span class="chat-avatar"><i data-lucide="message-circle-more" width="14" height="14"></i></span><span>继续说下一步，持节会把它作为同一任务的新轮次。</span></div>
+                  </section>
+                </div>
+
+                <footer class="composer">
+                  <div class="composer-shell">
+                    <span class="composer-placeholder">补充说明，或开始下一个任务…</span>
+                    <button class="composer-send" type="button" aria-label="发送"><i data-lucide="arrow-up" width="17" height="17"></i></button>
+                  </div>
+                </footer>
+              </div>
+
+              <aside class="motion-rail" aria-label="动效机制说明">
+                <div class="motion-card" data-motion-card="running">
+                  <strong>运行中：只让“现在”有生命</strong>
+                  <p>新步骤进入，已完成步骤收拢。避免整张卡持续跳动或闪烁。</p>
+                  <div class="motion-meta"><span>Layout</span><span>180–220ms</span><span>easeOut</span></div>
+                </div>
+                <div class="motion-card" data-motion-card="approval">
+                  <strong>审批：重排注意力</strong>
+                  <p>任务摘要折叠，审批面板进入视野中心；不使用危险红。</p>
+                  <div class="motion-meta"><span>Timeline</span><span>220ms</span><span>amber</span></div>
+                </div>
+                <div class="motion-card" data-motion-card="verified">
+                  <strong>完成：先证据，后回执</strong>
+                  <p>验证通过后再显露结果。回执 ID 默认折叠，避免工程信息抢占结论。</p>
+                  <div class="motion-meta"><span>Scope</span><span>160ms</span><span>reduced motion</span></div>
+                </div>
+              </aside>
+            </div>
+            <p class="state-caption">点击上方三个状态查看同一侧栏如何改变密度、语义色和操作焦点。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="deep-title">
+        <div class="section-head">
+          <div>
+            <span class="section-number">02 / 三态深度规格</span>
+            <h2 class="section-title" id="deep-title">共享一套骨架，各自解决不同的判断问题</h2>
+          </div>
+          <p class="section-note">三条并行分支已经统一：运行态解释过程，审批态解释后果，完成态解释证据。</p>
+        </div>
+        <div class="deep-grid">
+          <article class="deep-card">
+            <div class="deep-head"><strong>运行中</strong><span>process</span></div>
+            <div class="deep-block"><h4>首屏层级</h4><ul class="deep-list"><li>目标与站点</li><li>唯一实时状态行</li><li>最近三步；更早步骤折叠</li><li>暂停 / 停止只出现一次</li><li>连续控制输入固定在底部</li></ul></div>
+            <div class="deep-block"><h4>状态变化</h4><ul class="deep-list"><li>观察 → 准备 → 执行 → 核对 → 恢复</li><li>无可信总步数时不显示百分比或 x/x</li><li>只有 observed 才显示已完成</li></ul></div>
+            <div class="deep-block"><h4>动效</h4><ul class="deep-list"><li>文案 140–180ms 交叉淡化</li><li>新步骤 180ms / 6px 入场</li><li>只有当前动作显示 900ms 单圈活动指示</li></ul></div>
+            <div class="contract-note"><strong>契约缺口</strong>需要结构化 TaskActivity phase、phaseStartedAt、lastActivityAt；现阶段可由最新 attempt 保守推导。</div>
+          </article>
+
+          <article class="deep-card">
+            <div class="deep-head"><strong>等待批准</strong><span>consequence</span></div>
+            <div class="deep-block"><h4>首屏层级</h4><ul class="deep-list"><li>目标 → 审批卡 → 折叠步骤</li><li>明确操作、对象、影响、完成后如何核对</li><li>批准并提交一次 / 不批准，返回修改</li><li>结束任务降为三级操作</li></ul></div>
+            <div class="deep-block"><h4>安全状态</h4><ul class="deep-list"><li>按钮按下立即禁用；400ms 后才显示 spinner</li><li>目标变化使本次批准失效，零提交</li><li>结果不确定时明确“不会自动重试”</li></ul></div>
+            <div class="deep-block"><h4>动效</h4><ul class="deep-list"><li>审批卡 160ms / 4px 入场</li><li>核对 → 提交 → 验证 160–200ms</li><li>琥珀表达等待，红色只表达失败</li></ul></div>
+            <div class="contract-note"><strong>契约缺口</strong>需要结构化 ApprovalDescriptor、invalidated 状态、CommandAck pending 与结果不确定解决命令；不持久化表单值或 DOM 正文。</div>
+          </article>
+
+          <article class="deep-card">
+            <div class="deep-head"><strong>已验证</strong><span>evidence</span></div>
+            <div class="deep-block"><h4>首屏层级</h4><ul class="deep-list"><li>保守结论 → 页面证据 → 折叠回执</li><li>评分改为紧凑三选一</li><li>保存 Skill 是次级动作</li><li>继续输入创建同一 Task 的新 Round</li></ul></div>
+            <div class="deep-block"><h4>证据边界</h4><ul class="deep-list"><li>只有匹配当前 Task/Round 的 receipt 才能完成</li><li>URL 只展示 origin + pathname，移除 query/hash</li><li>没有语义证据时不复述原目标为完成结论</li></ul></div>
+            <div class="deep-block"><h4>动效</h4><ul class="deep-list"><li>task_completed_verified 触发一次性 160ms 入场</li><li>不抢焦点、不自动滚动、不使用庆祝粒子</li><li>新 Round 出现后旧完成态压缩为摘要</li></ul></div>
+            <div class="contract-note"><strong>契约缺口</strong>需要严格 verified predicate、脱敏 EvidenceDisplay、Skill eligibility 与保存 ack；P0 不伪造截图缩略图。</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="evidence-title">
+        <div class="section-head">
+          <div>
+            <span class="section-number">03 / 证据基线</span>
+            <h2 class="section-title" id="evidence-title">设计不能脱离真实状态截图</h2>
+          </div>
+          <p class="section-note">后续每一次实现都应在相同宽度、相同状态下做前后对照，而不是只验证页面能否打开。</p>
+        </div>
+        <div class="evidence-strip">
+          <div class="evidence-item"><figure><img src="scion-ui-direction-assets/current-failure.png" alt="当前失败状态截图" /></figure><figcaption>失败态：进度 4/4 与“失败”同时出现，语义冲突。</figcaption></div>
+          <div class="evidence-item"><figure><img src="scion-ui-direction-assets/current-approval.png" alt="当前等待审批状态截图" /></figure><figcaption>审批态：动作很重要，但背景、红边与停止按钮共同争抢注意力。</figcaption></div>
+          <div class="evidence-item"><figure><img src="scion-ui-direction-assets/current-complete.png" alt="当前已完成状态截图" /></figure><figcaption>完成态：回执、评价和 Skill 同时升为主操作，结果被稀释。</figcaption></div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="principles-title">
+        <div class="section-head">
+          <div>
+            <span class="section-number">04 / 交互规则</span>
+            <h2 class="section-title" id="principles-title">五条规则决定这套界面是否可信</h2>
+          </div>
+          <p class="section-note">这些是后续组件、文案和动效共同遵守的约束，不是视觉装饰规范。</p>
+        </div>
+        <div class="principle-grid">
+          <article class="principle"><div class="principle-icon"><i data-lucide="target" width="17" height="17"></i></div><h3>目标始终可见</h3><p>无论处于哪个状态，用户都能一眼确认“它正在替我做什么”。</p></article>
+          <article class="principle"><div class="principle-icon"><i data-lucide="activity" width="17" height="17"></i></div><h3>只强调当前动作</h3><p>历史步骤自动降权，运行中只有“现在”拥有动效和最高对比度。</p></article>
+          <article class="principle"><div class="principle-icon"><i data-lucide="shield" width="17" height="17"></i></div><h3>审批说明后果</h3><p>显示对象、站点、影响与一次性边界，不展示泛化的内部动作文本。</p></article>
+          <article class="principle"><div class="principle-icon"><i data-lucide="scan-eye" width="17" height="17"></i></div><h3>证据先于完成</h3><p>模型说 done 不改变 UI；只有页面证据通过后才进入绿色完成态。</p></article>
+          <article class="principle"><div class="principle-icon"><i data-lucide="minimize-2" width="17" height="17"></i></div><h3>状态决定密度</h3><p>运行时展开、审批时聚焦、完成后压缩，让侧栏不会无限变长。</p></article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="compound-title">
+        <div class="section-head">
+          <div>
+            <span class="section-number">05 / 可复利归档</span>
+            <h2 class="section-title" id="compound-title">收藏不是资产，被项目验证过的机制才是</h2>
+          </div>
+          <p class="section-note">Anime.js 是第一份机制地图；Scion 会成为第一轮“研究 → 采用 → 验证”的闭环。</p>
+        </div>
+        <div class="compound-grid">
+          <div class="diagram-wrap">
+            <div class="mermaid">
+flowchart TD
+  A["作品来源<br/>URL · 仓库 · 录屏"] --> B["真实证据<br/>截图 · 交互状态"]
+  B --> C["机制卡<br/>触发 · 状态 · 时间 · 约束"]
+  C --> D["产品映射<br/>Scion 要解决的问题"]
+  D --> E["实现与验收<br/>代码落点 · 前后截图"]
+  E --> F["复盘结论<br/>保留 · 调整 · 淘汰"]
+  F --> C
+            </div>
+          </div>
+          <aside class="mechanism-card">
+            <h3>每张机制卡只保存可复用信息</h3>
+            <ul class="field-list">
+              <li><strong>Preview</strong><span>必须有截图或短录屏，不能只写“很好看”。</span></li>
+              <li><strong>Problem</strong><span>它解决了用户哪一个判断或操作问题。</span></li>
+              <li><strong>Mechanism</strong><span>触发条件、状态变化、时长、缓动与退场。</span></li>
+              <li><strong>Constraints</strong><span>键盘、焦点、reduced motion、性能边界。</span></li>
+              <li><strong>Used in</strong><span>被哪些项目、组件和版本实际采用。</span></li>
+              <li><strong>Outcome</strong><span>验收截图与最终结论，决定是否继续复用。</span></li>
+            </ul>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="decision-title">
+        <div class="decision">
+          <div class="decision-intro">
+            <h2 id="decision-title">三种状态已经并行做深并统一收口</h2>
+            <p>每条设计分支已独立检查信息层级、动效、数据契约与边界状态；主稿现在共享同一组件语言和验收口径。</p>
+          </div>
+          <div class="decision-options">
+            <article class="decision-option" data-active="true">
+              <span><i data-lucide="activity" width="18" height="18"></i></span>
+              <span><strong>运行中</strong><p>实时状态、当前动作、暂停与连续控制。</p><span class="lane-status">spec complete</span></span>
+            </article>
+            <article class="decision-option" data-active="true">
+              <span><i data-lucide="shield-alert" width="18" height="18"></i></span>
+              <span><strong>等待批准</strong><p>对象、后果、一次性边界、目标变化与结果不确定。</p><span class="lane-status">spec complete</span></span>
+            </article>
+            <article class="decision-option" data-active="true">
+              <span><i data-lucide="badge-check" width="18" height="18"></i></span>
+              <span><strong>已验证</strong><p>页面证据、回执详情、评价、Skill 与继续新轮次。</p><span class="lane-status">spec complete</span></span>
+            </article>
+          </div>
+          <div class="decision-submit">
+            <span class="queue-status">并行分支只产出独立设计证据，不会同时修改业务源码。</span>
+            <span class="lock-status"><i data-lucide="layers-3" width="13" height="13"></i>3 / 3 已整合</span>
+          </div>
+        </div>
+      </section>
+
+      <p class="footer-note">本稿使用用户已确认的浅色任务控制台方向、Scion 现有品牌资产，以及现有 Space Grotesk / Noto Sans SC 字体。没有改动业务源码。</p>
+    </main>
+
+    <script>
+      const stateButtons = [...document.querySelectorAll('[data-state-target]')];
+      const statePanels = [...document.querySelectorAll('[data-state-panel]')];
+
+      function selectState(state) {
+        const update = () => {
+          for (const button of stateButtons) {
+            button.setAttribute('aria-selected', String(button.dataset.stateTarget === state));
+          }
+          for (const panel of statePanels) {
+            panel.classList.toggle('active', panel.dataset.statePanel === state);
+          }
+        };
+        if (document.startViewTransition && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          document.startViewTransition(update);
+        } else {
+          update();
+        }
+      }
+
+      for (const button of stateButtons) {
+        button.addEventListener('click', () => selectState(button.dataset.stateTarget));
+      }
+
+      lucide.createIcons();
+    </script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs";
+
+      const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+      const paint = document.createElement("canvas").getContext("2d");
+      function toRgba(color) {
+        paint.clearRect(0, 0, 1, 1);
+        paint.fillStyle = "#000";
+        paint.fillStyle = color;
+        paint.fillRect(0, 0, 1, 1);
+        return paint.getImageData(0, 0, 1, 1).data;
+      }
+      function compositeRgba(foreground, background) {
+        const foregroundAlpha = foreground[3] / 255;
+        const backgroundAlpha = background[3] / 255;
+        const alpha = foregroundAlpha + backgroundAlpha * (1 - foregroundAlpha);
+        if (alpha === 0) return [0, 0, 0, 0];
+        return [
+          (foreground[0] * foregroundAlpha + background[0] * backgroundAlpha * (1 - foregroundAlpha)) / alpha,
+          (foreground[1] * foregroundAlpha + background[1] * backgroundAlpha * (1 - foregroundAlpha)) / alpha,
+          (foreground[2] * foregroundAlpha + background[2] * backgroundAlpha * (1 - foregroundAlpha)) / alpha,
+          alpha * 255,
+        ];
+      }
+      function pageIsDark() {
+        const root = document.documentElement;
+        const rootBackground = toRgba(getComputedStyle(root).backgroundColor);
+        const bodyBackground = document.body ? toRgba(getComputedStyle(document.body).backgroundColor) : [0, 0, 0, 0];
+        const [r, g, b, a] = compositeRgba(bodyBackground, rootBackground);
+        if (a > 0) return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 < 0.5;
+        return darkQuery.matches;
+      }
+      const diagrams = [...document.querySelectorAll(".mermaid")].map((el) => ({ el, src: el.textContent }));
+      let applied;
+      let rendering = false;
+      let queued = false;
+      function queueRender() {
+        queued = true;
+        if (!rendering) void render();
+      }
+      async function render() {
+        rendering = true;
+        try {
+          while (queued) {
+            queued = false;
+            const theme = pageIsDark() ? "dark" : "default";
+            if (theme === applied) continue;
+            mermaid.initialize({ startOnLoad: false, theme, securityLevel: "strict", flowchart: { curve: "basis" } });
+            for (const { el, src } of diagrams) {
+              el.removeAttribute("data-processed");
+              el.textContent = src;
+            }
+            await mermaid.run({ nodes: diagrams.map((d) => d.el) });
+            applied = theme;
+          }
+        } finally {
+          rendering = false;
+          if (queued) queueRender();
+        }
+      }
+      if (document.readyState === "complete") queueRender();
+      else window.addEventListener("load", queueRender, { once: true });
+    </script>
+  </body>
+</html>

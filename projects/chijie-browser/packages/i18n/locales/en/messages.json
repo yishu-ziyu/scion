@@ -64,6 +64,36 @@
   "chat_input_placeholder": {
     "message": "我能帮你做什么？"
   },
+  "chat_task_mode_badge": {
+    "message": "Task: agent task"
+  },
+  "chat_task_input_placeholder": {
+    "message": "Describe the task; 持节 will run it in your browser"
+  },
+  "chat_task_input_attach_placeholder": {
+    "message": "Add a note (optional)..."
+  },
+  "chat_input_attach_files": {
+    "message": "Attach files"
+  },
+  "chat_input_attach_files_title": {
+    "message": "Attach text files (txt, md, json, csv, and similar)"
+  },
+  "chat_task_steps_heading": {
+    "message": "Execution steps"
+  },
+  "chat_task_rating_prompt": {
+    "message": "How did this task go?"
+  },
+  "chat_task_rate_success": {
+    "message": "Success"
+  },
+  "chat_task_rate_partial": {
+    "message": "Partial"
+  },
+  "chat_task_rate_fail": {
+    "message": "Not done"
+  },
   "chat_input_form": {
     "message": "对话输入表单"
   },
@@ -203,10 +233,10 @@
     "message": "使用大型语言模型的视觉能力 (将会消耗更多的 token 以取得更好的结果)"
   },
   "options_general_displayHighlights": {
-    "message": "显示醒目标示"
+    "message": "Element highlights (debug)"
   },
   "options_general_displayHighlights_desc": {
-    "message": "在可互动的元素 (如按钮、链接等) 上显示视觉化醒目标示"
+    "message": "Paint numbered boxes on clickable elements. Off by default; leave off for normal use."
   },
   "options_general_planningInterval": {
     "message": "重新规划频率"
@@ -958,10 +988,10 @@
     "message": "It wants to do something hard to undo. Please confirm:"
   },
   "chat_task_approve": {
-    "message": "Approve once"
+    "message": "Approve and perform once"
   },
   "chat_task_reject": {
-    "message": "Go back"
+    "message": "Don't approve; go back"
   },
   "chat_task_confirm_done": {
     "message": "I confirm it is done"
@@ -1042,10 +1072,10 @@
     "message": "Progress"
   },
   "chat_task_policy_external": {
-    "message": "Policy: external commits pause for your approval."
+    "message": "Actions that change an external page pause for your approval."
   },
   "chat_task_approval_heading": {
-    "message": "About to submit externally"
+    "message": "About to perform an external action"
   },
   "chat_task_receipt_id": {
     "message": "Receipt ID"
@@ -1055,6 +1085,65 @@
   },
   "chat_task_header_idle": {
     "message": "Ready"
+  },
+  "chat_task_action_open": { "message": "Open page" },
+  "chat_task_action_open_tab": { "message": "Open tab" },
+  "chat_task_action_switch_tab": { "message": "Switch tab" },
+  "chat_task_action_click": { "message": "Click page control" },
+  "chat_task_action_input": { "message": "Fill form" },
+  "chat_task_action_keys": { "message": "Use keyboard" },
+  "chat_task_action_media": { "message": "Control media" },
+  "chat_task_action_scroll": { "message": "Scroll page" },
+  "chat_task_action_wait": { "message": "Wait for page" },
+  "chat_task_action_done": { "message": "Prepare completion" },
+  "chat_task_action_search": { "message": "Search" },
+  "chat_task_action_back": { "message": "Go back" },
+  "chat_task_action_read_options": { "message": "Read options" },
+  "chat_task_action_select": { "message": "Select option" },
+  "chat_task_action_generic": { "message": "Perform page action" },
+  "chat_task_attempt_pending_approval": { "message": "Ready to perform (approval required)" },
+  "chat_task_attempt_observed": { "message": "Verified" },
+  "chat_task_attempt_executing": { "message": "In progress" },
+  "chat_task_attempt_approved": { "message": "Approved" },
+  "chat_task_attempt_proposed": { "message": "Preparing" },
+  "chat_task_attempt_uncertain": { "message": "Result needs confirmation" },
+  "chat_task_attempt_blocked": { "message": "Blocked" },
+  "chat_task_activity_understanding": { "message": "Reading the page" },
+  "chat_task_activity_preparing": { "message": "Preparing the next action" },
+  "chat_task_activity_verified": {
+    "message": "$COUNT$ results verified",
+    "placeholders": { "count": { "content": "$1", "example": "2" } }
+  },
+  "chat_task_approval_action_generic": { "message": "Perform one external action" },
+  "chat_task_approval_action_click": { "message": "Perform one page confirmation action" },
+  "chat_task_approval_field_action": { "message": "Action" },
+  "chat_task_approval_field_location": { "message": "Location" },
+  "chat_task_approval_field_impact": { "message": "Possible impact" },
+  "chat_task_approval_field_after": { "message": "After approval" },
+  "chat_task_approval_impact_external": {
+    "message": "The page will change externally and may not be automatically reversible"
+  },
+  "chat_task_approval_after_once": { "message": "Perform only this action, then verify the page result" },
+  "chat_task_approval_once": { "message": "This approval applies only to this action." },
+  "chat_task_approval_pending": { "message": "Approving…" },
+  "chat_task_reject_pending": { "message": "Going back…" },
+  "chat_task_evidence_url": { "message": "Page address matches the goal" },
+  "chat_task_evidence_text": { "message": "Expected result appeared on the page" },
+  "chat_task_evidence_element": { "message": "Page control matches the expected state" },
+  "chat_task_evidence_media": { "message": "Media matches the expected state" },
+  "chat_task_evidence_user": { "message": "You confirmed the result" },
+  "chat_task_evidence_generic": { "message": "Page result matches the goal" },
+  "chat_task_receipt_technical": { "message": "Technical receipt" },
+  "chat_task_skill_saving": { "message": "Saving…" },
+  "chat_task_command_stale": {
+    "message": "The task changed just now and has been refreshed. Continue from the current state."
+  },
+  "chat_task_command_invalid_transition": {
+    "message": "That action is no longer available. Continue from the current state."
+  },
+  "chat_task_command_not_found": { "message": "The current task has ended or no longer exists." },
+  "chat_task_command_invalid_input": {
+    "message": "That action is missing required information. Send the instruction again."
   },
   "chat_task_fail_llm": {
     "message": "Model call failed (network, timeout, or quota). Check API key and network, then retry."
@@ -1097,5 +1186,23 @@
         "example": "llm_failed"
       }
     }
+  },
+  "chat_task_product_fail_login_wall": {
+    "message": "Login or captcha required"
+  },
+  "chat_task_product_fail_selector_miss": {
+    "message": "Target element or page not found"
+  },
+  "chat_task_product_fail_approval_timeout": {
+    "message": "Approval timed out"
+  },
+  "chat_task_product_fail_false_complete": {
+    "message": "Marked complete without page proof"
+  },
+  "chat_task_product_fail_model_loop": {
+    "message": "Model looped or hit step limit"
+  },
+  "chat_task_product_fail_other": {
+    "message": "Task failed; retry or rephrase"
   }
 }

@@ -21,11 +21,11 @@ import { ActionBuilder } from '../actions/builder';
 import { AgentContext, AgentStepInfo, DEFAULT_AGENT_OPTIONS } from '../types';
 import MessageManager from '../messages/service';
 import { EventManager } from '../event/manager';
-import { extractJsonFromModelOutput } from '../messages/utils';
-import { wrapUntrustedContent } from '../messages/utils';
+import { extractJsonFromModelOutput, wrapUntrustedContent } from '../messages/utils';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome } from '../../task/contracts';
 import { CONTROL_SYSTEM_PROMPT, parseControlPolicyDecision } from './control-policy';
 import type { Action } from '../actions/builder';
+import { isForbiddenTaskContentUrl, runObserveActLoop, type LoopDecision, type LoopOutcome } from './observe-act-loop';
 
 const logger = createLogger('ControlLlmBackend');
 
@@ -46,10 +46,7 @@ async function contentToString(content: unknown): Promise<string> {
 async function buildStateText(context: AgentContext): Promise<string> {
   const browserState = await context.browserContext.getState(context.options.useVision);
   const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
-  const elementsText =
-    rawElementsText !== ''
-      ? wrapUntrustedContent(rawElementsText)
-      : 'empty interactive list';
+  const elementsText = rawElementsText !== '' ? wrapUntrustedContent(rawElementsText) : 'empty interactive list';
   let mediaLine = 'media: none';
   try {
     const page = await context.browserContext.getCurrentPage();
@@ -126,7 +123,7 @@ export async function createLlmControlDriver(
 
   let paused = false;
   let stopped = false;
-  let followUps: string[] = [];
+  const followUps: string[] = [];
   let resumeWaiters: Array<() => void> = [];
   let criteriaLocked = false;
 
@@ -136,6 +133,13 @@ export async function createLlmControlDriver(
         resumeWaiters.push(resolve);
       });
     }
+  };
+
+  const toExecutorOutcome = (outcome: LoopOutcome): ExecutorOutcome => {
+    if (outcome.kind === 'waiting_user') {
+      return { kind: 'waiting_user', reason: outcome.reason };
+    }
+    return outcome;
   };
 
   return {
@@ -149,126 +153,121 @@ export async function createLlmControlDriver(
 
       const instruction = [input.instruction, ...followUps].filter(Boolean).join('\n');
       const maxSteps = generalSettings.maxSteps || DEFAULT_AGENT_OPTIONS.maxSteps;
-      let failures = 0;
       const maxFailures = generalSettings.maxFailures || DEFAULT_AGENT_OPTIONS.maxFailures;
 
-      for (let step = 0; step < maxSteps; step++) {
-        if (stopped) return { kind: 'cancelled' };
-        await waitIfPaused();
-        if (stopped) return { kind: 'cancelled' };
+      const loopOutcome = await runObserveActLoop({
+        maxSteps,
+        maxFailures,
+        isStopped: () => stopped,
+        waitIfPaused,
+        observe: async () => {
+          agentContext.nSteps = agentContext.nSteps ?? 0;
+          const stateText = await buildStateText(agentContext);
+          // Never treat extension side panel as the task content page.
+          const urlMatch = stateText.match(/url:\s*([^,}]+)/);
+          const url = urlMatch?.[1]?.trim();
+          if (isForbiddenTaskContentUrl(url)) {
+            logger.warning('observed forbidden content url; continue with state', { url });
+          }
+          return stateText;
+        },
+        decide: async (stateText, step): Promise<LoopDecision> => {
+          agentContext.nSteps = step;
+          agentContext.stepInfo = new AgentStepInfo({ stepNumber: step, maxSteps });
 
-        agentContext.nSteps = step;
-        agentContext.stepInfo = new AgentStepInfo({ stepNumber: step, maxSteps });
+          const userPrompt = [
+            `Task:\n${instruction}`,
+            `Step: ${step + 1}/${maxSteps}`,
+            criteriaLocked
+              ? 'Completion criteria already frozen; do not change them.'
+              : 'Propose completion_criteria if possible.',
+            stateText,
+          ].join('\n\n');
 
-        let stateText: string;
-        try {
-          stateText = await buildStateText(agentContext);
-        } catch (error) {
-          logger.error('state observe failed', error);
-          failures += 1;
-          if (failures >= maxFailures) return { kind: 'failed', category: 'observe_failed' };
-          continue;
-        }
-
-        const userPrompt = [
-          `Task:\n${instruction}`,
-          `Step: ${step + 1}/${maxSteps}`,
-          criteriaLocked ? 'Completion criteria already frozen; do not change them.' : 'Propose completion_criteria if possible.',
-          stateText,
-        ].join('\n\n');
-
-        let rawText = '';
-        try {
-          const response = await llm.invoke([
-            new SystemMessage(CONTROL_SYSTEM_PROMPT),
-            new HumanMessage(userPrompt),
-          ]);
-          rawText = await contentToString(response.content);
-        } catch (error) {
-          logger.error('LLM invoke failed', error);
-          failures += 1;
-          if (failures >= maxFailures) return { kind: 'failed', category: 'llm_failed' };
-          continue;
-        }
-
-        let decision;
-        try {
-          const parsed = extractJsonFromModelOutput(rawText);
-          decision = parseControlPolicyDecision(parsed);
-        } catch (error) {
-          logger.error('control JSON parse failed', error);
-          failures += 1;
-          if (failures >= maxFailures) return { kind: 'failed', category: 'json_parse_failed' };
-          continue;
-        }
-
-        if (!criteriaLocked && decision.criteria.length > 0) {
+          let rawText = '';
           try {
-            await hooks.onPlan(roundId, decision.criteria);
-            criteriaLocked = true;
+            const response = await llm.invoke([new SystemMessage(CONTROL_SYSTEM_PROMPT), new HumanMessage(userPrompt)]);
+            rawText = await contentToString(response.content);
           } catch (error) {
-            logger.error('onPlan failed', error);
-            return { kind: 'failed', category: 'on_plan_failed' };
+            logger.error('LLM invoke failed', error);
+            return { kind: 'recoverable', category: 'llm_failed' };
           }
-        } else if (!criteriaLocked && step === 0) {
-          // Ensure CompletionChecker has something; TaskManager can also infer from instruction.
+
+          let decision;
           try {
-            await hooks.onPlan(roundId, []);
-            criteriaLocked = true;
-          } catch {
-            // stale round
-            return { kind: 'failed', category: 'on_plan_failed' };
+            const parsed = extractJsonFromModelOutput(rawText);
+            decision = parseControlPolicyDecision(parsed);
+          } catch (error) {
+            logger.error('control JSON parse failed', error);
+            return { kind: 'recoverable', category: 'json_parse_failed' };
           }
-        }
 
-        if (decision.waitingUser) {
-          return { kind: 'waiting_user', reason: decision.waitingUser };
-        }
-
-        if (decision.done) {
-          return {
-            kind: 'candidate_complete',
-            summary: decision.observation || 'Control loop candidate complete',
-          };
-        }
-
-        if (!decision.action) {
-          failures += 1;
-          if (failures >= maxFailures) return { kind: 'failed', category: 'no_action' };
-          continue;
-        }
-
-        const action = registry.get(decision.action.name);
-        if (!action) {
-          logger.error('unknown action', decision.action.name);
-          failures += 1;
-          if (failures >= maxFailures) return { kind: 'failed', category: 'unknown_action' };
-          continue;
-        }
-
-        try {
-          const result = await hooks.dispatchAction(roundId, action, decision.action.args);
-          agentContext.actionResults.push(result.actionResult);
-          if (result.actionResult?.error) {
-            failures += 1;
-            if (failures >= maxFailures) return { kind: 'failed', category: 'action_failed' };
-          } else {
-            failures = 0;
+          if (!criteriaLocked && decision.criteria.length > 0) {
+            try {
+              await hooks.onPlan(roundId, decision.criteria);
+              criteriaLocked = true;
+            } catch (error) {
+              logger.error('onPlan failed', error);
+              return { kind: 'fatal', category: 'on_plan_failed' };
+            }
+          } else if (!criteriaLocked && step === 0) {
+            try {
+              await hooks.onPlan(roundId, []);
+              criteriaLocked = true;
+            } catch {
+              return { kind: 'fatal', category: 'on_plan_failed' };
+            }
           }
-          if (result.actionResult?.isDone) {
+
+          if (decision.waitingUser) {
+            return { kind: 'waiting_user', reason: decision.waitingUser };
+          }
+
+          if (decision.done) {
             return {
-              kind: 'candidate_complete',
-              summary: result.actionResult.extractedContent || decision.observation || 'done',
+              kind: 'done',
+              summary: decision.observation || 'Control loop candidate complete',
             };
           }
-        } catch (error) {
-          logger.error('dispatchAction failed', error);
-          failures += 1;
-          if (failures >= maxFailures) return { kind: 'failed', category: 'dispatch_failed' };
-        }
-      }
 
-      return { kind: 'failed', category: 'max_steps' };
+          if (!decision.action) {
+            return { kind: 'recoverable', category: 'no_action' };
+          }
+
+          if (!registry.get(decision.action.name)) {
+            logger.error('unknown action', decision.action.name);
+            return { kind: 'recoverable', category: 'unknown_action' };
+          }
+
+          return {
+            kind: 'action',
+            name: decision.action.name,
+            args: decision.action.args,
+            observation: decision.observation,
+          };
+        },
+        act: async ({ name, args }) => {
+          const action = registry.get(name);
+          if (!action) {
+            return { error: `unknown action ${name}` };
+          }
+          try {
+            const result = await hooks.dispatchAction(roundId, action, args);
+            agentContext.actionResults.push(result.actionResult);
+            return {
+              error: result.actionResult?.error ?? null,
+              isDone: Boolean(result.actionResult?.isDone),
+              summary: result.actionResult?.extractedContent ?? null,
+            };
+          } catch (error) {
+            logger.error('dispatchAction failed', error);
+            throw error;
+          }
+        },
+        reobserve: async () => buildStateText(agentContext),
+      });
+
+      return toExecutorOutcome(loopOutcome);
     },
     addFollowUp: instruction => {
       followUps.push(instruction);

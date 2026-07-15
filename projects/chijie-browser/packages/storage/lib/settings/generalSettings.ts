@@ -34,10 +34,14 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   useVision: false,
   useVisionForPlanner: false,
   planningInterval: 3,
-  displayHighlights: true,
+  // Off: numbered boxes on the live page are debug-only, not product UI.
+  displayHighlights: false,
   minWaitPageLoad: 250,
   agentCoreBackend: 'control',
 };
+
+/** Flip old installs that still ship displayHighlights:true from legacy defaults. */
+const HIGHLIGHTS_OFF_MIGRATION = 'general-settings-highlights-off-v1';
 
 const storage = createStorage<GeneralSettingsConfig>('general-settings', DEFAULT_GENERAL_SETTINGS, {
   storageEnum: StorageEnum.Local,
@@ -52,20 +56,36 @@ export const generalSettingsStore: GeneralSettingsStorage = {
       ...currentSettings,
       ...settings,
     };
-
-    // If useVision is true, displayHighlights must also be true
-    if (updatedSettings.useVision && !updatedSettings.displayHighlights) {
-      updatedSettings.displayHighlights = true;
-    }
+    // useVision and displayHighlights are independent: vision screenshots must
+    // not force color boxes on the user's page.
 
     await storage.set(updatedSettings);
   },
   async getSettings() {
     const settings = await storage.get();
-    return {
+    const merged = {
       ...DEFAULT_GENERAL_SETTINGS,
       ...settings,
     };
+
+    // One-time product migration: legacy default was true; clear it once so
+    // existing profiles match "clean page" without asking users to hunt a toggle.
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        const flag = await chrome.storage.local.get(HIGHLIGHTS_OFF_MIGRATION);
+        if (!flag[HIGHLIGHTS_OFF_MIGRATION] && merged.displayHighlights === true) {
+          merged.displayHighlights = false;
+          await storage.set(merged);
+          await chrome.storage.local.set({ [HIGHLIGHTS_OFF_MIGRATION]: true });
+        } else if (!flag[HIGHLIGHTS_OFF_MIGRATION]) {
+          await chrome.storage.local.set({ [HIGHLIGHTS_OFF_MIGRATION]: true });
+        }
+      }
+    } catch {
+      // Non-extension test env: leave merged as-is
+    }
+
+    return merged;
   },
   async resetToDefaults() {
     await storage.set(DEFAULT_GENERAL_SETTINGS);

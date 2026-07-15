@@ -93,7 +93,7 @@ export async function getReadabilityContent(tabId: number): Promise<ReadabilityR
 export async function getClickableElements(
   tabId: number,
   url: string,
-  showHighlightElements = true,
+  showHighlightElements = false,
   focusElement = -1,
   viewportExpansion = 0,
   debugMode = false,
@@ -112,7 +112,7 @@ export async function getClickableElements(
 async function _buildDomTree(
   tabId: number,
   url: string,
-  showHighlightElements = true,
+  showHighlightElements = false,
   focusElement = -1,
   viewportExpansion = 0,
   debugMode = false,
@@ -211,7 +211,7 @@ async function _buildDomTree(
 
 async function constructFrameTree(
   tabId: number,
-  showHighlightElements = true,
+  showHighlightElements = false,
   focusElement = -1,
   viewportExpansion = 0,
   debugMode = false,
