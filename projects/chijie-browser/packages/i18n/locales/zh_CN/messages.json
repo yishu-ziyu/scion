@@ -70,6 +70,15 @@
   "chat_task_input_placeholder": {
     "message": "描述需要完成的任务，持节将为你执行"
   },
+  "chat_task_input_attach_placeholder": {
+    "message": "添加说明（可选）..."
+  },
+  "chat_input_attach_files": {
+    "message": "附加文件"
+  },
+  "chat_input_attach_files_title": {
+    "message": "附加文本文件（txt、md、json、csv 等）"
+  },
   "chat_task_steps_heading": {
     "message": "执行步骤"
   },
@@ -1169,5 +1178,23 @@
         "example": "llm_failed"
       }
     }
+  },
+  "chat_task_product_fail_login_wall": {
+    "message": "需要登录或验证码"
+  },
+  "chat_task_product_fail_selector_miss": {
+    "message": "找不到目标元素或页面"
+  },
+  "chat_task_product_fail_approval_timeout": {
+    "message": "等待批准超时"
+  },
+  "chat_task_product_fail_false_complete": {
+    "message": "页面未达成却报完成"
+  },
+  "chat_task_product_fail_model_loop": {
+    "message": "模型反复失败或步数耗尽"
+  },
+  "chat_task_product_fail_other": {
+    "message": "任务失败，可重试或改写指令"
   }
 }

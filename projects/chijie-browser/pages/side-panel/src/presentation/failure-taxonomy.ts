@@ -1,8 +1,10 @@
 /**
  * User-visible failure categories (ticket 04).
  * Aligns product reports (login_wall / selector_miss / …) with executor categories.
- * Primary UI shows Chinese labels only — never raw step_failed / Planner.
+ * Primary UI shows localized product labels only — never raw step_failed / Planner.
  */
+
+import { t } from '@extension/i18n';
 
 /** Product report codes (golden journeys / Tabbit alignment). */
 export type ProductFailureCode =
@@ -13,13 +15,35 @@ export type ProductFailureCode =
   | 'model_loop'
   | 'other';
 
+const PRODUCT_FAILURE_MESSAGE_KEYS = {
+  login_wall: 'chat_task_product_fail_login_wall',
+  selector_miss: 'chat_task_product_fail_selector_miss',
+  approval_timeout: 'chat_task_product_fail_approval_timeout',
+  false_complete: 'chat_task_product_fail_false_complete',
+  model_loop: 'chat_task_product_fail_model_loop',
+  other: 'chat_task_product_fail_other',
+} as const satisfies Record<ProductFailureCode, Parameters<typeof t>[0]>;
+
+/** Localized labels for each product failure code (resolved at access time). */
 export const PRODUCT_FAILURE_LABELS: Record<ProductFailureCode, string> = {
-  login_wall: '需要登录或验证码',
-  selector_miss: '找不到目标元素或页面',
-  approval_timeout: '等待批准超时',
-  false_complete: '页面未达成却报完成',
-  model_loop: '模型反复失败或步数耗尽',
-  other: '任务失败，可重试或改写指令',
+  get login_wall() {
+    return t(PRODUCT_FAILURE_MESSAGE_KEYS.login_wall);
+  },
+  get selector_miss() {
+    return t(PRODUCT_FAILURE_MESSAGE_KEYS.selector_miss);
+  },
+  get approval_timeout() {
+    return t(PRODUCT_FAILURE_MESSAGE_KEYS.approval_timeout);
+  },
+  get false_complete() {
+    return t(PRODUCT_FAILURE_MESSAGE_KEYS.false_complete);
+  },
+  get model_loop() {
+    return t(PRODUCT_FAILURE_MESSAGE_KEYS.model_loop);
+  },
+  get other() {
+    return t(PRODUCT_FAILURE_MESSAGE_KEYS.other);
+  },
 };
 
 /** Map executor / waitReason / free-form category → product code. */
@@ -71,7 +95,7 @@ export function toProductFailureCode(category: string | undefined | null): Produ
 }
 
 export function productFailureLabel(category: string | undefined | null): string {
-  return PRODUCT_FAILURE_LABELS[toProductFailureCode(category)];
+  return t(PRODUCT_FAILURE_MESSAGE_KEYS[toProductFailureCode(category)]);
 }
 
 /** True if text looks like engineer-primary noise. */

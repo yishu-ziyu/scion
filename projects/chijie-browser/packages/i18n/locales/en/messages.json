@@ -70,6 +70,15 @@
   "chat_task_input_placeholder": {
     "message": "Describe the task; 持节 will run it in your browser"
   },
+  "chat_task_input_attach_placeholder": {
+    "message": "Add a note (optional)..."
+  },
+  "chat_input_attach_files": {
+    "message": "Attach files"
+  },
+  "chat_input_attach_files_title": {
+    "message": "Attach text files (txt, md, json, csv, and similar)"
+  },
   "chat_task_steps_heading": {
     "message": "Execution steps"
   },
@@ -1169,5 +1178,23 @@
         "example": "llm_failed"
       }
     }
+  },
+  "chat_task_product_fail_login_wall": {
+    "message": "Login or captcha required"
+  },
+  "chat_task_product_fail_selector_miss": {
+    "message": "Target element or page not found"
+  },
+  "chat_task_product_fail_approval_timeout": {
+    "message": "Approval timed out"
+  },
+  "chat_task_product_fail_false_complete": {
+    "message": "Marked complete without page proof"
+  },
+  "chat_task_product_fail_model_loop": {
+    "message": "Model looped or hit step limit"
+  },
+  "chat_task_product_fail_other": {
+    "message": "Task failed; retry or rephrase"
   }
 }

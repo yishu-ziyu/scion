@@ -215,7 +215,11 @@ export default function ChatInput({
           aria-disabled={disabled}
           rows={2}
           className="w-full resize-none border-none bg-transparent p-3 text-[var(--chijie-foreground)] focus:outline-none disabled:cursor-not-allowed"
-          placeholder={attachedFiles.length > 0 ? '添加说明（可选）...' : t('chat_task_input_placeholder')}
+          placeholder={
+            attachedFiles.length > 0
+              ? t('chat_task_input_attach_placeholder')
+              : t('chat_task_input_placeholder')
+          }
           aria-label={t('chat_input_editor')}
         />
 
@@ -225,8 +229,8 @@ export default function ChatInput({
               type="button"
               onClick={handleFileSelect}
               disabled={disabled}
-              aria-label="附加文件"
-              title="附加文本文件（txt、md、json、csv 等）"
+              aria-label={t('chat_input_attach_files')}
+              title={t('chat_input_attach_files_title')}
               className={`rounded-full p-1.5 transition-colors ${
                 disabled
                   ? 'cursor-not-allowed opacity-50'

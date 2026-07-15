@@ -24,7 +24,7 @@ describe('Feature: user-visible failure categories (ticket 04)', () => {
     expect(toProductFailureCode('executor_start_failed')).toBe('other');
   });
 
-  it('labels are Chinese product copy without engineer tokens', () => {
+  it('labels are localized product copy without engineer tokens', () => {
     for (const [code, label] of Object.entries(PRODUCT_FAILURE_LABELS)) {
       expect(label.length).toBeGreaterThan(2);
       expect(isEngineerFailureNoise(label)).toBe(false);
@@ -35,6 +35,6 @@ describe('Feature: user-visible failure categories (ticket 04)', () => {
   it('flags machine tokens as engineer noise', () => {
     expect(isEngineerFailureNoise('step_failed')).toBe(true);
     expect(isEngineerFailureNoise('observe_failed')).toBe(true);
-    expect(isEngineerFailureNoise('需要登录或验证码')).toBe(false);
+    expect(isEngineerFailureNoise(productFailureLabel('login_wall'))).toBe(false);
   });
 });

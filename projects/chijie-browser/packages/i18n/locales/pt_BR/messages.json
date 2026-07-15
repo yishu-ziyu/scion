@@ -70,6 +70,15 @@
   "chat_task_input_placeholder": {
     "message": "Descreva a tarefa; o agente executará no navegador"
   },
+  "chat_task_input_attach_placeholder": {
+    "message": "Adicionar observação (opcional)..."
+  },
+  "chat_input_attach_files": {
+    "message": "Anexar arquivos"
+  },
+  "chat_input_attach_files_title": {
+    "message": "Anexar arquivos de texto (txt, md, json, csv e similares)"
+  },
   "chat_task_steps_heading": {
     "message": "Etapas de execução"
   },
@@ -1169,5 +1178,23 @@
         "example": "llm_failed"
       }
     }
+  },
+  "chat_task_product_fail_login_wall": {
+    "message": "Login ou captcha necessários"
+  },
+  "chat_task_product_fail_selector_miss": {
+    "message": "Elemento ou página alvo não encontrados"
+  },
+  "chat_task_product_fail_approval_timeout": {
+    "message": "Aprovação expirou"
+  },
+  "chat_task_product_fail_false_complete": {
+    "message": "Marcado como concluído sem prova na página"
+  },
+  "chat_task_product_fail_model_loop": {
+    "message": "Modelo entrou em loop ou atingiu o limite de passos"
+  },
+  "chat_task_product_fail_other": {
+    "message": "Tarefa falhou; tente de novo ou reformule"
   }
 }
