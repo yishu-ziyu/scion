@@ -4,12 +4,14 @@
 
 **Blocked by:** 01 — Task mode + steps + done UI
 
-**Status:** ready-for-agent
+**Status:** implemented (tests + existing approval UI)
 
 **Seams:** S2 (primary), S1 for approve UI
 
-- [ ] Non-commit actions never open the approval gate
-- [ ] Commit actions cannot execute without a one-use approval token
-- [ ] After approve, exactly one commit attempt path (no double-submit without new approval)
-- [ ] Fixture journey tests pass (form fixture prior art)
-- [ ] UI copy for waiting / approved / rejected is human-readable
+- [x] Non-commit actions never open the approval gate (`go_to_url` journey)
+- [x] Commit actions cannot execute without a one-use approval token (form journey)
+- [x] After approve, exactly one commit attempt path (single submit)
+- [x] Fixture journey tests pass
+- [x] UI copy for waiting / approved / rejected is human-readable (ticket 01 TaskStatusCard)
+
+**Artifacts:** `control-backend-journey` ticket 05 case

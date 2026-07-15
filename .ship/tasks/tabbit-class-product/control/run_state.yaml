@@ -1,12 +1,15 @@
 task_id: tabbit-class-product
 active: true
 current_phase: implement
-status: ticket_02_done
+status: tickets_01_through_05_landed
 workflow: matt-main-flow
-updated_at: "2026-07-15T05:00:00Z"
+updated_at: "2026-07-15T05:20:00Z"
 ticket_01_commit: 0228f22
 ticket_02_branch: feature/ticket-02-observe-act-loop
-frontier_next: "03 or 04/05 parallel"
+frontier_next: "06 Slice B / 07 Slice C (need Owner login for real Feishu/Bilibili)"
+notes: >
+  Build green. Logo verified on CDP side panel (header-logo + logo-header.png).
+  Slice A live MiniMax E2E may still need Owner side-panel open after reload if goal-input missing.
 spec_path: .ship/tasks/tabbit-class-product/spec/SPEC.md
 product_index: docs/product/008-tabbit-class-agent-task-loop-spec.md
 parent_issue: https://github.com/yishu-ziyu/scion/issues/1

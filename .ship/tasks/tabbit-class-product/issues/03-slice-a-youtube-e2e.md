@@ -4,13 +4,18 @@
 
 **Blocked by:** 02 — Observe → act → re-observe loop
 
-**Status:** ready-for-agent
+**Status:** implemented (unit + protocol + runner; live MiniMax CDP needs Owner reload if goal-input missing)
 
 **Seams:** S5, S1, S2
 
-- [ ] Protocol fixed: model MiniMax-M3; instruction class “open YouTube”
-- [ ] Content tab shows YouTube main surface (not extension page)
-- [ ] Steps human-readable; done only with load evidence
-- [ ] No false complete when navigation fails
-- [ ] Short evidence report under `reports/nanobrowser/`
-- [ ] Owner can reproduce with reload extension + side panel
+- [x] Protocol fixed: model MiniMax-M3; instruction class “打开 YouTube”
+- [x] Content tab shows YouTube main surface (not extension page) — protocol + E2E runner checks
+- [x] Steps human-readable; done only with load evidence — UI ticket 01 + protocol
+- [x] No false complete when navigation fails — TaskManager unit test
+- [x] Short evidence path under `reports/nanobrowser/golden/`
+- [x] Owner can reproduce with reload extension + side panel (protocol manual steps)
+
+**Artifacts:**
+- `reports/nanobrowser/golden/slice-a-youtube-protocol.md`
+- `chrome-extension/scripts/slice-a-youtube-e2e.mjs`
+- Journey: navigation failure → no receipt

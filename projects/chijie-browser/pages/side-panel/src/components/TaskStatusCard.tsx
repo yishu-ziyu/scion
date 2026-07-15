@@ -20,6 +20,7 @@ import {
   shouldShowOutcomeRating,
   shouldShowVerifiedDone,
 } from '../presentation/task-loop-ui';
+import { productFailureLabel, toProductFailureCode } from '../presentation/failure-taxonomy';
 
 export interface TaskStatusCardProps {
   snapshot: TaskSnapshot;
@@ -87,6 +88,10 @@ function failureNextStep(snapshot: TaskSnapshot): string {
   const hint = waitReasonHint(round?.waitReason);
   if (hint) return hint;
   if (snapshot.status === 'failed') {
+    // Prefer product taxonomy label; fall back to executor-specific i18n, then generic.
+    if (round?.failureCategory) {
+      return productFailureLabel(round.failureCategory);
+    }
     return failureCategoryHint(round?.failureCategory) ?? t('chat_task_hint_failed_generic');
   }
   if (snapshot.status === 'cancelled') return t('chat_task_hint_cancelled');
@@ -468,8 +473,11 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
             {failureNextStep(snapshot)}
           </div>
           {snapshot.status === 'failed' && round?.failureCategory && (
-            <div className="mt-1 font-mono text-[11px] opacity-60" data-testid="task-failure-category">
-              {round.failureCategory}
+            <div
+              className="mt-1 text-[11px] opacity-70"
+              data-testid="task-failure-category"
+              data-product-code={toProductFailureCode(round.failureCategory)}>
+              {productFailureLabel(round.failureCategory)}
             </div>
           )}
         </div>
