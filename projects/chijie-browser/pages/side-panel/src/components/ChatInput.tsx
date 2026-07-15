@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { FaMicrophone } from 'react-icons/fa';
 import { AiOutlineLoading3Quarters } from 'react-icons/ai';
+import { FiPaperclip, FiX } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 
 interface ChatInputProps {
@@ -50,7 +51,7 @@ export default function ChatInput({
     const textarea = textareaRef.current;
     if (textarea) {
       textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 100)}px`;
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 72)}px`;
     }
   };
 
@@ -66,7 +67,7 @@ export default function ChatInput({
     const textarea = textareaRef.current;
     if (textarea) {
       textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 100)}px`;
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 72)}px`;
     }
   }, []);
 
@@ -95,7 +96,7 @@ export default function ChatInput({
             : `<nano_attached_files>${fileContents}</nano_attached_files>`;
 
           // Create display version with only filenames (for UI)
-          const fileList = attachedFiles.map(file => `📎 ${file.name}`).join('\n');
+          const fileList = attachedFiles.map(file => `附件：${file.name}`).join('\n');
           displayContent = trimmedText ? `${trimmedText}\n\n${fileList}` : fileList;
         }
 
@@ -190,14 +191,14 @@ export default function ChatInput({
               <div
                 key={index}
                 className="flex items-center gap-1 rounded-[60px] border border-[var(--chijie-border-strong)] px-2 py-1 text-xs text-[var(--chijie-foreground)]">
-                <span className="text-xs">📎</span>
+                <FiPaperclip className="size-3" aria-hidden />
                 <span className="max-w-[150px] truncate">{file.name}</span>
                 <button
                   type="button"
                   onClick={() => handleRemoveFile(index)}
                   className="ml-1 rounded-sm text-[var(--chijie-muted)] hover:text-[var(--chijie-accent)]"
                   aria-label={`Remove ${file.name}`}>
-                  <span className="text-xs">✕</span>
+                  <FiX className="size-3" aria-hidden />
                 </button>
               </div>
             ))}
@@ -212,7 +213,7 @@ export default function ChatInput({
           onKeyDown={handleKeyDown}
           disabled={disabled}
           aria-disabled={disabled}
-          rows={5}
+          rows={2}
           className="w-full resize-none border-none bg-transparent p-3 text-[var(--chijie-foreground)] focus:outline-none disabled:cursor-not-allowed"
           placeholder={attachedFiles.length > 0 ? '添加说明（可选）...' : t('chat_task_input_placeholder')}
           aria-label={t('chat_input_editor')}
@@ -229,9 +230,9 @@ export default function ChatInput({
               className={`rounded-full p-1.5 transition-colors ${
                 disabled
                   ? 'cursor-not-allowed opacity-50'
-                  : 'hover:bg-[var(--chijie-surface)] hover:text-[var(--chijie-paper)]'
+                  : 'hover:bg-[var(--chijie-accent-subtle)] hover:text-[var(--chijie-accent)]'
               }`}>
-              <span className="text-lg">📎</span>
+              <FiPaperclip className="size-[18px]" aria-hidden />
             </button>
 
             <input
@@ -261,7 +262,7 @@ export default function ChatInput({
                     ? 'cursor-not-allowed opacity-50'
                     : isRecording
                       ? 'bg-[var(--chijie-accent)] text-white'
-                      : 'hover:bg-[var(--chijie-surface)] hover:text-[var(--chijie-paper)]'
+                      : 'hover:bg-[var(--chijie-accent-subtle)] hover:text-[var(--chijie-accent)]'
                 }`}>
                 {isProcessingSpeech ? (
                   <AiOutlineLoading3Quarters className="size-4 animate-spin" />
