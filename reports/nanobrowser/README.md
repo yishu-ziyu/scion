@@ -12,6 +12,7 @@ Lab-level handoff (Codex): [../../HANDOVER.md](../../HANDOVER.md)
 
 | Date | Doc | Summary |
 |------|-----|---------|
+| 2026-07-15 | [Ticket 02 Slice A regression acceptance](./2026-07-15-ticket-02-slice-a-regression.md) | YouTube `/watch` verified completion, clean side panel, and one-approval form submit |
 | 2026-07-15 | [outer-rl/](./outer-rl/) | 外环 RL **预留**（方案 draft，暂不跑）；规格 `docs/product/006-outer-loop-rl-min-plan.md` |
 | 2026-07-13 | [2026-07-13-minimax-e2e-cdp.md](./2026-07-13-minimax-e2e-cdp.md) | MiniMax-M3 接入、401/`<think>` 修复、主 Chrome 9222 CDP、人机 E2E、多步 Navigator |
 | 2026-07-14 | [2026-07-14-single-tree-merge.md](./2026-07-14-single-tree-merge.md) | Dual tree → single tree + symlink |
