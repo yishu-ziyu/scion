@@ -4,12 +4,14 @@
 
 **Blocked by:** 01 — Task mode + steps + done UI
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 **Seams:** S3, S4, S2
 
-- [ ] Loop is observe → decide → act → re-observe for at least `go_to_url` / wait / done
-- [ ] Recoverable parse/decision failures retry without killing the whole task by default
-- [ ] Steps and status update through product contract (TaskManager path)
-- [ ] Unit/integration tests at control-loop + Task journey seams (no full YouTube required)
-- [ ] Extension tab is not treated as the task content target
+- [x] Loop is observe → decide → act → re-observe for at least `go_to_url` / wait / done
+- [x] Recoverable parse/decision failures retry without killing the whole task by default
+- [x] Steps and status update through product contract (TaskManager path)
+- [x] Unit/integration tests at control-loop + Task journey seams (no full YouTube required)
+- [x] Extension tab is not treated as the task content target
+
+**Notes:** Pure engine `observe-act-loop.ts`; LLM control uses it; navigate fixture + TaskManager journey.

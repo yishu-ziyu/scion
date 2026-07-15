@@ -5,8 +5,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompletionCriterion } from '@extension/storage/lib/task';
 import { TaskManager } from '../manager';
-import { createControlLoopDriver, fixtureFormControlSteps } from '../../agent/backends/control-loop';
+import {
+  createControlLoopDriver,
+  fixtureFormControlSteps,
+  fixtureNavigateControlSteps,
+} from '../../agent/backends/control-loop';
 import { ActionResult } from '../../agent/types';
+import { isForbiddenTaskContentUrl } from '../../agent/backends/observe-act-loop';
 
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
@@ -137,5 +142,63 @@ describe('control backend under TaskManager (G6 seam)', () => {
     const snap = await manager.snapshot('task-ctrl');
     expect(JSON.stringify(snap)).not.toContain('FIELD_SENTINEL_CTRL');
     expect(snap?.rounds[0]?.receipt).toBeTruthy();
+  });
+
+  it('navigate-first script: go_to_url + wait via TaskManager; steps recorded; no approval', async () => {
+    let currentUrl = 'about:blank';
+    const observeCriteria = vi.fn(async (criteria: CompletionCriterion[]) =>
+      criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        // Must match TaskManager baseline filter tab-\d+
+        targetRefId: item.targetRefId?.startsWith('tab-') ? item.targetRefId : 'tab-9',
+        observedAt: 600,
+        source: 'page' as const,
+        // url criteria match on string URL, not boolean
+        value: item.kind === 'url' ? currentUrl : false,
+      })),
+    );
+
+    const manager = new TaskManager({
+      createExecutor: async (input, hooks) =>
+        createControlLoopDriver(input, hooks, {
+          steps: fixtureNavigateControlSteps({ url: 'https://www.youtube.com/' }),
+          actionHandlers: {
+            go_to_url: async args => {
+              currentUrl = String(args.url);
+              expect(isForbiddenTaskContentUrl(currentUrl)).toBe(false);
+              return new ActionResult({ success: true });
+            },
+            wait: async () => new ActionResult({ success: true }),
+          },
+        }),
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 600,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-nav',
+      taskId: 'task-nav',
+      tabId: 9,
+      instruction: '打开 YouTube',
+      chatSessionId: 'chat-nav',
+      instructionMessageId: 'msg-nav',
+    });
+
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-nav'))?.status).toBe('completed');
+    });
+
+    const snap = await manager.snapshot('task-nav');
+    const round = snap?.rounds[0];
+    expect(round?.receipt).toBeTruthy();
+    const actionNames = (round?.attempts ?? []).map(a => a.actionName);
+    expect(actionNames).toContain('go_to_url');
+    expect(actionNames).toContain('wait');
+    expect(currentUrl).toBe('https://www.youtube.com/');
+    // Side panel / extension pages must not be the navigated content target
+    expect(isForbiddenTaskContentUrl(currentUrl)).toBe(false);
   });
 });

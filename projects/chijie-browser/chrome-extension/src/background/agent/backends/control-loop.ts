@@ -13,7 +13,9 @@ import {
   clickElementActionSchema,
   controlMediaActionSchema,
   doneActionSchema,
+  goToUrlActionSchema,
   inputTextActionSchema,
+  waitActionSchema,
   type ActionSchema,
 } from '../actions/schemas';
 import { ActionResult } from '../types';
@@ -47,6 +49,8 @@ const SCHEMA_BY_NAME: Record<string, ActionSchema> = {
   input_text: inputTextActionSchema,
   click_element: clickElementActionSchema,
   control_media: controlMediaActionSchema,
+  go_to_url: goToUrlActionSchema,
+  wait: waitActionSchema,
 };
 
 function makeAction(
@@ -182,6 +186,35 @@ export function fixtureFormControlSteps(opts?: {
       args: { intent: 'submit form', index: submitIndex },
     },
     { type: 'candidate_complete', summary: 'Form submit candidate' },
+  ];
+}
+
+/**
+ * Navigate-first script (ticket 02): plan url → go_to_url → wait → candidate complete.
+ * Demoable without LLM; TaskManager still records attempts for side-panel steps.
+ */
+export function fixtureNavigateControlSteps(opts?: {
+  url?: string;
+  urlStartsWith?: string;
+}): ControlScriptStep[] {
+  const url = opts?.url ?? 'https://www.youtube.com/';
+  const expected = opts?.urlStartsWith ?? 'https://www.youtube.com';
+  return [
+    {
+      type: 'plan',
+      criteria: [{ kind: 'url', operator: 'starts_with', expected, required: true }],
+    },
+    {
+      type: 'action',
+      name: 'go_to_url',
+      args: { intent: 'open target site', url },
+    },
+    {
+      type: 'action',
+      name: 'wait',
+      args: { intent: 'allow page load', seconds: 1 },
+    },
+    { type: 'candidate_complete', summary: 'Navigation candidate complete' },
   ];
 }
 
