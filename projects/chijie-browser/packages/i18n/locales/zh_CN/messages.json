@@ -894,58 +894,208 @@
   "options_tabs_analytics": {
     "message": "分析"
   },
-  "chat_skills_save": { "message": "存成下次可再用的模板" },
-  "chat_skills_saveConfirm": { "message": "保存模板" },
-  "chat_skills_run": { "message": "再跑一次" },
-  "chat_skills_runConfirm": { "message": "开始运行" },
-  "chat_skills_titlePlaceholder": { "message": "模板名称" },
-  "chat_skills_templatePlaceholder": { "message": "指令模板，例如：填写 {{name}}" },
-  "chat_skills_defaultTitle": { "message": "我的网页任务" },
-  "chat_task_status_running": { "message": "进行中" },
-  "chat_task_status_paused": { "message": "已暂停" },
-  "chat_task_status_waiting_approval": { "message": "等你确认" },
-  "chat_task_status_waiting_user": { "message": "需要你处理" },
-  "chat_task_status_inputs_required": { "message": "需要你填写参数" },
-  "chat_task_status_interrupted": { "message": "已中断" },
-  "chat_task_status_completed": { "message": "已完成" },
-  "chat_task_status_failed": { "message": "失败了" },
-  "chat_task_status_cancelled": { "message": "已取消" },
-  "chat_task_working_on_page": { "message": "在当前网页上操作" },
-  "chat_task_done_title": { "message": "已完成" },
-  "chat_task_done_body": { "message": "页面结果已核对通过，可以放心结束这一步。" },
-  "chat_task_next_step_title": { "message": "接下来你可以" },
-  "chat_task_section_task": { "message": "任务" },
-  "chat_task_section_rounds": { "message": "轮次" },
-  "chat_task_section_approval": { "message": "审批 · 需要你的操作" },
-  "chat_task_current_goal": { "message": "当前目标" },
-  "chat_task_current_site": { "message": "当前站点" },
-  "chat_task_progress": { "message": "进度" },
-  "chat_task_policy_external": { "message": "策略：涉及对外提交的操作，将暂停并请你审批。" },
-  "chat_task_approval_heading": { "message": "即将执行对外提交操作" },
-  "chat_task_approval_explain": { "message": "它准备执行一个不可轻易撤销的操作，请确认：" },
-  "chat_task_approve": { "message": "批准一次" },
-  "chat_task_reject": { "message": "回去修改" },
-  "chat_task_receipt_id": { "message": "回执 ID" },
-  "chat_task_receipt_time": { "message": "完成时间" },
-  "chat_task_header_idle": { "message": "就绪" },
-  "chat_task_confirm_done": { "message": "我确认已经完成" },
-  "chat_task_pause": { "message": "暂停" },
-  "chat_task_resume": { "message": "继续" },
-  "chat_task_stop": { "message": "停止任务" },
-  "chat_task_cancel_edit": { "message": "取消" },
-  "chat_task_skill_save_hint": { "message": "保存后，在下方「可再运行」里填新参数就能再跑。" },
-  "chat_task_skill_template_help": { "message": "已按刚才的目标预填。把会变的内容改成 {{name}} 这类占位符即可。" },
-  "chat_task_hint_login": { "message": "先在网页里登录，再点继续或重新发指令。" },
-  "chat_task_hint_captcha": { "message": "先在网页里完成验证码，再继续。" },
-  "chat_task_hint_rejected": { "message": "你拒绝了上次操作。若还要做，重新发一条指令。" },
-  "chat_task_hint_proof": { "message": "它认为需要你亲眼确认结果。确认无误就点「我确认已经完成」。" },
-  "chat_task_hint_uncertain": { "message": "提交结果不确定。请看一下网页是否成功，再决定继续或重试。" },
-  "chat_task_hint_target_missing": { "message": "页面上找不到要操作的目标。可换一个页面状态后重试。" },
-  "chat_task_hint_target_ambiguous": { "message": "页面上有多个相似目标，它不敢乱点。请改指令写得更具体。" },
-  "chat_task_hint_skill_inputs": { "message": "这个模板需要你重新填参数。在下方点「再跑一次」并填写。" },
-  "chat_task_hint_failed_generic": { "message": "这次没跑通。可看上方聊天里的失败说明，改指令后重试，或点停止后开新任务。" },
-  "chat_task_hint_cancelled": { "message": "任务已取消。直接发新指令即可开始下一件事。" },
-  "chat_task_hint_interrupted": { "message": "连接或页面中断了。点「继续」试恢复，不行就重发指令。" },
-  "chat_task_hint_generic": { "message": "按下方按钮操作，或直接发下一条指令。" },
-  "chat_bookmarks_skills_header": { "message": "可再运行" }
+  "chat_skills_save": {
+    "message": "存成下次可再用的模板"
+  },
+  "chat_skills_saveConfirm": {
+    "message": "保存模板"
+  },
+  "chat_skills_run": {
+    "message": "再跑一次"
+  },
+  "chat_skills_runConfirm": {
+    "message": "开始运行"
+  },
+  "chat_skills_titlePlaceholder": {
+    "message": "模板名称"
+  },
+  "chat_skills_templatePlaceholder": {
+    "message": "指令模板，例如：填写 {{name}}"
+  },
+  "chat_skills_defaultTitle": {
+    "message": "我的网页任务"
+  },
+  "chat_task_status_running": {
+    "message": "进行中"
+  },
+  "chat_task_status_paused": {
+    "message": "已暂停"
+  },
+  "chat_task_status_waiting_approval": {
+    "message": "等你确认"
+  },
+  "chat_task_status_waiting_user": {
+    "message": "需要你处理"
+  },
+  "chat_task_status_inputs_required": {
+    "message": "需要你填写参数"
+  },
+  "chat_task_status_interrupted": {
+    "message": "已中断"
+  },
+  "chat_task_status_completed": {
+    "message": "已完成"
+  },
+  "chat_task_status_failed": {
+    "message": "失败了"
+  },
+  "chat_task_status_cancelled": {
+    "message": "已取消"
+  },
+  "chat_task_working_on_page": {
+    "message": "在当前网页上操作"
+  },
+  "chat_task_done_title": {
+    "message": "已完成"
+  },
+  "chat_task_done_body": {
+    "message": "页面结果已核对通过，可以放心结束这一步。"
+  },
+  "chat_task_next_step_title": {
+    "message": "接下来你可以"
+  },
+  "chat_task_section_task": {
+    "message": "任务"
+  },
+  "chat_task_section_rounds": {
+    "message": "轮次"
+  },
+  "chat_task_section_approval": {
+    "message": "审批 · 需要你的操作"
+  },
+  "chat_task_current_goal": {
+    "message": "当前目标"
+  },
+  "chat_task_current_site": {
+    "message": "当前站点"
+  },
+  "chat_task_progress": {
+    "message": "进度"
+  },
+  "chat_task_policy_external": {
+    "message": "策略：涉及对外提交的操作，将暂停并请你审批。"
+  },
+  "chat_task_approval_heading": {
+    "message": "即将执行对外提交操作"
+  },
+  "chat_task_approval_explain": {
+    "message": "它准备执行一个不可轻易撤销的操作，请确认："
+  },
+  "chat_task_approve": {
+    "message": "批准一次"
+  },
+  "chat_task_reject": {
+    "message": "回去修改"
+  },
+  "chat_task_receipt_id": {
+    "message": "回执 ID"
+  },
+  "chat_task_receipt_time": {
+    "message": "完成时间"
+  },
+  "chat_task_header_idle": {
+    "message": "就绪"
+  },
+  "chat_task_confirm_done": {
+    "message": "我确认已经完成"
+  },
+  "chat_task_pause": {
+    "message": "暂停"
+  },
+  "chat_task_resume": {
+    "message": "继续"
+  },
+  "chat_task_stop": {
+    "message": "停止任务"
+  },
+  "chat_task_cancel_edit": {
+    "message": "取消"
+  },
+  "chat_task_skill_save_hint": {
+    "message": "保存后，在下方「可再运行」里填新参数就能再跑。"
+  },
+  "chat_task_skill_template_help": {
+    "message": "已按刚才的目标预填。把会变的内容改成 {{name}} 这类占位符即可。"
+  },
+  "chat_task_hint_login": {
+    "message": "先在网页里登录，再点继续或重新发指令。"
+  },
+  "chat_task_hint_captcha": {
+    "message": "先在网页里完成验证码，再继续。"
+  },
+  "chat_task_hint_rejected": {
+    "message": "你拒绝了上次操作。若还要做，重新发一条指令。"
+  },
+  "chat_task_hint_proof": {
+    "message": "它认为需要你亲眼确认结果。确认无误就点「我确认已经完成」。"
+  },
+  "chat_task_hint_uncertain": {
+    "message": "提交结果不确定。请看一下网页是否成功，再决定继续或重试。"
+  },
+  "chat_task_hint_target_missing": {
+    "message": "页面上找不到要操作的目标。可换一个页面状态后重试。"
+  },
+  "chat_task_hint_target_ambiguous": {
+    "message": "页面上有多个相似目标，它不敢乱点。请改指令写得更具体。"
+  },
+  "chat_task_hint_skill_inputs": {
+    "message": "这个模板需要你重新填参数。在下方点「再跑一次」并填写。"
+  },
+  "chat_task_hint_failed_generic": {
+    "message": "这次没跑通。改指令后重试，或点停止后开新任务。"
+  },
+  "chat_task_hint_cancelled": {
+    "message": "任务已取消。直接发新指令即可开始下一件事。"
+  },
+  "chat_task_hint_interrupted": {
+    "message": "连接或页面中断了。点「继续」试恢复，不行就重发指令。"
+  },
+  "chat_task_hint_generic": {
+    "message": "按下方按钮操作，或直接发下一条指令。"
+  },
+  "chat_bookmarks_skills_header": {
+    "message": "可再运行"
+  },
+  "chat_task_fail_llm": {
+    "message": "模型调用失败（网络、超时或额度）。检查 API 密钥与网络后重试。"
+  },
+  "chat_task_fail_observe": {
+    "message": "读不了当前页面（可能在扩展页/系统页）。先打开一个普通网页再试。"
+  },
+  "chat_task_fail_json": {
+    "message": "模型输出解析失败。可重试，或换一句更明确的指令。"
+  },
+  "chat_task_fail_no_action": {
+    "message": "模型没有给出可执行动作。请把目标写具体一些再试。"
+  },
+  "chat_task_fail_unknown_action": {
+    "message": "模型提出了未知动作。请重试或换指令。"
+  },
+  "chat_task_fail_action": {
+    "message": "页面动作执行失败。刷新页面或改指令后重试。"
+  },
+  "chat_task_fail_max_steps": {
+    "message": "步数用尽仍未完成。拆成更小任务或提高最大步数后再试。"
+  },
+  "chat_task_fail_setup": {
+    "message": "模型或密钥未就绪。打开设置 → 模型，确认 MiniMax 与密钥后重试。"
+  },
+  "chat_task_fail_start": {
+    "message": "任务引擎启动失败。刷新扩展后重试；仍失败请看扩展 service worker 日志。"
+  },
+  "chat_task_fail_plan": {
+    "message": "完成条件锁定失败。请停止后开新任务。"
+  },
+  "chat_task_fail_dispatch": {
+    "message": "动作调度失败。刷新扩展或换页面后重试。"
+  },
+  "chat_task_fail_unknown": {
+    "message": "失败原因：$CATEGORY$。改指令后重试，或点停止后开新任务。",
+    "placeholders": {
+      "category": {
+        "content": "$1",
+        "example": "llm_failed"
+      }
+    }
+  }
 }

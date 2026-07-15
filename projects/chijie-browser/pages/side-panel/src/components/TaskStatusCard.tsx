@@ -42,11 +42,44 @@ function waitReasonHint(reason: WaitReason | undefined): string | null {
   }
 }
 
+/** Map executor failureCategory → user-visible Chinese/en i18n (no machine noise). */
+export function failureCategoryHint(category: string | undefined): string | null {
+  if (!category) return null;
+  switch (category) {
+    case 'llm_failed':
+      return t('chat_task_fail_llm');
+    case 'observe_failed':
+      return t('chat_task_fail_observe');
+    case 'json_parse_failed':
+      return t('chat_task_fail_json');
+    case 'no_action':
+      return t('chat_task_fail_no_action');
+    case 'unknown_action':
+      return t('chat_task_fail_unknown_action');
+    case 'action_failed':
+      return t('chat_task_fail_action');
+    case 'max_steps':
+      return t('chat_task_fail_max_steps');
+    case 'setup_failed':
+      return t('chat_task_fail_setup');
+    case 'executor_start_failed':
+      return t('chat_task_fail_start');
+    case 'on_plan_failed':
+      return t('chat_task_fail_plan');
+    case 'dispatch_failed':
+      return t('chat_task_fail_dispatch');
+    default:
+      return t('chat_task_fail_unknown', [category]);
+  }
+}
+
 function failureNextStep(snapshot: TaskSnapshot): string {
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
   const hint = waitReasonHint(round?.waitReason);
   if (hint) return hint;
-  if (snapshot.status === 'failed') return t('chat_task_hint_failed_generic');
+  if (snapshot.status === 'failed') {
+    return failureCategoryHint(round?.failureCategory) ?? t('chat_task_hint_failed_generic');
+  }
   if (snapshot.status === 'cancelled') return t('chat_task_hint_cancelled');
   if (snapshot.status === 'interrupted') return t('chat_task_hint_interrupted');
   return t('chat_task_hint_generic');
@@ -345,7 +378,14 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
         snapshot.status === 'inputs_required') && (
         <div data-testid="task-next-step" className="chijie-next-step">
           <div className="font-medium">{t('chat_task_next_step_title')}</div>
-          <div className="mt-1">{failureNextStep(snapshot)}</div>
+          <div className="mt-1" data-testid="task-failure-reason">
+            {failureNextStep(snapshot)}
+          </div>
+          {snapshot.status === 'failed' && round?.failureCategory && (
+            <div className="mt-1 font-mono text-[11px] opacity-60" data-testid="task-failure-category">
+              {round.failureCategory}
+            </div>
+          )}
         </div>
       )}
 

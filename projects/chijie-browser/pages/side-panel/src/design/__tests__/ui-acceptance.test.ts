@@ -234,4 +234,12 @@ describe('Feature: design/003 task main blocks', () => {
     // Skill is task recipe, not tool chip wall
     expect(overview).toMatch(/可验证任务配方/);
   });
+
+  it('failed task shows failureCategory surface (not empty chat-only hint)', () => {
+    expect(taskStatusCardSource).toContain('failureCategory');
+    expect(taskStatusCardSource).toContain('failureCategoryHint');
+    expect(taskStatusCardSource).toContain('task-failure-reason');
+    expect(taskStatusCardSource).toContain('chat_task_fail_observe');
+    expect(taskStatusCardSource).not.toMatch(/可看上方聊天里的失败说明/);
+  });
 });

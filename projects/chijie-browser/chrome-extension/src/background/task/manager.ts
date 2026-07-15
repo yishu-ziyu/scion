@@ -974,12 +974,19 @@ export class TaskManager {
       this.drivers.set(taskId, driver);
       this.launches.delete(taskId);
       await this.runDriver(taskId, driver, roundId);
-    } catch {
+    } catch (error) {
+      // Surface start failures (missing model, createExecutor throw) on the round for UI.
+      const category =
+        error instanceof Error && /noApiKeys|noNavigator|noProvider|setup/i.test(error.message)
+          ? 'setup_failed'
+          : 'executor_start_failed';
       await this.queueTransition(async () => {
         const task = await getTask(taskId);
         if (!task || task.status !== 'running') return;
         task.status = 'failed';
-        this.currentRound(task).status = 'failed';
+        const round = this.currentRound(task);
+        round.status = 'failed';
+        round.failureCategory = category;
         task.revision += 1;
         await this.persist(task);
       });
@@ -1171,6 +1178,7 @@ export class TaskManager {
       case 'failed':
         task.status = 'failed';
         round.status = 'failed';
+        round.failureCategory = outcome.category || 'unknown';
         break;
     }
   }

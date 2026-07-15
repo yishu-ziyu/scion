@@ -148,6 +148,11 @@ export interface TaskRound {
   evidence: CompletionEvidence[];
   receipt?: CompletionReceipt;
   waitReason?: WaitReason;
+  /**
+   * Machine category when status is failed (e.g. llm_failed, observe_failed).
+   * UI maps this to human copy; do not store raw secrets.
+   */
+  failureCategory?: string;
 }
 
 export interface TaskSession {

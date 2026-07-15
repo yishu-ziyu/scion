@@ -894,47 +894,175 @@
   "options_tabs_analytics": {
     "message": "Analytics"
   },
-  "chat_skills_save": { "message": "Salvar como modelo reutilizável" },
-  "chat_skills_saveConfirm": { "message": "Salvar modelo" },
-  "chat_skills_run": { "message": "Executar de novo" },
-  "chat_skills_runConfirm": { "message": "Iniciar" },
-  "chat_skills_titlePlaceholder": { "message": "Nome do modelo" },
-  "chat_skills_templatePlaceholder": { "message": "Modelo de instrução, por exemplo: Preencha {{name}}" },
-  "chat_skills_defaultTitle": { "message": "Minha tarefa na web" },
-  "chat_task_status_running": { "message": "Em andamento" },
-  "chat_task_status_paused": { "message": "Pausado" },
-  "chat_task_status_waiting_approval": { "message": "Aguardando sua confirmação" },
-  "chat_task_status_waiting_user": { "message": "Precisa de você" },
-  "chat_task_status_inputs_required": { "message": "Precisa de parâmetros" },
-  "chat_task_status_interrupted": { "message": "Interrompido" },
-  "chat_task_status_completed": { "message": "Concluído" },
-  "chat_task_status_failed": { "message": "Falhou" },
-  "chat_task_status_cancelled": { "message": "Cancelado" },
-  "chat_task_working_on_page": { "message": "Operando na página atual" },
-  "chat_task_done_title": { "message": "Concluído" },
-  "chat_task_done_body": { "message": "O resultado da página foi verificado. Esta etapa terminou com segurança." },
-  "chat_task_next_step_title": { "message": "O que você pode fazer agora" },
-  "chat_task_approval_explain": { "message": "Ele quer executar algo difícil de desfazer. Confirme:" },
-  "chat_task_approve": { "message": "Aprovar e continuar" },
-  "chat_task_reject": { "message": "Recusar" },
-  "chat_task_confirm_done": { "message": "Confirmo que está concluído" },
-  "chat_task_pause": { "message": "Pausar" },
-  "chat_task_resume": { "message": "Continuar" },
-  "chat_task_stop": { "message": "Parar tarefa" },
-  "chat_task_cancel_edit": { "message": "Cancelar" },
-  "chat_task_skill_save_hint": { "message": "Depois de salvar, use Executar de novo abaixo com novos valores." },
-  "chat_task_skill_template_help": { "message": "Pré-preenchido com seu último objetivo. Troque partes variáveis por {{name}}." },
-  "chat_task_hint_login": { "message": "Faça login na página e depois continue ou envie uma nova instrução." },
-  "chat_task_hint_captcha": { "message": "Resolva o captcha na página e continue." },
-  "chat_task_hint_rejected": { "message": "Você recusou a última ação. Envie uma nova instrução se ainda quiser." },
-  "chat_task_hint_proof": { "message": "Ele precisa que você confirme o resultado. Toque em confirmar se estiver certo." },
-  "chat_task_hint_uncertain": { "message": "O resultado do envio é incerto. Confira a página e continue ou tente de novo." },
-  "chat_task_hint_target_missing": { "message": "O alvo não está na página. Mude o estado da página e tente de novo." },
-  "chat_task_hint_target_ambiguous": { "message": "Há vários alvos parecidos. Torne a instrução mais específica." },
-  "chat_task_hint_skill_inputs": { "message": "Este modelo precisa de novos parâmetros. Use Executar de novo abaixo." },
-  "chat_task_hint_failed_generic": { "message": "Esta execução falhou. Veja o chat, reescreva o objetivo ou pare e comece de novo." },
-  "chat_task_hint_cancelled": { "message": "Tarefa cancelada. Envie uma nova instrução quando quiser." },
-  "chat_task_hint_interrupted": { "message": "Conexão ou página interrompida. Tente Continuar ou reenvie a instrução." },
-  "chat_task_hint_generic": { "message": "Use os botões abaixo ou envie a próxima instrução." },
-  "chat_bookmarks_skills_header": { "message": "Executar de novo" }
+  "chat_skills_save": {
+    "message": "Salvar como modelo reutilizável"
+  },
+  "chat_skills_saveConfirm": {
+    "message": "Salvar modelo"
+  },
+  "chat_skills_run": {
+    "message": "Executar de novo"
+  },
+  "chat_skills_runConfirm": {
+    "message": "Iniciar"
+  },
+  "chat_skills_titlePlaceholder": {
+    "message": "Nome do modelo"
+  },
+  "chat_skills_templatePlaceholder": {
+    "message": "Modelo de instrução, por exemplo: Preencha {{name}}"
+  },
+  "chat_skills_defaultTitle": {
+    "message": "Minha tarefa na web"
+  },
+  "chat_task_status_running": {
+    "message": "Em andamento"
+  },
+  "chat_task_status_paused": {
+    "message": "Pausado"
+  },
+  "chat_task_status_waiting_approval": {
+    "message": "Aguardando sua confirmação"
+  },
+  "chat_task_status_waiting_user": {
+    "message": "Precisa de você"
+  },
+  "chat_task_status_inputs_required": {
+    "message": "Precisa de parâmetros"
+  },
+  "chat_task_status_interrupted": {
+    "message": "Interrompido"
+  },
+  "chat_task_status_completed": {
+    "message": "Concluído"
+  },
+  "chat_task_status_failed": {
+    "message": "Falhou"
+  },
+  "chat_task_status_cancelled": {
+    "message": "Cancelado"
+  },
+  "chat_task_working_on_page": {
+    "message": "Operando na página atual"
+  },
+  "chat_task_done_title": {
+    "message": "Concluído"
+  },
+  "chat_task_done_body": {
+    "message": "O resultado da página foi verificado. Esta etapa terminou com segurança."
+  },
+  "chat_task_next_step_title": {
+    "message": "O que você pode fazer agora"
+  },
+  "chat_task_approval_explain": {
+    "message": "Ele quer executar algo difícil de desfazer. Confirme:"
+  },
+  "chat_task_approve": {
+    "message": "Aprovar e continuar"
+  },
+  "chat_task_reject": {
+    "message": "Recusar"
+  },
+  "chat_task_confirm_done": {
+    "message": "Confirmo que está concluído"
+  },
+  "chat_task_pause": {
+    "message": "Pausar"
+  },
+  "chat_task_resume": {
+    "message": "Continuar"
+  },
+  "chat_task_stop": {
+    "message": "Parar tarefa"
+  },
+  "chat_task_cancel_edit": {
+    "message": "Cancelar"
+  },
+  "chat_task_skill_save_hint": {
+    "message": "Depois de salvar, use Executar de novo abaixo com novos valores."
+  },
+  "chat_task_skill_template_help": {
+    "message": "Pré-preenchido com seu último objetivo. Troque partes variáveis por {{name}}."
+  },
+  "chat_task_hint_login": {
+    "message": "Faça login na página e depois continue ou envie uma nova instrução."
+  },
+  "chat_task_hint_captcha": {
+    "message": "Resolva o captcha na página e continue."
+  },
+  "chat_task_hint_rejected": {
+    "message": "Você recusou a última ação. Envie uma nova instrução se ainda quiser."
+  },
+  "chat_task_hint_proof": {
+    "message": "Ele precisa que você confirme o resultado. Toque em confirmar se estiver certo."
+  },
+  "chat_task_hint_uncertain": {
+    "message": "O resultado do envio é incerto. Confira a página e continue ou tente de novo."
+  },
+  "chat_task_hint_target_missing": {
+    "message": "O alvo não está na página. Mude o estado da página e tente de novo."
+  },
+  "chat_task_hint_target_ambiguous": {
+    "message": "Há vários alvos parecidos. Torne a instrução mais específica."
+  },
+  "chat_task_hint_skill_inputs": {
+    "message": "Este modelo precisa de novos parâmetros. Use Executar de novo abaixo."
+  },
+  "chat_task_hint_failed_generic": {
+    "message": "Esta execução falhou. Reescreva o objetivo ou pare e comece de novo."
+  },
+  "chat_task_hint_cancelled": {
+    "message": "Tarefa cancelada. Envie uma nova instrução quando quiser."
+  },
+  "chat_task_hint_interrupted": {
+    "message": "Conexão ou página interrompida. Tente Continuar ou reenvie a instrução."
+  },
+  "chat_task_hint_generic": {
+    "message": "Use os botões abaixo ou envie a próxima instrução."
+  },
+  "chat_bookmarks_skills_header": {
+    "message": "Executar de novo"
+  },
+  "chat_task_fail_llm": {
+    "message": "Falha na chamada do modelo (rede, tempo ou cota). Verifique a chave e a rede."
+  },
+  "chat_task_fail_observe": {
+    "message": "Não foi possível ler a página atual. Abra um site normal e tente de novo."
+  },
+  "chat_task_fail_json": {
+    "message": "Falha ao analisar a saída do modelo. Tente de novo com instrução mais clara."
+  },
+  "chat_task_fail_no_action": {
+    "message": "O modelo não devolveu ação executável. Seja mais específico e tente de novo."
+  },
+  "chat_task_fail_unknown_action": {
+    "message": "Ação desconhecida proposta pelo modelo. Tente de novo."
+  },
+  "chat_task_fail_action": {
+    "message": "Ação na página falhou. Atualize a página ou reescreva a instrução."
+  },
+  "chat_task_fail_max_steps": {
+    "message": "Limite de passos atingido. Divida a tarefa ou aumente o limite."
+  },
+  "chat_task_fail_setup": {
+    "message": "Modelo/API incompleto. Abra Configurações → Modelos e confira as chaves."
+  },
+  "chat_task_fail_start": {
+    "message": "Falha ao iniciar o motor da tarefa. Recarregue a extensão."
+  },
+  "chat_task_fail_plan": {
+    "message": "Falha ao travar critérios de conclusão. Pare e inicie nova tarefa."
+  },
+  "chat_task_fail_dispatch": {
+    "message": "Falha no despacho da ação. Recarregue a extensão ou mude de página."
+  },
+  "chat_task_fail_unknown": {
+    "message": "Falha: $CATEGORY$. Reescreva o objetivo ou pare e comece de novo.",
+    "placeholders": {
+      "category": {
+        "content": "$1",
+        "example": "llm_failed"
+      }
+    }
+  }
 }

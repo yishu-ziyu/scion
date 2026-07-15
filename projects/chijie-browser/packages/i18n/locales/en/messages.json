@@ -1009,7 +1009,7 @@
     "message": "This template needs fresh inputs. Use Run again below and fill them in."
   },
   "chat_task_hint_failed_generic": {
-    "message": "This run failed. Check chat for details, rewrite the goal, or stop and start fresh."
+    "message": "This run failed. Rewrite the goal, or stop and start fresh."
   },
   "chat_task_hint_cancelled": {
     "message": "Task cancelled. Send a new instruction anytime."
@@ -1055,5 +1055,47 @@
   },
   "chat_task_header_idle": {
     "message": "Ready"
+  },
+  "chat_task_fail_llm": {
+    "message": "Model call failed (network, timeout, or quota). Check API key and network, then retry."
+  },
+  "chat_task_fail_observe": {
+    "message": "Could not read the current page (extension/system page?). Open a normal website, then retry."
+  },
+  "chat_task_fail_json": {
+    "message": "Could not parse model output. Retry, or use a clearer instruction."
+  },
+  "chat_task_fail_no_action": {
+    "message": "Model returned no executable action. Make the goal more specific and retry."
+  },
+  "chat_task_fail_unknown_action": {
+    "message": "Model proposed an unknown action. Retry or rephrase."
+  },
+  "chat_task_fail_action": {
+    "message": "Page action failed. Refresh the page or rewrite the instruction."
+  },
+  "chat_task_fail_max_steps": {
+    "message": "Max steps reached without finishing. Split the task or raise the step limit."
+  },
+  "chat_task_fail_setup": {
+    "message": "Model/API setup incomplete. Open Settings → Models and confirm keys."
+  },
+  "chat_task_fail_start": {
+    "message": "Task engine failed to start. Reload the extension and retry."
+  },
+  "chat_task_fail_plan": {
+    "message": "Could not lock completion criteria. Stop and start a new task."
+  },
+  "chat_task_fail_dispatch": {
+    "message": "Action dispatch failed. Reload the extension or switch pages."
+  },
+  "chat_task_fail_unknown": {
+    "message": "Failure: $CATEGORY$. Rewrite the goal, or stop and start fresh.",
+    "placeholders": {
+      "category": {
+        "content": "$1",
+        "example": "llm_failed"
+      }
+    }
   }
 }

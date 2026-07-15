@@ -1292,4 +1292,59 @@ describe('TaskManager lifecycle', () => {
     expect(driver.addFollowUp).toHaveBeenCalledWith('then pause it');
     expect(driver.stop).toHaveBeenCalledTimes(1);
   });
+
+  it('persists failureCategory on the round when the driver fails (UI surface)', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-fail-cat',
+      taskId: 'task-fail-cat',
+      instruction: 'open youtube',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(1));
+    finish({ kind: 'failed', category: 'observe_failed' });
+    await vi.waitFor(async () => {
+      const snap = await manager.snapshot('task-fail-cat');
+      expect(snap?.status).toBe('failed');
+      expect(snap?.rounds[0]?.failureCategory).toBe('observe_failed');
+    });
+  });
+
+  it('persists executor_start_failed when createExecutor throws', async () => {
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => {
+        throw new Error('boom');
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-exec-fail',
+      taskId: 'task-exec-fail',
+      instruction: 'open youtube',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(async () => {
+      const snap = await manager.snapshot('task-exec-fail');
+      expect(snap?.status).toBe('failed');
+      expect(snap?.rounds[0]?.failureCategory).toBe('executor_start_failed');
+    });
+  });
 });
