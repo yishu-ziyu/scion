@@ -1120,7 +1120,9 @@
   "chat_task_approval_field_location": { "message": "Location" },
   "chat_task_approval_field_impact": { "message": "Possible impact" },
   "chat_task_approval_field_after": { "message": "After approval" },
-  "chat_task_approval_impact_external": { "message": "The page will change externally and may not be automatically reversible" },
+  "chat_task_approval_impact_external": {
+    "message": "The page will change externally and may not be automatically reversible"
+  },
   "chat_task_approval_after_once": { "message": "Perform only this action, then verify the page result" },
   "chat_task_approval_once": { "message": "This approval applies only to this action." },
   "chat_task_approval_pending": { "message": "Approving…" },
@@ -1133,10 +1135,16 @@
   "chat_task_evidence_generic": { "message": "Page result matches the goal" },
   "chat_task_receipt_technical": { "message": "Technical receipt" },
   "chat_task_skill_saving": { "message": "Saving…" },
-  "chat_task_command_stale": { "message": "The task changed just now and has been refreshed. Continue from the current state." },
-  "chat_task_command_invalid_transition": { "message": "That action is no longer available. Continue from the current state." },
+  "chat_task_command_stale": {
+    "message": "The task changed just now and has been refreshed. Continue from the current state."
+  },
+  "chat_task_command_invalid_transition": {
+    "message": "That action is no longer available. Continue from the current state."
+  },
   "chat_task_command_not_found": { "message": "The current task has ended or no longer exists." },
-  "chat_task_command_invalid_input": { "message": "That action is missing required information. Send the instruction again." },
+  "chat_task_command_invalid_input": {
+    "message": "That action is missing required information. Send the instruction again."
+  },
   "chat_task_fail_llm": {
     "message": "Model call failed (network, timeout, or quota). Check API key and network, then retry."
   },

@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
+import { connect, launch } from 'puppeteer-core';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../dist');
@@ -749,11 +749,11 @@ try {
 
   if (connectUrl) {
     console.log('[e2e] connect mode', connectUrl, forceReset ? 'FORCE_RESET=1' : 'no-wipe');
-    browser = await puppeteer.connect({ browserURL: connectUrl, defaultViewport: null });
+    browser = await connect({ browserURL: connectUrl, defaultViewport: null });
     ownsBrowser = false;
   } else {
     console.log('[e2e] chromePath=', chromePath);
-    browser = await puppeteer.launch({
+    browser = await launch({
       executablePath: chromePath,
       headless: false,
       userDataDir: profilePath,

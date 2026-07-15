@@ -15,15 +15,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
+import { connect, launch } from 'puppeteer-core';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../dist');
 const connectUrl = process.env.CDP_URL || process.env.CONNECT_URL || '';
 const timeout = Number(process.env.E2E_TIMEOUT_MS || 180_000);
-const reportDir =
-  process.env.SLICE_A_REPORT_DIR ||
-  path.resolve(__dirname, '../../../../reports/nanobrowser/golden');
+const reportDir = process.env.SLICE_A_REPORT_DIR || path.resolve(__dirname, '../../../../reports/nanobrowser/golden');
 
 function resolveChromePath() {
   if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
@@ -139,7 +137,10 @@ async function extensionIdFromBrowser(browser) {
       }
       // also ok if body has 持节 / goal-input after load
       const ok = await page.evaluate(() =>
-        Boolean(document.querySelector('[data-testid="goal-input"]') || /持节|Chijie|Nanobrowser/i.test(document.body?.innerText || '')),
+        Boolean(
+          document.querySelector('[data-testid="goal-input"]') ||
+            /持节|Chijie|Nanobrowser/i.test(document.body?.innerText || ''),
+        ),
       );
       if (ok) {
         return host;
@@ -166,7 +167,7 @@ async function main() {
   let ownsBrowser = false;
 
   if (connectUrl) {
-    browser = await puppeteer.connect({
+    browser = await connect({
       browserURL: connectUrl.replace(/\/$/, ''),
       defaultViewport: null,
     });
@@ -177,7 +178,7 @@ async function main() {
     }
     const chromePath = resolveChromePath();
     const profilePath = path.join(os.tmpdir(), `scion-slice-a-${process.pid}`);
-    browser = await puppeteer.launch({
+    browser = await launch({
       executablePath: chromePath,
       headless: false,
       args: [

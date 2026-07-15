@@ -1060,7 +1060,9 @@
   "chat_task_approval_field_location": { "message": "Local" },
   "chat_task_approval_field_impact": { "message": "Possível impacto" },
   "chat_task_approval_field_after": { "message": "Após aprovar" },
-  "chat_task_approval_impact_external": { "message": "A página terá uma alteração externa que pode não ser reversível automaticamente" },
+  "chat_task_approval_impact_external": {
+    "message": "A página terá uma alteração externa que pode não ser reversível automaticamente"
+  },
   "chat_task_approval_after_once": { "message": "Executar apenas esta ação e depois verificar o resultado da página" },
   "chat_task_approval_once": { "message": "Esta aprovação vale apenas para esta ação." },
   "chat_task_approval_pending": { "message": "Aprovando…" },
@@ -1074,9 +1076,13 @@
   "chat_task_receipt_technical": { "message": "Recibo técnico" },
   "chat_task_skill_saving": { "message": "Salvando…" },
   "chat_task_command_stale": { "message": "A tarefa mudou agora e foi atualizada. Continue a partir do estado atual." },
-  "chat_task_command_invalid_transition": { "message": "Essa ação não está mais disponível. Continue a partir do estado atual." },
+  "chat_task_command_invalid_transition": {
+    "message": "Essa ação não está mais disponível. Continue a partir do estado atual."
+  },
   "chat_task_command_not_found": { "message": "A tarefa atual terminou ou não existe mais." },
-  "chat_task_command_invalid_input": { "message": "Essa ação não tem todas as informações necessárias. Envie a instrução novamente." },
+  "chat_task_command_invalid_input": {
+    "message": "Essa ação não tem todas as informações necessárias. Envie a instrução novamente."
+  },
   "chat_task_confirm_done": {
     "message": "Confirmo que está concluído"
   },

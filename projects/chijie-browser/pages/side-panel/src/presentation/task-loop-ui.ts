@@ -8,19 +8,12 @@ import type { ActionAttempt, CompletionReceipt, TaskSnapshot, TaskStatus } from 
 export type TaskOutcomeRating = 'success' | 'partial' | 'fail';
 
 /** A model saying "done" is insufficient; require a receipt that matches the completed round and its evidence. */
-export function shouldShowVerifiedDone(
-  snapshot: TaskSnapshot,
-  receipt: CompletionReceipt | undefined | null,
-): boolean {
+export function shouldShowVerifiedDone(snapshot: TaskSnapshot, receipt: CompletionReceipt | undefined | null): boolean {
   if (snapshot.status !== 'completed' || !receipt?.id) return false;
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
   if (!round || round.status !== 'completed' || !round.receipt) return false;
   if (receipt.taskId !== snapshot.id || receipt.roundId !== round.id) return false;
-  if (
-    round.receipt.id !== receipt.id ||
-    round.receipt.taskId !== snapshot.id ||
-    round.receipt.roundId !== round.id
-  ) {
+  if (round.receipt.id !== receipt.id || round.receipt.taskId !== snapshot.id || round.receipt.roundId !== round.id) {
     return false;
   }
 

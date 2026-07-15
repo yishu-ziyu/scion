@@ -37,11 +37,7 @@ vi.mock('@extension/storage/lib/task', () => ({
   saveTask: async (task: { id: string }) => {
     store.sessions.set(task.id, structuredClone(task));
   },
-  putSkillSaveMeta: async (
-    taskId: string,
-    roundId: string,
-    meta: { templates: unknown[]; unsafe: boolean },
-  ) => {
+  putSkillSaveMeta: async (taskId: string, roundId: string, meta: { templates: unknown[]; unsafe: boolean }) => {
     store.skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
   },
   getSkillSaveMeta: async (taskId: string, roundId: string) =>
@@ -181,11 +177,10 @@ describe('OSS idea experiments (parallel suite)', () => {
     await vi.waitFor(() => expect(hooks).toBeDefined());
     const roundId = (await manager.snapshot('task-exp-b'))!.currentRoundId;
     now = 200;
-    const pending = hooks.dispatchAction(
-      roundId,
-      new Action(execute, clickElementActionSchema, true),
-      { intent: 'submit the form', index: 1 },
-    );
+    const pending = hooks.dispatchAction(roundId, new Action(execute, clickElementActionSchema, true), {
+      intent: 'submit the form',
+      index: 1,
+    });
     await vi.waitFor(async () =>
       expect(await manager.snapshot('task-exp-b')).toMatchObject({ status: 'waiting_approval' }),
     );
@@ -250,14 +245,11 @@ describe('OSS idea experiments (parallel suite)', () => {
     const source = await manager.snapshot('task-exp-c');
     const roundId = source!.currentRoundId;
     now = 150;
-    const pending = hooks.dispatchAction(
-      roundId,
-      new Action(execute, clickElementActionSchema, true),
-      { intent: 'submit the form', index: 1 },
-    );
-    await vi.waitFor(async () =>
-      expect((await manager.snapshot('task-exp-c'))?.status).toBe('waiting_approval'),
-    );
+    const pending = hooks.dispatchAction(roundId, new Action(execute, clickElementActionSchema, true), {
+      intent: 'submit the form',
+      index: 1,
+    });
+    await vi.waitFor(async () => expect((await manager.snapshot('task-exp-c'))?.status).toBe('waiting_approval'));
     const waiting = await manager.snapshot('task-exp-c');
     await manager.dispatch({
       type: 'approve',
@@ -306,7 +298,6 @@ describe('OSS idea experiments (parallel suite)', () => {
       rounds: [{ criteria: [expect.objectContaining({ kind: 'page_text', baseline: false })] }],
     });
     // empty planner cannot replace locked skill criteria
-    let skillHooks!: ExecutorHooks;
     // recreate path: hooks from latest createExecutor - skill run starts new executor
     await vi.waitFor(() => expect(hooks).toBeDefined());
   });

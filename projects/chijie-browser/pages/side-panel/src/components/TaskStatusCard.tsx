@@ -518,7 +518,10 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
                     data-testid="task-round-step"
                     data-state={attempt.state}
                     data-pending={isPendingCommit ? 'true' : 'false'}
-                    className={[isPendingCommit ? 'is-pending' : '', isActive ? 'is-active' : ''].filter(Boolean).join(' ') || undefined}>
+                    className={
+                      [isPendingCommit ? 'is-pending' : '', isActive ? 'is-active' : ''].filter(Boolean).join(' ') ||
+                      undefined
+                    }>
                     <span className="chijie-round-index" aria-hidden>
                       {index + 1}
                     </span>

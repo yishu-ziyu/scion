@@ -1,9 +1,6 @@
 import type { Message } from '@extension/storage';
 import { memo } from 'react';
-import {
-  humanizeStoredMessage,
-  type DisplayMessage,
-} from '../presentation/humanize-message';
+import { humanizeStoredMessage, type DisplayMessage } from '../presentation/humanize-message';
 
 interface MessageListProps {
   messages: Message[];
@@ -12,12 +9,7 @@ interface MessageListProps {
   onRephrase?: () => void;
 }
 
-export default memo(function MessageList({
-  messages,
-  isDarkMode = false,
-  onRetry,
-  onRephrase,
-}: MessageListProps) {
+export default memo(function MessageList({ messages, isDarkMode = false, onRetry, onRephrase }: MessageListProps) {
   void isDarkMode;
   return (
     <div className="max-w-full space-y-4">
@@ -37,11 +29,7 @@ export default memo(function MessageList({
             isSameGroup={isSameGroup}
             onRetry={onRetry}
             onRephrase={onRephrase}
-            showActions={
-              display.kind === 'failure' &&
-              index === messages.length - 1 &&
-              Boolean(onRetry || onRephrase)
-            }
+            showActions={display.kind === 'failure' && index === messages.length - 1 && Boolean(onRetry || onRephrase)}
           />
         );
       })}
@@ -79,9 +67,7 @@ function MessageBlock({ display, isSameGroup, showActions, onRetry, onRephrase }
       {isSameGroup && <div className="w-8" />}
 
       <div className="min-w-0 flex-1">
-        {!isSameGroup && (
-          <div className="chijie-mono-label mb-1 text-[var(--chijie-foreground)]">{display.title}</div>
-        )}
+        {!isSameGroup && <div className="chijie-mono-label mb-1 text-[var(--chijie-foreground)]">{display.title}</div>}
 
         <div className="space-y-0.5">
           <div className="whitespace-pre-wrap break-words text-sm text-[var(--chijie-foreground)]">

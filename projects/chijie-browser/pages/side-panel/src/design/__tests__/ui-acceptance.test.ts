@@ -22,11 +22,7 @@ import {
   sourceHasBannedSkyChrome,
 } from '../contracts';
 import { t } from '@extension/i18n';
-import {
-  approvalActionLabel,
-  humanApprovalSummary,
-  instructionToSkillTemplate,
-} from '../../components/TaskStatusCard';
+import { approvalActionLabel, humanApprovalSummary, instructionToSkillTemplate } from '../../components/TaskStatusCard';
 import { commandRejectionMessage } from '../../SidePanel';
 
 // Ready/dev i18n resolves via t.devLocale, not chrome.i18n. Pin zh_CN so
@@ -122,9 +118,7 @@ describe('Feature: Side panel uses 持节 design system', () => {
   describe('Scenario: Skill template prefilled from last goal', () => {
     it('replaces FIELD_* sentinels with {{name}}', () => {
       expect(
-        instructionToSkillTemplate(
-          'Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.',
-        ),
+        instructionToSkillTemplate('Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.'),
       ).toBe('Fill Name with {{name}} and submit; success is Saved successfully.');
     });
   });

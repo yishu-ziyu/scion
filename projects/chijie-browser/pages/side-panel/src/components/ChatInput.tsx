@@ -216,9 +216,7 @@ export default function ChatInput({
           rows={2}
           className="w-full resize-none border-none bg-transparent p-3 text-[var(--chijie-foreground)] focus:outline-none disabled:cursor-not-allowed"
           placeholder={
-            attachedFiles.length > 0
-              ? t('chat_task_input_attach_placeholder')
-              : t('chat_task_input_placeholder')
+            attachedFiles.length > 0 ? t('chat_task_input_attach_placeholder') : t('chat_task_input_placeholder')
           }
           aria-label={t('chat_input_editor')}
         />
