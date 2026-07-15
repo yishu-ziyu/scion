@@ -4,6 +4,7 @@ import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome, Obs
 import { Action } from '../../agent/actions/builder';
 import { clickElementActionSchema, controlMediaActionSchema, waitActionSchema } from '../../agent/actions/schemas';
 import { ActionResult } from '../../agent/types';
+import { sha256 } from '../digest';
 
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
@@ -33,11 +34,7 @@ vi.mock('@extension/storage/lib/task', () => {
     getTask: async (id: string) => store.sessions.get(id) ?? null,
     getActiveTask: async () => [...store.sessions.values()].at(-1) ?? null,
     saveTask: store.saveTask,
-    putSkillSaveMeta: async (
-      taskId: string,
-      roundId: string,
-      meta: { templates: unknown[]; unsafe: boolean },
-    ) => {
+    putSkillSaveMeta: async (taskId: string, roundId: string, meta: { templates: unknown[]; unsafe: boolean }) => {
       skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
     },
     getSkillSaveMeta: async (taskId: string, roundId: string) =>
@@ -821,6 +818,287 @@ describe('TaskManager lifecycle', () => {
     expect(JSON.stringify(snap)).not.toContain('FIELD_SENTINEL_8472');
   });
 
+  it.each([
+    '点击当前页面的 Submit 按钮；看到 Saved successfully 后完成。',
+    '点击当前页面的 Submit 按钮；看到“Saved successfully”后完成。',
+    '点击当前页面的 Submit 按钮；看到 Saved successfully 后，完成。',
+  ])('excludes a trailing Chinese completion clause from frozen success text: %s', async instruction => {
+    const driver = fakeDriver();
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: false,
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-chinese-success-text',
+      taskId: 'task-chinese-success-text',
+      instruction,
+      chatSessionId: 'chat-chinese-success-text',
+      instructionMessageId: 'message-chinese-success-text',
+      tabId: 7,
+    });
+
+    await vi.waitFor(async () => {
+      await expect(manager.snapshot('task-chinese-success-text')).resolves.toMatchObject({
+        rounds: [
+          {
+            criteria: [
+              expect.objectContaining({
+                kind: 'page_text',
+                expectedDigest: await sha256('Saved successfully'),
+              }),
+            ],
+          },
+        ],
+      });
+    });
+  });
+
+  it('freezes open-site url criteria from the instruction when the planner omits them', async () => {
+    const driver = fakeDriver();
+    const observeCriteria = vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+      criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: 100,
+        source: 'page' as const,
+        value: item.kind === 'url' ? 'about:blank' : false,
+      })),
+    );
+    let hooks!: ExecutorHooks;
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-open-site',
+      taskId: 'task-open-site',
+      instruction: '打开 YouTube',
+      chatSessionId: 'chat-open-site',
+      instructionMessageId: 'message-open-site',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    await expect(manager.snapshot('task-open-site')).resolves.toMatchObject({
+      rounds: [
+        {
+          criteria: [
+            expect.objectContaining({
+              kind: 'url',
+              operator: 'starts_with',
+              expected: 'https://www.youtube.com/',
+              targetRefId: 'tab-7',
+            }),
+          ],
+        },
+      ],
+    });
+    const roundId = await taskRoundId(manager, 'task-open-site');
+    await hooks.onPlan(roundId, []);
+    const snap = await manager.snapshot('task-open-site');
+    expect(snap?.rounds[0]?.criteria).toHaveLength(1);
+    expect(snap?.rounds[0]?.criteria[0]).toMatchObject({
+      kind: 'url',
+      operator: 'starts_with',
+      expected: 'https://www.youtube.com/',
+    });
+  });
+
+  it('freezes /watch url criteria when the goal is open YouTube and click the first video', async () => {
+    const driver = fakeDriver();
+    const observeCriteria = vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+      criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: 100,
+        source: 'page' as const,
+        value: item.kind === 'url' ? 'about:blank' : false,
+      })),
+    );
+    let hooks!: ExecutorHooks;
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-open-watch',
+      taskId: 'task-open-watch',
+      // No space after 打开; mirrors real side-panel phrasing from Die browser.
+      instruction: '打开YouTube，并且点击第一行的第一个视频。',
+      chatSessionId: 'chat-open-watch',
+      instructionMessageId: 'message-open-watch',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    await expect(manager.snapshot('task-open-watch')).resolves.toMatchObject({
+      rounds: [
+        {
+          criteria: [
+            expect.objectContaining({
+              kind: 'url',
+              operator: 'starts_with',
+              expected: 'https://www.youtube.com/watch',
+              targetRefId: 'tab-7',
+            }),
+          ],
+        },
+      ],
+    });
+  });
+
+  it('settles completed after a reversible video click when /watch criteria pass', async () => {
+    let hooks!: ExecutorHooks;
+    let now = 100;
+    let observeCall = 0;
+    const driver = fakeDriver();
+    const executeClick = vi.fn(async () => new ActionResult({ success: true }));
+    store.observeActionTarget.mockResolvedValue({
+      target: {
+        id: 'thumb-1',
+        kind: 'element' as const,
+        tabId: 7,
+        frameId: 0 as const,
+        urlOrigin: 'https://www.youtube.com',
+        digest: 'thumb-1',
+      },
+      tag: 'a',
+      type: '',
+      inForm: false,
+    });
+    const observeCriteria = vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) => {
+      observeCall += 1;
+      // freeze baseline home; post-click probe is the watch page
+      const urlValue = observeCall >= 2 ? 'https://www.youtube.com/watch?v=abc' : 'https://www.youtube.com/';
+      return criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: now,
+        source: 'page' as const,
+        value: item.kind === 'url' ? urlValue : false,
+      }));
+    });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => now,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-watch-click',
+      taskId: 'task-watch-click',
+      instruction: '打开YouTube，并且点击第一个视频',
+      chatSessionId: 'chat-watch-click',
+      instructionMessageId: 'message-watch-click',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-watch-click');
+    await hooks.onPlan(roundId, []);
+    now = 160;
+    await hooks.dispatchAction(roundId, new Action(executeClick, clickElementActionSchema, true), {
+      index: 1,
+      intent: 'Open first video',
+    });
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-watch-click')).toMatchObject({
+        status: 'completed',
+        rounds: [{ receipt: { taskId: 'task-watch-click' } }],
+      });
+    });
+    expect(executeClick).toHaveBeenCalledTimes(1);
+    // Must not raise waiting_approval for a plain thumbnail link.
+    const snap = await manager.snapshot('task-watch-click');
+    expect(snap?.rounds[0]?.approvals ?? []).toHaveLength(0);
+  });
+
+  it('recovers open-site criteria after candidate_complete and completes with a receipt', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    // Pre-run freeze baselines about:blank; post-complete probe sees YouTube.
+    let observeCall = 0;
+    const observeCriteria = vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) => {
+      observeCall += 1;
+      return criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: 100,
+        source: 'page' as const,
+        value: item.kind === 'url' ? (observeCall >= 2 ? 'https://www.youtube.com/' : 'about:blank') : false,
+      }));
+    });
+    let hooks!: ExecutorHooks;
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-open-complete',
+      taskId: 'task-open-complete',
+      instruction: 'open youtube',
+      chatSessionId: 'chat-open-complete',
+      instructionMessageId: 'message-open-complete',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-open-complete');
+    // Simulate live MiniMax: no planner criteria at all (already frozen from instruction).
+    await hooks.onPlan(roundId, []);
+    finish({ kind: 'candidate_complete', summary: 'opened' });
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-open-complete'))?.status).toBe('completed');
+    });
+    const snap = await manager.snapshot('task-open-complete');
+    expect(snap?.rounds[0]?.receipt).toBeTruthy();
+    expect(snap?.rounds[0]?.criteria[0]).toMatchObject({
+      kind: 'url',
+      expected: 'https://www.youtube.com/',
+    });
+  });
+
   it('settles completed with a receipt right after external_commit when automatic criteria pass', async () => {
     let hooks!: ExecutorHooks;
     let now = 100;
@@ -868,11 +1146,10 @@ describe('TaskManager lifecycle', () => {
       { kind: 'page_text', operator: 'present', expected: 'Saved successfully', required: true },
     ]);
     now = 160;
-    const pending = hooks.dispatchAction(
-      roundId,
-      new Action(executeExternalCommit, clickElementActionSchema, true),
-      { intent: 'submit the form', index: 1 },
-    );
+    const pending = hooks.dispatchAction(roundId, new Action(executeExternalCommit, clickElementActionSchema, true), {
+      intent: 'submit the form',
+      index: 1,
+    });
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-post-commit')).toMatchObject({ status: 'waiting_approval' });
     });

@@ -7,7 +7,7 @@ import {
 } from '@extension/storage';
 import { t } from '@extension/i18n';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import BrowserContext from '../../browser/context';
+import type BrowserContext from '../../browser/context';
 import { createLogger } from '../../log';
 import { ensurePersonalDefaults } from '../../../personal/bootstrap';
 import { createChatModel } from '../helper';

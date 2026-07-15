@@ -15,7 +15,7 @@ Do not invent a second empty Chrome profile for Nanobrowser tests.
 
 Ship a personal Nanobrowser fork that runs on **main Chrome** with **MiniMax Token Plan (MiniMax-M3)**, Chinese UI, no GUI secret entry, and robust enough JSON handling for mid-tier models that emit `<think>` tags.
 
-Broader product intent (later): BYOK AI browser agent (Planner / Navigator), Chrome first, multi-model package inventory later.
+Broader product intent: 持节 browser action agent - task mode, verified completion, one-shot approval; default core `control` (observe-act), `nano` demotable. See `CONTEXT.md` + `docs/product/008`.
 
 ---
 
@@ -30,7 +30,7 @@ There is **one** extension folder. Paths are aliases, not copies.
 | Compat symlink | `~/projects/oss-forks` → same | Old name; keep until scripts die |
 | **Canonical extension code** | `scion/projects/chijie-browser/` | Edit + build here |
 | **Same folder (symlink)** | `~/projects/chijie-browser` → `scion/projects/chijie-browser` | Chrome path unchanged |
-| Chrome loads | `~/projects/chijie-browser/dist` (= `scion/projects/chijie-browser/dist`) | Extension id: `nnldlldkcjcooleefoflkgcjobimnaol` |
+| Chrome loads | `~/projects/chijie-browser/dist` (= `scion/projects/chijie-browser/dist`) | Extension id (current): `pdabbpgmfbchdfkjfgpppeakalckihjh` (previous: `nnldlldkcjcooleefoflkgcjobimnaol`) |
 | Old dual-tree backup | `~/projects/chijie-browser.bak-*` | Former independent copy + upstream `.git`; do not edit for product work |
 
 ### What this means
@@ -354,7 +354,8 @@ git add projects/chijie-browser reports AGENTS.md HANDOVER.md README.md
 | Planner params | temperature 0.3, topP 0.6 |
 | Navigator params | temperature 0.2, topP 0.5 |
 | Default locale | `zh_CN` |
-| Unpacked id (this machine) | `nnldlldkcjcooleefoflkgcjobimnaol` |
+| Unpacked id (current) | `pdabbpgmfbchdfkjfgpppeakalckihjh` |
+| Unpacked id (previous) | `nnldlldkcjcooleefoflkgcjobimnaol` |
 | CDP port | `9222` |
 | Upstream | https://github.com/nanobrowser/nanobrowser |
 | Lab remote | https://github.com/yishu-ziyu/scion |

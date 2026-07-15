@@ -13,11 +13,12 @@ last_modified: "2026-07-15"
 
 ## 状态
 
-**partially-outdated（L4 壳已落地，执行核仍默认 Nano）。**
+**partially-outdated（L4 壳已落地；默认执行核与换核细节以 design/002 为准）。**
 
 - 已实现：`TaskManager`、`ActionDispatcher`、`CompletionChecker`、审批令牌、媒体 target digest、本地 Skill 基础、侧栏任务快照与人类时间线。
-- 未按终局实现：生产默认执行核仍为 Nano Planner/Navigator；可换核与 P1 控制环见 **`design/002`**。
-- 文中「空文件 `manager.ts`」「全局 `currentExecutor`」等 2026-07-13 描述已过时；以代码与 `design/002` 为准。
+- 生产默认执行核已切到 **`control`**（observe→decide→act→re-observe）；`nano` Planner/Navigator 可拔。细节见 **`design/002`**。
+- 文中「空文件 `manager.ts`」「全局 `currentExecutor`」、以及把默认核写成 Nano 的段落均已过时；以代码与 `design/002` / `product/008` 为准。
+- 侧栏视觉与三态以 **`design/004`** 为准；本文不负责像素与动效。
 
 ## 决策摘要
 

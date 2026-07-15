@@ -22,7 +22,6 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
   onBookmarkUpdateTitle,
   onBookmarkDelete,
   onBookmarkReorder,
-  isDarkMode = false,
 }) => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState<string>('');
@@ -88,6 +87,8 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
 
   const hasSkills = bookmarks.some(item => item.kind === 'skill');
 
+  if (bookmarks.length === 0) return null;
+
   return (
     <div className="p-3" data-testid="bookmark-list">
       <h3>{hasSkills ? t('chat_bookmarks_skills_header') : t('chat_bookmarks_header')}</h3>
@@ -108,28 +109,18 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                   type="text"
                   value={editTitle}
                   onChange={e => setEditTitle(e.target.value)}
-                  className={`mr-2 grow rounded px-2 py-1 text-sm ${
-                    isDarkMode ? 'border-slate-600 bg-slate-700 text-gray-200' : 'border-sky-100 bg-white text-gray-700'
-                  } border`}
+                  className="chijie-field mr-2 grow py-1 text-sm"
                 />
                 <button
                   onClick={() => handleSaveEdit(bookmark.id)}
-                  className={`rounded p-1 ${
-                    isDarkMode
-                      ? 'bg-slate-700 text-green-400 hover:bg-slate-600'
-                      : 'bg-white text-green-500 hover:bg-gray-100'
-                  }`}
+                  className="rounded p-1 text-[var(--chijie-accent)] hover:bg-[var(--chijie-accent-subtle)]"
                   aria-label={t('chat_bookmarks_saveEdit')}
                   type="button">
                   <FaCheck size={14} />
                 </button>
                 <button
                   onClick={handleCancelEdit}
-                  className={`ml-1 rounded p-1 ${
-                    isDarkMode
-                      ? 'bg-slate-700 text-red-400 hover:bg-slate-600'
-                      : 'bg-white text-red-500 hover:bg-gray-100'
-                  }`}
+                  className="ml-1 rounded p-1 text-[var(--chijie-danger)] hover:bg-[var(--chijie-danger-subtle)]"
                   aria-label={t('chat_bookmarks_cancelEdit')}
                   type="button">
                   <FaTimes size={14} />
@@ -140,8 +131,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                 <div className="flex flex-col gap-2">
                   {bookmark.kind === 'skill' ? (
                     <>
-                      <div
-                        className={`truncate pr-10 text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                      <div className="truncate pr-10 text-sm font-medium text-[var(--chijie-foreground)]">
                         {bookmark.title}
                       </div>
                       {skillDraft.runningSkillId === bookmark.id ? (
@@ -159,11 +149,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                                     value: event.target.value,
                                   })
                                 }
-                                className={`rounded border px-2 py-1 ${
-                                  isDarkMode
-                                    ? 'border-slate-600 bg-slate-700 text-gray-200'
-                                    : 'border-sky-100 bg-white text-gray-700'
-                                }`}
+                                className="chijie-field px-2 py-1"
                               />
                             </label>
                           ))}
@@ -193,8 +179,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                         if (e.key === 'Enter' || e.key === ' ') onBookmarkSelect(bookmark.content);
                       }}
                       className="w-full text-left">
-                      <div
-                        className={`truncate pr-10 text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                      <div className="truncate pr-10 text-sm font-medium text-[var(--chijie-foreground)]">
                         {bookmark.title}
                       </div>
                     </button>
@@ -211,11 +196,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                     e.stopPropagation();
                     handleEditClick(bookmark);
                   }}
-                  className={`absolute right-[28px] top-1/2 z-10 -translate-y-1/2 rounded p-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100 ${
-                    isDarkMode
-                      ? 'bg-slate-700 text-sky-400 hover:bg-slate-600'
-                      : 'bg-white text-sky-500 hover:bg-gray-100'
-                  }`}
+                  className="absolute right-[28px] top-1/2 z-10 -translate-y-1/2 rounded bg-white p-1 text-[var(--chijie-accent)] opacity-0 transition-opacity duration-200 hover:bg-[var(--chijie-accent-subtle)] group-hover:opacity-100"
                   aria-label={t('chat_bookmarks_edit')}
                   type="button">
                   <FaPen size={14} />
@@ -230,11 +211,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                       onBookmarkDelete(bookmark.id);
                     }
                   }}
-                  className={`absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded p-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100 ${
-                    isDarkMode
-                      ? 'bg-slate-700 text-gray-400 hover:bg-slate-600'
-                      : 'bg-white text-gray-500 hover:bg-gray-100'
-                  }`}
+                  className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded bg-white p-1 text-[var(--chijie-muted)] opacity-0 transition-opacity duration-200 hover:bg-[var(--chijie-danger-subtle)] hover:text-[var(--chijie-danger)] group-hover:opacity-100"
                   aria-label={t('chat_bookmarks_delete')}
                   type="button">
                   <FaTrash size={14} />

@@ -1,10 +1,4 @@
-import {
-  getActiveTask,
-  getSkillSaveMeta,
-  getTask,
-  putSkillSaveMeta,
-  saveTask,
-} from '@extension/storage/lib/task';
+import { getActiveTask, getSkillSaveMeta, getTask, putSkillSaveMeta, saveTask } from '@extension/storage/lib/task';
 import favoritesStorage, {
   assertExactSkillInputs,
   compileSkillTemplate,
@@ -225,6 +219,9 @@ export class TaskManager {
       taskId: command.taskId,
       revision: 1,
     };
+    // goalSummary/instructionSummary stay generic on purpose: snapshots must not
+    // embed the raw instruction (secrets / success phrases). UI shows the user
+    // text from the chat message via defaultInstruction.
     const round: TaskRound = {
       id: roundId,
       instructionMessageId: command.instructionMessageId,
@@ -646,13 +643,16 @@ export class TaskManager {
           await this.persistMediaWait(taskId, roundId, 'target_missing');
         } else if (result.actionResult.error === 'media_target_ambiguous') {
           await this.persistMediaWait(taskId, roundId, 'target_ambiguous');
-        } else if (
-          !result.actionResult.error &&
-          result.attempt.effect === 'external_commit' &&
-          result.attempt.state === 'observed'
-        ) {
-          // Do not wait for the model to restate "done" after a verified commit.
-          await this.tryVerifyAfterCommit(taskId, roundId);
+        } else if (!result.actionResult.error && result.attempt.state === 'observed') {
+          // Page evidence beats model "done": settle when criteria already hold.
+          // external_commit: retry with backoff (async form rewrite).
+          // reversible/read (nav, video click): one immediate probe so we stop on /watch
+          // without stalling the next step behind multi-second backoff.
+          if (result.attempt.effect === 'external_commit') {
+            await this.tryVerifyAfterSuccessfulAct(taskId, roundId);
+          } else {
+            await this.tryVerifyAfterSuccessfulActOnce(taskId, roundId);
+          }
         }
         return result;
       },
@@ -660,25 +660,25 @@ export class TaskManager {
   }
 
   /**
-   * After a successful external_commit, re-probe frozen criteria.
-   * Real MiniMax loops often keep stepping after form submit without emitting
+   * After a successful act (navigate, click, or approved external commit), re-probe
+   * frozen criteria. Real MiniMax loops often keep stepping without emitting
    * candidate_complete; page evidence is enough for a verified receipt.
    * Fixture/real forms often rewrite DOM after an async fetch - one immediate
    * probe races the update, so retry with short backoff.
    * Only automatic criteria participate - user_confirmed still needs the panel.
    */
-  private async tryVerifyAfterCommit(taskId: string, roundId: string): Promise<void> {
+  private async tryVerifyAfterSuccessfulAct(taskId: string, roundId: string): Promise<void> {
     // Immediate + short backoff: form fixtures rewrite after async fetch; do not block long.
     const delaysMs = this.deps.postCommitVerifyDelaysMs ?? [0, 250, 600, 1200];
     for (const delayMs of delaysMs) {
       if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
-      const settled = await this.tryVerifyAfterCommitOnce(taskId, roundId);
+      const settled = await this.tryVerifyAfterSuccessfulActOnce(taskId, roundId);
       if (settled) return;
     }
   }
 
   /** @returns true when the task was completed (or is no longer verifiable). */
-  private async tryVerifyAfterCommitOnce(taskId: string, roundId: string): Promise<boolean> {
+  private async tryVerifyAfterSuccessfulActOnce(taskId: string, roundId: string): Promise<boolean> {
     const task = await getTask(taskId);
     if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return true;
     const round = this.currentRound(task);
@@ -1000,7 +1000,7 @@ export class TaskManager {
     let verificationRetries = 0;
     for (;;) {
       const outcome = await driver.run(runRoundId);
-      const task = await getTask(taskId);
+      let task = await getTask(taskId);
       if (!this.canApplyDriverOutcome(task, taskId, driver)) return;
       if (task.currentRoundId !== runRoundId) {
         runRoundId = task.currentRoundId;
@@ -1026,8 +1026,50 @@ export class TaskManager {
         return;
       }
 
-      const round = task.rounds.find(item => item.id === runRoundId);
+      let round = task.rounds.find(item => item.id === runRoundId);
       if (!round) return;
+      if (round.criteria.length === 0) {
+        // Live open-site goals often omit planner criteria; re-derive from the instruction
+        // while still running so we can verify the page URL and emit a receipt.
+        const instruction = this.instructions.get(taskId) ?? '';
+        const recoveryDrafts = this.extractImplicitCompletionCriteria(instruction);
+        if (recoveryDrafts.length > 0) {
+          await this.freezeCriteria(taskId, runRoundId, recoveryDrafts);
+          const afterFreeze = await getTask(taskId);
+          if (
+            afterFreeze &&
+            this.canApplyDriverOutcome(afterFreeze, taskId, driver) &&
+            afterFreeze.currentRoundId === runRoundId &&
+            this.currentRound(afterFreeze).criteria.length > 0
+          ) {
+            // Freeze may have run after navigate, so baseline already matches the page.
+            // Clear baselines so post-act page evidence can pass checkCompletion.
+            await this.queueTransition(async () => {
+              const current = await getTask(taskId);
+              if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+              if (current.currentRoundId !== runRoundId) return;
+              if (current.status !== 'running') return;
+              const currentRound = this.currentRound(current);
+              for (const criterion of currentRound.criteria) {
+                if (criterion.kind === 'url') criterion.baseline = '';
+                else if (typeof criterion.baseline === 'boolean') criterion.baseline = false;
+              }
+              current.revision += 1;
+              await this.persist(current);
+            });
+            const recovered = await getTask(taskId);
+            if (
+              recovered &&
+              this.canApplyDriverOutcome(recovered, taskId, driver) &&
+              recovered.currentRoundId === runRoundId &&
+              this.currentRound(recovered).criteria.length > 0
+            ) {
+              task = recovered;
+              round = this.currentRound(recovered);
+            }
+          }
+        }
+      }
       if (round.criteria.length === 0) {
         let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
@@ -1144,10 +1186,7 @@ export class TaskManager {
    * Probe completion against the task's bound tab, not whatever tab is currently
    * focused (side-panel tabs / e2e focus steal would otherwise miss page_text).
    */
-  private async observeTaskCriteria(
-    task: TaskSession,
-    criteria: CompletionCriterion[],
-  ): Promise<ProbeObservation[]> {
+  private async observeTaskCriteria(task: TaskSession, criteria: CompletionCriterion[]): Promise<ProbeObservation[]> {
     if (Number.isSafeInteger(task.activeTabId)) {
       await this.deps.switchTab(task.activeTabId);
     }
@@ -1398,18 +1437,27 @@ export class TaskManager {
   }
 
   /**
-   * When the planner omits completion_criteria, recover observable success text from the user goal.
-   * E.g. "success is Saved successfully" / "until you see Done".
+   * When the planner omits completion_criteria, recover observable success signals from the user goal.
+   * - Open-site goals ("打开 YouTube" / "open youtube") → url starts_with origin
+   * - Open + open first video ("打开YouTube并点击第一个视频") → url starts_with /watch (or site equivalent)
+   * - Explicit success text ("success is Saved successfully" / "until you see Done") → page_text
    */
   private extractImplicitCompletionCriteria(instruction: string): CompletionCriterionDraft[] {
     const drafts: CompletionCriterionDraft[] = [];
     const seen = new Set<string>();
     const fieldValues = this.extractUserFieldValues(instruction);
+
+    const completionUrl = this.extractOpenSiteCompletionUrl(instruction);
+    if (completionUrl && !seen.has(completionUrl)) {
+      seen.add(completionUrl);
+      drafts.push({ kind: 'url', operator: 'starts_with', expected: completionUrl, required: true });
+    }
+
     const patterns = [
       /\bsuccess\s+is\s+["'“]?([^"'”.;\n]+)/gi,
       /\buntil\s+(?:you\s+)?(?:see|seeing)\s+["'“]?([^"'”.;\n]+)/gi,
       /成功(?:标志|信号|文案|是|为)?\s*[:：]?\s*["'「]?([^"'」.;。\n]+)/g,
-      /看到\s*["'「]?([^"'」.;。\n]{2,80})/g,
+      /看到\s*["'“「]?([^"'”」.;。\n]{2,80}?)(?=\s*["'”」]?\s*后\s*(?:[，,]\s*)?(?:完成|结束)|["'”」.;。\n]|$)/g,
     ];
     for (const pattern of patterns) {
       for (const match of instruction.matchAll(pattern)) {
@@ -1420,6 +1468,92 @@ export class TaskManager {
       }
     }
     return drafts.slice(0, 3);
+  }
+
+  /**
+   * Resolve the strongest url criterion for an open-site style goal.
+   * Plain open → site origin. Open + click/play first video → watch/player path.
+   */
+  private extractOpenSiteCompletionUrl(instruction: string): string | null {
+    const siteUrl = this.extractOpenSiteUrl(instruction);
+    if (!siteUrl) return null;
+    if (this.instructionRequestsOpenMedia(instruction)) {
+      return this.mediaWatchUrlForSite(siteUrl) ?? siteUrl;
+    }
+    return siteUrl;
+  }
+
+  /** True when the user asked to open/click/play a video, not only land on the site home. */
+  private instructionRequestsOpenMedia(instruction: string): boolean {
+    const text = instruction.replace(/\s+/g, ' ').trim();
+    if (!text) return false;
+    return (
+      /点击.{0,32}(视频|影片)/.test(text) ||
+      /打开.{0,48}(视频|影片)/.test(text) ||
+      /看.{0,16}(一个|第一个|首个)?(视频|影片)/.test(text) ||
+      /click.{0,40}(the\s+)?(first\s+)?video/i.test(text) ||
+      /open.{0,48}(and\s+)?(play|watch).{0,24}video/i.test(text) ||
+      /watch\s+(the\s+)?(first\s+)?video/i.test(text) ||
+      /play\s+(the\s+)?(first\s+)?video/i.test(text)
+    );
+  }
+
+  /** Site-specific watch/player URL prefix used as starts_with evidence. */
+  private mediaWatchUrlForSite(siteUrl: string): string | null {
+    try {
+      const host = new URL(siteUrl).hostname.toLowerCase();
+      if (
+        host === 'youtu.be' ||
+        host === 'www.youtube.com' ||
+        host === 'youtube.com' ||
+        host.endsWith('.youtube.com')
+      ) {
+        return 'https://www.youtube.com/watch';
+      }
+      if (host === 'www.bilibili.com' || host === 'bilibili.com' || host.endsWith('.bilibili.com')) {
+        return 'https://www.bilibili.com/video';
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  /** Map well-known "open / 打开 <site>" goals to a stable https origin for url criteria. */
+  private extractOpenSiteUrl(instruction: string): string | null {
+    const OPEN_SITE_URLS: Record<string, string> = {
+      youtube: 'https://www.youtube.com',
+      'you tube': 'https://www.youtube.com',
+      油管: 'https://www.youtube.com',
+      google: 'https://www.google.com',
+      github: 'https://github.com',
+      bilibili: 'https://www.bilibili.com',
+      哔哩哔哩: 'https://www.bilibili.com',
+      b站: 'https://www.bilibili.com',
+    };
+    const text = instruction.replace(/\s+/g, ' ').trim();
+    if (!text) return null;
+    // Optional whitespace: users often write "打开YouTube" without a space.
+    const match =
+      text.match(/^\s*(?:打开|open)\s*(?:一下\s*|the\s+)?(.+?)\s*$/i) ||
+      text.match(/(?:打开|open)\s*(?:一下\s*|the\s+)?(youtube|you\s*tube|google|github|bilibili|油管|哔哩哔哩|b站)\b/i);
+    if (!match?.[1]) return null;
+    const raw = match[1].replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!raw) return null;
+    if (OPEN_SITE_URLS[raw]) return OPEN_SITE_URLS[raw];
+    for (const [name, url] of Object.entries(OPEN_SITE_URLS)) {
+      if (raw.includes(name)) return url;
+    }
+    // Bare host / URL fragment: "open example.com" or "打开 https://example.com/foo"
+    try {
+      const asUrl = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
+      const parsed = new URL(asUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+      if (!parsed.hostname.includes('.')) return null;
+      return `${parsed.origin}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+    } catch {
+      return null;
+    }
   }
 
   private extractUserFieldValues(instruction: string): Set<string> {

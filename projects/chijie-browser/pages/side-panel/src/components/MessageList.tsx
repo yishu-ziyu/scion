@@ -1,9 +1,6 @@
 import type { Message } from '@extension/storage';
 import { memo } from 'react';
-import {
-  humanizeStoredMessage,
-  type DisplayMessage,
-} from '../presentation/humanize-message';
+import { humanizeStoredMessage, type DisplayMessage } from '../presentation/humanize-message';
 
 interface MessageListProps {
   messages: Message[];
@@ -12,12 +9,7 @@ interface MessageListProps {
   onRephrase?: () => void;
 }
 
-export default memo(function MessageList({
-  messages,
-  isDarkMode = false,
-  onRetry,
-  onRephrase,
-}: MessageListProps) {
+export default memo(function MessageList({ messages, isDarkMode = false, onRetry, onRephrase }: MessageListProps) {
   void isDarkMode;
   return (
     <div className="max-w-full space-y-4">
@@ -37,11 +29,7 @@ export default memo(function MessageList({
             isSameGroup={isSameGroup}
             onRetry={onRetry}
             onRephrase={onRephrase}
-            showActions={
-              display.kind === 'failure' &&
-              index === messages.length - 1 &&
-              Boolean(onRetry || onRephrase)
-            }
+            showActions={display.kind === 'failure' && index === messages.length - 1 && Boolean(onRetry || onRephrase)}
           />
         );
       })}
@@ -70,8 +58,8 @@ function MessageBlock({ display, isSameGroup, showActions, onRetry, onRephrase }
         <div
           className={`flex size-8 shrink-0 items-center justify-center rounded-full border border-[var(--chijie-border-strong)] text-xs font-medium ${
             display.kind === 'user'
-              ? 'bg-[var(--chijie-surface-raised)] text-[var(--chijie-paper)]'
-              : 'bg-[var(--chijie-accent-subtle)] text-[var(--chijie-paper)]'
+              ? 'border-[var(--chijie-accent)] bg-[var(--chijie-accent)] text-white'
+              : 'border-[var(--chijie-accent-subtle)] bg-[var(--chijie-accent-subtle)] text-[var(--chijie-accent-signal)]'
           }`}>
           {display.kind === 'user' ? '你' : '助'}
         </div>
@@ -79,18 +67,14 @@ function MessageBlock({ display, isSameGroup, showActions, onRetry, onRephrase }
       {isSameGroup && <div className="w-8" />}
 
       <div className="min-w-0 flex-1">
-        {!isSameGroup && (
-          <div className="chijie-mono-label mb-1 text-[var(--chijie-paper)]">{display.title}</div>
-        )}
+        {!isSameGroup && <div className="chijie-mono-label mb-1 text-[var(--chijie-foreground)]">{display.title}</div>}
 
         <div className="space-y-0.5">
           <div className="whitespace-pre-wrap break-words text-sm text-[var(--chijie-foreground)]">
             {isProgress ? (
-              <div className="space-y-1">
-                <div className="text-[var(--chijie-muted)]">{display.body}</div>
-                <div className="h-1 overflow-hidden rounded bg-[var(--chijie-border-strong)]">
-                  <div className="h-full animate-progress bg-[var(--chijie-accent)]" />
-                </div>
+              <div className="chijie-current-activity" role="status" aria-live="polite">
+                <span className="chijie-activity-dot" aria-hidden />
+                <div className="text-[var(--chijie-accent-signal)]">{display.body}</div>
               </div>
             ) : (
               display.body

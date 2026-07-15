@@ -38,9 +38,7 @@ const ALLOWED_ACTIONS = new Set([
 ]);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 function parseCriteria(raw: unknown): CompletionCriterionDraft[] {
@@ -60,10 +58,7 @@ function parseCriteria(raw: unknown): CompletionCriterionDraft[] {
         break;
       case 'page_text':
       case 'text':
-        if (
-          (row.operator === 'present' || row.operator === 'absent') &&
-          typeof row.expected === 'string'
-        ) {
+        if ((row.operator === 'present' || row.operator === 'absent') && typeof row.expected === 'string') {
           out.push({
             kind: 'page_text',
             operator: row.operator,
@@ -134,8 +129,14 @@ function parseAction(raw: Record<string, unknown>): { name: string; args: Record
 
   // Shape D: flat { name: "click_element", index: 1 }
   if (typeof raw.name === 'string' && ALLOWED_ACTIONS.has(raw.name)) {
-    const { name, observation: _o, done: _d, completion_criteria: _c, ...rest } = raw;
-    return { name: raw.name, args: rest as Record<string, unknown> };
+    const rest: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (key === 'name' || key === 'observation' || key === 'done' || key === 'completion_criteria') {
+        continue;
+      }
+      rest[key] = value;
+    }
+    return { name: raw.name, args: rest };
   }
 
   return null;
@@ -193,10 +194,10 @@ Schema:
 
 Rules:
 1. One action per turn. Prefer the smallest step that advances the task.
-2. On the first useful turn include completion_criteria if the goal is verifiable (success text, media_state, url).
-3. When the goal is already met on the page, set "done": true and omit action_name (or use done).
+2. On the first useful turn include completion_criteria if the goal is verifiable (success text, media_state, url). For "open YouTube and click the first video", prefer url starts_with https://www.youtube.com/watch (not just the homepage).
+3. When the goal is already met on the page, set "done": true and omit action_name (or use done). Do not re-open the homepage or re-click the same video.
 4. For HTML audio/video play/pause use action_name "control_media" with action_args { "command": "play"|"pause" }. Do not click native shadow media controls.
-5. Form submit / send / buy / delete will be gated by product approval — still propose the click with clear intent in action_args.intent when needed.
+5. Form submit / send / buy / delete will be gated by product approval — still propose the click with clear intent in action_args.intent when needed. Plain link/navigation clicks are not form submits.
 6. Never invent element indexes that are not listed. Indexes come from the interactive elements list.
 7. Do not claim login_required unless a clear login wall is visible.
 8. Never put passwords or secrets into action_args.

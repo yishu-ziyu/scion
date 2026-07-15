@@ -3,6 +3,7 @@ import {
   createControlLoopDriver,
   fixtureFormControlSteps,
   fixtureMediaControlSteps,
+  fixtureNavigateControlSteps,
 } from '../control-loop';
 import type { ExecutorHooks } from '../../../task/contracts';
 import { ActionResult } from '../../types';
@@ -85,16 +86,12 @@ describe('control-loop backend (design/002)', () => {
     hooks.onPlan.mockImplementation(async () => {
       // hang until stop — use pause gate instead
     });
-    const driver = createControlLoopDriver(
-      { taskId: 't3', roundId: 'r3', instruction: 'x', tabId: 1 },
-      hooks,
-      {
-        steps: [
-          { type: 'plan', criteria: [] },
-          { type: 'candidate_complete', summary: 'should not reach' },
-        ],
-      },
-    );
+    const driver = createControlLoopDriver({ taskId: 't3', roundId: 'r3', instruction: 'x', tabId: 1 }, hooks, {
+      steps: [
+        { type: 'plan', criteria: [] },
+        { type: 'candidate_complete', summary: 'should not reach' },
+      ],
+    });
 
     const runPromise = driver.run('r3');
     await driver.stop();
@@ -104,10 +101,7 @@ describe('control-loop backend (design/002)', () => {
       { taskId: 't3b', roundId: 'r3b', instruction: 'x', tabId: 1 },
       hooksMock(),
       {
-        steps: [
-          { type: 'plan', criteria: [] },
-          { type: 'candidate_complete' },
-        ],
+        steps: [{ type: 'plan', criteria: [] }, { type: 'candidate_complete' }],
       },
     );
     await driver2.stop();
@@ -116,11 +110,36 @@ describe('control-loop backend (design/002)', () => {
   });
 
   it('fails closed when script has no terminal step', async () => {
-    const driver = createControlLoopDriver(
-      { taskId: 't4', roundId: 'r4', instruction: 'x', tabId: 1 },
-      hooksMock(),
-      { steps: [{ type: 'plan', criteria: [] }] },
-    );
+    const driver = createControlLoopDriver({ taskId: 't4', roundId: 'r4', instruction: 'x', tabId: 1 }, hooksMock(), {
+      steps: [{ type: 'plan', criteria: [] }],
+    });
     await expect(driver.run('r4')).resolves.toEqual({ kind: 'failed', category: 'control_script_exhausted' });
+  });
+
+  it('navigate-first script dispatches go_to_url then wait through hooks (ticket 02)', async () => {
+    const hooks = hooksMock();
+    const navigated: string[] = [];
+    const driver = createControlLoopDriver(
+      { taskId: 't-nav', roundId: 'r-nav', instruction: '打开 YouTube', tabId: 1 },
+      hooks,
+      {
+        steps: fixtureNavigateControlSteps(),
+        actionHandlers: {
+          go_to_url: async args => {
+            navigated.push(String(args.url));
+            return new ActionResult({ success: true });
+          },
+          wait: async () => new ActionResult({ success: true }),
+        },
+      },
+    );
+
+    const outcome = await driver.run('r-nav');
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'Navigation candidate complete' });
+    expect(hooks.onPlan).toHaveBeenCalledOnce();
+    expect(hooks.dispatchAction).toHaveBeenCalledTimes(2);
+    expect(hooks.dispatchAction.mock.calls[0][1].name()).toBe('go_to_url');
+    expect(hooks.dispatchAction.mock.calls[1][1].name()).toBe('wait');
+    expect(navigated).toEqual(['https://www.youtube.com/']);
   });
 });

@@ -33,7 +33,10 @@ function pageWithElement(node: DOMElementNode): Page {
 }
 
 describe('Page action target observation', () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it('returns only a digest for a semantic submit target', async () => {
     const form = element('form', {});
@@ -169,21 +172,65 @@ describe('Page action target observation', () => {
     expect(JSON.stringify([first, second])).not.toContain('Pay $');
   });
 
-  it('never retries a click after its outcome becomes unknown', async () => {
+  it('waits for a started button click instead of abandoning its outcome', async () => {
     vi.useFakeTimers();
     const button = element('button', { type: 'submit' });
     const page = pageWithElement(button);
-    const click = vi.fn(() => new Promise<void>(() => {}));
+    const click = vi.fn(() => new Promise<void>(resolve => setTimeout(resolve, 3000)));
     const handle = { click, evaluate: vi.fn(async () => true) };
-    (page as unknown as { _puppeteerPage: object })._puppeteerPage = {};
+    (page as unknown as { _puppeteerPage: { url: () => string } })._puppeteerPage = {
+      url: () => 'https://example.test/form',
+    };
     vi.spyOn(page, 'locateElement').mockResolvedValue(handle as never);
 
     const pending = page.clickElementNode(false, button);
-    const rejected = expect(pending).rejects.toThrow('Click timeout');
+    let outcome: 'pending' | 'resolved' | 'rejected' = 'pending';
+    const tracked = pending.then(
+      () => (outcome = 'resolved'),
+      () => (outcome = 'rejected'),
+    );
     await vi.advanceTimersByTimeAsync(2001);
+    expect(outcome).toBe('pending');
 
-    await rejected;
+    await vi.advanceTimersByTimeAsync(1000);
+    await tracked;
+    expect(outcome).toBe('resolved');
     expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it('activates a plain navigation link once without starting an orphaned pointer click', async () => {
+    vi.useFakeTimers();
+    const link = element('a', { href: '/watch?v=first' });
+    const page = pageWithElement(link);
+    let navigationCount = 0;
+    const click = vi.fn(
+      () =>
+        new Promise<void>(resolve => {
+          setTimeout(() => {
+            navigationCount += 1;
+            resolve();
+          }, 3000);
+        }),
+    );
+    const evaluate = vi
+      .fn()
+      .mockResolvedValueOnce(true)
+      .mockImplementationOnce(async () => {
+        navigationCount += 1;
+        return true;
+      });
+    const handle = { click, evaluate };
+    (page as unknown as { _puppeteerPage: { url: () => string } })._puppeteerPage = {
+      url: () => 'https://example.test/watch',
+    };
+    vi.spyOn(page, 'locateElement').mockResolvedValue(handle as never);
+
+    const pending = expect(page.clickElementNode(false, link)).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(3001);
+
+    await pending;
+    expect(navigationCount).toBe(1);
+    expect(click).not.toHaveBeenCalled();
   });
 
   it('returns only bounded completion values and strips URL query data', async () => {
@@ -228,6 +275,71 @@ describe('Page action target observation', () => {
     ]);
     expect(JSON.stringify(observations)).not.toContain('SECRET');
     expect(JSON.stringify(observations)).not.toContain('Saved successfully');
+  });
+
+  it('matches completion text on its own body line when the DOM tree omits plain text', async () => {
+    const page = new Page(7, 'https://example.test/success', 'Fixture');
+    const state = build_initial_state(7, 'https://example.test/success', 'Fixture');
+    vi.spyOn(page, 'getState').mockResolvedValue(state);
+    vi.stubGlobal('document', { body: { innerText: 'Bake-off form\nSaved successfully' } });
+    (
+      page as unknown as { _puppeteerPage: { url: () => string; evaluate: (fn: () => string) => Promise<string> } }
+    )._puppeteerPage = {
+      url: () => 'https://example.test/success',
+      evaluate: async fn => fn(),
+    };
+
+    const observations = await page.observeCompletionCriteria([
+      {
+        id: 'text-1',
+        kind: 'page_text',
+        operator: 'present',
+        expectedDigest: await sha256('Saved successfully'),
+        required: true,
+        roundId: 'round-1',
+        targetRefId: 'tab-7',
+        baseline: false,
+        frozenAt: 100,
+        notBefore: 100,
+        timeoutMs: 5000,
+      },
+    ]);
+
+    expect(observations).toEqual([expect.objectContaining({ criterionId: 'text-1', value: true })]);
+  });
+
+  it('bounds the number of body lines scanned for completion text', async () => {
+    const page = new Page(7, 'https://example.test/success', 'Fixture');
+    const state = build_initial_state(7, 'https://example.test/success', 'Fixture');
+    vi.spyOn(page, 'getState').mockResolvedValue(state);
+    const bodyText = [...Array.from({ length: 2000 }, (_, index) => `Filler ${index}`), 'Saved beyond limit'].join(
+      '\n',
+    );
+    vi.stubGlobal('document', { body: { innerText: bodyText } });
+    (
+      page as unknown as { _puppeteerPage: { url: () => string; evaluate: (fn: () => string) => Promise<string> } }
+    )._puppeteerPage = {
+      url: () => 'https://example.test/success',
+      evaluate: async fn => fn(),
+    };
+
+    const observations = await page.observeCompletionCriteria([
+      {
+        id: 'text-1',
+        kind: 'page_text',
+        operator: 'present',
+        expectedDigest: await sha256('Saved beyond limit'),
+        required: true,
+        roundId: 'round-1',
+        targetRefId: 'tab-7',
+        baseline: false,
+        frozenAt: 100,
+        notBefore: 100,
+        timeoutMs: 5000,
+      },
+    ]);
+
+    expect(observations).toEqual([expect.objectContaining({ criterionId: 'text-1', value: false })]);
   });
 
   it('reports the actual tab instead of echoing a stale completion target', async () => {
