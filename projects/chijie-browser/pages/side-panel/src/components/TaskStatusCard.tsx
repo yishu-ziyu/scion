@@ -1,6 +1,7 @@
 import type { ActionAttempt, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
 import { t } from '@extension/i18n';
 import { useEffect, useState } from 'react';
+import { FiCheck, FiChevronDown, FiChevronUp } from 'react-icons/fi';
 import {
   actionStackClassName,
   completionVisibleText,
@@ -12,13 +13,14 @@ import {
   taskCardClassName,
 } from '../design/contracts';
 import {
-  TASK_OUTCOME_RATING_LABELS,
   type TaskOutcomeRating,
   defaultStepsExpanded,
+  observedAttemptCount,
   ratingStorageKey,
   shouldShowExecutionSteps,
   shouldShowOutcomeRating,
   shouldShowVerifiedDone,
+  visibleAttemptWindow,
 } from '../presentation/task-loop-ui';
 import { productFailureLabel, toProductFailureCode } from '../presentation/failure-taxonomy';
 
@@ -140,43 +142,74 @@ export function instructionToSkillTemplate(instruction: string): string {
 
 /** Human labels for action names (design/003 round timeline). */
 export function humanActionLabel(actionName: string): string {
-  const map: Record<string, string> = {
-    go_to_url: '打开页面',
-    open_tab: '打开标签页',
-    switch_tab: '切换标签',
-    click_element: '点击元素',
-    input_text: '填写表单',
-    send_keys: '键盘输入',
-    control_media: '媒体控制',
-    scroll_to_text: '滚动定位',
-    scroll_to_percent: '滚动页面',
-    wait: '等待',
-    done: '准备完成',
-    search_google: '搜索',
-    go_back: '返回',
-    get_dropdown_options: '读取选项',
-    select_dropdown_option: '选择选项',
+  const map: Record<string, Parameters<typeof t>[0]> = {
+    go_to_url: 'chat_task_action_open',
+    open_tab: 'chat_task_action_open_tab',
+    switch_tab: 'chat_task_action_switch_tab',
+    click_element: 'chat_task_action_click',
+    input_text: 'chat_task_action_input',
+    send_keys: 'chat_task_action_keys',
+    control_media: 'chat_task_action_media',
+    scroll_to_text: 'chat_task_action_scroll',
+    scroll_to_percent: 'chat_task_action_scroll',
+    wait: 'chat_task_action_wait',
+    done: 'chat_task_action_done',
+    search_google: 'chat_task_action_search',
+    go_back: 'chat_task_action_back',
+    get_dropdown_options: 'chat_task_action_read_options',
+    select_dropdown_option: 'chat_task_action_select',
   };
-  return map[actionName] ?? actionName.replaceAll('_', ' ');
+  return t(map[actionName] ?? 'chat_task_action_generic');
+}
+
+/** Hide executor boilerplate that adds no decision value to the approval surface. */
+export function humanApprovalSummary(summary: string | undefined): string | null {
+  const text = summary?.replace(/\s+/g, ' ').trim();
+  if (!text || /^perform the requested external action[.!]?$/i.test(text)) return null;
+  return text;
+}
+
+export function approvalActionLabel(
+  attempt: Pick<ActionAttempt, 'actionName' | 'effect'> | undefined,
+  summary?: string,
+): string {
+  const specificSummary = humanApprovalSummary(summary);
+  if (specificSummary) return specificSummary;
+  if (!attempt) return t('chat_task_approval_action_generic');
+  if (attempt.effect === 'external_commit' && attempt.actionName === 'click_element') {
+    return t('chat_task_approval_action_click');
+  }
+  return humanActionLabel(attempt.actionName);
+}
+
+function evidenceLabel(kind: string): string {
+  const labels: Record<string, Parameters<typeof t>[0]> = {
+    url: 'chat_task_evidence_url',
+    page_text: 'chat_task_evidence_text',
+    element_state: 'chat_task_evidence_element',
+    media_state: 'chat_task_evidence_media',
+    user_confirmed: 'chat_task_evidence_user',
+  };
+  return t(labels[kind] ?? 'chat_task_evidence_generic');
 }
 
 function attemptLineState(attempt: ActionAttempt, isLatestPendingCommit: boolean): string {
   if (isLatestPendingCommit && attempt.effect === 'external_commit') {
-    return '即将提交（需审批）';
+    return t('chat_task_attempt_pending_approval');
   }
   switch (attempt.state) {
     case 'observed':
-      return '已完成';
+      return t('chat_task_attempt_observed');
     case 'executing':
-      return '执行中';
+      return t('chat_task_attempt_executing');
     case 'approved':
-      return '已批准';
+      return t('chat_task_attempt_approved');
     case 'proposed':
-      return '准备中';
+      return t('chat_task_attempt_proposed');
     case 'uncertain':
-      return '结果待确认';
+      return t('chat_task_attempt_uncertain');
     case 'blocked':
-      return '已阻止';
+      return t('chat_task_attempt_blocked');
     default:
       return attempt.state;
   }
@@ -233,9 +266,12 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
   const [skillTemplate, setSkillTemplate] = useState('');
   const [stepsExpanded, setStepsExpanded] = useState(() => defaultStepsExpanded(snapshot.status));
   const [outcomeRating, setOutcomeRating] = useState<TaskOutcomeRating | null>(null);
+  const [approvalDecision, setApprovalDecision] = useState<'approve' | 'reject' | null>(null);
+  const [skillSavePendingId, setSkillSavePendingId] = useState<string | null>(null);
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
   const approval = round?.approvals.find(item => item.status === 'pending');
   const attempts = round?.attempts ?? [];
+  const skillSaveAck = skillSavePendingId ? round?.commandAcks[skillSavePendingId] : undefined;
   const confirmations =
     round?.criteria.filter(
       criterion =>
@@ -253,14 +289,7 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
     snapshot.status === 'failed' ||
     snapshot.status === 'interrupted';
 
-  const doneSteps = attempts.filter(a => a.state === 'observed' || a.state === 'approved').length;
-  // Real counts only - never invent a fake "/7" denominator.
-  const totalSteps = Math.max(attempts.length, doneSteps, snapshot.status === 'waiting_approval' ? doneSteps + 1 : 0, 0);
-  const progressDone = Math.min(doneSteps + (snapshot.status === 'waiting_approval' ? 1 : 0), Math.max(totalSteps, 1));
-  const progressTotal = Math.max(totalSteps, progressDone, 1);
-  const progressLabel = totalSteps > 0 ? `${progressDone}/${progressTotal}` : '—';
-  const progressPct =
-    totalSteps > 0 ? Math.min(100, Math.round((progressDone / progressTotal) * 100)) : snapshot.status === 'completed' ? 100 : 0;
+  const doneSteps = observedAttemptCount(attempts);
   const goalText = displayGoalText(snapshot, round?.instructionSummary, defaultInstruction);
 
   useEffect(() => {
@@ -280,6 +309,32 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
       setOutcomeRating(null);
     }
   }, [round?.receipt?.id]);
+
+  useEffect(() => {
+    setApprovalDecision(null);
+  }, [approval?.id, snapshot.revision]);
+
+  useEffect(() => {
+    if (!approvalDecision) return;
+    const timeout = window.setTimeout(() => setApprovalDecision(null), 2_000);
+    return () => window.clearTimeout(timeout);
+  }, [approvalDecision]);
+
+  useEffect(() => {
+    if (!skillSaveAck) return;
+    setSkillSavePendingId(null);
+    if (skillSaveAck.accepted) {
+      setShowSkillForm(false);
+      setSkillTitle('');
+      setSkillTemplate('');
+    }
+  }, [skillSaveAck]);
+
+  useEffect(() => {
+    if (!skillSavePendingId) return;
+    const timeout = window.setTimeout(() => setSkillSavePendingId(null), 2_000);
+    return () => window.clearTimeout(timeout);
+  }, [skillSavePendingId]);
 
   const openSkillForm = () => {
     setShowSkillForm(true);
@@ -304,8 +359,19 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
       .find(a => a.id === approval.attemptId || a.effect === 'external_commit');
 
   const showSteps = shouldShowExecutionSteps(attempts);
-  const showVerifiedDone = shouldShowVerifiedDone(round?.receipt);
-  const showRating = shouldShowOutcomeRating(round?.receipt);
+  const visibleAttempts = visibleAttemptWindow(attempts, snapshot.status);
+  const currentAttempt = [...attempts]
+    .reverse()
+    .find(attempt => attempt.state === 'executing' || attempt.state === 'proposed' || attempt.state === 'approved');
+  const passedEvidence =
+    round?.evidence
+      .filter(evidence => evidence.passed)
+      .map(evidence => ({
+        ...evidence,
+        criterion: round.criteria.find(criterion => criterion.id === evidence.criterionId),
+      })) ?? [];
+  const showVerifiedDone = shouldShowVerifiedDone(snapshot, round?.receipt);
+  const showRating = shouldShowOutcomeRating(snapshot, round?.receipt);
 
   const selectRating = (rating: TaskOutcomeRating) => {
     setOutcomeRating(rating);
@@ -313,6 +379,19 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
     if (receiptId && typeof localStorage !== 'undefined') {
       localStorage.setItem(ratingStorageKey(receiptId), rating);
     }
+  };
+
+  const decideApproval = (decision: 'approve' | 'reject') => {
+    if (approvalDecision || !round || !approval) return;
+    setApprovalDecision(decision);
+    send({
+      type: decision,
+      commandId: crypto.randomUUID(),
+      taskId: snapshot.id,
+      expectedRevision: snapshot.revision,
+      roundId: round.id,
+      approvalId: approval.id,
+    });
   };
 
   return (
@@ -337,14 +416,6 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
         <p className="chijie-task-goal-text" data-testid="task-goal-summary">
           {goalText}
         </p>
-        {totalSteps > 0 && (
-          <div className="chijie-task-progress-row" data-testid="task-progress">
-            <span className="chijie-progress-track" aria-hidden>
-              <span className="chijie-progress-fill" style={{ width: `${progressPct}%` }} />
-            </span>
-            <span className="chijie-progress-text">{progressLabel}</span>
-          </div>
-        )}
         {snapshot.status === 'waiting_approval' && (
           <p className="chijie-policy-hint" data-testid="task-policy-hint">
             {t('chat_task_policy_external')}
@@ -352,9 +423,72 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
         )}
       </div>
 
-      {/* 3. Steps: numbered story of what happened */}
+      {snapshot.status === 'running' && (
+        <div className="chijie-current-activity" role="status" aria-live="polite" aria-atomic="true">
+          <span className="chijie-activity-dot" aria-hidden />
+          <span className="chijie-current-activity-copy">
+            <strong>
+              {currentAttempt ? humanActionLabel(currentAttempt.actionName) : t('chat_task_activity_understanding')}
+            </strong>
+            <span>
+              {doneSteps > 0
+                ? t('chat_task_activity_verified', [String(doneSteps)])
+                : t('chat_task_activity_preparing')}
+            </span>
+          </span>
+        </div>
+      )}
+
+      {/* Consequential action comes before history in the reading order. */}
+      {snapshot.status === 'waiting_approval' && round && approval && (
+        <div data-testid="task-approval-card" className="chijie-approval-card">
+          <div className={monoLabelClassName}>{t('chat_task_section_approval')}</div>
+          <p className="chijie-approval-title">{t('chat_task_approval_heading')}</p>
+          <dl className="chijie-approval-details">
+            <div>
+              <dt>{t('chat_task_approval_field_action')}</dt>
+              <dd>{approvalActionLabel(pendingCommitAttempt, approval.summary)}</dd>
+            </div>
+            <div>
+              <dt>{t('chat_task_approval_field_location')}</dt>
+              <dd>{siteHostLabel(snapshot)}</dd>
+            </div>
+            <div>
+              <dt>{t('chat_task_approval_field_impact')}</dt>
+              <dd>{t('chat_task_approval_impact_external')}</dd>
+            </div>
+            <div>
+              <dt>{t('chat_task_approval_field_after')}</dt>
+              <dd>{t('chat_task_approval_after_once')}</dd>
+            </div>
+          </dl>
+          <p className="chijie-approval-once">{t('chat_task_approval_once')}</p>
+          <div className="chijie-approval-actions" aria-busy={approvalDecision !== null}>
+            <button
+              type="button"
+              data-testid="approval-approve"
+              className={primaryButtonClassName}
+              disabled={approvalDecision !== null}
+              aria-busy={approvalDecision === 'approve'}
+              onClick={() => decideApproval('approve')}>
+              {approvalDecision === 'approve' ? t('chat_task_approval_pending') : t('chat_task_approve')}
+            </button>
+            <button
+              type="button"
+              data-testid="approval-reject"
+              className={secondaryButtonClassName}
+              disabled={approvalDecision !== null}
+              aria-busy={approvalDecision === 'reject'}
+              onClick={() => decideApproval('reject')}>
+              {approvalDecision === 'reject' ? t('chat_task_reject_pending') : t('chat_task_reject')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Steps: numbered story of what happened */}
       {showSteps && (
-        <div data-testid="task-round-timeline" className="chijie-task-section chijie-task-steps">
+        <div data-testid="task-round-timeline" className="chijie-task-section">
           <button
             type="button"
             data-testid="task-steps-toggle"
@@ -366,12 +500,13 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
               <span className="chijie-task-steps-count">{attempts.length}</span>
             </span>
             <span className="chijie-task-steps-caret" aria-hidden>
-              {stepsExpanded ? '⌃' : '⌄'}
+              {stepsExpanded ? <FiChevronUp /> : <FiChevronDown />}
             </span>
           </button>
           {stepsExpanded && (
             <ol data-testid="task-execution-steps" className="chijie-round-timeline">
-              {attempts.map((attempt, index) => {
+              {visibleAttempts.map(attempt => {
+                const index = attempts.findIndex(item => item.id === attempt.id);
                 const isPendingCommit =
                   Boolean(pendingCommitAttempt) &&
                   attempt.id === pendingCommitAttempt?.id &&
@@ -402,53 +537,7 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
         </div>
       )}
 
-      {/* Block 4: Approval (design/003) */}
-      {snapshot.status === 'waiting_approval' && round && approval && (
-        <div data-testid="task-approval-card" className="chijie-approval-card">
-          <div className={monoLabelClassName}>{t('chat_task_section_approval')}</div>
-          <p className="chijie-approval-title">{t('chat_task_approval_heading')}</p>
-          <p className="chijie-approval-body">
-            {t('chat_task_approval_explain')}
-            {approval.summary ? `「${approval.summary}」` : ''}
-          </p>
-          <div className="chijie-approval-actions">
-            <button
-              type="button"
-              data-testid="approval-approve"
-              className={primaryButtonClassName}
-              onClick={() =>
-                send({
-                  type: 'approve',
-                  commandId: crypto.randomUUID(),
-                  taskId: snapshot.id,
-                  expectedRevision: snapshot.revision,
-                  roundId: round.id,
-                  approvalId: approval.id,
-                })
-              }>
-              {t('chat_task_approve')}
-            </button>
-            <button
-              type="button"
-              data-testid="approval-reject"
-              className={secondaryButtonClassName}
-              onClick={() =>
-                send({
-                  type: 'reject',
-                  commandId: crypto.randomUUID(),
-                  taskId: snapshot.id,
-                  expectedRevision: snapshot.revision,
-                  roundId: round.id,
-                  approvalId: approval.id,
-                })
-              }>
-              {t('chat_task_reject')}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Block 5: Verified completion only (receipt required) */}
+      {/* Verified completion only (terminal status + receipt required). */}
       {showVerifiedDone && round?.receipt && (
         <div data-testid="completion-receipt" className="chijie-done-block">
           {completionText.split('\n').map(line => (
@@ -458,20 +547,35 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
               {line}
             </div>
           ))}
-          <dl className="chijie-receipt-meta" data-testid="completion-receipt-meta">
-            <div>
-              <dt>{t('chat_task_receipt_id')}</dt>
-              <dd className="font-mono text-[11px] opacity-80">{round.receipt.id}</dd>
-            </div>
-            <div>
-              <dt>{t('chat_task_receipt_time')}</dt>
-              <dd>{new Date(round.receipt.verifiedAt).toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt>{t('chat_task_current_site')}</dt>
-              <dd>{siteLabel(snapshot)}</dd>
-            </div>
-          </dl>
+          {passedEvidence.length > 0 && (
+            <ul className="chijie-evidence-list" data-testid="completion-evidence-list">
+              {passedEvidence.map(evidence => (
+                <li key={`${evidence.criterionId}-${evidence.observedAt}`}>
+                  <span className="chijie-evidence-mark" aria-hidden>
+                    <FiCheck />
+                  </span>
+                  <span>{evidenceLabel(evidence.criterion?.kind ?? '')}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <details className="chijie-receipt-details" data-testid="completion-receipt-details">
+            <summary>{t('chat_task_receipt_technical')}</summary>
+            <dl className="chijie-receipt-meta" data-testid="completion-receipt-meta">
+              <div>
+                <dt>{t('chat_task_receipt_id')}</dt>
+                <dd className="font-mono text-[11px] opacity-80">{round.receipt.id}</dd>
+              </div>
+              <div>
+                <dt>{t('chat_task_receipt_time')}</dt>
+                <dd>{new Date(round.receipt.verifiedAt).toLocaleString()}</dd>
+              </div>
+              <div>
+                <dt>{t('chat_task_current_site')}</dt>
+                <dd>{siteLabel(snapshot)}</dd>
+              </div>
+            </dl>
+          </details>
         </div>
       )}
 
@@ -479,31 +583,22 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
       {showRating && round?.receipt && (
         <div data-testid="task-outcome-rating" className="chijie-task-section">
           <div className={monoLabelClassName}>{t('chat_task_rating_prompt')}</div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              data-testid="task-rate-success"
-              data-active={outcomeRating === 'success' ? 'true' : 'false'}
-              className={outcomeRating === 'success' ? primaryButtonClassName : secondaryButtonClassName}
-              onClick={() => selectRating('success')}>
-              {TASK_OUTCOME_RATING_LABELS.success}
-            </button>
-            <button
-              type="button"
-              data-testid="task-rate-partial"
-              data-active={outcomeRating === 'partial' ? 'true' : 'false'}
-              className={outcomeRating === 'partial' ? primaryButtonClassName : secondaryButtonClassName}
-              onClick={() => selectRating('partial')}>
-              {TASK_OUTCOME_RATING_LABELS.partial}
-            </button>
-            <button
-              type="button"
-              data-testid="task-rate-fail"
-              data-active={outcomeRating === 'fail' ? 'true' : 'false'}
-              className={outcomeRating === 'fail' ? primaryButtonClassName : secondaryButtonClassName}
-              onClick={() => selectRating('fail')}>
-              {TASK_OUTCOME_RATING_LABELS.fail}
-            </button>
+          <div className="chijie-rating-control" role="radiogroup" aria-label={t('chat_task_rating_prompt')}>
+            {(['success', 'partial', 'fail'] as const).map(rating => (
+              <label
+                key={rating}
+                className="chijie-rating-option"
+                data-active={outcomeRating === rating ? 'true' : 'false'}>
+                <input
+                  type="radio"
+                  name={`task-outcome-${round.receipt?.id}`}
+                  data-testid={`task-rate-${rating}`}
+                  checked={outcomeRating === rating}
+                  onChange={() => selectRating(rating)}
+                />
+                <span>{t(`chat_task_rate_${rating}`)}</span>
+              </label>
+            ))}
           </div>
         </div>
       )}
@@ -551,9 +646,9 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
           </button>
         ))}
 
-      {round?.receipt && !showSkillForm && (
-        <div className={actionStackClassName}>
-          <button type="button" data-testid="skill-save" className={primaryButtonClassName} onClick={openSkillForm}>
+      {showVerifiedDone && !showSkillForm && (
+        <div className="chijie-skill-save-row">
+          <button type="button" data-testid="skill-save" className={secondaryButtonClassName} onClick={openSkillForm}>
             {t('chat_skills_save')}
           </button>
           <p className="text-xs opacity-80">{t('chat_task_skill_save_hint')}</p>
@@ -588,30 +683,35 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
             type="button"
             data-testid="skill-save-confirm"
             className={primaryButtonClassName}
-            disabled={!skillTemplate.trim()}
+            disabled={!skillTemplate.trim() || Boolean(skillSavePendingId)}
+            aria-busy={Boolean(skillSavePendingId)}
             onClick={() => {
+              if (skillSavePendingId) return;
+              const commandId = crypto.randomUUID();
+              setSkillSavePendingId(commandId);
               send({
                 type: 'save_skill',
-                commandId: crypto.randomUUID(),
+                commandId,
                 taskId: snapshot.id,
                 expectedRevision: snapshot.revision,
                 roundId: round.id,
                 title: skillTitle.trim() || t('chat_skills_defaultTitle'),
                 instructionTemplate: skillTemplate,
               });
-              setShowSkillForm(false);
-              setSkillTitle('');
-              setSkillTemplate('');
             }}>
-            {t('chat_skills_saveConfirm')}
+            {skillSavePendingId ? t('chat_task_skill_saving') : t('chat_skills_saveConfirm')}
           </button>
-          <button type="button" className={secondaryButtonClassName} onClick={() => setShowSkillForm(false)}>
+          <button
+            type="button"
+            className={secondaryButtonClassName}
+            disabled={Boolean(skillSavePendingId)}
+            onClick={() => setShowSkillForm(false)}>
             {t('chat_task_cancel_edit')}
           </button>
         </div>
       )}
 
-      <div className={actionStackClassName}>
+      <div className={`${actionStackClassName} chijie-task-controls`}>
         {snapshot.status === 'running' && (
           <button
             type="button"
