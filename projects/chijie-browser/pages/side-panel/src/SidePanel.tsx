@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RxDiscordLogo } from 'react-icons/rx';
 import { FiSettings } from 'react-icons/fi';
 import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
@@ -33,6 +32,21 @@ declare global {
   }
 }
 
+type CommandRejection = 'not_found' | 'stale_revision' | 'invalid_transition' | 'invalid_input';
+
+export function commandRejectionMessage(error: CommandRejection): string {
+  switch (error) {
+    case 'stale_revision':
+      return t('chat_task_command_stale');
+    case 'invalid_transition':
+      return t('chat_task_command_invalid_transition');
+    case 'not_found':
+      return t('chat_task_command_not_found');
+    case 'invalid_input':
+      return t('chat_task_command_invalid_input');
+  }
+}
+
 const SidePanel = () => {
   const progressMessage = PROGRESS_MESSAGE_CONTENT;
   const [messages, setMessages] = useState<Message[]>([]);
@@ -43,7 +57,6 @@ const SidePanel = () => {
   const [chatSessions, setChatSessions] = useState<Array<{ id: string; title: string; createdAt: number }>>([]);
   const [isFollowUpMode, setIsFollowUpMode] = useState(false);
   const [isHistoricalSession, setIsHistoricalSession] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
   const [favoritePrompts, setFavoritePrompts] = useState<FavoriteItem[]>([]);
   const [hasConfiguredModels, setHasConfiguredModels] = useState<boolean | null>(null); // null = loading, false = no models, true = has models
   const [isRecording, setIsRecording] = useState(false);
@@ -62,19 +75,6 @@ const SidePanel = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<number | null>(null);
-
-  // Check for dark mode preference
-  useEffect(() => {
-    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    setIsDarkMode(darkModeMediaQuery.matches);
-
-    const handleChange = (e: MediaQueryListEvent) => {
-      setIsDarkMode(e.matches);
-    };
-
-    darkModeMediaQuery.addEventListener('change', handleChange);
-    return () => darkModeMediaQuery.removeEventListener('change', handleChange);
-  }, []);
 
   // Check if models are configured
   const checkModelConfiguration = useCallback(async () => {
@@ -144,15 +144,15 @@ const SidePanel = () => {
         content: storedContent ?? newMessage.content,
       });
     },
-    [],
+    [progressMessage],
   );
 
   useEffect(() => {
     if (!taskSnapshot) return;
-    const busy = taskSnapshot.status === 'running' || taskSnapshot.status === 'waiting_approval';
+    const busy = taskSnapshot.status === 'waiting_approval';
     const requiresExplicitResume = taskSnapshot.status === 'interrupted' || taskSnapshot.status === 'inputs_required';
     setInputEnabled(!busy && !requiresExplicitResume);
-    setShowStopButton(busy);
+    setShowStopButton(taskSnapshot.status === 'running' || taskSnapshot.status === 'waiting_approval');
     // Follow-up needs a chat session bound to the task (skill runs have none).
     // Without a session, treat the next goal as a fresh start so instruction can persist.
     const followable = ['running', 'paused', 'waiting_user', 'completed'].includes(taskSnapshot.status);
@@ -304,9 +304,10 @@ const SidePanel = () => {
           setTaskSnapshotLoaded(true);
         } else if (message && message.type === 'command_ack' && !message.ack.accepted) {
           if (pendingTaskIdRef.current === message.ack.taskId) pendingTaskIdRef.current = null;
+          portRef.current?.postMessage({ type: 'get_active_task' });
           void appendMessage({
             actor: Actors.SYSTEM,
-            content: `Command rejected: ${message.ack.error}`,
+            content: commandRejectionMessage(message.ack.error),
             timestamp: Date.now(),
           });
         } else if (message && message.type === 'error') {
@@ -963,7 +964,7 @@ const SidePanel = () => {
               <button
                 type="button"
                 onClick={() => handleBackToChat(false)}
-                className="cursor-pointer text-[var(--chijie-paper)] hover:text-[var(--chijie-accent)]"
+                className="cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
                 aria-label={t('nav_back_a11y')}>
                 {t('nav_back')}
               </button>
@@ -975,7 +976,11 @@ const SidePanel = () => {
                   className="chijie-header-logo"
                   data-testid="header-logo"
                 />
-                <span className="chijie-header-brand-sub" data-testid="header-task-status">
+                <span
+                  className="chijie-header-brand-sub"
+                  data-testid="header-task-status"
+                  aria-live="polite"
+                  aria-atomic="true">
                   {taskSnapshot
                     ? t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
                     : t('chat_task_header_idle')}
@@ -990,7 +995,7 @@ const SidePanel = () => {
                   type="button"
                   onClick={handleNewChat}
                   onKeyDown={e => e.key === 'Enter' && handleNewChat()}
-                  className="header-icon cursor-pointer text-[var(--chijie-paper)] hover:text-[var(--chijie-accent)]"
+                  className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
                   aria-label={t('nav_newChat_a11y')}
                   tabIndex={0}>
                   <PiPlusBold size={20} />
@@ -999,25 +1004,18 @@ const SidePanel = () => {
                   type="button"
                   onClick={handleLoadHistory}
                   onKeyDown={e => e.key === 'Enter' && handleLoadHistory()}
-                  className="header-icon cursor-pointer text-[var(--chijie-paper)] hover:text-[var(--chijie-accent)]"
+                  className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
                   aria-label={t('nav_loadHistory_a11y')}
                   tabIndex={0}>
                   <GrHistory size={20} />
                 </button>
               </>
             )}
-            <a
-              href="https://discord.gg/NN3ABHggMK"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="header-icon text-[var(--chijie-paper)] hover:text-[var(--chijie-accent)]">
-              <RxDiscordLogo size={20} />
-            </a>
             <button
               type="button"
               onClick={() => chrome.runtime.openOptionsPage()}
               onKeyDown={e => e.key === 'Enter' && chrome.runtime.openOptionsPage()}
-              className="header-icon cursor-pointer text-[var(--chijie-paper)] hover:text-[var(--chijie-accent)]"
+              className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
               aria-label={t('nav_settings_a11y')}
               tabIndex={0}>
               <FiSettings size={20} />
@@ -1032,7 +1030,7 @@ const SidePanel = () => {
               onSessionDelete={handleSessionDelete}
               onSessionBookmark={handleSessionBookmark}
               visible={true}
-              isDarkMode={isDarkMode}
+              isDarkMode={false}
             />
           </div>
         ) : (
@@ -1065,18 +1063,6 @@ const SidePanel = () => {
                   <button type="button" onClick={() => chrome.runtime.openOptionsPage()} className="chijie-btn-primary">
                     {t('welcome_openSettings')}
                   </button>
-                  <div className="mt-4 text-sm">
-                    <a
-                      href="https://github.com/nanobrowser/nanobrowser?tab=readme-ov-file#-quick-start"
-                      target="_blank"
-                      rel="noopener noreferrer">
-                      {t('welcome_quickStart')}
-                    </a>
-                    <span className="mx-2">·</span>
-                    <a href="https://discord.gg/NN3ABHggMK" target="_blank" rel="noopener noreferrer">
-                      {t('welcome_joinCommunity')}
-                    </a>
-                  </div>
                 </div>
               </div>
             )}
@@ -1089,7 +1075,7 @@ const SidePanel = () => {
                     <TaskStatusCard
                       snapshot={taskSnapshot}
                       send={sendTaskCommand}
-                      isDarkMode={isDarkMode}
+                      isDarkMode={false}
                       defaultInstruction={
                         [...messages].reverse().find(message => message.actor === Actors.USER)?.content ?? ''
                       }
@@ -1099,7 +1085,7 @@ const SidePanel = () => {
                   <div className="chijie-chat-log scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3">
                     <MessageList
                       messages={messages}
-                      isDarkMode={true}
+                      isDarkMode={false}
                       onRetry={() => {
                         const lastUser = [...messages].reverse().find(m => m.actor === Actors.USER);
                         if (lastUser?.content) {
@@ -1118,20 +1104,25 @@ const SidePanel = () => {
                   </div>
                 )}
                 {/* Templates / bookmarks: status → chat → run-again → input */}
-                <div
-                  className={`chijie-bookmarks ${messages.length === 0 ? 'flex-1' : 'max-h-40 shrink-0'} overflow-y-auto`}
-                  data-testid="bookmark-list-panel">
-                  <BookmarkList
-                    bookmarks={favoritePrompts}
-                    onBookmarkSelect={handleBookmarkSelect}
-                    onSkillRun={handleSkillRun}
-                    onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
-                    onBookmarkDelete={handleBookmarkDelete}
-                    onBookmarkReorder={handleBookmarkReorder}
-                    isDarkMode={true}
-                  />
-                </div>
-                <div className="chijie-composer">
+                {favoritePrompts.length > 0 && (
+                  <div
+                    className={`chijie-bookmarks ${messages.length === 0 ? 'flex-1' : 'max-h-40 shrink-0'} overflow-y-auto`}
+                    data-testid="bookmark-list-panel">
+                    <BookmarkList
+                      bookmarks={favoritePrompts}
+                      onBookmarkSelect={handleBookmarkSelect}
+                      onSkillRun={handleSkillRun}
+                      onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
+                      onBookmarkDelete={handleBookmarkDelete}
+                      onBookmarkReorder={handleBookmarkReorder}
+                      isDarkMode={false}
+                    />
+                  </div>
+                )}
+                {messages.length === 0 && favoritePrompts.length === 0 && (
+                  <div className="min-h-0 flex-1" data-testid="empty-composer-spacer" aria-hidden />
+                )}
+                <div className="chijie-composer" data-task-active={showStopButton ? 'true' : 'false'}>
                   <ChatInput
                     onSendMessage={handleSendMessage}
                     onStopTask={handleStopTask}
@@ -1139,11 +1130,11 @@ const SidePanel = () => {
                     isRecording={isRecording}
                     isProcessingSpeech={isProcessingSpeech}
                     disabled={!taskSnapshotLoaded || !inputEnabled || isHistoricalSession}
-                    showStopButton={showStopButton}
+                    showStopButton={false}
                     setContent={setter => {
                       setInputTextRef.current = setter;
                     }}
-                    isDarkMode={true}
+                    isDarkMode={false}
                   />
                 </div>
               </>

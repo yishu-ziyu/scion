@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   YISHU_TOKEN_NAMES,
   completionVisibleText,
@@ -21,7 +21,26 @@ import {
   stylesUseBoxShadow,
   sourceHasBannedSkyChrome,
 } from '../contracts';
-import { instructionToSkillTemplate } from '../../components/TaskStatusCard';
+import {
+  approvalActionLabel,
+  humanApprovalSummary,
+  instructionToSkillTemplate,
+} from '../../components/TaskStatusCard';
+import { commandRejectionMessage } from '../../SidePanel';
+
+const testMessages: Record<string, string> = {
+  chat_task_action_input: '填写表单',
+  chat_task_action_media: '媒体控制',
+  chat_task_approval_action_click: '执行一次页面确认操作',
+  chat_task_command_stale: '任务状态已刷新',
+  chat_task_command_invalid_transition: '操作已失效',
+};
+
+vi.stubGlobal('chrome', {
+  i18n: {
+    getMessage: (key: string) => testMessages[key] ?? key,
+  },
+});
 
 const here = dirname(fileURLToPath(import.meta.url));
 const tokensCss = readFileSync(resolve(here, '../chijie-tokens.css'), 'utf8');
@@ -46,11 +65,12 @@ describe('Feature: Side panel uses 持节 design system', () => {
       for (const name of YISHU_TOKEN_NAMES) {
         expect(tokensCss, `missing token ${name}`).toContain(`${name}:`);
       }
-      expect(tokensCss).toMatch(/--chijie-background:\s*#000000/i);
-      expect(tokensCss).toMatch(/--chijie-paper:\s*#f2e3cf/i);
-      expect(tokensCss).toMatch(/--chijie-accent:\s*#e35342/i);
-      expect(tokensCss).toMatch(/--chijie-surface:\s*#111111/i);
-      expect(tokensCss).toMatch(/--chijie-foreground:\s*#e8e8e8/i);
+      expect(tokensCss).toMatch(/--chijie-background:\s*#f5f7f5/i);
+      expect(tokensCss).toMatch(/--chijie-paper:\s*#ffffff/i);
+      expect(tokensCss).toMatch(/--chijie-accent:\s*#176c52/i);
+      expect(tokensCss).toMatch(/--chijie-surface:\s*#ffffff/i);
+      expect(tokensCss).toMatch(/--chijie-foreground:\s*#16231f/i);
+      expect(tokensCss).toMatch(/--chijie-warning:\s*#93641a/i);
     });
 
     it('exposes paper-card and pill-button class contracts', () => {
@@ -58,14 +78,21 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(primaryButtonClassName).toBe('chijie-btn-primary');
       expect(componentsCss).toContain('.chijie-paper-card');
       expect(componentsCss).toContain('.chijie-btn-primary');
-      expect(componentsCss).toMatch(/border-radius:\s*60px/);
-      expect(componentsCss).toMatch(/border-radius:\s*20px\s+20px\s+4px\s+4px/);
+      expect(componentsCss).toMatch(/border-radius:\s*var\(--chijie-radius-pill\)/);
+      expect(tokensCss).toMatch(/--chijie-radius-pill:\s*999px/);
+      expect(tokensCss).toMatch(/--chijie-radius-xl:\s*16px/);
     });
   });
 
   describe('Scenario: No drop shadows on task chrome', () => {
     it('does not use box-shadow in yishu component styles', () => {
       expect(stylesUseBoxShadow(componentsCss)).toBe(false);
+    });
+
+    it('keeps keyboard focus visible and honors reduced motion', () => {
+      expect(componentsCss).toContain(':focus-visible');
+      expect(componentsCss).toContain('@media (prefers-reduced-motion: reduce)');
+      expect(componentsCss).toMatch(/scroll-behavior:\s*auto\s*!important/);
     });
   });
 
@@ -108,6 +135,27 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(block).toContain('.chijie-action-stack');
       expect(block.slice(0, 200)).toContain('flex-direction: column');
     });
+
+    it('hides generic executor prose while preserving specific human detail', () => {
+      expect(humanApprovalSummary('Perform the requested external action')).toBeNull();
+      expect(humanApprovalSummary('将发布这条评论')).toBe('将发布这条评论');
+    });
+
+    it('describes approval without assuming every external action is a form submission', () => {
+      expect(
+        approvalActionLabel(
+          { actionName: 'click_element', effect: 'external_commit' } as Parameters<typeof approvalActionLabel>[0],
+          'Perform the requested external action',
+        ),
+      ).toBe('执行一次页面确认操作');
+      expect(approvalActionLabel(undefined, '将删除这条记录')).toBe('将删除这条记录');
+    });
+
+    it('turns rejected command enums into user-facing recovery copy', () => {
+      expect(commandRejectionMessage('stale_revision')).not.toContain('stale_revision');
+      expect(commandRejectionMessage('invalid_transition')).not.toContain('invalid_transition');
+      expect(sidePanelSource).not.toContain('Command rejected:');
+    });
   });
 
   describe('Scenario: Components bind to yishu classes (not stock sky chrome)', () => {
@@ -139,7 +187,7 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(sidePanelSource).toContain(welcomeCardClassName);
       expect(sidePanelSource).toContain(primaryButtonClassName);
       expect(componentsCss).toContain('.chijie-welcome-card');
-      expect(componentsCss).toMatch(/border-radius:\s*20px\s+20px\s+4px\s+4px/);
+      expect(componentsCss).toMatch(/\.chijie-welcome-card[\s\S]*?border-radius:\s*var\(--chijie-radius-xl\)/);
       // welcome region must not use stock sky chrome
       const welcomeSlice = sidePanelSource.slice(
         sidePanelSource.indexOf('hasConfiguredModels === false'),
@@ -196,6 +244,28 @@ describe('Feature: Side panel uses 持节 design system', () => {
       const sidePanel = readFileSync(resolve(here, '../../SidePanel.tsx'), 'utf8');
       expect(sidePanel).toContain('classifyAgentEvent');
     });
+
+    it('uses a real activity indicator instead of an invented progress bar', () => {
+      const messageList = readFileSync(resolve(here, '../../components/MessageList.tsx'), 'utf8');
+      expect(taskStatusCardSource).not.toContain('chijie-progress-track');
+      expect(taskStatusCardSource).not.toContain('progressPct');
+      expect(messageList).not.toContain('animate-progress');
+      expect(messageList).toContain('chijie-current-activity');
+    });
+
+    it('keeps the active composer available and renders one stop control', () => {
+      expect(sidePanelSource).toContain("const busy = taskSnapshot.status === 'waiting_approval'");
+      expect(sidePanelSource).toContain('showStopButton={false}');
+      expect(sidePanelSource).toContain('data-task-active={showStopButton');
+      expect(sidePanelSource).toContain('data-testid="empty-composer-spacer"');
+    });
+
+    it('removes upstream promotion surfaces from the product shell', () => {
+      expect(sidePanelSource).not.toContain('RxDiscordLogo');
+      expect(sidePanelSource).not.toContain('discord.gg');
+      expect(sidePanelSource).not.toContain('welcome_quickStart');
+      expect(sidePanelSource).toContain('favoritePrompts.length > 0');
+    });
   });
 });
 
@@ -206,6 +276,8 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).toContain('task-approval-card');
     expect(taskStatusCardSource).toContain('completion-receipt');
     expect(taskStatusCardSource).toContain('completion-receipt-meta');
+    expect(taskStatusCardSource).toContain('completion-receipt-details');
+    expect(taskStatusCardSource).toContain('completion-evidence-list');
     expect(taskStatusCardSource).not.toContain('批准一次'); // uses i18n key
     expect(taskStatusCardSource).toContain('chat_task_approve');
   });
@@ -260,18 +332,39 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toContain('data-testid="task-execution-steps"');
     expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
     expect(taskStatusCardSource).toContain('data-testid="task-outcome-rating"');
-    expect(taskStatusCardSource).toContain('data-testid="task-rate-success"');
-    expect(taskStatusCardSource).toContain('data-testid="task-rate-partial"');
-    expect(taskStatusCardSource).toContain('data-testid="task-rate-fail"');
-    expect(taskStatusCardSource).toContain('TASK_OUTCOME_RATING_LABELS');
-    const loopUi = readFileSync(resolve(here, '../../presentation/task-loop-ui.ts'), 'utf8');
-    expect(loopUi).toContain('成功交付');
-    expect(loopUi).toContain('部分完成');
-    expect(loopUi).toContain('未完成');
+    expect(taskStatusCardSource).toContain('data-testid={`task-rate-${rating}`}');
+    expect(taskStatusCardSource).toContain('t(`chat_task_rate_${rating}`)');
+    expect(taskStatusCardSource).toContain('chijie-rating-control');
+    expect(taskStatusCardSource).toContain('role="radiogroup"');
+    expect(taskStatusCardSource).toContain('type="radio"');
   });
 
   it('completion block is gated on receipt helper (no bare model done)', () => {
     expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
-    expect(taskStatusCardSource).toMatch(/shouldShowVerifiedDone\(round\?\.receipt\)/);
+    expect(taskStatusCardSource).toMatch(/shouldShowVerifiedDone\(snapshot,\s*round\?\.receipt\)/);
+  });
+
+  it('puts consequential approval before execution history in reading order', () => {
+    expect(taskStatusCardSource.indexOf('task-approval-card')).toBeLessThan(
+      taskStatusCardSource.indexOf('task-round-timeline'),
+    );
+  });
+
+  it('locks approval controls while a decision is being acknowledged', () => {
+    expect(taskStatusCardSource).toContain('approvalDecision');
+    expect(taskStatusCardSource).toContain('disabled={approvalDecision !== null}');
+    expect(taskStatusCardSource).toContain('aria-busy={approvalDecision !== null}');
+  });
+
+  it('keeps Skill form input until the save command is acknowledged', () => {
+    expect(taskStatusCardSource).toContain('skillSavePendingId');
+    expect(taskStatusCardSource).toContain('round?.commandAcks[skillSavePendingId]');
+    expect(taskStatusCardSource).not.toMatch(/type: 'save_skill',[\s\S]{0,700}setSkillTemplate\(''\);/);
+  });
+
+  it('keeps the composer compact at rest', () => {
+    const chatInput = readFileSync(resolve(here, '../../components/ChatInput.tsx'), 'utf8');
+    expect(chatInput).toContain('Math.min(textarea.scrollHeight, 72)');
+    expect(chatInput).toContain('rows={2}');
   });
 });
