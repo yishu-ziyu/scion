@@ -11,9 +11,7 @@
  *
  * Safety: does not wipe owner favorites when CONNECT_URL is set unless FORCE_RESET=1.
  */
-import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

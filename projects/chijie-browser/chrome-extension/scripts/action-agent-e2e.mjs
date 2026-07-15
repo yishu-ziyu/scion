@@ -290,62 +290,6 @@ async function seedMiniMax(panel) {
   );
 }
 
-/**
- * Form/skill external commit: must observe the approval control.
- * Never treat prior completed+receipt as a stand-in for the gate.
- */
-async function waitForApproval(panel, target, { maxCountBefore = 0 } = {}) {
-  const start = Date.now();
-  let seenActiveRun = false;
-  while (Date.now() - start < timeout) {
-    const snap = await panel.evaluate(() => ({
-      status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status'),
-      hasApprove: Boolean(document.querySelector('[data-testid="approval-approve"]')),
-      hasReceipt: Boolean(document.querySelector('[data-testid="completion-receipt"]')),
-      body: (document.body?.innerText || '').slice(0, 400),
-    }));
-    const formText = await target.evaluate(() => document.body.innerText).catch(() => '');
-    const count = await readSubmitCount();
-    if (snap.status === 'running' || snap.status === 'waiting_approval') seenActiveRun = true;
-    if (Date.now() - start > 5000 && (Date.now() - start) % 15000 < 2000) {
-      console.log(
-        `[e2e] approval-wait status=${snap.status} count=${count} form=${JSON.stringify(formText.slice(0, 40))}`,
-      );
-    }
-    // Unapproved external commit already landed — hard fail (not a green path).
-    if (count > maxCountBefore && !snap.hasApprove) {
-      await dumpPanel(panel, 'submit-without-approval');
-      throw new Error(
-        `submit count=${count} exceeded maxCountBefore=${maxCountBefore} without observing approval-approve`,
-      );
-    }
-    if (snap.hasApprove) {
-      if (count > maxCountBefore) {
-        throw new Error(`approval visible but count already ${count} (expected <= ${maxCountBefore})`);
-      }
-      return snap;
-    }
-    // Prior leg may still paint completed until the new run mounts — ignore until active.
-    if (snap.status === 'completed' && snap.hasReceipt && seenActiveRun) {
-      await dumpPanel(panel, 'completed-without-approval');
-      throw new Error(`task completed with receipt before approval-approve (count=${count})`);
-    }
-    if (['failed', 'cancelled'].includes(snap.status) && seenActiveRun) {
-      await dumpPanel(panel, `task-${snap.status}-before-approval`);
-      await dumpTaskStorage(panel, `task-${snap.status}-before-approval-storage`);
-      throw new Error(`task ${snap.status} before approval: ${snap.body}`);
-    }
-    if (snap.status === 'waiting_user' && seenActiveRun) {
-      await dumpPanel(panel, 'waiting-user-before-approval');
-      await dumpTaskStorage(panel, 'waiting-user-before-approval-storage');
-      throw new Error(`task waiting_user before approval: ${snap.body}`);
-    }
-    await new Promise(r => setTimeout(r, 1500));
-  }
-  await dumpPanel(panel, 'approval-timeout');
-  throw new Error('timeout waiting for approval-approve');
-}
-
 async function readReceiptId(panel) {
   return panel.evaluate(() => {
     const meta = document.querySelector('[data-testid="completion-receipt-meta"]');
@@ -392,31 +336,6 @@ async function readLatestMediaFacts(panel) {
 
 async function readSubmitCount() {
   return Number(await (await fetch(`${origin}/count`)).text());
-}
-
-function summarizeTask(task) {
-  if (!task || typeof task !== 'object') return task;
-  return {
-    id: task.id,
-    status: task.status,
-    activeTabId: task.activeTabId,
-    criteria: task.rounds?.[0]?.criteria?.map(c => ({
-      kind: c.kind,
-      targetRefId: c.targetRefId,
-      baseline: c.baseline,
-      notBefore: c.notBefore,
-      timeoutMs: c.timeoutMs,
-      expectedDigest: c.expectedDigest,
-    })),
-    attempts: task.rounds?.[0]?.attempts?.map(a => ({
-      actionName: a.actionName,
-      effect: a.effect,
-      state: a.state,
-    })),
-    evidence: task.rounds?.[0]?.evidence?.slice(-4),
-    waitReason: task.rounds?.[0]?.waitReason,
-    receipt: task.rounds?.[0]?.receipt ? true : false,
-  };
 }
 
 async function dumpTaskStorage(panel, label) {

@@ -129,8 +129,14 @@ function parseAction(raw: Record<string, unknown>): { name: string; args: Record
 
   // Shape D: flat { name: "click_element", index: 1 }
   if (typeof raw.name === 'string' && ALLOWED_ACTIONS.has(raw.name)) {
-    const { name, observation: _o, done: _d, completion_criteria: _c, ...rest } = raw;
-    return { name: raw.name, args: rest as Record<string, unknown> };
+    const rest: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (key === 'name' || key === 'observation' || key === 'done' || key === 'completion_criteria') {
+        continue;
+      }
+      rest[key] = value;
+    }
+    return { name: raw.name, args: rest };
   }
 
   return null;

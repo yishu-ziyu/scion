@@ -2,7 +2,8 @@
 
 Upstream: https://github.com/nanobrowser/nanobrowser  
 Local path (dev): `projects/chijie-browser`  
-Extension id (unpacked on this machine): `nnldlldkcjcooleefoflkgcjobimnaol`
+Extension id (current unpacked on this machine): `pdabbpgmfbchdfkjfgpppeakalckihjh`  
+Previous id (still accepted by log capture): `nnldlldkcjcooleefoflkgcjobimnaol`
 
 ## Start here for agents
 
@@ -27,9 +28,9 @@ Lab-level handoff (Codex): [../../HANDOVER.md](../../HANDOVER.md)
   - Agent reads LATEST after you say 「日志好了」
 - Build: `pnpm build` → load unpacked `dist/` via `~/projects/chijie-browser` symlink
 - Secrets: `chrome-extension/src/personal/secrets.local.ts` (gitignored)
-- Extension id (current): `pdabbpgmfbchdfkjfgpppeakalckihjh`
+- Extension id: prefer current `pdabbpgm…`; capture script also tries previous `nnldlldk…`
 
 ## Product intent (short)
 
-BYOK AI browser agent (Planner / Navigator), Chrome first, personal multi-model package later.
-Personal fork priorities: Chinese UI, MiniMax Token Plan code-level config, robust mid-model JSON parsing.
+持节 / Chijie: Chrome 扩展内浏览器行动 Agent - 任务模式、页真动、人话步骤、证据完成；默认执行核 `control`（observe-act），`nano` 可拔。
+Personal fork priorities: Chinese UI, MiniMax Token Plan code-level config, robust mid-model JSON parsing, calm task console.

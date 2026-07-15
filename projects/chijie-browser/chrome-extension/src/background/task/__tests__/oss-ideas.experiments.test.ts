@@ -3,7 +3,7 @@
  * Each experiment has a binary success criterion and runs independently.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import * as Favorites from '@extension/storage/lib/prompt/favorites';
+import type * as Favorites from '@extension/storage/lib/prompt/favorites';
 import { TaskManager, type ExecutorDriver } from '../manager';
 import type { ExecutorHooks, ObserveCriteria } from '../contracts';
 import { Action } from '../../agent/actions/builder';

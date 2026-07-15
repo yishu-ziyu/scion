@@ -1595,7 +1595,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
  type="button"
  className={`flex w-full items-center px-4 py-3 text-left text-sm ${
  isDarkMode
- ? 'text-[var(--chijie-muted)] hover:bg-[var(--chijie-accent)]/30 hover:text-[var(--chijie-foreground)]'
+ ? 'hover:bg-[var(--chijie-accent)]/30 text-[var(--chijie-muted)] hover:text-[var(--chijie-foreground)]'
  : 'text-[var(--chijie-paper)] hover:bg-[var(--chijie-accent-subtle)] hover:text-[var(--chijie-paper)]'
  } transition-colors duration-150`}
  onClick={() => handleProviderSelection(type)}>
@@ -1608,7 +1608,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
  type="button"
  className={`flex w-full items-center px-4 py-3 text-left text-sm ${
  isDarkMode
- ? 'text-[var(--chijie-muted)] hover:bg-[var(--chijie-accent)]/30 hover:text-[var(--chijie-foreground)]'
+ ? 'hover:bg-[var(--chijie-accent)]/30 text-[var(--chijie-muted)] hover:text-[var(--chijie-foreground)]'
  : 'text-[var(--chijie-paper)] hover:bg-[var(--chijie-accent-subtle)] hover:text-[var(--chijie-paper)]'
  } transition-colors duration-150`}
  onClick={() => handleProviderSelection(ProviderTypeEnum.CustomOpenAI)}>

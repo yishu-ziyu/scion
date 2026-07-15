@@ -17,34 +17,34 @@ Symlinks:
 
 - `~/projects/scion` → this directory (preferred)
 - `~/projects/oss-forks` → same path (compat alias)
-- `~/projects/nanobrowser` → `projects/nanobrowser` (same folder; Chrome Load unpacked path)
+- `~/projects/chijie-browser` → `projects/chijie-browser` (same folder; Chrome Load unpacked path)
 
-**One tree:** extension code lives only under `projects/nanobrowser/`. No second copy to sync.
+**One tree:** extension code lives only under `projects/chijie-browser/`. No second copy to sync.
 
 ## Layout
 
 ```
 projects/          # forked / customized codebases
-  nanobrowser/     # AI browser agent extension (MiniMax / zh-CN / harness) — sole build tree
+  chijie-browser/  # 持节 / Chijie browser action agent (Nanobrowser graft) - sole build tree
 reports/           # E2E notes, design decisions, run evidence indexes
-  nanobrowser/
+  nanobrowser/     # historical report folder name kept for continuity
 ```
 
 ## Projects
 
 | Project | Upstream | Status | Notes |
 |---------|----------|--------|-------|
-| [nanobrowser](./projects/nanobrowser) | [nanobrowser/nanobrowser](https://github.com/nanobrowser/nanobrowser) | active | MiniMax-M3 Token Plan, zh_CN, CDP E2E, think-tag JSON fix |
+| [chijie-browser](./projects/chijie-browser) | [nanobrowser/nanobrowser](https://github.com/nanobrowser/nanobrowser) | active | MiniMax-M3, zh_CN, control observe-act default core, task console |
 
 ## Handover for agents (Codex etc.)
 
 Rules (lean, layered):
 
 - Lab: **[AGENTS.md](./AGENTS.md)**
-- Extension monorepo: **[projects/nanobrowser/AGENTS.md](./projects/nanobrowser/AGENTS.md)**
+- Extension monorepo: **[projects/chijie-browser/AGENTS.md](./projects/chijie-browser/AGENTS.md)**
 - Ops narrative: **[HANDOVER.md](./HANDOVER.md)** (single tree, MiniMax, CDP, E2E)
 
-`CLAUDE.md` under nanobrowser is a thin pointer to `AGENTS.md` only.
+`CLAUDE.md` under chijie-browser is a thin pointer to `AGENTS.md` only.
 
 ## How we work
 
@@ -53,17 +53,17 @@ Rules (lean, layered):
 3. Never commit API keys. Use `secrets.local.example.ts` / env files outside git.
 4. Prefer small, reversible commits; push to this remote as `origin`.
 
-## Nanobrowser quick start (local)
+## Chijie browser quick start (local)
 
 ```bash
-cd projects/nanobrowser   # or: cd ~/projects/nanobrowser  (symlink)
+cd projects/chijie-browser   # or: cd ~/projects/chijie-browser  (symlink)
 pnpm install
 # copy personal secrets (gitignored) if missing
 # cp chrome-extension/src/personal/secrets.local.example.ts \
 #    chrome-extension/src/personal/secrets.local.ts
 pnpm build
-# Chrome → Load unpacked → ~/projects/nanobrowser/dist
-# (same as scion/projects/nanobrowser/dist)
+# Chrome → Load unpacked → ~/projects/chijie-browser/dist
+# (same as scion/projects/chijie-browser/dist)
 ```
 
 See [reports/nanobrowser/](./reports/nanobrowser/) for E2E and ops notes.
