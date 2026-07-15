@@ -2,24 +2,6 @@ import { StorageEnum } from '../base/enums';
 import { createStorage } from '../base/base';
 import type { BaseStorage } from '../base/types';
 
-// Template data
-const defaultFavoritePrompts = [
-  {
-    title: '📚 Explore AI Papers',
-    content:
-      '- Go to https://huggingface.co/papers and click through each of the first 3 papers.\n- For each paper:\n  - Record the title, URL and upvotes\n  - Summarise the abstract section\n- Finally, compile together a summary of all 3 papers, ranked by upvotes',
-  },
-  {
-    title: '🐦 Follow us on X/Twitter!',
-    content: 'Follow us at https://x.com/nanobrowser_ai to stay updated on the latest news and features!',
-  },
-  {
-    title: '🌟 Star us on GitHub!',
-    content:
-      "Open the Nanobrowser repository at https://github.com/nanobrowser/nanobrowser and check if you've already starred it. If not, please support us by giving us a star!",
-  },
-];
-
 export interface FavoritePrompt {
   kind?: 'prompt';
   id: number;
@@ -59,6 +41,34 @@ export interface FavoriteSkill {
 
 export type FavoriteItem = FavoritePrompt | FavoriteSkill;
 export type NewSkillDefinition = Omit<FavoriteSkill, 'id'>;
+
+const LEGACY_DEFAULT_PROMPTS = [
+  {
+    id: 1,
+    title: '📚 Explore AI Papers',
+    content:
+      '- Go to https://huggingface.co/papers and click through each of the first 3 papers.\n- For each paper:\n  - Record the title, URL and upvotes\n  - Summarise the abstract section\n- Finally, compile together a summary of all 3 papers, ranked by upvotes',
+  },
+  {
+    id: 2,
+    title: '🐦 Follow us on X/Twitter!',
+    content: 'Follow us at https://x.com/nanobrowser_ai to stay updated on the latest news and features!',
+  },
+  {
+    id: 3,
+    title: '🌟 Star us on GitHub!',
+    content:
+      "Open the Nanobrowser repository at https://github.com/nanobrowser/nanobrowser and check if you've already starred it. If not, please support us by giving us a star!",
+  },
+] as const;
+
+/** Match only untouched defaults from older installs; never infer provenance from user text. */
+export function isLegacyDefaultFavoritePrompt(item: FavoriteItem): boolean {
+  if (item.kind === 'skill') return false;
+  return LEGACY_DEFAULT_PROMPTS.some(
+    prompt => prompt.id === item.id && prompt.title === item.title && prompt.content === item.content,
+  );
+}
 
 export interface FavoritesStorage {
   nextId: number;
@@ -258,19 +268,15 @@ export function createFavoritesStorage(): FavoritePromptsStorage {
       const currentState = await favoritesStorage.get();
       let prompts = currentState.prompts;
 
-      // Check if storage is in initial state (empty prompts array and nextId=1)
-      if (currentState.prompts.length === 0 && currentState.nextId === 1) {
-        // Initialize with default prompts
-        for (const prompt of defaultFavoritePrompts) {
-          await favoritesStorage.set(prev => {
-            const id = prev.nextId;
-            const newPrompt: FavoritePrompt = { id, title: prompt.title, content: prompt.content };
-            return { nextId: id + 1, prompts: [newPrompt, ...prev.prompts] };
-          });
-        }
-        const newState = await favoritesStorage.get();
-        prompts = newState.prompts;
+      // Purge untouched upstream defaults from installs that already seeded chrome.storage.
+      if (prompts.some(isLegacyDefaultFavoritePrompt)) {
+        await favoritesStorage.set(prev => ({
+          ...prev,
+          prompts: prev.prompts.filter(item => !isLegacyDefaultFavoritePrompt(item)),
+        }));
+        prompts = (await favoritesStorage.get()).prompts;
       }
+
       return [...prompts];
     },
 
