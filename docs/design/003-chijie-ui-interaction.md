@@ -15,6 +15,8 @@ last_modified: "2026-07-15"
 
 **draft（交互稿定稿；UI-1–5 信息架构已落地，像素级与附图可继续微调）。**
 
+> 2026-07-15：侧栏的浅色视觉系统、任务优先结构、运行中 / 等待批准 / 已验证三态细节与动效，转由 [004-chijie-calm-task-console.md](004-chijie-calm-task-console.md) 负责。本文继续作为信息架构与原始源图索引。
+
 - 源图：Owner 确认的两张 ChatGPT 产品交互稿（2026-07-15）。
 - 品牌：持节 / Chijie。
 - **2026-07-15：** 侧栏 TaskStatusCard 分块 + Options `OverviewSettings`（流水线/模型/审批/Skill 语义/回执/站点占位/隐私）+ 执行核 control|nano 切换。
