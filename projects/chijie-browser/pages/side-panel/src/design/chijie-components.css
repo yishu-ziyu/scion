@@ -1,6 +1,6 @@
 /**
- * 持节 component primitives for the side panel.
- * No box-shadow. Hierarchy via paper vs black and accent fill.
+ * 持节 calm task console primitives.
+ * Hierarchy comes from spacing, borders, and state color. No drop shadows.
  */
 
 .chijie-shell {
@@ -11,47 +11,48 @@
 }
 
 .chijie-mono-label {
-  font-family: var(--chijie-font-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--chijie-muted);
+  font-family: var(--chijie-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .chijie-hand-title {
+  color: var(--chijie-foreground);
   font-family: var(--chijie-font-hand);
   font-size: 28px;
   line-height: 1.1;
-  color: var(--chijie-paper);
 }
 
-/* 撕纸纸卡：顶大圆底小方 + 蜡笔红边 */
 .chijie-paper-card {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin: 8px 12px 0;
+  max-height: min(64vh, 640px);
+  margin: 12px 12px 0;
   padding: 16px;
-  border-radius: 20px 20px 4px 4px;
-  border: 1px solid var(--chijie-accent);
+  overflow: auto;
+  border: 1px solid var(--chijie-border);
+  border-radius: var(--chijie-radius-xl);
   background: var(--chijie-paper);
   color: var(--chijie-paper-ink);
+  animation: chijie-surface-enter 180ms ease-out;
 }
 
 .chijie-paper-card[data-attention='true'] {
-  border-color: var(--chijie-accent-signal);
-  background: #f6e8d4;
+  border-color: #e8c98f;
 }
 
 .chijie-paper-card[data-status='completed'] {
-  border-color: var(--chijie-paper-muted);
+  border-color: #a9c7bb;
 }
 
 .chijie-surface-card {
-  background: var(--chijie-surface);
-  color: var(--chijie-foreground);
   border: 1px solid var(--chijie-border);
   border-radius: var(--chijie-radius-xl);
+  background: var(--chijie-surface);
+  color: var(--chijie-foreground);
 }
 
 .chijie-action-stack {
@@ -65,67 +66,71 @@
 .chijie-btn-secondary,
 .chijie-btn-danger {
   width: 100%;
+  min-height: 44px;
+  padding: 9px 14px;
   border: 1px solid transparent;
-  border-radius: 60px;
-  padding: 10px 16px;
+  border-radius: var(--chijie-radius-pill);
   font-family: var(--chijie-font-body);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1.2;
   cursor: pointer;
   transition:
-    background-color 160ms ease,
-    color 160ms ease,
-    border-color 160ms ease;
+    background-color 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
 }
 
 .chijie-btn-primary {
-  background: var(--chijie-accent);
-  color: #fff8f0;
   border-color: var(--chijie-accent);
+  background: var(--chijie-accent);
+  color: #ffffff;
 }
 
 .chijie-btn-primary:hover:not(:disabled) {
-  background: var(--chijie-accent-signal);
   border-color: var(--chijie-accent-signal);
-}
-
-.chijie-btn-primary:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+  background: var(--chijie-accent-signal);
 }
 
 .chijie-btn-secondary {
-  background: transparent;
-  color: var(--chijie-paper-ink);
-  border-color: var(--chijie-paper-ink);
+  border-color: var(--chijie-border-strong);
+  background: var(--chijie-surface);
+  color: var(--chijie-foreground);
 }
 
 .chijie-btn-secondary:hover:not(:disabled) {
-  background: var(--chijie-paper-ink);
-  color: var(--chijie-paper);
+  border-color: var(--chijie-accent);
+  background: var(--chijie-accent-subtle);
+  color: var(--chijie-accent-signal);
 }
 
 .chijie-btn-danger {
-  background: transparent;
-  color: var(--chijie-accent-signal);
-  border-color: var(--chijie-accent-signal);
+  border-color: #e5b9b6;
+  background: var(--chijie-danger-subtle);
+  color: var(--chijie-danger);
 }
 
 .chijie-btn-danger:hover:not(:disabled) {
-  background: var(--chijie-accent-subtle);
+  border-color: var(--chijie-danger);
 }
 
-.chijie-done-block {
-  border-radius: var(--chijie-radius-md);
-  border: 1px solid var(--chijie-paper-ink);
-  background: rgba(26, 26, 26, 0.06);
-  padding: 10px 12px;
+.chijie-btn-primary:disabled,
+.chijie-btn-secondary:disabled,
+.chijie-btn-danger:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
-/* design/003 — task / rounds / approval
- * Reading order (BDD): status → goal → steps → actions
- */
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+.chijie-field:focus-visible,
+.chijie-composer textarea:focus-visible {
+  outline: 2px solid var(--chijie-accent);
+  outline-offset: 2px;
+}
+
 .chijie-task-head {
   display: flex;
   align-items: center;
@@ -136,32 +141,33 @@
 .chijie-task-status-pill {
   display: inline-flex;
   align-items: center;
-  max-width: 60%;
-  padding: 4px 10px;
-  border-radius: 99px;
-  background: rgba(26, 26, 26, 0.08);
-  color: var(--chijie-paper-ink);
-  font-size: 12px;
-  font-weight: 600;
+  max-width: 62%;
+  padding: 5px 10px;
+  border-radius: var(--chijie-radius-pill);
+  background: var(--chijie-surface-raised);
+  color: var(--chijie-foreground);
+  font-size: 11px;
+  font-weight: 650;
   line-height: 1.2;
-  letter-spacing: 0.01em;
 }
 
-.chijie-task-status-pill[data-status='running'] {
-  background: rgba(227, 83, 66, 0.14);
+.chijie-task-status-pill[data-status='running'],
+.chijie-task-status-pill[data-status='completed'] {
+  background: var(--chijie-accent-subtle);
   color: var(--chijie-accent-signal);
 }
 
-.chijie-task-status-pill[data-status='completed'] {
-  background: rgba(26, 26, 26, 0.08);
-  color: var(--chijie-paper-ink);
+.chijie-task-status-pill[data-status='waiting_approval'],
+.chijie-task-status-pill[data-status='waiting_user'],
+.chijie-task-status-pill[data-status='inputs_required'] {
+  background: var(--chijie-warning-subtle);
+  color: var(--chijie-warning);
 }
 
 .chijie-task-status-pill[data-status='failed'],
-.chijie-task-status-pill[data-status='waiting_approval'],
-.chijie-task-status-pill[data-status='waiting_user'] {
-  background: rgba(215, 25, 33, 0.12);
-  color: var(--chijie-accent-signal);
+.chijie-task-status-pill[data-status='cancelled'] {
+  background: var(--chijie-danger-subtle);
+  color: var(--chijie-danger);
 }
 
 .chijie-task-site-chip {
@@ -169,115 +175,90 @@
   min-width: 0;
   max-width: 48%;
   overflow: hidden;
+  color: var(--chijie-muted);
+  font-family: var(--chijie-font-mono);
+  font-size: 10px;
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--chijie-font-mono);
-  font-size: 11px;
-  color: var(--chijie-muted);
-  text-align: right;
 }
 
 .chijie-task-goal {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   margin: 0;
-  padding: 0;
 }
 
 .chijie-task-goal-kicker {
   margin: 0;
+  color: var(--chijie-muted);
   font-family: var(--chijie-font-mono);
   font-size: 10px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--chijie-muted);
 }
 
 .chijie-task-goal-text {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.35;
   color: var(--chijie-paper-ink);
-  word-break: break-word;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
 }
 
-.chijie-task-progress-row {
+.chijie-policy-hint {
+  margin: 2px 0 0;
+  color: var(--chijie-warning);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.chijie-current-activity {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 2px;
+  gap: 10px;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid #c9ded5;
+  border-radius: var(--chijie-radius-lg);
+  background: var(--chijie-accent-subtle);
+  color: var(--chijie-accent-signal);
+}
+
+.chijie-activity-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--chijie-accent);
+  animation: chijie-activity-pulse 900ms ease-in-out infinite alternate;
+}
+
+.chijie-current-activity-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.chijie-current-activity-copy strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chijie-task-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(26, 26, 26, 0.1);
-}
-
-.chijie-task-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-}
-
-.chijie-task-meta > div {
-  display: grid;
-  grid-template-columns: 4.5rem 1fr;
-  gap: 8px;
-  align-items: start;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.chijie-task-meta dt {
-  margin: 0;
-  color: var(--chijie-muted);
-  font-family: var(--chijie-font-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.chijie-task-meta dd {
-  margin: 0;
-  color: var(--chijie-paper-ink);
-  word-break: break-word;
-}
-
-.chijie-progress-track {
-  display: block;
-  flex: 1;
-  height: 6px;
-  border-radius: 99px;
-  background: rgba(26, 26, 26, 0.12);
-  overflow: hidden;
-}
-
-.chijie-progress-fill {
-  display: block;
-  height: 100%;
-  border-radius: 99px;
-  background: var(--chijie-accent);
-}
-
-.chijie-progress-text {
-  flex-shrink: 0;
-  font-family: var(--chijie-font-mono);
-  font-size: 11px;
-  color: var(--chijie-paper-ink);
-}
-
-.chijie-policy-hint {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--chijie-paper-ink);
-  opacity: 0.85;
+  padding-top: 11px;
+  border-top: 1px solid var(--chijie-border);
 }
 
 .chijie-task-steps-toggle {
@@ -290,10 +271,10 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--chijie-paper-ink);
+  color: var(--chijie-foreground);
   font-family: var(--chijie-font-body);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
   text-align: left;
   cursor: pointer;
 }
@@ -301,12 +282,12 @@
 .chijie-task-steps-count {
   margin-left: 6px;
   padding: 1px 7px;
-  border-radius: 99px;
-  background: rgba(26, 26, 26, 0.08);
+  border-radius: var(--chijie-radius-pill);
+  background: var(--chijie-surface-raised);
+  color: var(--chijie-muted);
   font-family: var(--chijie-font-mono);
   font-size: 10px;
   font-weight: 500;
-  color: var(--chijie-muted);
 }
 
 .chijie-task-steps-caret {
@@ -315,196 +296,347 @@
 }
 
 .chijie-round-timeline {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .chijie-round-timeline li {
   display: grid;
-  grid-template-columns: 1.5rem 1fr;
-  gap: 10px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 9px;
   align-items: start;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(26, 26, 26, 0.04);
-  font-size: 13px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--chijie-radius-lg);
+  background: var(--chijie-surface-raised);
+  font-size: 12px;
   line-height: 1.35;
 }
 
 .chijie-round-timeline li.is-pending,
 .chijie-round-timeline li.is-active {
-  background: rgba(227, 83, 66, 0.1);
+  border-color: #c9ded5;
+  background: var(--chijie-accent-subtle);
 }
 
 .chijie-round-timeline li.is-pending .chijie-round-title,
 .chijie-round-timeline li.is-active .chijie-round-title {
   color: var(--chijie-accent-signal);
-  font-weight: 600;
+  font-weight: 650;
 }
 
 .chijie-round-index {
   display: inline-flex;
+  width: 24px;
+  height: 24px;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 99px;
-  background: rgba(26, 26, 26, 0.1);
+  border-radius: 50%;
+  background: var(--chijie-surface);
+  color: var(--chijie-foreground);
   font-family: var(--chijie-font-mono);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--chijie-paper-ink);
-  line-height: 1;
 }
 
 .chijie-round-body {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 2px;
-  min-width: 0;
 }
 
 .chijie-round-title {
-  color: var(--chijie-paper-ink);
-  font-weight: 500;
+  color: var(--chijie-foreground);
+  font-weight: 550;
 }
 
 .chijie-round-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
+  gap: 4px 9px;
 }
 
 .chijie-round-state {
-  font-size: 11px;
   color: var(--chijie-muted);
+  font-size: 10px;
 }
 
 .chijie-round-time {
-  font-family: var(--chijie-font-mono);
-  font-size: 10px;
   color: var(--chijie-muted);
-  opacity: 0.85;
+  font-family: var(--chijie-font-mono);
+  font-size: 9px;
 }
 
 .chijie-approval-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px;
-  border-radius: var(--chijie-radius-md);
-  border: 1px solid #e8c48a;
-  background: #fff6e8;
+  padding: 14px;
+  border: 1px solid #e8c98f;
+  border-radius: var(--chijie-radius-lg);
+  background: var(--chijie-warning-subtle);
   color: var(--chijie-paper-ink);
+}
+
+.chijie-approval-card .chijie-mono-label {
+  color: var(--chijie-warning);
 }
 
 .chijie-approval-title {
   margin: 0;
-  font-size: 14px;
+  color: #65430e;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.chijie-approval-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.chijie-approval-details > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.chijie-approval-details dt {
+  color: var(--chijie-warning);
   font-weight: 600;
 }
 
-.chijie-approval-body {
+.chijie-approval-details dd {
+  min-width: 0;
   margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  opacity: 0.9;
+  color: var(--chijie-foreground);
+  overflow-wrap: anywhere;
+}
+
+.chijie-approval-summary,
+.chijie-approval-once {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid #ead8b3;
+  color: #65430e;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.chijie-approval-once {
+  padding-top: 0;
+  border-top: 0;
+  color: var(--chijie-muted);
 }
 
 .chijie-approval-actions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
+}
+
+.chijie-done-block {
+  padding: 12px;
+  border: 1px solid #a9c7bb;
+  border-radius: var(--chijie-radius-lg);
+  background: #edf6f1;
+  color: var(--chijie-accent-signal);
+}
+
+.chijie-evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 10px 0 0;
+  padding: 9px 0 0;
+  border-top: 1px solid #c9ded5;
+  list-style: none;
+  color: var(--chijie-foreground);
+  font-size: 11px;
+}
+
+.chijie-evidence-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.chijie-evidence-mark {
+  color: var(--chijie-accent);
+  font-weight: 700;
+}
+
+.chijie-receipt-details {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #c9ded5;
+  color: var(--chijie-muted);
+  font-size: 10px;
+}
+
+.chijie-receipt-details summary {
+  width: fit-content;
+  cursor: pointer;
+  user-select: none;
 }
 
 .chijie-receipt-meta {
-  margin: 8px 0 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 11px;
+  margin: 8px 0 0;
+  font-size: 10px;
 }
 
 .chijie-receipt-meta > div {
   display: grid;
-  grid-template-columns: 4rem 1fr;
+  grid-template-columns: 62px minmax(0, 1fr);
   gap: 6px;
 }
 
-.chijie-receipt-meta dt {
+.chijie-receipt-meta dt,
+.chijie-receipt-meta dd {
   margin: 0;
-  opacity: 0.65;
 }
 
 .chijie-receipt-meta dd {
+  color: var(--chijie-foreground);
+  overflow-wrap: anywhere;
+}
+
+.chijie-rating-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--chijie-border-strong);
+  border-radius: var(--chijie-radius-pill);
+  background: var(--chijie-surface);
+}
+
+.chijie-rating-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 8px;
+  border: 0;
+  border-left: 1px solid var(--chijie-border);
+  background: transparent;
+  color: var(--chijie-muted);
+  font-family: var(--chijie-font-body);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chijie-rating-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.chijie-rating-option:first-child {
+  border-left: 0;
+}
+
+.chijie-rating-option:hover,
+.chijie-rating-option[data-active='true'] {
+  background: var(--chijie-accent-subtle);
+  color: var(--chijie-accent-signal);
+}
+
+.chijie-rating-option:focus-within {
+  outline: 2px solid var(--chijie-accent);
+  outline-offset: -2px;
+}
+
+.chijie-skill-save-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.chijie-skill-save-row .chijie-btn-secondary {
+  width: auto;
+  min-width: 104px;
+}
+
+.chijie-skill-save-row p {
   margin: 0;
-  word-break: break-all;
+  color: var(--chijie-muted);
+  line-height: 1.4;
+}
+
+.chijie-next-step {
+  padding: 10px 12px;
+  border: 1px dashed var(--chijie-border-strong);
+  border-radius: var(--chijie-radius-lg);
+  background: var(--chijie-surface-raised);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.chijie-task-controls {
+  flex-direction: row;
+}
+
+.chijie-task-controls > * {
+  flex: 1;
+}
+
+.chijie-field {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--chijie-border-strong);
+  border-radius: var(--chijie-radius-md);
+  background: var(--chijie-surface);
+  color: var(--chijie-foreground);
+  font-family: var(--chijie-font-body);
+  font-size: 13px;
 }
 
 .chijie-header-brand {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
   min-width: 0;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .chijie-header-logo {
   display: block;
-  height: 28px;
   width: auto;
-  max-width: 160px;
+  max-width: 156px;
+  height: 25px;
   object-fit: contain;
   object-position: left center;
 }
 
 .chijie-header-brand-title {
+  color: var(--chijie-foreground);
   font-family: var(--chijie-font-hand);
   font-size: 24px;
   line-height: 1.1;
-  color: var(--chijie-paper);
 }
 
 .chijie-header-brand-sub {
-  font-family: var(--chijie-font-mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--chijie-muted);
-}
-
-.chijie-next-step {
-  border-radius: var(--chijie-radius-md);
-  border: 1px dashed var(--chijie-paper-ink);
-  padding: 10px 12px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.chijie-field {
-  width: 100%;
-  border: 1px solid var(--chijie-border-strong);
-  border-radius: var(--chijie-radius-md);
-  background: var(--chijie-surface-raised);
-  color: var(--chijie-foreground);
-  font-family: var(--chijie-font-body);
-  font-size: 14px;
-  padding: 10px 12px;
-}
-
-.chijie-field:focus {
-  outline: 2px solid var(--chijie-accent);
-  outline-offset: 1px;
-}
-
-.chijie-paper-card .chijie-field {
-  background: #fffaf3;
-  color: var(--chijie-paper-ink);
-  border-color: var(--chijie-paper-muted);
+  font-family: var(--chijie-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .chijie-bookmarks {
@@ -514,18 +646,18 @@
 }
 
 .chijie-bookmarks h3 {
-  font-family: var(--chijie-font-hand);
-  font-size: 22px;
-  font-weight: 400;
-  color: var(--chijie-paper);
-  margin: 0 0 12px;
+  margin: 0 0 10px;
+  color: var(--chijie-foreground);
+  font-family: var(--chijie-font-body);
+  font-size: 13px;
+  font-weight: 650;
 }
 
 .chijie-bookmark-item {
+  padding: 10px;
   border: 1px solid var(--chijie-border);
-  border-radius: var(--chijie-radius-xl);
+  border-radius: var(--chijie-radius-lg);
   background: var(--chijie-surface-raised);
-  padding: 12px;
 }
 
 .chijie-chat-log {
@@ -534,108 +666,37 @@
 }
 
 .chijie-composer {
+  padding: 10px 12px 12px;
   border-top: 1px solid var(--chijie-border);
   background: var(--chijie-surface);
-  padding: 12px;
+}
+
+.chijie-composer form {
+  border-radius: var(--chijie-radius-lg);
+  background: var(--chijie-surface);
 }
 
 .chijie-composer textarea {
   width: 100%;
-  min-height: 96px;
-  resize: none;
-  border: 1px solid var(--chijie-border-strong);
-  border-radius: var(--chijie-radius-md);
-  background: var(--chijie-surface-raised);
-  color: var(--chijie-foreground);
-  font-family: var(--chijie-font-body);
-  font-size: 14px;
+  min-height: 56px;
   padding: 10px 12px;
-}
-
-.chijie-composer textarea:focus {
-  outline: 2px solid var(--chijie-accent);
-  outline-offset: 1px;
-}
-
-.chijie-composer .chijie-btn-primary {
-  width: auto;
-  min-width: 88px;
-}
-
-/* Options settings surfaces */
-.chijie-options-layout {
-  display: flex;
-  min-height: 100vh;
-  min-width: 768px;
-  background: var(--chijie-background);
+  border: 0;
+  background: transparent;
   color: var(--chijie-foreground);
   font-family: var(--chijie-font-body);
+  font-size: 13px;
+  line-height: 1.45;
+  resize: none;
 }
 
-.chijie-options-nav {
-  width: 12rem;
-  border-right: 1px solid var(--chijie-border);
-  background: var(--chijie-surface);
-  padding: 16px;
+.chijie-composer textarea::placeholder {
+  color: #87918d;
 }
 
-.chijie-options-nav h1 {
-  font-family: var(--chijie-font-hand);
-  font-size: 26px;
-  font-weight: 400;
-  color: var(--chijie-paper);
-  margin: 0 0 24px;
-}
-
-.chijie-options-nav-item {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px;
-  border-radius: 60px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--chijie-muted);
-  padding: 10px 14px;
-  text-align: left;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
-}
-
-.chijie-options-nav-item:hover {
-  color: var(--chijie-paper);
-  border-color: var(--chijie-border-strong);
-}
-
-.chijie-options-nav-item[data-active='true'] {
-  background: var(--chijie-accent);
-  color: #fff8f0;
-  border-color: var(--chijie-accent);
-}
-
-.chijie-options-main {
-  flex: 1;
-  background: var(--chijie-background);
-  padding: 32px;
-}
-
-.chijie-settings-card {
-  border-radius: 20px 20px 4px 4px;
-  border: 1px solid var(--chijie-border);
-  background: var(--chijie-surface);
-  color: var(--chijie-foreground);
-  padding: 24px;
-  text-align: left;
-}
-
-.chijie-settings-card h2,
-.chijie-settings-card h3 {
-  color: var(--chijie-paper);
-}
-
-.chijie-settings-muted {
-  color: var(--chijie-muted);
+.chijie-composer .chijie-btn-primary,
+.chijie-composer .chijie-btn-danger {
+  width: auto;
+  min-width: 82px;
 }
 
 .chijie-welcome {
@@ -643,29 +704,127 @@
   flex: 1;
   align-items: center;
   justify-content: center;
-  padding: 32px;
-  color: var(--chijie-foreground);
+  padding: 28px;
   background: var(--chijie-background);
+  color: var(--chijie-foreground);
 }
 
 .chijie-welcome-card {
   max-width: 28rem;
-  text-align: center;
-  border-radius: 20px 20px 4px 4px;
-  border: 1px solid var(--chijie-accent);
+  padding: 26px 22px;
+  border: 1px solid var(--chijie-border);
+  border-radius: var(--chijie-radius-xl);
   background: var(--chijie-paper);
   color: var(--chijie-paper-ink);
-  padding: 28px 24px;
+  text-align: center;
 }
 
 .chijie-welcome-card h3 {
-  font-family: var(--chijie-font-hand);
-  font-size: 28px;
-  font-weight: 400;
   margin: 0 0 8px;
+  color: var(--chijie-foreground);
+  font-family: var(--chijie-font-body);
+  font-size: 20px;
+  font-weight: 650;
 }
 
-.chijie-welcome-card a {
-  color: var(--chijie-accent-signal);
-  text-decoration: underline;
+/* Existing settings contracts remain available to shared acceptance checks. */
+.chijie-options-layout {
+  display: flex;
+  min-width: 768px;
+  min-height: 100vh;
+  background: var(--chijie-background);
+  color: var(--chijie-foreground);
+  font-family: var(--chijie-font-body);
+}
+
+.chijie-options-nav {
+  width: 12rem;
+  padding: 16px;
+  border-right: 1px solid var(--chijie-border);
+  background: var(--chijie-surface);
+}
+
+.chijie-options-nav h1 {
+  margin: 0 0 24px;
+  color: var(--chijie-foreground);
+  font-family: var(--chijie-font-hand);
+  font-size: 26px;
+  font-weight: 400;
+}
+
+.chijie-options-nav-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--chijie-radius-pill);
+  background: transparent;
+  color: var(--chijie-muted);
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+}
+
+.chijie-options-nav-item[data-active='true'] {
+  border-color: var(--chijie-accent);
+  background: var(--chijie-accent);
+  color: #ffffff;
+}
+
+.chijie-options-main {
+  flex: 1;
+  padding: 32px;
+  background: var(--chijie-background);
+}
+
+.chijie-settings-card {
+  padding: 24px;
+  border: 1px solid var(--chijie-border);
+  border-radius: var(--chijie-radius-xl);
+  background: var(--chijie-surface);
+  color: var(--chijie-foreground);
+  text-align: left;
+}
+
+.chijie-settings-muted {
+  color: var(--chijie-muted);
+}
+
+@keyframes chijie-surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chijie-activity-pulse {
+  from {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .scroll-smooth {
+    scroll-behavior: auto !important;
+  }
 }

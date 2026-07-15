@@ -11,7 +11,7 @@ code {
   background: var(--chijie-surface-raised);
   border-radius: var(--chijie-radius-sm);
   padding: 0.2rem 0.5rem;
-  color: var(--chijie-paper);
+  color: var(--chijie-foreground);
   font-family: var(--chijie-font-mono);
   font-size: 12px;
 }
