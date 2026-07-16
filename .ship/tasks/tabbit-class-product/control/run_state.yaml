@@ -1,23 +1,25 @@
 task_id: tabbit-class-product
 active: true
 current_phase: implement
-status: tickets_01_through_05_landed
+status: ticket_08_verified_local_ticket_06_live_run_in_progress
 workflow: matt-main-flow
 updated_at: "2026-07-15T05:20:00Z"
 ticket_01_commit: 0228f22
 ticket_02_branch: feature/ticket-02-observe-act-loop
-frontier_next: "06 Slice B / 07 Slice C (need Owner login for real Feishu/Bilibili)"
+frontier_next: "06 Slice B Feishu real-site proof (target ready; live approval journey running)"
 notes: >
   Build green. Logo verified on CDP side panel (header-logo + logo-header.png).
-  Slice A live MiniMax E2E may still need Owner side-panel open after reload if goal-input missing.
+  Ticket 08 passed independent P4 verification but remains uncommitted and lacks real-site dynamic DOM evidence.
+  Next product slice is Ticket 06; production capability mostly exists, so run real Feishu before adding code.
+  Owner enabled remote debugging. P0 opened Feishu and verified the daily Chrome login as 奕枢.
+  P0 created a blank Feishu test document; P3 confirmed it is editable, untouched, and the Chijie side panel opens.
 spec_path: .ship/tasks/tabbit-class-product/spec/SPEC.md
 product_index: docs/product/008-tabbit-class-agent-task-loop-spec.md
 parent_issue: https://github.com/yishu-ziyu/scion/issues/1
 tickets_dir: .ship/tasks/tabbit-class-product/issues
 frontier:
   - "06"
-  - "07"
-next: implement ticket 06 Slice B and/or 07 Slice C (Owner login for real Feishu/Bilibili)
+next: P3 drives Chijie to the pre-write approval gate; Owner approves once; P4 independently verifies the saved result
 seams: S1-S5 accepted
 decisions_locked:
   - mvp_loop: agent_task_loop_tabbit_style
