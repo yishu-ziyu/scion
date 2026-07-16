@@ -15,6 +15,7 @@ import { Executor } from '../executor';
 import { ExecutionState } from '../event/types';
 import type { AgentEvent } from '../event/types';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome } from '../../task/contracts';
+import { markSetupError } from '../../task/executor-start-error';
 
 const logger = createLogger('NanoBackend');
 
@@ -27,16 +28,18 @@ export async function createNanoExecutorDriver(
   await ensurePersonalDefaults();
 
   const providers = await llmProviderStore.getAllProviders();
-  if (Object.keys(providers).length === 0) throw new Error(t('bg_setup_noApiKeys'));
+  if (Object.keys(providers).length === 0) throw markSetupError(t('bg_setup_noApiKeys'));
 
   await agentModelStore.cleanupLegacyValidatorSettings();
   const agentModels = await agentModelStore.getAllAgentModels();
   for (const agentModel of Object.values(agentModels)) {
-    if (!providers[agentModel.provider]) throw new Error(t('bg_setup_noProvider', [agentModel.provider]));
+    if (!providers[agentModel.provider]) {
+      throw markSetupError(t('bg_setup_noProvider', [agentModel.provider]));
+    }
   }
 
   const navigatorModel = agentModels[AgentNameEnum.Navigator];
-  if (!navigatorModel) throw new Error(t('bg_setup_noNavigatorModel'));
+  if (!navigatorModel) throw markSetupError(t('bg_setup_noNavigatorModel'));
   const navigatorProviderConfig = providers[navigatorModel.provider];
   logger.info('Creating Navigator model (nano backend)', {
     provider: navigatorModel.provider,
