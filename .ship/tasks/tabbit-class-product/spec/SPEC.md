@@ -45,7 +45,7 @@ Ship the **agent task loop** as the sole primary product path inside the **exist
 13. As a user, I want Bilibili (or similar) play then “pause this” verified, so that media control feels continuous.
 14. As a user, I want MiniMax-M3 as the default agent model for real scores, so that quality is not fake-flagship only.
 15. As a user, I do not want to install a separate Python agent to use the product daily, so that the extension alone is enough.
-16. As a user, I do not want a full custom browser reinstall this cycle, so that I keep Chrome + existing logins.
+16. As a user, I do not want a full custom browser reinstall; the plugin is the final product form, so that I keep Chrome + existing logins.
 17. As a user, I do not want 妙招广场, desktop pet, or multi-model shelf UI this cycle, so that the team finishes the task loop first.
 18. As a future user, I want cross-conversation memory later, so that the product remembers preferences across sessions (not this cycle).
 19. As an owner running acceptance, I want a fixed Slice A protocol with pass/fail, so that green is objective.
@@ -63,7 +63,7 @@ Ship the **agent task loop** as the sole primary product path inside the **exist
 
 ## Implementation Decisions
 
-1. **Shell:** Chrome MV3 extension + side panel task mode on daily Chrome (ADR 001 stands). No full Chromium product this cycle.
+1. **Shell:** Chrome MV3 extension + side panel task mode on daily Chrome (ADR 001 stands). The plugin is the final product form; no full Chromium product unless Owner explicitly changes direction.
 2. **Core:** Two-layer in-extension TS core (agent loop + browser control). Strengthen / reshape existing `control` backend and Task path rather than defaulting to a Python browser-use process.
 3. **Architecture inspiration:** browser-use loop semantics (observe → summarize → act → re-observe, tools, retry). Explicit non-goal: embed the browser-use Python package in the service worker.
 4. **Product contract remains authority:** Task, Task Round, external commit, verified completion, completion receipt (see CONTEXT.md).

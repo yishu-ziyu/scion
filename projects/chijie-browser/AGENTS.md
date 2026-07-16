@@ -153,7 +153,7 @@ Details: `HANDOVER.md` §5.
 | Option | Choice |
 |--------|--------|
 | Chrome extension in daily browser | **Yes** (ADR 001) |
-| Fork Chromium / cloud browser | **No** this cycle |
+| Fork Chromium / cloud browser | **No** — plugin is the final product form |
 
 ---
 

@@ -127,6 +127,20 @@ Task runtime L4 shell is landed (TaskManager / ActionDispatcher / CompletionChec
 
 ---
 
+## Lessons
+
+- 2026-07-15: CEO 对话混入过多评测与实现细节，并把评测误当产品功能 → P0 与 Owner 只讨论简洁的产品判断；持节以 Chrome 插件为最终形态，对标 Tabbit 的能力与体验而非浏览器外壳；评测仅是委派给 P1–P4 的内部执行与验证手段。
+
+## P team
+
+- **P0 — 产品决策与整合：** 与 Owner 共同决定方向；派工、取舍、整合，只向 Owner 汇报产品结论。
+- **P1 — 产品情报与用户研究：** 一手证据、用户任务、竞品事实、未知项与机会；不写代码。
+- **P2 — 产品规格与体验：** 用 yishuship + Matt 把方向转成 Spec、旅程、优先级与 done；不承担大段实现。
+- **P3 — 工程实现与诊断：** 在规格边界内编码、测试、调试和交付证据；不决定产品方向。
+- **P4 — 独立验收与发布闸门：** 不参与实现；独立给出 PASS/FAIL，证据不足不放行。
+
+---
+
 ## Writing project AGENTS.md
 
 Follow global meta-standard (`~/.grok/docs/reference-agents-md-authoring.md`).

@@ -74,7 +74,7 @@ Harder journeys (Feishu submit with approval, Bilibili pause binding) are longer
 
 - Skill marketplace / 妙招广场
 - Cross-conversation memory (product intent later; not this cycle)
-- Full custom browser (Tabbit-class app shell)
+- Full custom browser (permanent non-goal unless Owner explicitly changes product direction)
 - Desktop pet / 桌宠
 - Smart tab grouping as a product pillar
 - Multi-model “shelf” UI as a product pillar
@@ -85,7 +85,7 @@ Harder journeys (Feishu submit with approval, Bilibili pause binding) are longer
 
 ## Shell vs core
 
-- **Shell (decided for MVP):** Chrome extension on the user’s daily Chrome, with a side-panel **task mode** that implements the agent task loop. Not a full custom browser for this delivery.
+- **Shell (final product form):** Chrome extension on the user’s daily Chrome, with a side-panel **task mode** that implements the agent task loop. We benchmark Tabbit's capability and experience, not its native-browser shell.
 - **Product contract**: Task, agent task loop, approval, verified completion, receipt, Skill, privacy boundaries.
 - **Execution core (decided for MVP):** Two layers inside the extension (TypeScript), inspired by browser-use *architecture*, not the Python package:
   1. **Agent loop** — observe page → state summary to model → choose action → execute → re-observe; tool set; failure retry. This is the product core; reimplemented in the extension.
@@ -94,10 +94,15 @@ Harder journeys (Feishu submit with approval, Bilibili pause binding) are longer
 
 ## North star
 
-Single end goal: `docs/product/003-north-star.md`.
+Single end goal: a powerful Chrome browser-agent plugin benchmarked against Tabbit's capability and experience, not its native-browser shell. The Chrome extension is the final product form. See `docs/product/003-north-star.md` and the living gap ledger `docs/product/009-tabbit-gap-ledger.md`.
 Gates G1–G7 beat intermediate thrash. Current milestone is always named there.
 
 ## Docs-driven development
 
 See `docs/README.md` and `docs/product/004-docs-driven-dev.md`.
 North star and gates: `docs/product/003-north-star.md`.
+
+## Team loop (2026-07-16)
+
+- Protocol: `docs/product/010-three-loop-g1-g4-protocol.md`
+- Closed slice: contract `docs/product/dev-contract-010-l1-no-progress-v1.md` → `no_progress` in observe-act-loop; G4 PASS `reports/nanobrowser/2026-07-16-contract-010-l1-no-progress-g4.md`
