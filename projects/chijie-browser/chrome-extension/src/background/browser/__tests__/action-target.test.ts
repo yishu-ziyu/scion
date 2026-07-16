@@ -233,6 +233,63 @@ describe('Page action target observation', () => {
     expect(click).not.toHaveBeenCalled();
   });
 
+  it('recovers the same Bilibili video card when its DOM position changed', async () => {
+    const link = new DOMElementNode({
+      tagName: 'a',
+      attributes: {
+        href: '//www.bilibili.com/video/BV1xx411c7mD?spm_id_from=333.1007.0.0',
+      },
+      parent: null,
+      xpath: '/html/body/main/div[2]/a[1]',
+      children: [],
+      isVisible: true,
+    });
+    const candidate = {
+      evaluate: vi.fn().mockResolvedValue('https://www.bilibili.com/video/BV1xx411c7mD?spm_id_from=333.1007.0.0'),
+      isHidden: vi.fn().mockResolvedValue(true),
+    };
+    const query = vi.fn().mockResolvedValue(null);
+    const queryAll = vi.fn().mockResolvedValue([candidate]);
+    const page = new Page(7, 'https://www.bilibili.com/', 'Bilibili');
+    (
+      page as unknown as { _puppeteerPage: { $: typeof query; $$: typeof queryAll; url: () => string } }
+    )._puppeteerPage = {
+      $: query,
+      $$: queryAll,
+      url: () => 'https://www.bilibili.com/',
+    };
+
+    await expect(page.locateElement(link)).resolves.toBe(candidate);
+    expect(queryAll).toHaveBeenCalledWith('a[href*="/video/BV1xx411c7mD"]');
+  });
+
+  it('never accepts a different Bilibili video from the card fallback', async () => {
+    const link = new DOMElementNode({
+      tagName: 'a',
+      attributes: { href: 'https://www.bilibili.com/video/BV1xx411c7mD' },
+      parent: null,
+      xpath: '/html/body/main/div[2]/a[1]',
+      children: [],
+      isVisible: true,
+    });
+    const candidate = {
+      evaluate: vi.fn().mockResolvedValue('https://www.bilibili.com/video/BV1yy411c7mE'),
+      dispose: vi.fn().mockResolvedValue(undefined),
+      isHidden: vi.fn().mockResolvedValue(true),
+    };
+    const page = new Page(7, 'https://www.bilibili.com/', 'Bilibili');
+    (
+      page as unknown as { _puppeteerPage: { $: () => Promise<null>; $$: () => Promise<unknown[]>; url: () => string } }
+    )._puppeteerPage = {
+      $: vi.fn().mockResolvedValue(null),
+      $$: vi.fn().mockResolvedValue([candidate]),
+      url: () => 'https://www.bilibili.com/',
+    };
+
+    await expect(page.locateElement(link)).resolves.toBeNull();
+    expect(candidate.dispose).toHaveBeenCalledOnce();
+  });
+
   it('returns only bounded completion values and strips URL query data', async () => {
     const page = new Page(7, 'https://example.test/success?token=SECRET#done', 'Fixture');
     const expectedDigest = await sha256('Saved successfully');
