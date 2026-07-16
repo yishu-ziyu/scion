@@ -23,6 +23,7 @@ import {
   visibleAttemptWindow,
 } from '../presentation/task-loop-ui';
 import { productFailureLabel, toProductFailureCode } from '../presentation/failure-taxonomy';
+import { waitUserActionTestId } from '../presentation/wait-affordance';
 
 export interface TaskStatusCardProps {
   snapshot: TaskSnapshot;
@@ -280,6 +281,8 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
           evidence => evidence.criterionId === criterion.id && evidence.source === 'user' && evidence.passed,
         ),
     ) ?? [];
+  const waitAction =
+    snapshot.status === 'waiting_user' ? waitUserActionTestId(round?.waitReason) : null;
 
   const isTerminal = ['completed', 'failed', 'cancelled'].includes(snapshot.status);
   const needsAttention =
@@ -648,6 +651,40 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
             {t('chat_task_confirm_done')}
           </button>
         ))}
+
+      {/* Non-proof waits (login / uncertain / target…) need a primary action; proof uses confirm above. */}
+      {waitAction === 'wait-continue' && (
+        <button
+          type="button"
+          data-testid="wait-continue"
+          className={primaryButtonClassName}
+          onClick={() =>
+            send({
+              type: 'resume',
+              commandId: crypto.randomUUID(),
+              taskId: snapshot.id,
+              expectedRevision: snapshot.revision,
+            })
+          }>
+          {t('chat_task_wait_continue')}
+        </button>
+      )}
+      {waitAction === 'wait-retry' && (
+        <button
+          type="button"
+          data-testid="wait-retry"
+          className={primaryButtonClassName}
+          onClick={() =>
+            send({
+              type: 'resume',
+              commandId: crypto.randomUUID(),
+              taskId: snapshot.id,
+              expectedRevision: snapshot.revision,
+            })
+          }>
+          {t('chat_task_wait_retry')}
+        </button>
+      )}
 
       {showVerifiedDone && !showSkillForm && (
         <div className="chijie-skill-save-row">

@@ -1026,57 +1026,156 @@
   "chat_task_header_idle": {
     "message": "就緒"
   },
-  "chat_task_action_open": { "message": "開啟頁面" },
-  "chat_task_action_open_tab": { "message": "開啟分頁" },
-  "chat_task_action_switch_tab": { "message": "切換分頁" },
-  "chat_task_action_click": { "message": "點擊頁面元件" },
-  "chat_task_action_input": { "message": "填寫表單" },
-  "chat_task_action_keys": { "message": "鍵盤輸入" },
-  "chat_task_action_media": { "message": "媒體控制" },
-  "chat_task_action_scroll": { "message": "捲動頁面" },
-  "chat_task_action_wait": { "message": "等待頁面" },
-  "chat_task_action_done": { "message": "準備完成" },
-  "chat_task_action_search": { "message": "搜尋" },
-  "chat_task_action_back": { "message": "返回" },
-  "chat_task_action_read_options": { "message": "讀取選項" },
-  "chat_task_action_select": { "message": "選擇選項" },
-  "chat_task_action_generic": { "message": "執行頁面操作" },
-  "chat_task_attempt_pending_approval": { "message": "即將執行（需審批）" },
-  "chat_task_attempt_observed": { "message": "已核對" },
-  "chat_task_attempt_executing": { "message": "執行中" },
-  "chat_task_attempt_approved": { "message": "已批准" },
-  "chat_task_attempt_proposed": { "message": "準備中" },
-  "chat_task_attempt_uncertain": { "message": "結果待確認" },
-  "chat_task_attempt_blocked": { "message": "已阻止" },
-  "chat_task_activity_understanding": { "message": "正在理解頁面" },
-  "chat_task_activity_preparing": { "message": "準備下一步操作" },
+  "chat_task_action_open": {
+    "message": "開啟頁面"
+  },
+  "chat_task_action_open_tab": {
+    "message": "開啟分頁"
+  },
+  "chat_task_action_switch_tab": {
+    "message": "切換分頁"
+  },
+  "chat_task_action_click": {
+    "message": "點擊頁面元件"
+  },
+  "chat_task_action_input": {
+    "message": "填寫表單"
+  },
+  "chat_task_action_keys": {
+    "message": "鍵盤輸入"
+  },
+  "chat_task_action_media": {
+    "message": "媒體控制"
+  },
+  "chat_task_action_scroll": {
+    "message": "捲動頁面"
+  },
+  "chat_task_action_wait": {
+    "message": "等待頁面"
+  },
+  "chat_task_action_done": {
+    "message": "準備完成"
+  },
+  "chat_task_action_search": {
+    "message": "搜尋"
+  },
+  "chat_task_action_back": {
+    "message": "返回"
+  },
+  "chat_task_action_read_options": {
+    "message": "讀取選項"
+  },
+  "chat_task_action_select": {
+    "message": "選擇選項"
+  },
+  "chat_task_action_generic": {
+    "message": "執行頁面操作"
+  },
+  "chat_task_attempt_pending_approval": {
+    "message": "即將執行（需審批）"
+  },
+  "chat_task_attempt_observed": {
+    "message": "已核對"
+  },
+  "chat_task_attempt_executing": {
+    "message": "執行中"
+  },
+  "chat_task_attempt_approved": {
+    "message": "已批准"
+  },
+  "chat_task_attempt_proposed": {
+    "message": "準備中"
+  },
+  "chat_task_attempt_uncertain": {
+    "message": "結果待確認"
+  },
+  "chat_task_attempt_blocked": {
+    "message": "已阻止"
+  },
+  "chat_task_activity_understanding": {
+    "message": "正在理解頁面"
+  },
+  "chat_task_activity_preparing": {
+    "message": "準備下一步操作"
+  },
   "chat_task_activity_verified": {
     "message": "已核對 $COUNT$ 項結果",
-    "placeholders": { "count": { "content": "$1", "example": "2" } }
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "2"
+      }
+    }
   },
-  "chat_task_approval_action_generic": { "message": "執行一次對外操作" },
-  "chat_task_approval_action_click": { "message": "執行一次頁面確認操作" },
-  "chat_task_approval_field_action": { "message": "將要做什麼" },
-  "chat_task_approval_field_location": { "message": "作用位置" },
-  "chat_task_approval_field_impact": { "message": "可能影響" },
-  "chat_task_approval_field_after": { "message": "批准之後" },
-  "chat_task_approval_impact_external": { "message": "頁面會產生一次對外變更，可能無法自動還原" },
-  "chat_task_approval_after_once": { "message": "只執行這一次操作，並繼續核對頁面結果" },
-  "chat_task_approval_once": { "message": "本次批准只對這一個操作有效。" },
-  "chat_task_approval_pending": { "message": "正在批准…" },
-  "chat_task_reject_pending": { "message": "正在返回…" },
-  "chat_task_evidence_url": { "message": "頁面網址符合目標" },
-  "chat_task_evidence_text": { "message": "頁面出現預期結果" },
-  "chat_task_evidence_element": { "message": "頁面元件狀態符合目標" },
-  "chat_task_evidence_media": { "message": "媒體狀態符合目標" },
-  "chat_task_evidence_user": { "message": "已由你確認結果" },
-  "chat_task_evidence_generic": { "message": "頁面結果符合目標" },
-  "chat_task_receipt_technical": { "message": "技術回執" },
-  "chat_task_skill_saving": { "message": "正在儲存…" },
-  "chat_task_command_stale": { "message": "任務狀態剛剛發生變化，已為你重新整理。請按目前狀態繼續。" },
-  "chat_task_command_invalid_transition": { "message": "這個操作已經失效，請按目前狀態繼續。" },
-  "chat_task_command_not_found": { "message": "目前任務已經結束或不存在。" },
-  "chat_task_command_invalid_input": { "message": "這個操作缺少必要資訊，請重新發出指令。" },
+  "chat_task_approval_action_generic": {
+    "message": "執行一次對外操作"
+  },
+  "chat_task_approval_action_click": {
+    "message": "執行一次頁面確認操作"
+  },
+  "chat_task_approval_field_action": {
+    "message": "將要做什麼"
+  },
+  "chat_task_approval_field_location": {
+    "message": "作用位置"
+  },
+  "chat_task_approval_field_impact": {
+    "message": "可能影響"
+  },
+  "chat_task_approval_field_after": {
+    "message": "批准之後"
+  },
+  "chat_task_approval_impact_external": {
+    "message": "頁面會產生一次對外變更，可能無法自動還原"
+  },
+  "chat_task_approval_after_once": {
+    "message": "只執行這一次操作，並繼續核對頁面結果"
+  },
+  "chat_task_approval_once": {
+    "message": "本次批准只對這一個操作有效。"
+  },
+  "chat_task_approval_pending": {
+    "message": "正在批准…"
+  },
+  "chat_task_reject_pending": {
+    "message": "正在返回…"
+  },
+  "chat_task_evidence_url": {
+    "message": "頁面網址符合目標"
+  },
+  "chat_task_evidence_text": {
+    "message": "頁面出現預期結果"
+  },
+  "chat_task_evidence_element": {
+    "message": "頁面元件狀態符合目標"
+  },
+  "chat_task_evidence_media": {
+    "message": "媒體狀態符合目標"
+  },
+  "chat_task_evidence_user": {
+    "message": "已由你確認結果"
+  },
+  "chat_task_evidence_generic": {
+    "message": "頁面結果符合目標"
+  },
+  "chat_task_receipt_technical": {
+    "message": "技術回執"
+  },
+  "chat_task_skill_saving": {
+    "message": "正在儲存…"
+  },
+  "chat_task_command_stale": {
+    "message": "任務狀態剛剛發生變化，已為你重新整理。請按目前狀態繼續。"
+  },
+  "chat_task_command_invalid_transition": {
+    "message": "這個操作已經失效，請按目前狀態繼續。"
+  },
+  "chat_task_command_not_found": {
+    "message": "目前任務已經結束或不存在。"
+  },
+  "chat_task_command_invalid_input": {
+    "message": "這個操作缺少必要資訊，請重新發出指令。"
+  },
   "chat_task_confirm_done": {
     "message": "我確認已經完成"
   },
@@ -1196,5 +1295,11 @@
   },
   "chat_task_product_fail_other": {
     "message": "任務失敗，可重試或改寫指令"
+  },
+  "chat_task_wait_continue": {
+    "message": "我已處理好，繼續"
+  },
+  "chat_task_wait_retry": {
+    "message": "重新檢查頁面並繼續"
   }
 }

@@ -310,6 +310,14 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).toContain('chat_task_fail_observe');
     expect(taskStatusCardSource).not.toMatch(/可看上方聊天里的失败说明/);
   });
+
+  it('waiting_user non-proof surface exposes wait-continue / wait-retry affordance', () => {
+    expect(taskStatusCardSource).toContain('waitUserActionTestId');
+    expect(taskStatusCardSource).toContain('wait-continue');
+    expect(taskStatusCardSource).toContain('wait-retry');
+    expect(taskStatusCardSource).toContain("type: 'resume'");
+    expect(taskStatusCardSource).toContain('criterion-confirm');
+  });
 });
 
 describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
