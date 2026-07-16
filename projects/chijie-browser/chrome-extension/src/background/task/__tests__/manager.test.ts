@@ -759,6 +759,70 @@ describe('TaskManager lifecycle', () => {
     expect(JSON.stringify(await manager.snapshot('task-approval'))).not.toContain('secret form value');
   });
 
+  it('rejects replay of a consumed approval under a fresh command id', async () => {
+    let hooks!: ExecutorHooks;
+    const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-approval-replay',
+      taskId: 'task-approval-replay',
+      instruction: 'submit form',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-approval-replay');
+    const pending = hooks.dispatchAction(roundId, new Action(executeExternalCommit, clickElementActionSchema, true), {
+      intent: 'submit form',
+      index: 4,
+    });
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-approval-replay')).toMatchObject({ status: 'waiting_approval' });
+    });
+    const waiting = await manager.snapshot('task-approval-replay');
+    const round = waiting?.rounds.find(item => item.id === roundId);
+    const approval = round?.approvals[0];
+    if (!waiting || !round || !approval) throw new Error('Expected pending approval');
+
+    await manager.dispatch({
+      type: 'approve',
+      commandId: 'approve-once',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId,
+      approvalId: approval.id,
+    });
+    await pending;
+    const consumed = await manager.snapshot('task-approval-replay');
+    if (!consumed) throw new Error('Expected consumed approval snapshot');
+
+    await expect(
+      manager.dispatch({
+        type: 'approve',
+        commandId: 'approve-replay',
+        taskId: consumed.id,
+        expectedRevision: consumed.revision,
+        roundId,
+        approvalId: approval.id,
+      }),
+    ).resolves.toMatchObject({ accepted: false, error: 'invalid_transition' });
+    expect(executeExternalCommit).toHaveBeenCalledTimes(1);
+    await expect(manager.snapshot('task-approval-replay')).resolves.toMatchObject({
+      rounds: [{ approvals: [{ status: 'consumed' }] }],
+    });
+  });
+
   it('freezes success text from the instruction when the planner returns empty criteria', async () => {
     const driver = fakeDriver();
     let observeCall = 0;
@@ -923,6 +987,51 @@ describe('TaskManager lifecycle', () => {
       operator: 'starts_with',
       expected: 'https://www.youtube.com/',
     });
+  });
+
+  it('does not complete from optional criteria without required proof', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    let hooks!: ExecutorHooks;
+    const driver = fakeDriver();
+    driver.run = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)))
+      .mockResolvedValue({ kind: 'candidate_complete', summary: 'still done' });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-optional-proof',
+      taskId: 'task-optional-proof',
+      instruction: 'organize this page',
+      chatSessionId: 'chat-optional-proof',
+      instructionMessageId: 'message-optional-proof',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-optional-proof');
+    await hooks.onPlan(roundId, [
+      { kind: 'page_text', operator: 'present', expected: 'Optional hint', required: false },
+    ]);
+
+    finish({ kind: 'candidate_complete', summary: 'done' });
+
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-optional-proof')).toMatchObject({
+        status: 'waiting_user',
+        rounds: [{ status: 'waiting_user', waitReason: 'proof_required' }],
+      });
+    });
+    expect((await manager.snapshot('task-optional-proof'))?.rounds[0]?.receipt).toBeUndefined();
   });
 
   it('freezes /watch url criteria when the goal is open YouTube and click the first video', async () => {
@@ -1301,7 +1410,11 @@ describe('TaskManager lifecycle', () => {
       approvalId: approval.id,
     });
 
-    await expect(pending).rejects.toThrow('click outcome unknown');
+    // Soft-return path: execute throw becomes ActionResult.error (no rethrow into loop).
+    await expect(pending).resolves.toMatchObject({
+      actionResult: { error: 'click outcome unknown' },
+      attempt: { state: 'uncertain' },
+    });
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-uncertain-live')).toMatchObject({
         status: 'waiting_user',
@@ -1311,7 +1424,7 @@ describe('TaskManager lifecycle', () => {
     expect(driver.stop).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps a disconnect-time commit uncertainty non-resumable', async () => {
+  it('keeps a disconnect-time commit uncertainty non-resumable and non-continuable', async () => {
     let hooks!: ExecutorHooks;
     let failCommit!: (error: Error) => void;
     const driver = fakeDriver();
@@ -1365,10 +1478,14 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(() => expect(executeExternalCommit).toHaveBeenCalledTimes(1));
 
     await manager.interruptActive();
-    const rejected = expect(pending).rejects.toThrow('commit outcome unknown after disconnect');
+    // Soft-return: commit throw resolves with error + uncertain (not promise reject).
+    const settled = expect(pending).resolves.toMatchObject({
+      actionResult: { error: 'commit outcome unknown after disconnect' },
+      attempt: { state: 'uncertain' },
+    });
     failCommit(new Error('commit outcome unknown after disconnect'));
 
-    await rejected;
+    await settled;
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-disconnect-uncertain')).toMatchObject({
         status: 'waiting_user',
@@ -1381,6 +1498,34 @@ describe('TaskManager lifecycle', () => {
       manager.dispatch({
         type: 'resume',
         commandId: 'resume-uncertain',
+        taskId: uncertain.id,
+        expectedRevision: uncertain.revision,
+      }),
+    ).resolves.toMatchObject({ accepted: false, error: 'invalid_transition' });
+
+    await expect(
+      manager.dispatch({
+        type: 'follow_up',
+        commandId: 'continue-uncertain',
+        taskId: uncertain.id,
+        expectedRevision: uncertain.revision,
+        instruction: 'continue and submit once',
+        chatSessionId: 'chat-1',
+        instructionMessageId: 'message-continue',
+      }),
+    ).resolves.toMatchObject({ accepted: false, error: 'invalid_transition' });
+    const afterContinue = await manager.snapshot(uncertain.id);
+    expect(afterContinue?.currentRoundId).toBe(uncertain.currentRoundId);
+    expect(afterContinue?.rounds).toHaveLength(1);
+    expect(afterContinue?.rounds[0]?.receipt).toBeUndefined();
+    expect(driver.addFollowUp).not.toHaveBeenCalled();
+    expect(executeExternalCommit).toHaveBeenCalledTimes(1);
+
+    // Symmetric pause edge: uncertain waiting_user rejects pause (runtime already gates pause to running only).
+    await expect(
+      manager.dispatch({
+        type: 'pause',
+        commandId: 'pause-uncertain',
         taskId: uncertain.id,
         expectedRevision: uncertain.revision,
       }),

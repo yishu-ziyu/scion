@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Action } from '../../agent/actions/builder';
-import { clickElementActionSchema } from '../../agent/actions/schemas';
+import {
+  clickElementActionSchema,
+  doneActionSchema,
+  goToUrlActionSchema,
+  waitActionSchema,
+} from '../../agent/actions/schemas';
 import { ActionResult } from '../../agent/types';
 import { ActionDispatcher, decideEffect } from '../action-dispatcher';
 
@@ -170,7 +175,130 @@ describe('ActionDispatcher', () => {
     expect(persistedStates).toEqual(['proposed', 'approved', 'blocked']);
   });
 
-  it('persists uncertain after an executing action throws', async () => {
+  it('does not execute an unclaimed index after the observed target changes', async () => {
+    const execute = vi.fn(async () => new ActionResult({ success: true }));
+    const action = new Action(execute, clickElementActionSchema, true);
+    const persistedStates: string[] = [];
+    let observation = 0;
+    const observe = vi.fn(async () => {
+      observation += 1;
+      return {
+        target: {
+          id: 'target-1',
+          kind: 'element' as const,
+          tabId: 7,
+          frameId: 0 as const,
+          urlOrigin: 'https://example.test',
+          digest: observation === 1 ? 'button-before' : 'button-changed',
+        },
+        effectTarget: { tag: 'button', type: 'button', inForm: false },
+        evidence: [],
+      };
+    });
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      persistAttempt: vi.fn(async attempt => {
+        persistedStates.push(attempt.state);
+      }),
+      requestApproval: vi.fn(async () => 'approved' as const),
+      observe,
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action,
+      rawArgs: { intent: 'open item', index: 4 },
+    });
+
+    expect(result.attempt.state).toBe('blocked');
+    expect(result.actOutcome).toBe('didnt');
+    expect(result.actionResult.error).toMatch(/target changed.*replan/i);
+    expect(result.targetRef?.digest).toBe('button-changed');
+    expect(execute).not.toHaveBeenCalled();
+    expect(observe).toHaveBeenCalledTimes(2);
+    expect(persistedStates).toEqual(['proposed', 'blocked']);
+  });
+
+  it('executes an unclaimed index once when the target remains bound', async () => {
+    const execute = vi.fn(async () => new ActionResult({ success: true }));
+    const action = new Action(execute, clickElementActionSchema, true);
+    const phases: Array<'before' | 'after'> = [];
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      persistAttempt: vi.fn(async () => undefined),
+      requestApproval: vi.fn(async () => 'approved' as const),
+      observe: vi.fn(async (_request, _args, phase) => {
+        phases.push(phase);
+        return {
+          target: {
+            id: 'target-1',
+            kind: phase === 'after' ? ('page' as const) : ('element' as const),
+            tabId: 7,
+            frameId: 0 as const,
+            urlOrigin: 'https://example.test',
+            digest: phase === 'after' ? 'page-after' : 'button-stable',
+          },
+          effectTarget: { tag: 'button', type: 'button', inForm: false },
+          evidence: [],
+        };
+      }),
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action,
+      rawArgs: { intent: 'open item', index: 4 },
+    });
+
+    expect(result.attempt.state).toBe('observed');
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(phases).toEqual(['before', 'before', 'after']);
+  });
+
+  it.each([
+    ['go_to_url', goToUrlActionSchema, { intent: 'open example', url: 'https://example.test' }],
+    ['wait', waitActionSchema, { intent: 'wait briefly', seconds: 1 }],
+    ['done', doneActionSchema, { text: 'finished', success: true }],
+  ])('keeps no-target %s dispatch compatible', async (_name, schema, rawArgs) => {
+    const execute = vi.fn(async () => new ActionResult({ success: true }));
+    const action = new Action(execute, schema, true);
+    const phases: Array<'before' | 'after'> = [];
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      persistAttempt: vi.fn(async () => undefined),
+      requestApproval: vi.fn(async () => 'approved' as const),
+      observe: vi.fn(async (_request, _args, phase) => {
+        phases.push(phase);
+        return {
+          target: {
+            id: 'page-1',
+            kind: 'page' as const,
+            tabId: 7,
+            frameId: 0 as const,
+            urlOrigin: 'https://example.test',
+            digest: phase === 'before' ? 'page-before' : 'page-after',
+          },
+          effectTarget: {},
+          evidence: [],
+        };
+      }),
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action,
+      rawArgs,
+    });
+
+    expect(result.attempt.state).toBe('observed');
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(phases).toEqual(['before', 'after']);
+  });
+
+  it('persists uncertain after an executing action throws (soft return, no rethrow)', async () => {
     const action = new Action(
       vi.fn(async () => {
         throw new Error('commit transport failed');
@@ -199,6 +327,8 @@ describe('ActionDispatcher', () => {
       })),
     });
 
+    // Overnight: rethrow after uncertain → control loop dispatch_failed.
+    // Soft path keeps uncertain as terminal signal without killing the loop via throw.
     await expect(
       dispatcher.dispatch({
         taskId: 'task-1',
@@ -206,7 +336,10 @@ describe('ActionDispatcher', () => {
         action,
         rawArgs: { intent: 'submit form', index: 4 },
       }),
-    ).rejects.toThrow('commit transport failed');
+    ).resolves.toMatchObject({
+      attempt: { state: 'uncertain' },
+      actionResult: { error: 'commit transport failed' },
+    });
     expect(persistedStates).toEqual(['proposed', 'approved', 'executing', 'uncertain']);
   });
 
@@ -320,4 +453,5 @@ describe('ActionDispatcher', () => {
     expect(result.attempt.state).toBe('uncertain');
     expect(persistedStates).toEqual(['proposed', 'approved', 'executing', 'uncertain']);
   });
+
 });

@@ -187,6 +187,27 @@ export class ActionDispatcher {
         );
       }
       // Target digest is the commit binding; full-page revision may drift while the control stays.
+    } else if (this.requiresIndexTargetBinding(parsedArgs, before)) {
+      let rechecked: TargetObservation;
+      try {
+        rechecked = this.withPageRevision(await this.deps.observe(request, parsedArgs, 'before'));
+      } catch {
+        attempt = { ...attempt, state: 'blocked' };
+        await this.deps.persistAttempt(attempt);
+        return this.result(
+          new ActionResult({ error: 'Action target could not be revalidated; replan required' }),
+          attempt,
+          before,
+          { actOutcome: 'didnt' },
+        );
+      }
+      if (!rechecked.target || before.target?.digest !== rechecked.target.digest) {
+        attempt = { ...attempt, state: 'blocked' };
+        await this.deps.persistAttempt(attempt);
+        return this.result(new ActionResult({ error: 'Action target changed; replan required' }), attempt, rechecked, {
+          actOutcome: 'didnt',
+        });
+      }
     }
 
     attempt = { ...attempt, state: 'executing', executingAt: this.deps.now() };
@@ -226,9 +247,21 @@ export class ActionDispatcher {
       });
       return this.result(actionResult, attempt, after, { actOutcome });
     } catch (error) {
-      attempt = { ...attempt, state: attempt.effect === 'external_commit' ? 'uncertain' : 'blocked' };
+      // Persist uncertain/blocked then return error — do not rethrow into control loop
+      // (rethrow + waiting_* races → observe-act dispatch_failed / 动作调度失败).
+      const uncertain = attempt.effect === 'external_commit';
+      attempt = { ...attempt, state: uncertain ? 'uncertain' : 'blocked' };
       await this.deps.persistAttempt(attempt);
-      throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      return this.result(new ActionResult({ error: message || 'action_threw' }), attempt, before, {
+        actOutcome: classifyActOutcome({
+          actionError: message || 'action_threw',
+          effect: attempt.effect,
+          expectEvidence: [],
+          hasExpect: claimed.hasExpectFlag,
+          uncertain,
+        }),
+      });
     }
   }
 
@@ -265,5 +298,10 @@ export class ActionDispatcher {
     if (!parsedArgs || typeof parsedArgs !== 'object' || !(key in parsedArgs)) return undefined;
     const value = (parsedArgs as Record<string, unknown>)[key];
     return typeof value === 'string' ? value : undefined;
+  }
+
+  private requiresIndexTargetBinding(parsedArgs: unknown, observation: TargetObservation): boolean {
+    if (!parsedArgs || typeof parsedArgs !== 'object' || Array.isArray(parsedArgs)) return false;
+    return typeof (parsedArgs as Record<string, unknown>).index === 'number' && observation.target?.kind === 'element';
   }
 }
