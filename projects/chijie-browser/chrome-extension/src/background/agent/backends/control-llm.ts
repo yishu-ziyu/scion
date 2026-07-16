@@ -26,8 +26,32 @@ import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome } fr
 import { CONTROL_SYSTEM_PROMPT, parseControlPolicyDecision } from './control-policy';
 import type { Action } from '../actions/builder';
 import { isForbiddenTaskContentUrl, runObserveActLoop, type LoopDecision, type LoopOutcome } from './observe-act-loop';
+import { markSetupError } from '../../task/executor-start-error';
+import { enrichObserveWithBilibiliTitles, isBilibiliListSurface } from '../../browser/sites/bilibili-titles';
 
 const logger = createLogger('ControlLlmBackend');
+
+/** Default no-progress budget for control path (contracts 010/011). */
+export const CONTROL_MAX_NO_PROGRESS = 3;
+
+/**
+ * Map observe-act loop terminal outcome → TaskManager ExecutorOutcome.
+ * Contract 011: no_progress / max_steps must keep category (never collapse to other/unknown).
+ */
+export function mapLoopOutcomeToExecutor(outcome: LoopOutcome): ExecutorOutcome {
+  if (outcome.kind === 'waiting_user') {
+    return { kind: 'waiting_user', reason: outcome.reason };
+  }
+  if (outcome.kind === 'failed') {
+    const category = outcome.category?.trim() || 'unknown';
+    return { kind: 'failed', category };
+  }
+  if (outcome.kind === 'cancelled') {
+    return { kind: 'cancelled' };
+  }
+  // candidate_complete
+  return { kind: 'candidate_complete', summary: outcome.summary };
+}
 
 async function contentToString(content: unknown): Promise<string> {
   if (typeof content === 'string') return content;
@@ -35,7 +59,14 @@ async function contentToString(content: unknown): Promise<string> {
     return content
       .map(part => {
         if (typeof part === 'string') return part;
-        if (part && typeof part === 'object' && 'text' in part) return String((part as { text: unknown }).text);
+        if (part && typeof part === 'object') {
+          const record = part as Record<string, unknown>;
+          if (typeof record.text === 'string') return record.text;
+          // Multimodal parts (image_url etc.) must not collapse to "".
+          if (typeof record.type === 'string') {
+            return record.type === 'text' ? '' : `[${record.type}]`;
+          }
+        }
         return '';
       })
       .join('\n');
@@ -48,6 +79,7 @@ async function buildStateText(context: AgentContext): Promise<string> {
   const rawElementsText = browserState.elementTree.clickableElementsToString(context.options.includeAttributes);
   const elementsText = rawElementsText !== '' ? wrapUntrustedContent(rawElementsText) : 'empty interactive list';
   let mediaLine = 'media: none';
+  let biliEnrichment = '';
   try {
     const page = await context.browserContext.getCurrentPage();
     const media = await page.observeMedia();
@@ -56,14 +88,26 @@ async function buildStateText(context: AgentContext): Promise<string> {
     } else if (media.kind === 'ambiguous') {
       mediaLine = `media: ambiguous count=${media.candidateCount}`;
     }
+    // B站首页/收藏夹：交互树常漏标题卡；补 .bili-video-card__info--tit 文本给模型。
+    if (isBilibiliListSurface(browserState.url)) {
+      try {
+        const html = await page.getContent();
+        biliEnrichment = enrichObserveWithBilibiliTitles(browserState.url, html);
+      } catch {
+        // ignore bilibili enrich failures
+      }
+    }
   } catch {
     // ignore media probe failures
   }
   return [
     `Current tab: {id: ${browserState.tabId}, url: ${browserState.url}, title: ${browserState.title}}`,
     mediaLine,
+    biliEnrichment,
     `Interactive elements:\n${elementsText}`,
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function registryFromActions(actions: Action[]): Map<string, Action> {
@@ -82,13 +126,15 @@ export async function createLlmControlDriver(
   await ensurePersonalDefaults();
 
   const providers = await llmProviderStore.getAllProviders();
-  if (Object.keys(providers).length === 0) throw new Error(t('bg_setup_noApiKeys'));
+  if (Object.keys(providers).length === 0) throw markSetupError(t('bg_setup_noApiKeys'));
 
   await agentModelStore.cleanupLegacyValidatorSettings();
   const agentModels = await agentModelStore.getAllAgentModels();
   const navigatorModel = agentModels[AgentNameEnum.Navigator] ?? agentModels[AgentNameEnum.Planner];
-  if (!navigatorModel) throw new Error(t('bg_setup_noNavigatorModel'));
-  if (!providers[navigatorModel.provider]) throw new Error(t('bg_setup_noProvider', [navigatorModel.provider]));
+  if (!navigatorModel) throw markSetupError(t('bg_setup_noNavigatorModel'));
+  if (!providers[navigatorModel.provider]) {
+    throw markSetupError(t('bg_setup_noProvider', [navigatorModel.provider]));
+  }
 
   const llm: BaseChatModel = createChatModel(providers[navigatorModel.provider], navigatorModel);
   logger.info('LLM control backend model', {
@@ -135,13 +181,6 @@ export async function createLlmControlDriver(
     }
   };
 
-  const toExecutorOutcome = (outcome: LoopOutcome): ExecutorOutcome => {
-    if (outcome.kind === 'waiting_user') {
-      return { kind: 'waiting_user', reason: outcome.reason };
-    }
-    return outcome;
-  };
-
   return {
     run: async (roundId: string): Promise<ExecutorOutcome> => {
       logger.info('LLM control run', { taskId: input.taskId, roundId });
@@ -154,10 +193,13 @@ export async function createLlmControlDriver(
       const instruction = [input.instruction, ...followUps].filter(Boolean).join('\n');
       const maxSteps = generalSettings.maxSteps || DEFAULT_AGENT_OPTIONS.maxSteps;
       const maxFailures = generalSettings.maxFailures || DEFAULT_AGENT_OPTIONS.maxFailures;
+      // Explicit budget so default maxNoProgress is not dropped by partial opts (contract 010).
+      const maxNoProgress = CONTROL_MAX_NO_PROGRESS;
 
       const loopOutcome = await runObserveActLoop({
         maxSteps,
         maxFailures,
+        maxNoProgress,
         isStopped: () => stopped,
         waitIfPaused,
         observe: async () => {
@@ -260,14 +302,22 @@ export async function createLlmControlDriver(
               summary: result.actionResult?.extractedContent ?? null,
             };
           } catch (error) {
+            // Soft-fail: never rethrow into observe-act-loop (that becomes dispatch_failed).
+            // StaleTaskRoundError is expected after waiting_approval / waiting_user.
             logger.error('dispatchAction failed', error);
-            throw error;
+            const message =
+              error instanceof Error
+                ? error.name === 'StaleTaskRoundError'
+                  ? 'stale_task_round'
+                  : error.message || error.name
+                : String(error);
+            return { error: message };
           }
         },
         reobserve: async () => buildStateText(agentContext),
       });
 
-      return toExecutorOutcome(loopOutcome);
+      return mapLoopOutcomeToExecutor(loopOutcome);
     },
     addFollowUp: instruction => {
       followUps.push(instruction);

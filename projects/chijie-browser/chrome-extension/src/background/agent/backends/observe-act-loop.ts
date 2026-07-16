@@ -15,6 +15,7 @@ export type LoopFailureCategory =
   | 'dispatch_failed'
   | 'on_plan_failed'
   | 'max_steps'
+  | 'no_progress'
   | 'cancelled';
 
 export type LoopDecision =
@@ -39,6 +40,11 @@ export interface LoopPhaseEvent {
 export interface ObserveActLoopOptions {
   maxSteps: number;
   maxFailures: number;
+  /**
+   * Stop with `no_progress` after this many successful acts that leave the
+   * page observation unchanged (trim-equal). Default 3. Set `<= 0` to disable.
+   */
+  maxNoProgress?: number;
   isStopped: () => boolean;
   waitIfPaused: () => Promise<void>;
   /** Page state summary for the model / policy. */
@@ -58,14 +64,20 @@ export interface ObserveActLoopOptions {
 /**
  * Run the observe → decide → act → re-observe loop until terminal outcome.
  * Recoverable decide/observe/act failures increment failure budget; success resets it.
+ * Unchanged observations after successful acts count toward no_progress (L1 seal).
  */
 export async function runObserveActLoop(options: ObserveActLoopOptions): Promise<LoopOutcome> {
   const { maxSteps, maxFailures, isStopped, waitIfPaused, observe, decide, act, reobserve, onPhase } = options;
+  const maxNoProgress = options.maxNoProgress === undefined ? 3 : options.maxNoProgress;
+  const noProgressEnabled = maxNoProgress > 0;
 
   let failures = 0;
   const budget = Math.max(1, maxFailures);
   // Successful reobserve feeds the next decide; avoids a redundant observe.
   let carriedState: string | undefined;
+  let noProgressStreak = 0;
+  /** When reobserve is absent, compare the next full observe to this fingerprint. */
+  let pendingNoProgressBefore: string | undefined;
 
   for (let step = 0; step < maxSteps; step++) {
     if (isStopped()) return { kind: 'cancelled' };
@@ -85,6 +97,18 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
         if (failures >= budget) return { kind: 'failed', category: 'observe_failed' };
         continue;
       }
+    }
+
+    if (noProgressEnabled && pendingNoProgressBefore !== undefined) {
+      if (stateText.trim() === pendingNoProgressBefore) {
+        noProgressStreak += 1;
+        if (noProgressStreak >= maxNoProgress) {
+          return { kind: 'failed', category: 'no_progress' };
+        }
+      } else {
+        noProgressStreak = 0;
+      }
+      pendingNoProgressBefore = undefined;
     }
 
     if (isStopped()) return { kind: 'cancelled' };
@@ -118,11 +142,13 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
     }
 
     // action
+    const stateBeforeAct = stateText.trim();
     onPhase?.({ phase: 'act', step, detail: decision.name });
     try {
       const result = await act({ name: decision.name, args: decision.args });
       if (result.error) {
         failures += 1;
+        pendingNoProgressBefore = undefined;
         if (failures >= budget) return { kind: 'failed', category: 'action_failed' };
         continue;
       }
@@ -135,6 +161,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
       }
     } catch {
       failures += 1;
+      pendingNoProgressBefore = undefined;
       if (failures >= budget) return { kind: 'failed', category: 'dispatch_failed' };
       continue;
     }
@@ -143,10 +170,25 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
       try {
         onPhase?.({ phase: 'reobserve', step, detail: 'after_act' });
         carriedState = await reobserve();
+        if (noProgressEnabled) {
+          if ((carriedState ?? '').trim() === stateBeforeAct) {
+            noProgressStreak += 1;
+            if (noProgressStreak >= maxNoProgress) {
+              return { kind: 'failed', category: 'no_progress' };
+            }
+          } else {
+            noProgressStreak = 0;
+          }
+        }
       } catch {
         // Soft failure: next iteration falls back to a full observe.
         carriedState = undefined;
+        if (noProgressEnabled) {
+          pendingNoProgressBefore = stateBeforeAct;
+        }
       }
+    } else if (noProgressEnabled) {
+      pendingNoProgressBefore = stateBeforeAct;
     }
   }
 
