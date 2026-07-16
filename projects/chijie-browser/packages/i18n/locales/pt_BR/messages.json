@@ -1026,60 +1026,153 @@
   "chat_task_header_idle": {
     "message": "Pronto"
   },
-  "chat_task_action_open": { "message": "Abrir página" },
-  "chat_task_action_open_tab": { "message": "Abrir aba" },
-  "chat_task_action_switch_tab": { "message": "Trocar aba" },
-  "chat_task_action_click": { "message": "Clicar no controle da página" },
-  "chat_task_action_input": { "message": "Preencher formulário" },
-  "chat_task_action_keys": { "message": "Usar teclado" },
-  "chat_task_action_media": { "message": "Controlar mídia" },
-  "chat_task_action_scroll": { "message": "Rolar página" },
-  "chat_task_action_wait": { "message": "Aguardar página" },
-  "chat_task_action_done": { "message": "Preparar conclusão" },
-  "chat_task_action_search": { "message": "Pesquisar" },
-  "chat_task_action_back": { "message": "Voltar" },
-  "chat_task_action_read_options": { "message": "Ler opções" },
-  "chat_task_action_select": { "message": "Selecionar opção" },
-  "chat_task_action_generic": { "message": "Executar ação na página" },
-  "chat_task_attempt_pending_approval": { "message": "Pronto para executar (requer aprovação)" },
-  "chat_task_attempt_observed": { "message": "Verificado" },
-  "chat_task_attempt_executing": { "message": "Em execução" },
-  "chat_task_attempt_approved": { "message": "Aprovado" },
-  "chat_task_attempt_proposed": { "message": "Preparando" },
-  "chat_task_attempt_uncertain": { "message": "Resultado requer confirmação" },
-  "chat_task_attempt_blocked": { "message": "Bloqueado" },
-  "chat_task_activity_understanding": { "message": "Lendo a página" },
-  "chat_task_activity_preparing": { "message": "Preparando a próxima ação" },
+  "chat_task_action_open": {
+    "message": "Abrir página"
+  },
+  "chat_task_action_open_tab": {
+    "message": "Abrir aba"
+  },
+  "chat_task_action_switch_tab": {
+    "message": "Trocar aba"
+  },
+  "chat_task_action_click": {
+    "message": "Clicar no controle da página"
+  },
+  "chat_task_action_input": {
+    "message": "Preencher formulário"
+  },
+  "chat_task_action_keys": {
+    "message": "Usar teclado"
+  },
+  "chat_task_action_media": {
+    "message": "Controlar mídia"
+  },
+  "chat_task_action_scroll": {
+    "message": "Rolar página"
+  },
+  "chat_task_action_wait": {
+    "message": "Aguardar página"
+  },
+  "chat_task_action_done": {
+    "message": "Preparar conclusão"
+  },
+  "chat_task_action_search": {
+    "message": "Pesquisar"
+  },
+  "chat_task_action_back": {
+    "message": "Voltar"
+  },
+  "chat_task_action_read_options": {
+    "message": "Ler opções"
+  },
+  "chat_task_action_select": {
+    "message": "Selecionar opção"
+  },
+  "chat_task_action_generic": {
+    "message": "Executar ação na página"
+  },
+  "chat_task_attempt_pending_approval": {
+    "message": "Pronto para executar (requer aprovação)"
+  },
+  "chat_task_attempt_observed": {
+    "message": "Verificado"
+  },
+  "chat_task_attempt_executing": {
+    "message": "Em execução"
+  },
+  "chat_task_attempt_approved": {
+    "message": "Aprovado"
+  },
+  "chat_task_attempt_proposed": {
+    "message": "Preparando"
+  },
+  "chat_task_attempt_uncertain": {
+    "message": "Resultado requer confirmação"
+  },
+  "chat_task_attempt_blocked": {
+    "message": "Bloqueado"
+  },
+  "chat_task_activity_understanding": {
+    "message": "Lendo a página"
+  },
+  "chat_task_activity_preparing": {
+    "message": "Preparando a próxima ação"
+  },
   "chat_task_activity_verified": {
     "message": "$COUNT$ resultados verificados",
-    "placeholders": { "count": { "content": "$1", "example": "2" } }
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "2"
+      }
+    }
   },
-  "chat_task_approval_action_generic": { "message": "Executar uma ação externa" },
-  "chat_task_approval_action_click": { "message": "Executar uma confirmação na página" },
-  "chat_task_approval_field_action": { "message": "Ação" },
-  "chat_task_approval_field_location": { "message": "Local" },
-  "chat_task_approval_field_impact": { "message": "Possível impacto" },
-  "chat_task_approval_field_after": { "message": "Após aprovar" },
+  "chat_task_approval_action_generic": {
+    "message": "Executar uma ação externa"
+  },
+  "chat_task_approval_action_click": {
+    "message": "Executar uma confirmação na página"
+  },
+  "chat_task_approval_field_action": {
+    "message": "Ação"
+  },
+  "chat_task_approval_field_location": {
+    "message": "Local"
+  },
+  "chat_task_approval_field_impact": {
+    "message": "Possível impacto"
+  },
+  "chat_task_approval_field_after": {
+    "message": "Após aprovar"
+  },
   "chat_task_approval_impact_external": {
     "message": "A página terá uma alteração externa que pode não ser reversível automaticamente"
   },
-  "chat_task_approval_after_once": { "message": "Executar apenas esta ação e depois verificar o resultado da página" },
-  "chat_task_approval_once": { "message": "Esta aprovação vale apenas para esta ação." },
-  "chat_task_approval_pending": { "message": "Aprovando…" },
-  "chat_task_reject_pending": { "message": "Voltando…" },
-  "chat_task_evidence_url": { "message": "O endereço da página corresponde ao objetivo" },
-  "chat_task_evidence_text": { "message": "O resultado esperado apareceu na página" },
-  "chat_task_evidence_element": { "message": "O controle da página está no estado esperado" },
-  "chat_task_evidence_media": { "message": "A mídia está no estado esperado" },
-  "chat_task_evidence_user": { "message": "Você confirmou o resultado" },
-  "chat_task_evidence_generic": { "message": "O resultado da página corresponde ao objetivo" },
-  "chat_task_receipt_technical": { "message": "Recibo técnico" },
-  "chat_task_skill_saving": { "message": "Salvando…" },
-  "chat_task_command_stale": { "message": "A tarefa mudou agora e foi atualizada. Continue a partir do estado atual." },
+  "chat_task_approval_after_once": {
+    "message": "Executar apenas esta ação e depois verificar o resultado da página"
+  },
+  "chat_task_approval_once": {
+    "message": "Esta aprovação vale apenas para esta ação."
+  },
+  "chat_task_approval_pending": {
+    "message": "Aprovando…"
+  },
+  "chat_task_reject_pending": {
+    "message": "Voltando…"
+  },
+  "chat_task_evidence_url": {
+    "message": "O endereço da página corresponde ao objetivo"
+  },
+  "chat_task_evidence_text": {
+    "message": "O resultado esperado apareceu na página"
+  },
+  "chat_task_evidence_element": {
+    "message": "O controle da página está no estado esperado"
+  },
+  "chat_task_evidence_media": {
+    "message": "A mídia está no estado esperado"
+  },
+  "chat_task_evidence_user": {
+    "message": "Você confirmou o resultado"
+  },
+  "chat_task_evidence_generic": {
+    "message": "O resultado da página corresponde ao objetivo"
+  },
+  "chat_task_receipt_technical": {
+    "message": "Recibo técnico"
+  },
+  "chat_task_skill_saving": {
+    "message": "Salvando…"
+  },
+  "chat_task_command_stale": {
+    "message": "A tarefa mudou agora e foi atualizada. Continue a partir do estado atual."
+  },
   "chat_task_command_invalid_transition": {
     "message": "Essa ação não está mais disponível. Continue a partir do estado atual."
   },
-  "chat_task_command_not_found": { "message": "A tarefa atual terminou ou não existe mais." },
+  "chat_task_command_not_found": {
+    "message": "A tarefa atual terminou ou não existe mais."
+  },
   "chat_task_command_invalid_input": {
     "message": "Essa ação não tem todas as informações necessárias. Envie a instrução novamente."
   },
@@ -1202,5 +1295,11 @@
   },
   "chat_task_product_fail_other": {
     "message": "Tarefa falhou; tente de novo ou reformule"
+  },
+  "chat_task_wait_continue": {
+    "message": "Já resolvi — continuar"
+  },
+  "chat_task_wait_retry": {
+    "message": "Reverificar a página e continuar"
   }
 }

@@ -84,6 +84,7 @@ export function toProductFailureCode(category: string | undefined | null): Produ
   if (
     c === 'model_loop' ||
     c === 'max_steps' ||
+    c === 'no_progress' ||
     c === 'json_parse_failed' ||
     c === 'llm_failed' ||
     c === 'control_script_exhausted'
