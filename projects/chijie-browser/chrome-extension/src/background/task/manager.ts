@@ -403,7 +403,12 @@ export class TaskManager {
   }
 
   private async followUp(task: TaskSession, command: Extract<TaskCommand, { type: 'follow_up' }>): Promise<CommandAck> {
-    if (!['running', 'paused', 'waiting_user', 'completed'].includes(task.status) || !command.instruction.trim()) {
+    const round = this.currentRound(task);
+    if (
+      !['running', 'paused', 'waiting_user', 'completed'].includes(task.status) ||
+      !command.instruction.trim() ||
+      (task.status === 'waiting_user' && round.waitReason === 'commit_outcome_uncertain')
+    ) {
       return this.reject(task, command.commandId, 'invalid_transition');
     }
     const previousStatus = task.status;
@@ -1148,7 +1153,13 @@ export class TaskManager {
         }
         const currentRound = this.currentRound(current);
         currentRound.evidence.push(...checked.evidence);
-        if (checked.passed) {
+        // Optional-only criteria must not mint a verified receipt (sticky false complete).
+        if (
+          allowsVerifiedComplete({
+            completionPassed: checked.passed,
+            hasRequiredCriteria: currentRound.criteria.some(criterion => criterion.required),
+          })
+        ) {
           await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
           return;
         }
