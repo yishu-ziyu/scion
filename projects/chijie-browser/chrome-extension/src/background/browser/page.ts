@@ -60,6 +60,17 @@ interface MediaCandidate {
   targetDigest: string;
 }
 
+function bilibiliVideoId(href: string, baseUrl: string): string | null {
+  try {
+    const url = new URL(href, baseUrl);
+    const host = url.hostname.toLowerCase();
+    if (host !== 'bilibili.com' && !host.endsWith('.bilibili.com')) return null;
+    return url.pathname.match(/^\/video\/((?:BV[0-9A-Za-z]+)|(?:av\d+))(?:\/|$)/i)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function build_initial_state(tabId?: number, url?: string, title?: string): PageState {
   return {
     elementTree: new DOMElementNode({
@@ -1115,6 +1126,10 @@ export default class Page {
         }
       }
 
+      if (!elementHandle) {
+        elementHandle = await this.locateBilibiliVideoAnchor(currentFrame, element);
+      }
+
       // If element found, check visibility and scroll into view
       if (elementHandle) {
         const isHidden = await elementHandle.isHidden();
@@ -1130,6 +1145,31 @@ export default class Page {
     }
 
     return null;
+  }
+
+  private async locateBilibiliVideoAnchor(
+    frame: PuppeteerPage | Frame,
+    element: DOMElementNode,
+  ): Promise<ElementHandle | null> {
+    if (element.tagName?.toLowerCase() !== 'a') return null;
+    const observedHref = element.attributes.href?.trim();
+    if (!observedHref) return null;
+    const expectedVideoId = bilibiliVideoId(observedHref, this.url());
+    if (!expectedVideoId) return null;
+
+    const candidates = await frame.$$(`a[href*="/video/${expectedVideoId}"]`);
+    let match: ElementHandle | null = null;
+    for (const candidate of candidates) {
+      const liveHref = await candidate.evaluate(anchor =>
+        anchor instanceof HTMLAnchorElement && anchor.isConnected ? anchor.href : null,
+      );
+      if (!match && liveHref && bilibiliVideoId(liveHref, this.url()) === expectedVideoId) {
+        match = candidate;
+      } else {
+        await candidate.dispose();
+      }
+    }
+    return match;
   }
 
   async inputTextElementNode(useVision: boolean, elementNode: DOMElementNode, text: string): Promise<void> {
