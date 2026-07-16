@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>持节 × Tabbit｜产品差距与缩差顺序</title>
+    <style>
+      :root {
+        --bg: #f5f7f5;
+        --ink: #16231f;
+        --muted: #6b7772;
+        --accent: #176c52;
+        --accent-strong: #125842;
+        --accent-soft: #e6f2ed;
+        --surface: #ffffff;
+        --surface-raised: #f2f5f1;
+        --border: #dbe1dc;
+        --border-strong: #b8c3bc;
+        --warning: #93641a;
+        --warning-soft: #fff6e5;
+        --danger: #b63f38;
+        --danger-soft: #fbecea;
+        --tabbit: #ef7d32;
+        --tabbit-soft: #fff2e8;
+        --radius-sm: 6px;
+        --radius-md: 10px;
+        --radius-lg: 16px;
+        --radius-xl: 24px;
+        --mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        --sans: "Space Grotesk", "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color-scheme: light;
+      }
+
+      *, *::before, *::after { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 15% -10%, rgba(23, 108, 82, 0.09), transparent 34rem),
+          radial-gradient(circle at 90% 8%, rgba(239, 125, 50, 0.08), transparent 30rem),
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        line-height: 1.55;
+      }
+      a { color: var(--accent-strong); text-underline-offset: 3px; }
+      img { display: block; max-width: 100%; height: auto; }
+      button, a { -webkit-tap-highlight-color: transparent; }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+      .page { width: min(1220px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0 72px; }
+      .eyebrow {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: .1em;
+        text-transform: uppercase;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(260px, .6fr);
+        gap: 28px;
+        align-items: end;
+        padding: 44px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        background: rgba(255,255,255,.88);
+      }
+      h1 { max-width: 850px; margin: 0; padding-block: 4px; font-size: clamp(36px, 5.2vw, 72px); line-height: 1.08; letter-spacing: -.045em; }
+      .hero p { max-width: 760px; margin: 24px 0 0; color: var(--muted); font-size: clamp(16px, 1.7vw, 21px); }
+      .verdict {
+        padding: 22px;
+        border: 1px solid #a9c7bb;
+        border-radius: var(--radius-lg);
+        background: var(--accent-soft);
+      }
+      .verdict strong { display: block; margin-bottom: 8px; color: var(--accent-strong); font-size: 18px; }
+      .verdict span { color: #34584d; font-size: 14px; }
+
+      .section { margin-top: 54px; }
+      .section-head { display: flex; justify-content: space-between; align-items: end; gap: 28px; margin-bottom: 18px; }
+      h2 { margin: 0; padding-block: 2px; font-size: clamp(25px, 3vw, 40px); line-height: 1.2; letter-spacing: -.025em; }
+      .section-note { max-width: 560px; margin: 0; color: var(--muted); font-size: 14px; }
+
+      .compare {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+      .product-card { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--surface); }
+      .product-card.current { border-color: #a9c7bb; }
+      .product-card.target { border-color: #f0bf9b; }
+      .product-image { aspect-ratio: 16 / 9; overflow: hidden; background: var(--surface-raised); border-bottom: 1px solid var(--border); }
+      .product-image img { width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+      .product-body { padding: 24px; }
+      .tag { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 999px; font: 700 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+      .tag::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+      .tag.current { color: var(--accent-strong); background: var(--accent-soft); }
+      .tag.target { color: #ad5119; background: var(--tabbit-soft); }
+      .product-body h3 { margin: 16px 0 8px; font-size: 24px; letter-spacing: -.025em; }
+      .product-body p { margin: 0; color: var(--muted); }
+      .proof-list { display: grid; gap: 10px; margin: 20px 0 0; padding: 0; list-style: none; }
+      .proof-list li { display: grid; grid-template-columns: 20px minmax(0,1fr); gap: 9px; color: #3f514b; font-size: 14px; }
+      .proof-list li::before { content: "✓"; color: var(--accent); font-weight: 800; }
+      .target .proof-list li::before { color: var(--tabbit); }
+
+      .truth {
+        display: grid;
+        grid-template-columns: minmax(0, .35fr) minmax(0, .65fr);
+        gap: 18px;
+        margin-top: 18px;
+      }
+      .truth-card { padding: 24px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+      .truth-card strong { display: block; margin-bottom: 8px; font-size: 20px; }
+      .truth-card p { margin: 0; color: var(--muted); }
+      .truth-card.danger { border-color: #e8c98f; background: var(--warning-soft); }
+      .truth-card.danger strong { color: var(--warning); }
+
+      .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--surface); }
+      table { width: 100%; border-collapse: collapse; min-width: 920px; }
+      th, td { padding: 17px 18px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+      th { position: sticky; top: 0; background: var(--surface-raised); color: var(--muted); font: 700 10px/1.25 var(--mono); letter-spacing: .07em; text-transform: uppercase; }
+      tbody tr:last-child td { border-bottom: 0; }
+      tbody tr:hover { background: #fafcfb; }
+      td:first-child { width: 132px; font-weight: 720; }
+      .status { display: inline-flex; margin-bottom: 6px; padding: 4px 8px; border-radius: 999px; font: 700 10px/1 var(--mono); letter-spacing: .05em; }
+      .status.critical { color: var(--danger); background: var(--danger-soft); }
+      .status.high { color: var(--warning); background: var(--warning-soft); }
+      .status.medium { color: var(--accent-strong); background: var(--accent-soft); }
+      .cell-note { display: block; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+      .roadmap { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; counter-reset: phase; }
+      .phase { counter-increment: phase; min-height: 250px; padding: 22px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+      .phase::before { content: "0" counter(phase); display: block; margin-bottom: 26px; color: var(--muted); font: 700 12px/1 var(--mono); }
+      .phase.now { border-color: var(--accent); background: var(--accent-soft); }
+      .phase.now::before { color: var(--accent-strong); }
+      .phase h3 { margin: 0 0 10px; font-size: 20px; line-height: 1.2; }
+      .phase p { margin: 0; color: var(--muted); font-size: 14px; }
+      .phase .outcome { display: block; margin-top: 22px; padding-top: 14px; border-top: 1px solid rgba(107,119,114,.22); color: var(--ink); font-size: 13px; font-weight: 650; }
+
+      .internal {
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr);
+        gap: 15px;
+        align-items: start;
+        margin-top: 18px;
+        padding: 20px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-lg);
+        background: var(--surface-raised);
+      }
+      .internal .mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: white; font: 700 14px/1 var(--mono); }
+      .internal strong { display: block; margin-bottom: 4px; }
+      .internal p { margin: 0; color: var(--muted); font-size: 14px; }
+
+      .sources { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+      .source { padding: 9px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; text-decoration: none; }
+      .source:hover { border-color: var(--accent); color: var(--accent-strong); }
+      footer { margin-top: 52px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+
+      @media (max-width: 900px) {
+        .hero, .compare, .truth { grid-template-columns: 1fr; }
+        .roadmap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .hero { padding: 28px; }
+        .section-head { display: block; }
+        .section-note { margin-top: 10px; }
+      }
+      @media (max-width: 560px) {
+        .page { width: min(100% - 20px, 1220px); padding-top: 10px; }
+        .hero { padding: 22px; border-radius: var(--radius-lg); }
+        .roadmap { grid-template-columns: 1fr; }
+        .phase { min-height: auto; }
+        .product-body { padding: 18px; }
+      }
+      @media print {
+        body { background: #fff; }
+        .page { width: 100%; padding: 0; }
+        .hero, .product-card, .table-wrap, .phase { break-inside: avoid; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">P0 / Product gap baseline / 2026-07-15</p>
+          <h1>插件就是最终形态，<br />能力要追到 Tabbit。</h1>
+          <p>持节已经有可信任务环的骨架。我们不重写浏览器，而是深度复用 Chrome，把插件做成能承接复杂工作的完整入口。</p>
+        </div>
+        <aside class="verdict">
+          <strong>当前判断</strong>
+          <span>最大差距：真实复杂任务的广度与稳定性。浏览器外壳不是路线；插件的能力、上下文、结果与复用才是。</span>
+        </aside>
+      </header>
+
+      <section class="section" aria-labelledby="compare-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Current vs target</p>
+            <h2 id="compare-title">今天的持节，与真正的 Tabbit</h2>
+          </div>
+          <p class="section-note">这不是要把持节改造成 Tabbit。我们只借它校准能力与体验，然后用插件完成同等级的用户工作。</p>
+        </div>
+
+        <div class="compare">
+          <article class="product-card current">
+            <div class="product-image"><img src="./chijie-sidepanel-task-main.png" alt="持节当前任务侧栏界面" /></div>
+            <div class="product-body">
+              <span class="tag current">持节 · 现在</span>
+              <h3>可验证任务插件</h3>
+              <p>在日常 Chrome 登录态里运行。强项是审批、步骤和页面证据；弱项是任务面、上下文和工作成果仍窄。</p>
+              <ul class="proof-list">
+                <li>任务、跟进、暂停/恢复、回执已有真实实现</li>
+                <li>外部提交可在执行前停住，批准后单次执行</li>
+                <li>fixture 已绿，真实飞书与 B 站仍缺正式证据</li>
+              </ul>
+            </div>
+          </article>
+
+          <article class="product-card target">
+            <div class="product-image"><img src="./tabbit-hero.png" alt="Tabbit 官方原生浏览器界面" /></div>
+            <div class="product-body target">
+              <span class="tag target">Tabbit · 标杆</span>
+              <h3>能力与体验标杆</h3>
+              <p>一个入口连接 URL、搜索、对话、任务和 Skill，并把标签、收藏、文件、选区与截图直接变成 Agent 上下文。</p>
+              <ul class="proof-list">
+                <li>完整浏览器客户端，覆盖 Windows 与 macOS</li>
+                <li>公开展示跨网页任务、研究、填表和工作流</li>
+                <li>Skill、记忆、全文收藏与多模型成为产品柱</li>
+              </ul>
+            </div>
+          </article>
+        </div>
+
+        <div class="truth">
+          <article class="truth-card danger">
+            <strong>不能说的</strong>
+            <p>“持节已经对齐 Tabbit。”我们只有少量固定旅程和 fixture 证据，真实工作面远远不够。</p>
+          </article>
+          <article class="truth-card">
+            <strong>可以诚实说的</strong>
+            <p>持节已经把最难伪装的部分搭起来了：它不能只靠模型说 done，提交前要审批，完成后要给页面证据。这是成为可信 Agent 的骨架。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="gap-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Gap ledger</p>
+            <h2 id="gap-title">差距按用户价值排序</h2>
+          </div>
+          <p class="section-note">形态已经锁定为插件。下面只比较能力差距，以及插件怎样把这些差距补回来。</p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>维度</th><th>Tabbit</th><th>持节</th><th>差距判断</th><th>下一项证据</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>真实复杂任务</td>
+                <td>跨网页、填表、研究、整理与工作流；官方案例页列出 39 类案例</td>
+                <td>任务环已成形，正式证据仍集中在 fixture 与少量切片</td>
+                <td><span class="status critical">关键</span><span class="cell-note">能力面与真实成功证据都太窄</span></td>
+                <td>真实飞书填写—审批—单次提交；随后跑多源读取到结果交付</td>
+              </tr>
+              <tr>
+                <td>可信执行</td>
+                <td>官方披露 Agent 任务成功率 91.8%，但协议不可审计</td>
+                <td>fixture 已验证；真实站未正式验收，动态页面还有旧目标风险</td>
+                <td><span class="status critical">关键</span><span class="cell-note">暂时不能说“真实工作可托付”</span></td>
+                <td>真实站页面证据 + 动作强绑定最新页面 + 0 假完成</td>
+              </tr>
+              <tr>
+                <td>浏览器上下文</td>
+                <td>标签、标签组、收藏、本地文件、选中文字和截图都可引用</td>
+                <td>主要围绕当前页 DOM/视觉；多标签存在但还不是产品上下文</td>
+                <td><span class="status high">高</span><span class="cell-note">无法把“我正在看的全部材料”交给它</span></td>
+                <td>最小上下文托盘：当前标签组 + 文件 + 选区</td>
+              </tr>
+              <tr>
+                <td>结果交付</td>
+                <td>研究和操作可沉淀进文档或工作流</td>
+                <td>回执更像运行证明，不是用户可直接使用的成果</td>
+                <td><span class="status high">高</span><span class="cell-note">会操作网页，不等于交付工作</span></td>
+                <td>结构化结果页 + Markdown/PDF；外部写入仍需一次批准</td>
+              </tr>
+              <tr>
+                <td>复用与记忆</td>
+                <td>保存为妙招、记忆、全文收藏</td>
+                <td>本地 Skill 代码存在；跨会话记忆和知识入口未做</td>
+                <td><span class="status high">高</span><span class="cell-note">每次仍近似从零开始</span></td>
+                <td>真实成功任务保存并重跑；再做可见、可删、可控记忆</td>
+              </tr>
+              <tr>
+                <td>插件完整度</td>
+                <td>统一入口承接搜索、对话、任务与上下文</td>
+                <td>侧栏已有任务面；上下文、结果和 Skill 仍分散</td>
+                <td><span class="status high">高</span><span class="cell-note">插件还不是完整工作入口</span></td>
+                <td>侧栏统一任务、材料、进度、结果与复用；直接调用 Chrome 标签和收藏</td>
+              </tr>
+              <tr>
+                <td>模型与生态</td>
+                <td>多模型切换、对比与 Skill 生态</td>
+                <td>MiniMax-M3 单主模型，无货架与市场</td>
+                <td><span class="status medium">中</span><span class="cell-note">现在不是价值瓶颈</span></td>
+                <td>任务与上下文成熟后再判断，不用功能数量追赶</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="roadmap-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Convergence order</p>
+            <h2 id="roadmap-title">缩差顺序已经定了</h2>
+          </div>
+          <p class="section-note">先证明价值，再扩大材料，再积累复用，最后改变产品形态。</p>
+        </div>
+
+        <div class="roadmap">
+          <article class="phase now">
+            <h3>把真实网页工作做到可托付</h3>
+            <p>先关飞书真实旅程，同时补动态页面动作强绑定。不是追求演示，而是证明不会误点、不会假完成。</p>
+            <span class="outcome">用户结果：填写正确、批准一次、只提交一次、看到成功</span>
+          </article>
+          <article class="phase">
+            <h3>从网页操作升级到成果交付</h3>
+            <p>读取多个公开来源，整理重点，输出结构化文件；或在批准后写入目标网站。</p>
+            <span class="outcome">用户结果：拿到能直接使用的结果，而不是一串执行日志</span>
+          </article>
+          <article class="phase">
+            <h3>扩大上下文，让成功可以复用</h3>
+            <p>标签组、文件、选区进入同一 Task；成功任务保存为 Skill，再加入可控记忆。</p>
+            <span class="outcome">用户结果：它知道材料，也不必每次从零教</span>
+          </article>
+          <article class="phase">
+            <h3>让插件成为完整工作入口</h3>
+            <p>统一任务、材料、进度、结果与 Skill，并深度使用 Chrome 已有标签、收藏、下载和登录态。</p>
+            <span class="outcome">用户结果：不用换浏览器，也能把复杂工作交给 Agent</span>
+          </article>
+        </div>
+
+        <div class="internal">
+          <span class="mark">!</span>
+          <div>
+            <strong>评测只在团队内部</strong>
+            <p>“从公开账号读取内容 → 判断重要性 → 写飞书或生成 PDF/邮件”是用来检验整条链路的任务，不是要做成产品里的一个按钮。产品能力只有一句话：把复杂网页工作交给它，并收到结果。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="sources-title">
+        <p class="eyebrow">Evidence</p>
+        <h2 id="sources-title">公开来源</h2>
+        <div class="sources">
+          <a class="source" href="https://www.tabbit.com/" target="_blank" rel="noreferrer">Tabbit 官方产品页</a>
+          <a class="source" href="https://www.tabbit.com/guide/usage" target="_blank" rel="noreferrer">Tabbit 官方入门指南</a>
+          <a class="source" href="https://www.tabbit.com/use-cases" target="_blank" rel="noreferrer">Tabbit 官方案例页</a>
+          <a class="source" href="https://www.meituan.com/news/NN260612179003187" target="_blank" rel="noreferrer">美团新闻 · Tabbit 1.0</a>
+        </div>
+      </section>
+
+      <footer>
+        设计来源：持节现有 calm task console 设计系统（暖白、墨绿、无阴影、状态色克制）。Tabbit 图片只用于能力与体验标杆说明，来自其官方产品页。详细可审计台账见 docs/product/009-tabbit-gap-ledger.md。
+      </footer>
+    </main>
+  </body>
+</html>
