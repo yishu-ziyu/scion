@@ -25,5 +25,16 @@ export async function build(i18nPath) {
   rimraf.sync(localePath);
   fs.cpSync(path.resolve('locales'), localePath, { recursive: true });
 
-  console.log('I18n build complete');
+  // 持节: Chrome still resolves __MSG_*__ via browser language.
+  // Ship en (and other non-zh packs) as zh_CN so English Chrome UI still shows Chinese.
+  const zhCnMessages = path.resolve('locales', 'zh_CN', 'messages.json');
+  for (const locale of fs.readdirSync(localePath)) {
+    if (locale === 'zh_CN' || locale === 'zh_TW') continue;
+    const target = path.resolve(localePath, locale, 'messages.json');
+    if (fs.existsSync(target)) {
+      fs.copyFileSync(zhCnMessages, target);
+    }
+  }
+
+  console.log('I18n build complete (product UI locked to zh_CN)');
 }

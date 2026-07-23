@@ -216,6 +216,19 @@ export const selectDropdownOptionActionSchema: ActionSchema = {
   }),
 };
 
+export const saveScreenshotActionSchema: ActionSchema = {
+  name: 'save_screenshot',
+  description:
+    'Capture the current page viewport as a JPEG and save it to the browser Downloads folder. Use when the user asks to screenshot / 截图 / save image to downloads. Do not click OS or browser chrome download UI.',
+  schema: z.object({
+    intent: z.string().default('').describe('purpose of this action'),
+    filename: z
+      .string()
+      .optional()
+      .describe('optional download file name ending in .jpg; invalid characters are stripped'),
+  }),
+};
+
 export const waitActionSchema: ActionSchema = {
   name: 'wait',
   description: 'Wait for x seconds default 3, do NOT use this action unless user asks to wait explicitly',

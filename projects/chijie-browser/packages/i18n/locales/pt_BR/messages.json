@@ -1301,5 +1301,33 @@
   },
   "chat_task_wait_retry": {
     "message": "Reverificar a página e continuar"
+  },
+  "act_saveScreenshot_start": {
+    "message": "Capturando a página e salvando em Downloads"
+  },
+  "act_saveScreenshot_ok": {
+    "message": "Captura salva em Downloads: $FILENAME$ (id $ID$)",
+    "placeholders": {
+      "filename": {
+        "content": "$1",
+        "example": "chijie-page.jpg"
+      },
+      "id": {
+        "content": "$2",
+        "example": "12"
+      }
+    }
+  },
+  "act_saveScreenshot_failed": {
+    "message": "Falha ao salvar captura: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "permission denied"
+      }
+    }
+  },
+  "chat_task_action_screenshot": {
+    "message": "Salvar captura"
   }
 }
