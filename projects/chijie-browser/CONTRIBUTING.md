@@ -1,36 +1,25 @@
-# Contributing to NanoBrowser
+# Contributing to 持节 (this graft)
 
-We deeply appreciate your interest in contributing to NanoBrowser! Every contribution helps make Nanobrowser more powerful and accessible for everyone.
+This directory is a **personal product graft** inside [scion](https://github.com/yishu-ziyu/scion), not the public Nanobrowser community repo.
 
-## Quick Start
+## For work on 持节
 
-1. Fork and clone the repository
-2. Create a new branch (`git checkout -b feature-name`)
-3. Make your changes
-4. Submit a Pull Request
+1. Edit only under `projects/chijie-browser/` (this folder).
+2. Commit from the **scion root**.
+3. Follow [ENGINEERING.md](../../ENGINEERING.md) and [AGENTS.md](./AGENTS.md).
+4. Map product changes to a gate or numbered doc under `docs/` when behavior changes.
 
-## How Can I Contribute?
+```bash
+pnpm install
+pnpm build
+pnpm -F chrome-extension test
+```
 
-### Reporting Bugs
-- Search existing issues first
-- Include:
-  - Clear description
-  - Steps to reproduce
-  - Environment details (OS, browser version)
-  - Screenshots if applicable
+## Upstream Nanobrowser
 
-### Suggesting Enhancements
-- Open an issue with a clear title and detailed description
-- Explain why this enhancement would be useful
-
-### Code Contributions
-1. Follow the existing code style
-2. Write clear commit messages in present tense ("Add feature" not "Added feature")
-3. Test your changes thoroughly
-4. Update documentation if needed
-5. Create a Pull Request with a clear description
-6. Be responsive to feedback and address review comments promptly
+Contributions intended for upstream Nanobrowser should go to  
+https://github.com/nanobrowser/nanobrowser — not this lab remote.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the project's license terms.
+Upstream LICENSE terms for this graft are in [LICENSE](./LICENSE).
