@@ -1,13 +1,13 @@
-# HANDOVER: scion / Nanobrowser personal fork
+# HANDOVER: scion / 持节 ops continuity
 
 **Audience:** Codex (or any agent) continuing development on this machine.  
 **Owner:** yishu-ziyu  
-**Date:** 2026-07-14 (single-tree merge)  
+**Date:** 2026-07-14 (single-tree merge); hygiene pass 2026-07-23  
 **Status:** MiniMax-M3 personal fork is usable on main Chrome; **one code tree only** (dual-tree retired). multi-step Navigator E2E passed with known flaky mid-parse; extension-tab target isolation closed through attach-time regression review.
 
-Read this file first.
-Then skim `reports/nanobrowser/2026-07-13-minimax-e2e-cdp.md`.
-Do not invent a second empty Chrome profile for Nanobrowser tests.
+**Day-to-day entry:** [README.md](./README.md) + [ENGINEERING.md](./ENGINEERING.md) + [AGENTS.md](./AGENTS.md).  
+This file is the **long ops narrative** (inject, CDP, log capture, historical E2E). Do not invent a second empty Chrome profile for 持节 tests.
+Then skim `reports/nanobrowser/2026-07-13-minimax-e2e-cdp.md` when debugging CDP.
 
 ---
 

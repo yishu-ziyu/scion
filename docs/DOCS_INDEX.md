@@ -1,6 +1,7 @@
 # Documentation Index
 
-> Prefer hand-maintained rows when ship generator is absent. Entry: [docs/README.md](docs/README.md).
+> Prefer hand-maintained rows when ship generator is absent. Entry: [docs/README.md](docs/README.md).  
+> Engineering hygiene (not numbered): [ENGINEERING.md](../ENGINEERING.md).
 
 | Category | # | Status | Name | Description | Last Modified | Path |
 |----------|---|--------|------|-------------|---------------|------|

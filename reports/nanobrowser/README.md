@@ -1,4 +1,6 @@
-# Nanobrowser 二开报告索引
+# 持节 / Chijie — 运行报告索引
+
+> Folder slug `nanobrowser` is historical; product name is **持节**.
 
 Upstream: https://github.com/nanobrowser/nanobrowser  
 Local path (dev): `projects/chijie-browser`  
