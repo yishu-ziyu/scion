@@ -1,6 +1,9 @@
 # scion 文档规范（开发驱动入口）
 
-所有浏览器行动 Agent 的实现、验收、换核，**以本目录文档为准**。聊天记忆与临时方案不得覆盖本文。
+所有 **持节** 浏览器行动 Agent 的实现、验收、换核，**以本目录文档为准**。聊天记忆与临时方案不得覆盖本文。
+
+工程卫生与 monorepo 入口：仓库根 [ENGINEERING.md](../ENGINEERING.md)、[README.md](../README.md)。  
+上游 Nanobrowser 营销文归档： [upstream/nanobrowser/](upstream/nanobrowser/)。
 
 ## 阅读顺序（新人 / 新会话）
 

@@ -1,12 +1,13 @@
 # scion — lab rules for agents
 
-Personal second-dev lab (接穗). Upstream is the rootstock; this repo holds grafts.
+Personal second-dev lab (接穗) for **持节 / Chijie**. Upstream is the rootstock; this repo holds grafts.
 Maintainer: yishu-ziyu · remote: `origin` → https://github.com/yishu-ziyu/scion.git
 
 Deeper `projects/<name>/AGENTS.md` wins for work inside that tree.
 Global `~/.grok/AGENTS.md` still applies for communication and safety.
 
-**Read first for Nanobrowser runtime continuity:** [HANDOVER.md](./HANDOVER.md)
+**Engineering hygiene (clean bar):** [ENGINEERING.md](./ENGINEERING.md)
+**Read for runtime continuity (CDP / inject / E2E):** [HANDOVER.md](./HANDOVER.md)
 **Product vocabulary:** [CONTEXT.md](./CONTEXT.md)
 **Docs drive development:** [docs/README.md](./docs/README.md) → [docs/product/003-north-star.md](./docs/product/003-north-star.md) → [docs/product/004-docs-driven-dev.md](./docs/product/004-docs-driven-dev.md)
 **Doc index:** [docs/DOCS_INDEX.md](./docs/DOCS_INDEX.md)
@@ -30,7 +31,7 @@ Global `~/.grok/AGENTS.md` still applies for communication and safety.
 | `CONTEXT.md` | Shared product language (browser action agent, Task, Skill…) |
 | `HANDOVER.md` | Live ops for Nanobrowser (single tree) + MiniMax + CDP |
 
-Active project: **nanobrowser** under `projects/chijie-browser/`.
+Active project: **持节 (chijie-browser)** under `projects/chijie-browser/` (Nanobrowser graft).
 
 ---
 
@@ -77,12 +78,12 @@ Old dual-tree backup (read-only, can delete later): `~/projects/chijie-browser.b
 
 ```text
 scion/
-  AGENTS.md              # this file
+  README.md / ENGINEERING.md / AGENTS.md
   CONTEXT.md             # product terms
-  HANDOVER.md            # nanobrowser ops handover
-  docs/                  # decisions + design
-  projects/chijie-browser/  # code graft (see its AGENTS.md)
-  reports/nanobrowser/   # E2E + ops notes
+  HANDOVER.md            # long ops (CDP, inject, E2E)
+  docs/                  # product + design + decisions + upstream archive
+  projects/chijie-browser/  # 持节 extension monorepo
+  reports/nanobrowser/   # E2E + ops notes (historical folder name)
 ```
 
 ---
