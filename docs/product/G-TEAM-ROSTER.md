@@ -7,6 +7,21 @@ workspace: "workspace:9"
 
 # G-Team 名册与互通（持节 / scion）
 
+## 六席名册（2026-07-16 扩编 · 握手完成）
+
+| 代号 | 角色 | surface（当时） | 写 | 禁 |
+|------|------|-----------------|----|----|
+| G1 | 主裁 Intent | surface:63 | 问题/优先级/调度/派工 | 大段业务码 |
+| G2 | 规格 Spec | surface:66 | 合同/语义/验收 | 写业务实现；指挥他人 |
+| G3 | 实现 Build | surface:65 | 冻结合同内代码+测 | 改合同；自验自过 |
+| G4 | 证伪 Prove | surface:64 | 证据/exit/检查表 | 改实现冒充 PASS |
+| G5 | 运维 Deploy | surface:75 | 测环境/端口/compose/配置归属/联调清单 | 写业务逻辑 |
+| G6 | 体验 Experience | surface:74 | 用户路径/质感/截图验收 | 大改架构不经 G1 |
+
+- workspace 改名：`六席 · Intent→Ship`
+- 握手 READY：G2 / G3 / G4 / G5 / G6 均已回执
+
+
 ## 硬边界
 
 | 想当然 | 实际 |
