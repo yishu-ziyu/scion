@@ -56,24 +56,39 @@ Reference experience: Tabbit task mode (e.g. “open YouTube” → real YouTube
 
 Harder journeys (Feishu submit with approval, Bilibili pause binding) are longer instances of the same loop, not a different product.
 
+## Phase discipline (owner 2026-07-23)
+
+**Walk before dance.** Full doctrine: `docs/product/011-browser-agent-parity-first.md`.
+
+1. **Phase 1 — Browser Agent Parity:** reliable browser operation only. Compete on Task Success Rate against Sider Claw / browser-use / Operator-class products. Engineering cores: **Browser Understanding**, **Browser Action**, **Agent Loop** (observe → reason → act → re-observe).
+2. **Phase 2 — Differentiation:** Preference / Workflow / Procedural memory and the usage flywheel. **Not now.**
+3. **Memory:** implement **later**; keep a stable **Memory Interface** (no-op or thin local sink) so the task loop does not hard-wire storage. No knowledge graph in Phase 1.
+
+Version compress: **v0.1** Browser Agent → **v0.2** Reliable (retry, recovery, eval, benchmark) → **v0.3** Personal memory → **v1.0** Personal Browser OS. Current work = v0.1–v0.2 only.
+
 ## Delivery order (MVP slices)
 
 1. **Slice A (minimum green):** Tabbit-class “open YouTube” — task mode → real navigation → human-readable steps → verified done (optional success/partial/fail feedback).
-2. **Same core, next:** Feishu form + external-commit approval (simplified G3) and/or Bilibili pause binding (simplified G4).
-3. Not a second product line: one agent loop and shell; only task difficulty grows.
+2. **Same core, next:** Feishu form + external-commit approval (simplified G3) and/or Bilibili pause binding (simplified G4); active-tab binding must match the page the user sees.
+3. Not a second product line: one agent loop and shell; only task difficulty grows. No platform stack before parity.
 
-## In scope this cycle (MVP)
+## In scope this cycle (MVP / Phase 1)
 
 - Task mode in the extension side panel
+- Browser understanding + action + agent loop
 - Human-readable execution steps
 - Verified completion (and optional success / partial / fail feedback)
+- Task Success Rate logging / evaluation hooks
 - Chrome extension shell on daily Chrome
 - Official scoring / default agent model: **MiniMax-M3** (mid-tier)
+- Memory **interface** stub only (stable contract, empty or thin)
 
 ## Out of scope this cycle
 
 - Skill marketplace / 妙招广场
-- Cross-conversation memory (product intent later; not this cycle)
+- Preference / Workflow / Procedural memory **product** (Phase 2)
+- Personal knowledge graph / episodic store as a ship goal
+- Agent platform layers that do not raise Task Success Rate this cycle
 - Full custom browser (permanent non-goal unless Owner explicitly changes product direction)
 - Desktop pet / 桌宠
 - Smart tab grouping as a product pillar
@@ -81,7 +96,7 @@ Harder journeys (Feishu submit with approval, Bilibili pause binding) are longer
 
 ## Later intent (not scheduled)
 
-- **Cross-conversation memory:** remember user preferences and facts across tasks/sessions so replies stay consistent. Parked after MVP agent task loop is green; do not block slice A–C.
+- **Memory flywheel:** preference + workflow + procedural skills after Phase 1 reliability is proven. Parked; do not block v0.1–v0.2.
 
 ## Shell vs core
 

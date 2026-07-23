@@ -7,9 +7,10 @@ Deeper `projects/<name>/AGENTS.md` wins for work inside that tree.
 Global `~/.grok/AGENTS.md` still applies for communication and safety.
 
 **Engineering hygiene (clean bar):** [ENGINEERING.md](./ENGINEERING.md)
+**Phase discipline (parity first):** [docs/product/011-browser-agent-parity-first.md](./docs/product/011-browser-agent-parity-first.md)
 **Read for runtime continuity (CDP / inject / E2E):** [HANDOVER.md](./HANDOVER.md)
 **Product vocabulary:** [CONTEXT.md](./CONTEXT.md)
-**Docs drive development:** [docs/README.md](./docs/README.md) → [docs/product/003-north-star.md](./docs/product/003-north-star.md) → [docs/product/004-docs-driven-dev.md](./docs/product/004-docs-driven-dev.md)
+**Docs drive development:** [docs/README.md](./docs/README.md) → [011](./docs/product/011-browser-agent-parity-first.md) → [003](./docs/product/003-north-star.md) → [004](./docs/product/004-docs-driven-dev.md)
 **Doc index:** [docs/DOCS_INDEX.md](./docs/DOCS_INDEX.md)
 
 ### Docs-driven rule (hard)

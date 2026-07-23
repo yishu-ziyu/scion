@@ -5,11 +5,21 @@ category: "product"
 number: "003"
 status: current
 services: ["projects/chijie-browser"]
-related: ["product/001", "product/002", "decisions/001", "decisions/002"]
-last_modified: "2026-07-15"
+related: ["product/001", "product/002", "product/011", "decisions/001", "decisions/002"]
+last_modified: "2026-07-23"
 ---
 
 # 003 — 北极星（唯一最终目标）
+
+## 当前阶段（读这个再开工）
+
+**Phase 1 = Browser Agent Parity（先会走路）。**  
+阶段纪律与版本压缩见 **`product/011`**。  
+主指标：固定任务集上的 **Task Success Rate**。  
+工程三核：Browser Understanding / Browser Action / Agent Loop。  
+Memory 与飞轮属 Phase 2：只预留接口，不实现。
+
+终局标尺（Tabbit 91.8% / 70%）仍有效，但 **禁止** 在 Phase 1 未可靠前用终局架构图替代任务成功率。
 
 ## 一句话
 
