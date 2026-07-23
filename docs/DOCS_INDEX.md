@@ -5,6 +5,8 @@
 
 | Category | # | Status | Name | Description | Last Modified | Path |
 |----------|---|--------|------|-------------|---------------|------|
+| product | 012 | current | Phase 1 执行计划与人机闸门 | 持续推进切片；仅 H1–H4 请 Owner 真机体验。 | 2026-07-23 | [012](docs/product/012-phase1-execution-plan.md) |
+| product | 011 | current | 先对标再差异：Browser Agent Parity 优先 | Phase 1 只做可靠浏览器操作；TSR 主指标；三核；记忆只预留接口。 | 2026-07-23 | [011](docs/product/011-browser-agent-parity-first.md) |
 | product | 010 | current | 三层 Loop × G1–G4 × cmux 协议 | Ng 三层环 + Matt 工程法 + 四窗人格；复杂任务先封 L1。 | 2026-07-16 | [010](docs/product/010-three-loop-g1-g4-protocol.md) |
 | product | 009 | current | Tabbit 差距台账与缩差顺序 | 插件为最终形态；对标 Tabbit 的能力与体验，持续记录差距、顺序与证据。 | 2026-07-15 | [009](docs/product/009-tabbit-gap-ledger.md) |
 | design | 004 | current | 持节安静任务控制台（侧栏三态视觉与动效） | 浅色任务优先侧栏；运行中、等待批准、已验证三态；动效、数据契约与可视验收。 | 2026-07-15 | [004](docs/design/004-chijie-calm-task-console.md) |

@@ -8,16 +8,17 @@
 ## 阅读顺序（新人 / 新会话）
 
 ```text
-1. product/003-north-star.md     ← 唯一最终目标 + 闸门 G1–G8 + 当前里程碑 M*
-2. product/009-tabbit-gap-ledger.md ← Tabbit 全产品差距、缩差顺序与当前第一项
-3. product/001-nanobrowser-prd.md ← 产品范围、流程、功能需求
-4. product/008-tabbit-class-agent-task-loop-spec.md ← 当前 MVP 任务环索引（tickets 01–05）
-5. decisions/001 + 002           ← 最终插件载体；质量优先可换核
-6. product/002-agent-core-bakeoff.md ← 执行核对比（无 P0，主 P1）
-7. design/001 + 002              ← 运行时 / 可换核（默认 control）
-8. design/003 + 004              ← 侧栏 IA 源图 / 安静任务控制台视觉与三态
-9. product/004-docs-driven-dev.md ← 如何用文档驱动开发
-10. product/006-outer-loop-rl-min-plan.md ← 可选后续：外环 RL（draft，默认不执行）
+1. product/011-browser-agent-parity-first.md ← 阶段纪律：先对标可靠操作，再记忆差异
+2. product/003-north-star.md     ← 终局质量标尺 + 闸门 G1–G8（阶段以 011 为准）
+3. product/009-tabbit-gap-ledger.md ← Tabbit 全产品差距、缩差顺序与当前第一项
+4. product/001-nanobrowser-prd.md ← 产品范围、流程、功能需求
+5. product/008-tabbit-class-agent-task-loop-spec.md ← 当前 MVP 任务环索引（tickets 01–05）
+6. decisions/001 + 002           ← 最终插件载体；质量优先可换核
+7. product/002-agent-core-bakeoff.md ← 执行核对比（无 P0，主 P1）
+8. design/001 + 002              ← 运行时 / 可换核（默认 control）
+9. design/003 + 004              ← 侧栏 IA 源图 / 安静任务控制台视觉与三态
+10. product/004-docs-driven-dev.md ← 如何用文档驱动开发
+11. product/006-outer-loop-rl-min-plan.md ← 可选后续：外环 RL（draft，默认不执行）
 ```
 
 索引表：`DOCS_INDEX.md`。

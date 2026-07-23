@@ -15,6 +15,15 @@ Long runtime ops (CDP, MiniMax inject, log capture) stay in [HANDOVER.md](./HAND
 
 Do not brand new user-facing strings as Nanobrowser, 奕枢, or OpenClaw.
 
+## Phase discipline (do not skip)
+
+Full text: [docs/product/011-browser-agent-parity-first.md](./docs/product/011-browser-agent-parity-first.md).
+
+- **Now (v0.1–v0.2):** Browser Agent parity. Raise **Task Success Rate** via Understanding + Action + Loop only.
+- **Not now:** Memory product, knowledge graph, agent-platform architecture tours.
+- **Allowed now:** a stable **Memory Interface** with no-op / thin local sink so Phase 2 can plug in later.
+- Reject work that designs the end-state OS before the agent can walk.
+
 ## Clean bar (what “tidy” means here)
 
 Aligned with a normal **Chrome MV3 monorepo** (pnpm + Turbo + Vite):
