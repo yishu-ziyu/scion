@@ -1329,5 +1329,11 @@
   },
   "chat_task_action_screenshot": {
     "message": "Salvar captura"
+  },
+  "chat_task_bind_kicker": {
+    "message": "Lendo página"
+  },
+  "chat_task_bind_missing": {
+    "message": "Nenhuma aba de página utilizável. Abra um site e tente de novo."
   }
 }

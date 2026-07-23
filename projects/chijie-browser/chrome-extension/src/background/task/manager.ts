@@ -247,6 +247,34 @@ export class TaskManager {
       createdAt: now,
       updatedAt: now,
     };
+    // Seed page bind evidence immediately so UI shows the same tab the user intended
+    // (Phase 1 S1). Digest stays empty until observe; label is title-only for display.
+    try {
+      await this.deps.switchTab(command.tabId);
+      const tab = await chrome.tabs.get(command.tabId);
+      let urlOrigin = 'null';
+      if (tab.url) {
+        try {
+          urlOrigin = new URL(tab.url).origin;
+        } catch {
+          urlOrigin = 'null';
+        }
+      }
+      const label = (tab.title ?? '').trim() || undefined;
+      task.targetRefs = [
+        {
+          id: `tab-${command.tabId}`,
+          kind: 'page',
+          tabId: command.tabId,
+          frameId: 0,
+          urlOrigin,
+          digest: '',
+          label,
+        },
+      ];
+    } catch {
+      // Keep empty targetRefs; runCurrentRound will attach or fail honestly.
+    }
     this.instructions.set(task.id, command.instruction);
     await this.persist(task);
     void this.runCurrentRound(task.id);

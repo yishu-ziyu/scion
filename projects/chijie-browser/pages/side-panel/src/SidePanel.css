@@ -125,3 +125,35 @@ code {
 .dark-mode-border {
   border-color: var(--chijie-border) !important;
 }
+
+/* Phase 1 S1 — active tab bind evidence */
+.chijie-bind-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0 0 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--chijie-paper, #f7f4ee) 88%, #dbeafe);
+  border: 1px solid color-mix(in srgb, #93c5fd 45%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: #1e3a5f;
+  overflow: hidden;
+}
+.chijie-bind-chip[data-bound='false'] {
+  background: color-mix(in srgb, var(--chijie-paper, #f7f4ee) 90%, #fee2e2);
+  border-color: color-mix(in srgb, #fca5a5 50%, transparent);
+  color: #7f1d1d;
+}
+.chijie-bind-chip-kicker {
+  flex: none;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.chijie-bind-chip-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
