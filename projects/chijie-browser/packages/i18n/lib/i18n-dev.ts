@@ -1,5 +1,5 @@
 import type { DevLocale, MessageKey } from './type';
-import { defaultLocale, getMessageFromLocale } from './getMessageFromLocale';
+import { getMessageFromLocale } from './getMessageFromLocale';
 
 type I18nValue = {
   message: string;
@@ -41,4 +41,5 @@ export const t = (...args: Parameters<typeof translate>) => {
   return removePlaceholder(translate(...args));
 };
 
-t.devLocale = defaultLocale as DevLocale;
+// 持节 product UI: lock dev preview to Simplified Chinese (ignore browser locale).
+t.devLocale = 'zh_CN' as DevLocale;

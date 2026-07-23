@@ -61,7 +61,7 @@ export function decideEffect(input: {
     // Enter can submit forms; keep gated. (PageDown etc. never hit this branch.)
     return { kind: 'approval', effect: 'external_commit', summary: 'Submit with Enter' };
   }
-  if (['done', 'cache_content', 'get_dropdown_options', 'wait'].includes(actionName)) {
+  if (['done', 'cache_content', 'get_dropdown_options', 'wait', 'save_screenshot'].includes(actionName)) {
     return { kind: 'allow', effect: 'read' };
   }
   return { kind: 'allow', effect: 'reversible' };

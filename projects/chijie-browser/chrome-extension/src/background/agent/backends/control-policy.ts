@@ -18,6 +18,7 @@ const ALLOWED_ACTIONS = new Set([
   'input_text',
   'click_element',
   'control_media',
+  'save_screenshot',
   'go_to_url',
   'go_back',
   'send_keys',
@@ -188,7 +189,7 @@ Schema:
     { "kind": "page_text", "operator": "present", "expected": "Saved successfully", "required": true }
   ],
   "done": false,
-  "action_name": "input_text" | "click_element" | "control_media" | "go_to_url" | "wait" | "send_keys" | "done" | ...,
+  "action_name": "input_text" | "click_element" | "control_media" | "save_screenshot" | "go_to_url" | "wait" | "send_keys" | "done" | ...,
   "action_args": { ... }
 }
 
@@ -201,4 +202,5 @@ Rules:
 6. Never invent element indexes that are not listed. Indexes come from the interactive elements list.
 7. Do not claim login_required unless a clear login wall is visible.
 8. Never put passwords or secrets into action_args.
+9. Screenshot / save page image / 截图 / 保存到下载文件夹: use action_name "save_screenshot" (optional action_args.filename). After the tool reports success, set "done": true. Never click browser chrome, OS share sheets, or page "download" buttons to fake a screenshot save.
 `;

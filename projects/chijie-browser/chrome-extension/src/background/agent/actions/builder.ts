@@ -23,12 +23,14 @@ import {
   scrollToTopActionSchema,
   scrollToBottomActionSchema,
   controlMediaActionSchema,
+  saveScreenshotActionSchema,
 } from './schemas';
 import { z } from 'zod';
 import { createLogger } from '@src/background/log';
 import { ExecutionState, Actors } from '../event/types';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { wrapUntrustedContent } from '../messages/utils';
+import { downloadJpegToDownloads, sanitizeScreenshotFilename } from './save-screenshot';
 
 const logger = createLogger('Action');
 
@@ -594,6 +596,42 @@ export class ActionBuilder {
       return new ActionResult({ success: true, extractedContent: `Media ${input.command} requested` });
     }, controlMediaActionSchema);
     actions.push(controlMedia);
+
+    const saveScreenshot = new Action(async (input: z.infer<typeof saveScreenshotActionSchema.schema>) => {
+      const intent = input.intent || t('act_saveScreenshot_start');
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+      try {
+        const page = await this.context.browserContext.getCurrentPage();
+        let host = 'page';
+        try {
+          host = new URL(page.url()).hostname;
+        } catch {
+          // ignore URL parse failures
+        }
+        const filename = sanitizeScreenshotFilename(input.filename, host);
+        const base64 = await page.takeScreenshot(false);
+        if (!base64) {
+          throw new Error('screenshot_empty');
+        }
+        const { downloadId, filename: savedAs } = await downloadJpegToDownloads({
+          base64,
+          filename,
+        });
+        const msg = t('act_saveScreenshot_ok', [savedAs, String(downloadId)]);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+        return new ActionResult({
+          success: true,
+          extractedContent: msg,
+          includeInMemory: true,
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const msg = t('act_saveScreenshot_failed', [detail]);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+        return new ActionResult({ error: msg, includeInMemory: true });
+      }
+    }, saveScreenshotActionSchema);
+    actions.push(saveScreenshot);
 
     // Get all options from a native dropdown
     const getDropdownOptions = new Action(

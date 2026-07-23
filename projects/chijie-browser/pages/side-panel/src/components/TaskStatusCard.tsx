@@ -151,6 +151,7 @@ export function humanActionLabel(actionName: string): string {
     input_text: 'chat_task_action_input',
     send_keys: 'chat_task_action_keys',
     control_media: 'chat_task_action_media',
+    save_screenshot: 'chat_task_action_screenshot',
     scroll_to_text: 'chat_task_action_scroll',
     scroll_to_percent: 'chat_task_action_scroll',
     wait: 'chat_task_action_wait',

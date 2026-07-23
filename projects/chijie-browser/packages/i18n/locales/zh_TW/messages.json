@@ -1301,5 +1301,33 @@
   },
   "chat_task_wait_retry": {
     "message": "重新檢查頁面並繼續"
+  },
+  "act_saveScreenshot_start": {
+    "message": "正在擷取目前頁面並儲存到下載資料夾"
+  },
+  "act_saveScreenshot_ok": {
+    "message": "已儲存截圖到下載：$FILENAME$（編號 $ID$）",
+    "placeholders": {
+      "filename": {
+        "content": "$1",
+        "example": "chijie-page.jpg"
+      },
+      "id": {
+        "content": "$2",
+        "example": "12"
+      }
+    }
+  },
+  "act_saveScreenshot_failed": {
+    "message": "截圖儲存失敗：$ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1",
+        "example": "permission denied"
+      }
+    }
+  },
+  "chat_task_action_screenshot": {
+    "message": "截圖並儲存"
   }
 }

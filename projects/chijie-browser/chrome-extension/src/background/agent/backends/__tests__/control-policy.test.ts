@@ -61,4 +61,17 @@ describe('parseControlPolicyDecision', () => {
     expect(d.action).toEqual({ name: 'control_media', args: { command: 'play' } });
     expect(d.criteria[0]).toMatchObject({ kind: 'media_state', expected: 'paused' });
   });
+
+  it('parses save_screenshot', () => {
+    const d = parseControlPolicyDecision({
+      observation: 'page ready',
+      done: false,
+      action_name: 'save_screenshot',
+      action_args: { filename: 'sspai-home.jpg', intent: 'save page shot' },
+    });
+    expect(d.action).toEqual({
+      name: 'save_screenshot',
+      args: { filename: 'sspai-home.jpg', intent: 'save page shot' },
+    });
+  });
 });
