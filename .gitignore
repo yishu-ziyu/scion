@@ -10,23 +10,28 @@
 **/.env
 **/.env.*
 !**/.env.example
-!**/.example.env
 **/secrets.local.ts
 **/*.pem
 **/*.key
 
-# OS / IDE
+# OS / IDE / editor junk
 .DS_Store
 .idea/
 .vscode/
 .cursor/
-projects/chijie-browser/*.md.bak-*
+*.bak
+*.bak-*
+**/*.md.bak-*
+*~
 
 # logs
 **/*.log
 **/tmp/
 
-# Nanobrowser CDP captures may contain model payloads / semi-sensitive text
+# extension local state
+projects/chijie-browser/.nanobrowser/
+
+# CDP / runtime captures may contain model payloads or semi-sensitive text
 reports/nanobrowser/logs/*
 !reports/nanobrowser/logs/.gitkeep
 !reports/nanobrowser/logs/README.md

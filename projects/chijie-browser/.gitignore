@@ -15,6 +15,8 @@
 **/.env.test.local
 **/.env.production.local
 **/.env
+**/.env.*
+!**/.env.example
 
 # personal fork secrets (injected at build; never commit)
 chrome-extension/src/personal/secrets.local.ts
@@ -23,6 +25,9 @@ chrome-extension/src/personal/secrets.local.ts
 .DS_Store
 .idea
 **/.turbo
+*.bak
+*.bak-*
+*~
 
 # compiled
 chrome-extension/public/manifest.json
@@ -31,4 +36,3 @@ chrome-extension/public/manifest.json
 .nanobrowser
 .vscode
 .cursor
-*.py

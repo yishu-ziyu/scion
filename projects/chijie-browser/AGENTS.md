@@ -1,9 +1,9 @@
-# nanobrowser (scion graft) — agent rules
+# 持节 (chijie-browser) — agent rules
 
-Chrome MV3 AI browser-agent extension (pnpm + Turbo monorepo).
-Upstream: https://github.com/nanobrowser/nanobrowser · local version ~0.1.13
+Chrome MV3 browser action agent (pnpm + Turbo monorepo). Product name: **持节 / Chijie**.
+Upstream rootstock: https://github.com/nanobrowser/nanobrowser · package version in `package.json`.
 
-Lab parent: `../../AGENTS.md` · ops handover: `../../HANDOVER.md` · product terms: `../../CONTEXT.md`
+Lab parent: `../../AGENTS.md` · hygiene: `../../ENGINEERING.md` · ops: `../../HANDOVER.md` · product terms: `../../CONTEXT.md` · brand: `PRODUCT.md`
 
 **Product docs (drive work):** `../../docs/README.md` → `../../docs/product/003-north-star.md` + `004-docs-driven-dev.md` + `001-nanobrowser-prd.md`.
 
@@ -11,6 +11,7 @@ This file is **ops for the extension monorepo**. MiniMax / CDP detail lives in H
 **Single tree:** this directory is the only copy; `~/projects/chijie-browser` is a symlink here.
 
 When implementing product behavior, prefer PRD + north-star gates over historical Nano upstream patterns.
+User-facing brand strings: **持节**, not Nanobrowser / 奕枢 / OpenClaw.
 
 ---
 
