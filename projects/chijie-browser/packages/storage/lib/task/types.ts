@@ -26,6 +26,8 @@ export interface BrowserTargetRef {
   frameId: 0;
   urlOrigin: string;
   digest: string;
+  /** Optional human page title at bind time (UI only; not used for act/observe matching). */
+  label?: string;
 }
 
 type CriterionBase = {

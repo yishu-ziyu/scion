@@ -225,21 +225,37 @@ function formatTime(ts: number): string {
   }
 }
 
+function boundPageRef(snapshot: TaskSnapshot) {
+  return [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page' && ref.tabId === snapshot.activeTabId)
+    ?? [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page');
+}
+
 function siteLabel(snapshot: TaskSnapshot): string {
-  const page = [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page');
+  const page = boundPageRef(snapshot);
+  if (page?.label?.trim()) return page.label.trim();
   if (page?.urlOrigin && page.urlOrigin !== 'null') return page.urlOrigin;
   return t('chat_task_working_on_page');
 }
 
-/** Prefer a short hostname for the card chrome; full URL only when needed. */
+/** Prefer hostname · title for the card chrome; full URL only when needed. */
 function siteHostLabel(snapshot: TaskSnapshot): string {
-  const raw = siteLabel(snapshot);
-  try {
-    if (raw.startsWith('http')) return new URL(raw).hostname.replace(/^www\./, '');
-  } catch {
-    /* keep raw */
+  const page = boundPageRef(snapshot);
+  let host = '';
+  if (page?.urlOrigin && page.urlOrigin !== 'null') {
+    try {
+      host = new URL(page.urlOrigin).hostname.replace(/^www\./, '');
+    } catch {
+      host = page.urlOrigin;
+    }
   }
-  return raw;
+  const title = page?.label?.trim();
+  if (host && title && title !== host) {
+    const short = title.length > 28 ? `${title.slice(0, 26)}…` : title;
+    return `${host} · ${short}`;
+  }
+  if (host) return host;
+  if (title) return title;
+  return t('chat_task_working_on_page');
 }
 
 /**

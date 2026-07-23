@@ -23,6 +23,12 @@ import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import { shouldPersistExecutionEvent } from './event-persistence';
 import { mergeTaskSnapshot } from './task-snapshot';
 import { PROGRESS_MESSAGE_CONTENT, classifyAgentEvent, shouldMergeFailure } from './presentation/humanize-message';
+import {
+  formatBindChip,
+  formatBindDetail,
+  pickActiveContentTab,
+  type BoundContentTab,
+} from './presentation/active-tab-bind';
 import './SidePanel.css';
 
 // Declare chrome API types
@@ -47,6 +53,29 @@ export function commandRejectionMessage(error: CommandRejection): string {
   }
 }
 
+/** Resolve the content tab the user is looking at (not chrome:// / extension pages). */
+export async function resolveActiveContentTab(): Promise<BoundContentTab | null> {
+  const queries: chrome.tabs.QueryInfo[] = [
+    { active: true, lastFocusedWindow: true },
+    { active: true, currentWindow: true },
+  ];
+  for (const query of queries) {
+    try {
+      const tabs = await chrome.tabs.query(query);
+      const bound = pickActiveContentTab(tabs);
+      if (bound) return bound;
+    } catch {
+      /* try next query */
+    }
+  }
+  try {
+    const tabs = await chrome.tabs.query({ currentWindow: true });
+    return pickActiveContentTab(tabs);
+  } catch {
+    return null;
+  }
+}
+
 const SidePanel = () => {
   const progressMessage = PROGRESS_MESSAGE_CONTENT;
   const [messages, setMessages] = useState<Message[]>([]);
@@ -63,6 +92,8 @@ const SidePanel = () => {
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
   const [taskSnapshot, setTaskSnapshot] = useState<TaskSnapshot | null>(null);
   const [taskSnapshotLoaded, setTaskSnapshotLoaded] = useState(false);
+  /** Live preview of the content tab that will receive the next task (Phase 1 S1). */
+  const [bindPreview, setBindPreview] = useState<BoundContentTab | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
@@ -75,6 +106,26 @@ const SidePanel = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<number | null>(null);
+
+  const refreshBindPreview = useCallback(async () => {
+    const bound = await resolveActiveContentTab();
+    setBindPreview(bound);
+  }, []);
+
+  useEffect(() => {
+    void refreshBindPreview();
+    const onFocus = () => {
+      void refreshBindPreview();
+    };
+    window.addEventListener('focus', onFocus);
+    const interval = window.setInterval(() => {
+      void refreshBindPreview();
+    }, 2_500);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.clearInterval(interval);
+    };
+  }, [refreshBindPreview]);
 
   // Check if models are configured
   const checkModelConfiguration = useCallback(async () => {
@@ -486,11 +537,12 @@ const SidePanel = () => {
     }
 
     try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const tabId = tabs[0]?.id;
-      if (!tabId) {
-        throw new Error('No active tab found');
+      const bound = await resolveActiveContentTab();
+      setBindPreview(bound);
+      if (!bound) {
+        throw new Error(t('chat_task_bind_missing'));
       }
+      const tabId = bound.tabId;
 
       setInputEnabled(false);
       setShowStopButton(true);
@@ -1123,6 +1175,18 @@ const SidePanel = () => {
                   <div className="min-h-0 flex-1" data-testid="empty-composer-spacer" aria-hidden />
                 )}
                 <div className="chijie-composer" data-task-active={showStopButton ? 'true' : 'false'}>
+                  <div
+                    className="chijie-bind-chip"
+                    data-testid="active-tab-bind"
+                    data-bound={bindPreview ? 'true' : 'false'}
+                    title={formatBindDetail(bindPreview) || t('chat_task_bind_missing')}
+                    role="status"
+                    aria-live="polite">
+                    <span className="chijie-bind-chip-kicker">{t('chat_task_bind_kicker')}</span>
+                    <span className="chijie-bind-chip-value">
+                      {formatBindChip(bindPreview, t('chat_task_bind_missing'))}
+                    </span>
+                  </div>
                   <ChatInput
                     onSendMessage={handleSendMessage}
                     onStopTask={handleStopTask}
