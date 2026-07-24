@@ -2,6 +2,7 @@ import type { Action } from '../agent/actions/builder';
 import { ActionResult } from '../agent/types';
 import type { ActionAttempt, BrowserTargetRef, CompletionEvidence } from '@extension/storage/lib/task';
 import type { ActOutcome, DispatchResult } from './contracts';
+import { buildAttemptDisplaySummary, buildAttemptTargetLabel } from './attempt-display';
 import { sha256 } from './digest';
 import { assertMutableStateBinding, classifyActOutcome, makePageRevision, readClaimedState } from './page-state';
 
@@ -118,6 +119,15 @@ export class ActionDispatcher {
       },
       skillPolicy: 'default',
     });
+    const displayInput = {
+      actionName: request.action.name(),
+      args: parsedArgs,
+      effectTarget: {
+        ...before.effectTarget,
+        intent: this.readString(parsedArgs, 'intent') ?? before.effectTarget.intent,
+      },
+      urlOrigin: before.target?.urlOrigin,
+    };
     let attempt: ActionAttempt = {
       id: crypto.randomUUID(),
       roundId: request.roundId,
@@ -126,6 +136,8 @@ export class ActionDispatcher {
         decision.kind === 'approval' ? 'external_commit' : decision.kind === 'allow' ? decision.effect : 'reversible',
       targetDigest: before.target?.digest,
       argsDigest,
+      displaySummary: buildAttemptDisplaySummary(displayInput),
+      targetLabel: buildAttemptTargetLabel(displayInput),
       state: 'proposed',
       proposedAt: this.deps.now(),
     };

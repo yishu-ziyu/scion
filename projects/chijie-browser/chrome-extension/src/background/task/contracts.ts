@@ -18,6 +18,8 @@ export type CompletionCriterionDraft =
       required: boolean;
     }
   | { kind: 'media_state'; operator: 'equals'; expected: 'playing' | 'paused'; required: boolean }
+  | { kind: 'tab_state'; operator: 'equals'; expected: 'closed' | 'active'; required: boolean }
+  | { kind: 'download_state'; operator: 'equals'; expected: 'started' | 'finished'; required: boolean }
   | { kind: 'user_confirmed'; operator: 'equals'; expected: true; required: boolean };
 
 export interface ProbeObservation {

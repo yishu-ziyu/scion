@@ -2,6 +2,74 @@ import { describe, expect, it } from 'vitest';
 import { checkCompletion } from '../completion';
 
 describe('CompletionChecker', () => {
+  it('rejects url criterion when observation is empty (unavailable page sentinel)', () => {
+    // observeCompletionCriteria sets value='' when pageLooksUnavailable — must not pass starts_with.
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'c-url',
+          kind: 'url',
+          operator: 'starts_with',
+          expected: 'https://www.youtube.com/playlist',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          baseline: '',
+          frozenAt: 100,
+          notBefore: 150,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [
+        {
+          criterionId: 'c-url',
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          observedAt: 200,
+          source: 'page',
+          value: '',
+        },
+      ],
+    });
+    expect(result.passed).toBe(false);
+    expect(result.evidence[0].reason).toBe('mismatch');
+  });
+
+  it('accepts url starts_with when observation is a real destination', () => {
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'c-url',
+          kind: 'url',
+          operator: 'starts_with',
+          expected: 'https://www.youtube.com/playlist',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          baseline: '',
+          frozenAt: 100,
+          notBefore: 150,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [
+        {
+          criterionId: 'c-url',
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          observedAt: 200,
+          source: 'page',
+          value: 'https://www.youtube.com/playlist?list=PLabc',
+        },
+      ],
+    });
+    expect(result.passed).toBe(true);
+  });
+
   it('rejects evidence already true at baseline', () => {
     const result = checkCompletion({
       now: 200,
@@ -249,6 +317,89 @@ describe('CompletionChecker', () => {
       passed: false,
       evidence: [],
     });
+  });
+
+  it('accepts media_state playing/paused only with matching evidence', () => {
+    const criterion = {
+      id: 'media-1',
+      kind: 'media_state' as const,
+      operator: 'equals' as const,
+      expected: 'playing' as const,
+      required: true,
+      roundId: 'round-1',
+      targetRefId: 'media:abc',
+      baseline: 'paused',
+      frozenAt: 100,
+      notBefore: 100,
+      timeoutMs: 5000,
+    };
+    expect(
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: 'media-1',
+            roundId: 'round-1',
+            targetRefId: 'media:abc',
+            observedAt: 200,
+            source: 'page',
+            value: 'playing',
+          },
+        ],
+      }).passed,
+    ).toBe(true);
+    expect(
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: 'media-1',
+            roundId: 'round-1',
+            targetRefId: 'media:abc',
+            observedAt: 200,
+            source: 'page',
+            value: 'paused',
+          },
+        ],
+      }).passed,
+    ).toBe(false);
+  });
+
+  it('accepts tab_state closed only after closed observation', () => {
+    const criterion = {
+      id: 'tab-1',
+      kind: 'tab_state' as const,
+      operator: 'equals' as const,
+      expected: 'closed' as const,
+      required: true,
+      roundId: 'round-1',
+      targetRefId: 'tab-7',
+      baseline: 'active',
+      frozenAt: 100,
+      notBefore: 100,
+      timeoutMs: 5000,
+    };
+    expect(
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: 'tab-1',
+            roundId: 'round-1',
+            targetRefId: 'tab-7',
+            observedAt: 200,
+            source: 'page',
+            value: 'closed',
+          },
+        ],
+      }).passed,
+    ).toBe(true);
   });
 
   it('reports missing evidence as a mismatch in the current round', () => {

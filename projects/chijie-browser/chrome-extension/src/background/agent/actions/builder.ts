@@ -307,12 +307,21 @@ export class ActionBuilder {
 
     // Tab Management Actions
     const switchTab = new Action(async (input: z.infer<typeof switchTabActionSchema.schema>) => {
-      const intent = input.intent || t('act_switchTab_start', [input.tab_id.toString()]);
+      const page = await this.context.browserContext.getCurrentPage();
+      const tabId = input.tab_id ?? page.tabId;
+      const intent = input.intent || t('act_switchTab_start', [tabId.toString()]);
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-      await this.context.browserContext.switchTab(input.tab_id);
-      const msg = t('act_switchTab_ok', [input.tab_id.toString()]);
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-      return new ActionResult({ extractedContent: msg, includeInMemory: true });
+      try {
+        await this.context.browserContext.switchTab(tabId);
+        const msg = t('act_switchTab_ok', [tabId.toString()]);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+        return new ActionResult({ success: true, extractedContent: msg, includeInMemory: true });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const msg = `switch_tab failed for tab ${tabId}: ${detail}`;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+        return new ActionResult({ error: msg, includeInMemory: true });
+      }
     }, switchTabActionSchema);
     actions.push(switchTab);
 
@@ -327,12 +336,21 @@ export class ActionBuilder {
     actions.push(openTab);
 
     const closeTab = new Action(async (input: z.infer<typeof closeTabActionSchema.schema>) => {
-      const intent = input.intent || t('act_closeTab_start', [input.tab_id.toString()]);
+      const page = await this.context.browserContext.getCurrentPage();
+      const tabId = input.tab_id ?? page.tabId;
+      const intent = input.intent || t('act_closeTab_start', [tabId.toString()]);
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-      await this.context.browserContext.closeTab(input.tab_id);
-      const msg = t('act_closeTab_ok', [input.tab_id.toString()]);
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
-      return new ActionResult({ extractedContent: msg, includeInMemory: true });
+      try {
+        await this.context.browserContext.closeTab(tabId);
+        const msg = t('act_closeTab_ok', [tabId.toString()]);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
+        return new ActionResult({ success: true, extractedContent: msg, includeInMemory: true });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const msg = `close_tab failed for tab ${tabId}: ${detail}`;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+        return new ActionResult({ error: msg, includeInMemory: true });
+      }
     }, closeTabActionSchema);
     actions.push(closeTab);
 

@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TaskManager } from '../manager';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome, ObserveCriteria } from '../contracts';
 import { Action } from '../../agent/actions/builder';
-import { clickElementActionSchema, controlMediaActionSchema, waitActionSchema } from '../../agent/actions/schemas';
+import {
+  clickElementActionSchema,
+  closeTabActionSchema,
+  controlMediaActionSchema,
+  waitActionSchema,
+} from '../../agent/actions/schemas';
 import { ActionResult } from '../../agent/types';
 import { sha256 } from '../digest';
 
@@ -682,6 +687,163 @@ describe('TaskManager lifecycle', () => {
     ]);
   });
 
+  it('does not verified-complete play+copy goals when only media criteria pass after act', async () => {
+    let hooks!: ExecutorHooks;
+    const digest = 'b'.repeat(64);
+    store.observeMedia.mockResolvedValue({ kind: 'bound', targetDigest: digest, state: 'playing' });
+    const observeCriteria: ObserveCriteria = vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+      criteria.map(criterion => ({
+        criterionId: criterion.id,
+        roundId: criterion.roundId,
+        targetRefId: criterion.targetRefId,
+        observedAt: 100,
+        source: 'page' as const,
+        value: 'playing',
+      })),
+    );
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-play-copy',
+      taskId: 'task-play-copy',
+      instruction: '打开B站 播放第一个视频 并复制第一个评论发给我',
+      chatSessionId: 'chat-play-copy',
+      instructionMessageId: 'message-play-copy',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-play-copy');
+    await hooks.onPlan(roundId, [
+      { kind: 'media_state', operator: 'equals', expected: 'playing', required: true },
+    ]);
+    await hooks.dispatchAction(
+      roundId,
+      new Action(async () => new ActionResult({ success: true }), controlMediaActionSchema),
+      { command: 'play', intent: 'play video', target_digest: digest },
+    );
+    const snap = await manager.snapshot('task-play-copy');
+    expect(snap?.status).toBe('running');
+    expect(snap?.rounds[0]?.receipt).toBeUndefined();
+  });
+
+  it('binds close_tab without tab_id to the task active tab and freezes tab_state closed', async () => {
+    let hooks!: ExecutorHooks;
+    const executeClose = vi.fn(async () => new ActionResult({ success: true }));
+    const probeTabState = vi.fn(async () => 'active' as const);
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      probeTabState,
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-close-tab',
+      taskId: 'task-close-tab',
+      instruction: '关掉这个页',
+      chatSessionId: 'chat-close',
+      instructionMessageId: 'message-close',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-close-tab');
+
+    await hooks.onPlan(roundId, []);
+    const planned = await manager.snapshot('task-close-tab');
+    expect(planned?.rounds[0]?.criteria).toEqual([
+      expect.objectContaining({ kind: 'tab_state', expected: 'closed', targetRefId: 'tab-7' }),
+    ]);
+
+    await hooks.dispatchAction(roundId, new Action(executeClose, closeTabActionSchema), {
+      intent: 'close this page',
+    });
+    expect(executeClose).toHaveBeenCalledWith(expect.objectContaining({ tab_id: 7 }));
+    expect(probeTabState).toHaveBeenCalled();
+  });
+
+  it('freezes download_state finished for download goals so verbal done cannot false-complete', async () => {
+    let hooks!: ExecutorHooks;
+    const probeDownloadState = vi.fn(async () => 'none' as const);
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      probeDownloadState,
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-download',
+      taskId: 'task-download',
+      instruction: '下载这个视频',
+      chatSessionId: 'chat-download',
+      instructionMessageId: 'message-download',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-download');
+    await hooks.onPlan(roundId, []);
+    const planned = await manager.snapshot('task-download');
+    expect(planned?.rounds[0]?.criteria).toEqual([
+      expect.objectContaining({
+        kind: 'download_state',
+        expected: 'finished',
+        targetRefId: 'download:session',
+        baseline: 'none',
+      }),
+    ]);
+    expect(probeDownloadState).toHaveBeenCalled();
+  });
+
+  it('freezes media_state paused for pause goals', async () => {
+    let hooks!: ExecutorHooks;
+    store.observeMedia.mockResolvedValue({ kind: 'bound', targetDigest: 'a'.repeat(64), state: 'playing' });
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-pause-implicit',
+      taskId: 'task-pause-implicit',
+      instruction: '暂停这个视频',
+      chatSessionId: 'chat-media',
+      instructionMessageId: 'message-pause',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-pause-implicit');
+    await hooks.onPlan(roundId, []);
+    const planned = await manager.snapshot('task-pause-implicit');
+    expect(planned?.rounds[0]?.criteria).toEqual([
+      expect.objectContaining({ kind: 'media_state', expected: 'paused' }),
+    ]);
+  });
+
   it('consumes one persisted approval before invoking an external commit', async () => {
     let hooks!: ExecutorHooks;
     let now = 100;
@@ -1205,6 +1367,93 @@ describe('TaskManager lifecycle', () => {
     expect(snap?.rounds[0]?.criteria[0]).toMatchObject({
       kind: 'url',
       expected: 'https://www.youtube.com/',
+    });
+  });
+
+  it('completes open-ended goals with a summary answer instead of hanging on proof_required', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    let hooks!: ExecutorHooks;
+    const driver = fakeDriver();
+    driver.run = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-open-ended',
+      taskId: 'task-open-ended',
+      // No freezeable success signal (unlike "打开 YouTube" / "success is …").
+      instruction: '识别当前页',
+      chatSessionId: 'chat-open-ended',
+      instructionMessageId: 'message-open-ended',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-open-ended');
+    expect((await manager.snapshot('task-open-ended'))?.rounds[0]?.criteria).toEqual([]);
+    await hooks.onPlan(roundId, []);
+    finish({ kind: 'candidate_complete', summary: '是。host=bilibili.com' });
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-open-ended')).toMatchObject({
+        status: 'completed',
+        rounds: [
+          {
+            status: 'completed',
+            instructionSummary: '是。host=bilibili.com',
+            receipt: expect.objectContaining({ taskId: 'task-open-ended' }),
+          },
+        ],
+      });
+    });
+    const snap = await manager.snapshot('task-open-ended');
+    expect(snap?.rounds[0]?.waitReason).toBeUndefined();
+    expect(snap?.rounds[0]?.failureCategory).toBeUndefined();
+  });
+
+  it('fails open-ended goals with empty criteria and empty summary', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    let hooks!: ExecutorHooks;
+    const driver = fakeDriver();
+    driver.run = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-open-ended-empty',
+      taskId: 'task-open-ended-empty',
+      instruction: '识别当前页',
+      chatSessionId: 'chat-open-ended-empty',
+      instructionMessageId: 'message-open-ended-empty',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-open-ended-empty');
+    await hooks.onPlan(roundId, []);
+    finish({ kind: 'candidate_complete', summary: '   ' });
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-open-ended-empty')).toMatchObject({
+        status: 'failed',
+        rounds: [{ status: 'failed', failureCategory: 'no_completion_criteria' }],
+      });
     });
   });
 

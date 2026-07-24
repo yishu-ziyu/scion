@@ -64,6 +64,9 @@
   "chat_input_placeholder": {
     "message": "我能帮你做什么？"
   },
+  "chat_empty_hint": {
+    "message": "Send a task to start. Progress is above; results land here."
+  },
   "chat_task_mode_badge": {
     "message": "Task: agent task"
   },
@@ -981,6 +984,18 @@
   "chat_task_done_body": {
     "message": "Page result was verified. This step is safely finished."
   },
+  "chat_task_partial_title": {
+    "message": "Only part of the goal is done"
+  },
+  "chat_task_partial_body": {
+    "message": "Some checks passed, but the goal still has undelivered content. Rate it, then add a follow-up."
+  },
+  "chat_task_partial_done_label": {
+    "message": "Done"
+  },
+  "chat_task_partial_missing_label": {
+    "message": "Still missing"
+  },
   "chat_task_next_step_title": {
     "message": "What you can do next"
   },
@@ -1095,6 +1110,9 @@
   "chat_task_action_switch_tab": {
     "message": "Switch tab"
   },
+  "chat_task_action_close_tab": {
+    "message": "Close tab"
+  },
   "chat_task_action_click": {
     "message": "Click page control"
   },
@@ -1151,6 +1169,27 @@
   },
   "chat_task_attempt_blocked": {
     "message": "Blocked"
+  },
+  "chat_task_activity_heading": {
+    "message": "Activity"
+  },
+  "chat_task_activity_thinking": {
+    "message": "Thinking"
+  },
+  "chat_task_activity_viewing": {
+    "message": "Viewing $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1",
+        "example": "bilibili.com"
+      }
+    }
+  },
+  "chat_task_activity_waiting": {
+    "message": "Waiting for you"
+  },
+  "chat_task_activity_wait_hint": {
+    "message": "Sensitive steps pause here first"
   },
   "chat_task_activity_understanding": {
     "message": "Reading the page"
@@ -1219,7 +1258,7 @@
     "message": "Page result matches the goal"
   },
   "chat_task_receipt_technical": {
-    "message": "Technical receipt"
+    "message": "Technical details"
   },
   "chat_task_skill_saving": {
     "message": "Saving…"
@@ -1335,5 +1374,14 @@
   },
   "chat_task_bind_missing": {
     "message": "No usable page tab. Open a website tab and try again."
+  },
+  "chat_task_cancel": {
+    "message": "Stop this task"
+  },
+  "chat_task_fail_no_criteria": {
+    "message": "No success check was set for this task, so it could not finish automatically. Start a new task with a clearer goal (e.g. open a site or click something specific)."
+  },
+  "chat_task_fail_missing_instruction": {
+    "message": "Could not load the task instruction. Start a new task."
   }
 }

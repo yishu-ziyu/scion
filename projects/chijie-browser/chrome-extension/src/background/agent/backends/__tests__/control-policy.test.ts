@@ -29,6 +29,24 @@ describe('parseControlPolicyDecision', () => {
     expect(d.action).toEqual({ name: 'click_element', args: { index: 3, intent: 'submit' } });
   });
 
+  it('coerces string index to number and drops NaN', () => {
+    const ok = parseControlPolicyDecision({
+      observation: 'click first card',
+      done: false,
+      action_name: 'click_element',
+      action_args: { index: '12', intent: 'open video' },
+    });
+    expect(ok.action).toEqual({ name: 'click_element', args: { index: 12, intent: 'open video' } });
+
+    const bad = parseControlPolicyDecision({
+      observation: 'bad index',
+      done: false,
+      action_name: 'click_element',
+      action_args: { index: 'not-a-number' },
+    });
+    expect(bad.action).toEqual({ name: 'click_element', args: {} });
+  });
+
   it('done true clears action', () => {
     const d = parseControlPolicyDecision({
       observation: 'saved',
@@ -60,6 +78,24 @@ describe('parseControlPolicyDecision', () => {
     });
     expect(d.action).toEqual({ name: 'control_media', args: { command: 'play' } });
     expect(d.criteria[0]).toMatchObject({ kind: 'media_state', expected: 'paused' });
+  });
+
+  it('aliases focus_tab to switch_tab and parses tab/download criteria', () => {
+    const d = parseControlPolicyDecision({
+      observation: 'user wants this tab closed',
+      done: false,
+      completion_criteria: [
+        { kind: 'tab_state', operator: 'equals', expected: 'closed', required: true },
+        { kind: 'download_state', operator: 'equals', expected: 'finished', required: true },
+      ],
+      action_name: 'focus_tab',
+      action_args: { tab_id: 12 },
+    });
+    expect(d.action).toEqual({ name: 'switch_tab', args: { tab_id: 12 } });
+    expect(d.criteria).toEqual([
+      { kind: 'tab_state', operator: 'equals', expected: 'closed', required: true },
+      { kind: 'download_state', operator: 'equals', expected: 'finished', required: true },
+    ]);
   });
 
   it('parses save_screenshot', () => {

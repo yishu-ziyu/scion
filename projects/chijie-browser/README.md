@@ -1,28 +1,48 @@
 # 持节 (Chijie) · Chrome extension
 
-Verifiable **browser action agent** for daily Chrome (MV3 side panel).
+可验证的 **浏览器行动 Agent**（Chrome MV3 侧栏）。
 
-This package is a personal graft of [nanobrowser/nanobrowser](https://github.com/nanobrowser/nanobrowser), productized as **持节**.  
-Lab monorepo: [yishu-ziyu/scion](https://github.com/yishu-ziyu/scion).
+本包基于 [nanobrowser/nanobrowser](https://github.com/nanobrowser/nanobrowser) 的个人嫁接，产品名为 **持节**。  
+实验室 monorepo：[yishu-ziyu/scion](https://github.com/yishu-ziyu/scion)。
 
-| Layer | Value |
-|-------|--------|
-| Product | 持节 / Chijie |
-| Package name | `chijie-browser` |
-| Version | see `package.json` |
-| Load unpacked | `./dist` after `pnpm build` |
-| Brand note | [PRODUCT.md](./PRODUCT.md) |
+| 层 | 值 |
+|----|-----|
+| 产品 | 持节 / Chijie |
+| 包名 | `chijie-browser` |
+| 版本 | 见 `package.json` |
+| Load unpacked | `pnpm build` 后加载 `./dist` |
+| 品牌 | [PRODUCT.md](./PRODUCT.md) |
 
-## Requirements
+## 产品要点（当前）
 
-- Node `>=22.12.0` (`.nvmrc`)
-- **pnpm** only (`packageManager` field in `package.json`)
+- **任务侧栏**：目标、活动步骤、提交前审批、完成回执与证据；对话区不被任务卡压扁。
+- **Feature-first UI**：先用户目标与路径，再映射现有 `chijie-*` 组件（见 lab `docs/design/006`）。
+- **完成必须可核对**：仅有 URL 形态不够；**404 /「页面不可用」不会标绿完成**。
+- **确定性捷径（fixture / 常见句）**：表单填+批提交（O1）、列表抽 CSV（R1 tracer）、媒体播停、理解类问答等。
 
-## Commands
+### Claw 30 记分（lab）
+
+权威表：`../../docs/product/018-claw-30-live-scorecard.md`  
+证据目录：`../../reports/nanobrowser/claw-30/`
+
+| 状态（约） | 含义 |
+|------------|------|
+| O1 **pass** | 本地表单：填 → 提交前停 → 批 1 次 → 完成 |
+| R1 **partial** | 本地商品列表抽出 CSV（非 Amazon 真机） |
+| 其余 | 多为 `not_run`；个性化工作不得抢在全表之前 |
+
+随机真机问题以你的反馈为准；日常扩展会话日志默认**不会**自动进仓库。
+
+## 环境
+
+- Node `>=22.12.0`（`.nvmrc`）
+- 只用 **pnpm**（`package.json` 的 `packageManager`）
+
+## 常用命令
 
 ```bash
 pnpm install
-pnpm build                 # inject personal secrets → clean dist → turbo build
+pnpm build                 # 注入个人密钥 → 清 dist → turbo build
 pnpm dev                   # inject + turbo watch
 pnpm type-check
 pnpm lint
@@ -30,50 +50,63 @@ pnpm -F chrome-extension test
 pnpm zip                   # build + zip → dist-zip/
 ```
 
-Workspace-scoped examples:
+### 端到端（需 Chrome for Testing / 配置的 CHROME_PATH）
 
 ```bash
-pnpm -F chrome-extension build
-pnpm -F chrome-extension test
-pnpm -F pages/side-panel lint
+# 表单审批 + skill 重跑 + 媒体播停 + 隐私检查
+pnpm e2e:action-agent
+# 或
+pnpm -F chrome-extension e2e:action-agent
+
+# R1 列表 → CSV 成果
+pnpm e2e:r1-extract
+# 或
+pnpm -F chrome-extension e2e:r1-extract
 ```
 
-Agent-oriented command detail: [AGENTS.md](./AGENTS.md).  
-Lab hygiene and “clean bar”: [../../ENGINEERING.md](../../ENGINEERING.md).
+Agent 命令细节：[AGENTS.md](./AGENTS.md)。  
+实验室卫生条：[../../ENGINEERING.md](../../ENGINEERING.md)。
 
-## Layout
+## 目录
 
 ```text
-chrome-extension/     # MV3 service worker, agent, browser control
-  src/background/     # task loop, observe-act, DOM/tabs
-  src/personal/       # MiniMax bootstrap + secrets.local.ts (gitignored)
+chrome-extension/     # MV3 service worker、agent、浏览器控制
+  src/background/     # 任务循环、observe-act、DOM/标签
+  src/personal/       # MiniMax bootstrap + secrets.local.ts（gitignore）
+  scripts/            # action-agent-e2e、r1-extract-e2e 等
+  test/fixtures/      # form / media / products 本地页
 pages/
-  side-panel/         # main task UI
-  options/            # settings
-  content/            # content script
-packages/             # i18n, storage, ui, schema-utils, …
-dist/                 # generated — Load unpacked here
+  side-panel/         # 主任务 UI
+  options/            # 设置
+  content/            # 内容脚本（页内「正在替你操作」等）
+packages/             # i18n、storage、ui、schema-utils…
+dist/                 # 构建产物 — Load unpacked 指向这里
 ```
 
-## Secrets
+## 密钥
 
-Never commit keys.
+不要提交密钥。
 
 ```bash
 cp chrome-extension/src/personal/secrets.local.example.ts \
    chrome-extension/src/personal/secrets.local.ts
-# fill values, or use inject:personal / env sources documented in lab HANDOVER
+# 填值，或使用 lab 文档中的 inject:personal / 环境源
 ```
 
-Env sample for analytics only: [`.env.example`](./.env.example).
+分析类 env 示例：[`.env.example`](./.env.example)。
 
-## Product docs (lab root)
+## 产品文档（lab 根）
 
-- Vocabulary: `../../CONTEXT.md`
-- North star: `../../docs/product/003-north-star.md`
-- Doc index: `../../docs/DOCS_INDEX.md`
-- Upstream marketing archive: `../../docs/upstream/nanobrowser/`
+| 文档 | 用途 |
+|------|------|
+| `../../CONTEXT.md` | 词汇：Task、receipt、external_commit… |
+| `../../docs/DOCS_INDEX.md` | 编号文档索引 |
+| `../../docs/product/018-claw-30-live-scorecard.md` | Claw 30 真机记分 |
+| `../../docs/design/004-chijie-calm-task-console.md` | 侧栏视觉/三态 |
+| `../../docs/design/005-chijie-task-ux-from-claw.md` | 任务 UX 契约 |
+| `../../docs/design/006-feature-first-sidepanel-flows.md` | 功能→流→原子映射 |
+| `../../docs/upstream/nanobrowser/` | 上游营销归档 |
 
 ## License
 
-See [LICENSE](./LICENSE) (upstream Nanobrowser license retained for this graft).
+见 [LICENSE](./LICENSE)（嫁接保留上游 Nanobrowser 许可）。

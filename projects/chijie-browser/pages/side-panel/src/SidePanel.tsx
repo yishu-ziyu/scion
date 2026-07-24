@@ -806,7 +806,8 @@ const SidePanel = () => {
     }
   };
 
-  // Load favorite prompts from storage
+  // Load favorite prompts from storage (subscribe + raw chrome.storage so
+  // background save_skill always resurfaces skill-run for O1 re-run / e2e).
   useEffect(() => {
     const loadFavorites = async () => {
       try {
@@ -818,8 +819,35 @@ const SidePanel = () => {
     };
 
     void loadFavorites();
-    return favoritesStorage.subscribe(() => void loadFavorites());
+    const unsub = favoritesStorage.subscribe(() => void loadFavorites());
+    const onChromeStorage: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, area) => {
+      if (area !== 'local') return;
+      if (changes.favorites !== undefined) void loadFavorites();
+    };
+    try {
+      chrome.storage?.onChanged?.addListener(onChromeStorage);
+    } catch {
+      /* unit tests without chrome */
+    }
+    return () => {
+      unsub();
+      try {
+        chrome.storage?.onChanged?.removeListener(onChromeStorage);
+      } catch {
+        /* ignore */
+      }
+    };
   }, []);
+
+  // After a verified complete, force one favorites pull so "存为 Skill" → skill-run
+  // does not depend solely on storage event ordering across extension contexts.
+  useEffect(() => {
+    if (taskSnapshot?.status !== 'completed') return;
+    void favoritesStorage
+      .getAllPrompts()
+      .then(setFavoritePrompts)
+      .catch(() => undefined);
+  }, [taskSnapshot?.status, taskSnapshot?.revision]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1122,58 +1150,76 @@ const SidePanel = () => {
             {/* Show normal chat interface when models are configured */}
             {hasConfiguredModels === true && (
               <>
-                {taskSnapshot &&
-                  (currentSessionId === taskSnapshot.chatSessionId || taskSnapshot.sourceSkillId !== undefined) && (
-                    <TaskStatusCard
-                      snapshot={taskSnapshot}
-                      send={sendTaskCommand}
-                      isDarkMode={false}
-                      defaultInstruction={
-                        [...messages].reverse().find(message => message.actor === Actors.USER)?.content ?? ''
-                      }
-                    />
-                  )}
-                {messages.length > 0 && (
-                  <div className="chijie-chat-log scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3">
-                    <MessageList
-                      messages={messages}
-                      isDarkMode={false}
-                      onRetry={() => {
-                        const lastUser = [...messages].reverse().find(m => m.actor === Actors.USER);
-                        if (lastUser?.content) {
-                          void handleSendMessage(lastUser.content);
-                        } else {
-                          setInputTextRef.current?.('');
+                {/*
+                  Workspace owns vertical flex: task card is capped summary,
+                  chat log is the flexible reading surface, composer stays fixed.
+                */}
+                <div className="chijie-workspace" data-testid="sidepanel-workspace">
+                  {taskSnapshot &&
+                    (currentSessionId === taskSnapshot.chatSessionId ||
+                      taskSnapshot.sourceSkillId !== undefined) && (
+                      <TaskStatusCard
+                        snapshot={taskSnapshot}
+                        send={sendTaskCommand}
+                        isDarkMode={false}
+                        defaultInstruction={
+                          [...messages].reverse().find(message => message.actor === Actors.USER)?.content ??
+                          ''
                         }
-                      }}
-                      onRephrase={() => {
-                        // Focus composer by clearing nothing - ChatInput keeps focus via click target
-                        const el = document.querySelector('.chijie-composer textarea') as HTMLTextAreaElement | null;
-                        el?.focus();
-                      }}
-                    />
-                    <div ref={messagesEndRef} />
-                  </div>
-                )}
-                {/* Templates / bookmarks: status → chat → run-again → input */}
-                {favoritePrompts.length > 0 && (
+                      />
+                    )}
                   <div
-                    className={`chijie-bookmarks ${messages.length === 0 ? 'flex-1' : 'max-h-40 shrink-0'} overflow-y-auto`}
-                    data-testid="bookmark-list-panel">
-                    <BookmarkList
-                      bookmarks={favoritePrompts}
-                      onBookmarkSelect={handleBookmarkSelect}
-                      onSkillRun={handleSkillRun}
-                      onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
-                      onBookmarkDelete={handleBookmarkDelete}
-                      onBookmarkReorder={handleBookmarkReorder}
-                      isDarkMode={false}
-                    />
+                    className="chijie-chat-log scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3"
+                    data-testid="sidepanel-chat-log">
+                    {messages.length > 0 ? (
+                      <>
+                        <MessageList
+                          messages={messages}
+                          isDarkMode={false}
+                          onRetry={() => {
+                            const lastUser = [...messages].reverse().find(m => m.actor === Actors.USER);
+                            if (lastUser?.content) {
+                              void handleSendMessage(lastUser.content);
+                            } else {
+                              setInputTextRef.current?.('');
+                            }
+                          }}
+                          onRephrase={() => {
+                            const el = document.querySelector(
+                              '.chijie-composer textarea',
+                            ) as HTMLTextAreaElement | null;
+                            el?.focus();
+                          }}
+                        />
+                        <div ref={messagesEndRef} />
+                      </>
+                    ) : favoritePrompts.length === 0 ? (
+                      <div className="flex h-full min-h-[8.5rem] items-center justify-center px-2" data-testid="empty-composer-spacer">
+                        <p className="text-center text-xs text-[var(--chijie-muted)]">
+                          {t('chat_empty_hint')}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
-                )}
-                {messages.length === 0 && favoritePrompts.length === 0 && (
-                  <div className="min-h-0 flex-1" data-testid="empty-composer-spacer" aria-hidden />
-                )}
+                  {/* Skills must stay runnable after a completed chat (O1 skill re-run / e2e).
+                      Plain prompt bookmarks still prefer the empty-composer surface. */}
+                  {favoritePrompts.length > 0 &&
+                    (messages.length === 0 || favoritePrompts.some(item => item.kind === 'skill')) && (
+                    <div
+                      className="chijie-bookmarks max-h-36 shrink-0 overflow-y-auto"
+                      data-testid="bookmark-list-panel">
+                      <BookmarkList
+                        bookmarks={favoritePrompts}
+                        onBookmarkSelect={handleBookmarkSelect}
+                        onSkillRun={handleSkillRun}
+                        onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
+                        onBookmarkDelete={handleBookmarkDelete}
+                        onBookmarkReorder={handleBookmarkReorder}
+                        isDarkMode={false}
+                      />
+                    </div>
+                  )}
+                </div>
                 <div className="chijie-composer" data-task-active={showStopButton ? 'true' : 'false'}>
                   <div
                     className="chijie-bind-chip"

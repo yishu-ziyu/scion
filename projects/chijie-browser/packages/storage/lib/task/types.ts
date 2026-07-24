@@ -50,6 +50,8 @@ export type CompletionCriterion =
       expected: 'visible' | 'hidden' | 'enabled' | 'disabled';
     })
   | (CriterionBase & { kind: 'media_state'; operator: 'equals'; expected: 'playing' | 'paused' })
+  | (CriterionBase & { kind: 'tab_state'; operator: 'equals'; expected: 'closed' | 'active' })
+  | (CriterionBase & { kind: 'download_state'; operator: 'equals'; expected: 'started' | 'finished' })
   | (CriterionBase & { kind: 'user_confirmed'; operator: 'equals'; expected: true });
 
 export interface CompletionEvidence {
@@ -81,6 +83,13 @@ export interface ActionAttempt {
   effect: 'read' | 'reversible' | 'external_commit';
   targetDigest?: string;
   argsDigest: string;
+  /**
+   * Human one-liner for Activity UI (verb + object).
+   * Never store digests, selectors, passwords, or raw form values here.
+   */
+  displaySummary?: string;
+  /** Optional short object chip (hostname / field kind). */
+  targetLabel?: string;
   state: AttemptState;
   proposedAt: number;
   approvedAt?: number;

@@ -24,6 +24,7 @@ import { isUrlAllowed } from './util';
 import { sha256 } from '../task/digest';
 import type { CompletionCriterion } from '@extension/storage/lib/task';
 import type { ProbeObservation } from '../task/contracts';
+import { pageLooksUnavailable } from './page-availability';
 
 const logger = createLogger('Page');
 
@@ -1629,6 +1630,29 @@ export default class Page {
       .filter((item): item is Extract<CompletionCriterion, { kind: 'page_text' }> => item.kind === 'page_text')
       .map(item => item.expectedDigest);
     let textMatches: Record<string, boolean> = {};
+    // URL criteria must not pass on soft/hard 404 shells (YouTube playlist?list=FL etc.).
+    let pageUnavailable = false;
+    if (criteria.some(item => item.kind === 'url') && this._puppeteerPage) {
+      try {
+        const snap = await this._puppeteerPage.evaluate(() => ({
+          title: document.title || '',
+          bodyText: (document.body?.innerText || '').slice(0, 4000),
+        }));
+        pageUnavailable = pageLooksUnavailable({
+          url: normalizedUrl,
+          title: snap.title,
+          bodyText: snap.bodyText,
+        });
+        if (pageUnavailable) {
+          logger.warning('url criterion sees unavailable page; treating URL as unmatched', {
+            url: normalizedUrl.slice(0, 120),
+            title: snap.title.slice(0, 80),
+          });
+        }
+      } catch {
+        pageUnavailable = false;
+      }
+    }
 
     if (textDigests.length > 0) {
       textMatches = Object.fromEntries(textDigests.map(digest => [digest, false]));
@@ -1664,13 +1688,17 @@ export default class Page {
         let targetRefId = actualTargetRefId;
         switch (criterion.kind) {
           case 'url':
-            value = normalizedUrl;
+            // Empty string never equals/startsWith a real goal URL → completion stays open.
+            value = pageUnavailable ? '' : normalizedUrl;
             break;
           case 'page_text':
             value = textMatches[criterion.expectedDigest] ?? false;
             break;
           case 'element_state':
           case 'user_confirmed':
+          case 'tab_state':
+          case 'download_state':
+            // Tab/download probes run in TaskManager (tab may already be closed).
             return null;
           case 'media_state': {
             const targetDigest = criterion.targetRefId.startsWith('media:')

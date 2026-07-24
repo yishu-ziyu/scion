@@ -99,7 +99,9 @@ export function productFailureLabel(category: string | undefined | null): string
   return t(PRODUCT_FAILURE_MESSAGE_KEYS[toProductFailureCode(category)]);
 }
 
-/** True if text looks like engineer-primary noise. */
+/** True if text looks like engineer-primary noise (presentation leakage). See product/014 Part C. */
 export function isEngineerFailureNoise(text: string): boolean {
-  return /\b(step_failed|Planner|Navigator|observe_failed|json_parse_failed)\b/i.test(text);
+  return /\b(step_failed|Planner|Navigator|observe_failed|json_parse_failed|no_progress|ExecutorDriver|pageRevision|failure_class|false_complete|wrong_tab|attach_mode|llm_failed|control_script_exhausted|ExecutorOutcome|done_candidate)\b/i.test(
+    text,
+  );
 }

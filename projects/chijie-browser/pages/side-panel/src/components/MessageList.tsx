@@ -11,16 +11,22 @@ interface MessageListProps {
 
 export default memo(function MessageList({ messages, isDarkMode = false, onRetry, onRephrase }: MessageListProps) {
   void isDarkMode;
+  const visible = messages
+    .map((message, index) => ({ message, index, display: humanizeStoredMessage(message) }))
+    // Empty system_note = process noise stripped in humanize; never render as a blank bubble.
+    .filter(item => !(item.display.kind === 'system_note' && !item.display.body.trim()));
+
   return (
     <div className="max-w-full space-y-4">
-      {messages.map((message, index) => {
-        const display = humanizeStoredMessage(message);
-        const prevDisplay = index > 0 ? humanizeStoredMessage(messages[index - 1]) : null;
+      {visible.map((item, visibleIndex) => {
+        const { message, index, display } = item;
+        const prevDisplay = visibleIndex > 0 ? visible[visibleIndex - 1].display : null;
         const isSameGroup =
           prevDisplay != null &&
           prevDisplay.title === display.title &&
           prevDisplay.kind === display.kind &&
           display.kind !== 'progress';
+        const isLastVisible = visibleIndex === visible.length - 1;
 
         return (
           <MessageBlock
@@ -29,7 +35,7 @@ export default memo(function MessageList({ messages, isDarkMode = false, onRetry
             isSameGroup={isSameGroup}
             onRetry={onRetry}
             onRephrase={onRephrase}
-            showActions={display.kind === 'failure' && index === messages.length - 1 && Boolean(onRetry || onRephrase)}
+            showActions={display.kind === 'failure' && isLastVisible && Boolean(onRetry || onRephrase)}
           />
         );
       })}

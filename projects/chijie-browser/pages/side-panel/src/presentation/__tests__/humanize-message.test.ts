@@ -106,6 +106,35 @@ describe('classifyAgentEvent', () => {
       expect(ui.content).toContain('表单');
     }
   });
+
+  it('STEP_OK browser telemetry is suppressed (task card owns steps)', () => {
+    for (const details of [
+      'Browser opened.',
+      'Switched to https://www.bilibili.com',
+      'Playing video for 3 seconds',
+      '任务完成',
+    ]) {
+      expect(
+        classifyAgentEvent({
+          actor: Actors.NAVIGATOR,
+          state: ExecutionState.STEP_OK,
+          details,
+        }),
+      ).toEqual({ action: 'suppress' });
+    }
+  });
+});
+
+describe('process noise in stored history', () => {
+  it('strips browser telemetry so chat does not look like a debug log', () => {
+    const d = humanizeStoredMessage({
+      actor: Actors.NAVIGATOR,
+      content: 'Browser opened.',
+      timestamp: 1,
+    });
+    expect(d.kind).toBe('system_note');
+    expect(d.body).toBe('');
+  });
 });
 
 describe('classifyFailure / merge', () => {

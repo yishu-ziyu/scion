@@ -28,14 +28,20 @@ import type {
   ProbeObservation,
 } from './contracts';
 import { StaleTaskRoundError } from './contracts';
+import { buildAttemptDisplaySummary, buildAttemptTargetLabel } from './attempt-display';
 import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
 import { checkCompletion } from './completion';
 import { sha256 } from './digest';
 import { allowsVerifiedComplete } from './page-state';
-import { resolveMediaArgs } from './media';
+import { resolveMediaArgs, resolveTabArgs } from './media';
 import { ActionResult } from '../agent/types';
 
 export type { ExecutorDriver } from './contracts';
+
+/** Observed tab presence for tab_state completion criteria. */
+export type TabStateProbe = 'closed' | 'active' | 'inactive';
+/** Observed download progress for download_state criteria (stub-safe). */
+export type DownloadStateProbe = 'none' | 'started' | 'finished';
 
 interface TaskManagerDeps {
   createExecutor: (input: ExecutorInput, hooks: ExecutorHooks) => Promise<ExecutorDriver>;
@@ -44,6 +50,10 @@ interface TaskManagerDeps {
   now: () => number;
   /** Backoff after external_commit before re-probe (ms). Default covers async form rewrites. */
   postCommitVerifyDelaysMs?: number[];
+  /** Probe tab existence/focus without requiring page attach (closed tabs). */
+  probeTabState?: (tabId: number) => Promise<TabStateProbe>;
+  /** Probe recent downloads API state; default 'none' never false-completes. */
+  probeDownloadState?: () => Promise<DownloadStateProbe>;
 }
 
 const TERMINAL_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled'];
@@ -592,9 +602,25 @@ export class TaskManager {
           } catch {
             // Keep the redacted null origin for non-URL pages.
           }
+          const targetRefId = `media:${observed.targetDigest}`;
+          // After-act digest evidence feeds continuous control; completion still needs criteria.
+          const evidence =
+            phase === 'after'
+              ? [
+                  {
+                    criterionId: `media-state:${request.roundId}`,
+                    roundId: request.roundId,
+                    targetRefId,
+                    observedAt: this.deps.now(),
+                    source: 'page' as const,
+                    value: observed.state,
+                    passed: true,
+                  },
+                ]
+              : [];
           return {
             target: {
-              id: `media:${observed.targetDigest}`,
+              id: targetRefId,
               kind: 'media',
               tabId: page.tabId,
               frameId: 0,
@@ -602,7 +628,48 @@ export class TaskManager {
               digest: observed.targetDigest,
             },
             effectTarget: { tag: 'video' },
-            evidence: [],
+            evidence,
+          };
+        }
+        if (request.action.name() === 'close_tab' || request.action.name() === 'switch_tab') {
+          const tabId =
+            this.readNumberField(parsedArgs, 'tab_id') ??
+            (Number.isSafeInteger(page.tabId) ? page.tabId : undefined);
+          const targetRefId = tabId !== undefined ? `tab-${tabId}` : `tab-${page.tabId}`;
+          let urlOrigin = 'null';
+          try {
+            urlOrigin = new URL(page.url()).origin;
+          } catch {
+            // Keep redacted null origin.
+          }
+          const digest = await sha256(`${request.action.name()}:${targetRefId}`);
+          let evidence: CompletionEvidence[] = [];
+          if (phase === 'after' && tabId !== undefined) {
+            const tabState = await this.probeTabState(tabId);
+            const expected = request.action.name() === 'close_tab' ? 'closed' : 'active';
+            evidence = [
+              {
+                criterionId: `tab-state:${request.roundId}`,
+                roundId: request.roundId,
+                targetRefId,
+                observedAt: this.deps.now(),
+                source: 'page',
+                value: tabState === 'inactive' && expected === 'active' ? 'inactive' : tabState,
+                passed: tabState === expected,
+              },
+            ];
+          }
+          return {
+            target: {
+              id: targetRefId,
+              kind: 'page',
+              tabId: tabId ?? page.tabId,
+              frameId: 0,
+              urlOrigin,
+              digest,
+            },
+            effectTarget: { tag: 'tab' },
+            evidence,
           };
         }
         const observation = await page.observeActionTarget(request.action.name(), parsedArgs, phase);
@@ -626,7 +693,10 @@ export class TaskManager {
           const drafts =
             criteria.length > 0
               ? criteria
-              : this.extractImplicitCompletionCriteria(this.instructions.get(taskId) ?? '');
+              : this.extractImplicitCompletionCriteria(
+                  this.instructions.get(taskId) ?? '',
+                  task.targetRefs.find(ref => ref.kind === 'page')?.urlOrigin,
+                );
           await this.freezeCriteria(taskId, roundId, drafts);
         } else if (this.currentRound(task).criteria.length === 0) {
           throw new Error('Locked Skill criteria are missing');
@@ -643,7 +713,8 @@ export class TaskManager {
         }
         let resolvedArgs = rawArgs;
         if (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)) {
-          const resolution = resolveMediaArgs(action.name(), rawArgs as Record<string, unknown>, task);
+          const withTab = resolveTabArgs(action.name(), rawArgs as Record<string, unknown>, task);
+          const resolution = resolveMediaArgs(action.name(), withTab, task);
           if (resolution.kind === 'waiting_user') {
             return this.blockMediaAction(taskId, roundId, action.name(), rawArgs, resolution.reason);
           }
@@ -740,6 +811,21 @@ export class TaskManager {
     ) {
       return false;
     }
+    // Multi-intent goals (play + copy comment) must not settle on media criteria alone.
+    // Keep the loop alive so the agent can still extract/return text.
+    const instructionForRound =
+      this.instructions.get(taskId) ||
+      task.goalSummary ||
+      (round.instructionSummary && round.instructionSummary !== 'User instruction'
+        ? round.instructionSummary
+        : '') ||
+      '';
+    if (this.instructionRequestsUserDeliverable(instructionForRound)) {
+      const answer = round.instructionSummary?.trim() ?? '';
+      if (!this.hasSubstantiveDeliverableAnswer(answer, instructionForRound)) {
+        return false;
+      }
+    }
     await this.queueTransition(async () => {
       const current = await getTask(taskId);
       if (!current || current.status !== 'running' || current.currentRoundId !== roundId) return;
@@ -757,6 +843,27 @@ export class TaskManager {
     return typeof field === 'string' ? field : undefined;
   }
 
+  private readNumberField(value: unknown, key: string): number | undefined {
+    if (!value || typeof value !== 'object' || !(key in value)) return undefined;
+    const field = (value as Record<string, unknown>)[key];
+    if (typeof field === 'number' && Number.isFinite(field)) return field;
+    if (typeof field === 'string' && field.trim() !== '') {
+      const n = Number(field.trim());
+      if (Number.isFinite(n)) return n;
+    }
+    return undefined;
+  }
+
+  private async probeTabState(tabId: number): Promise<TabStateProbe> {
+    if (this.deps.probeTabState) return this.deps.probeTabState(tabId);
+    return 'inactive';
+  }
+
+  private async probeDownloadState(): Promise<DownloadStateProbe> {
+    if (this.deps.probeDownloadState) return this.deps.probeDownloadState();
+    return 'none';
+  }
+
   private async blockMediaAction(
     taskId: string,
     roundId: string,
@@ -765,12 +872,15 @@ export class TaskManager {
     reason: 'target_missing' | 'target_ambiguous',
   ): Promise<DispatchResult> {
     const proposedAt = this.deps.now();
+    const displayInput = { actionName, args: rawArgs };
     let attempt: ActionAttempt = {
       id: crypto.randomUUID(),
       roundId,
       actionName,
       effect: 'reversible',
       argsDigest: await sha256(JSON.stringify(rawArgs)),
+      displaySummary: buildAttemptDisplaySummary(displayInput),
+      targetLabel: buildAttemptTargetLabel(displayInput),
       state: 'proposed',
       proposedAt,
     };
@@ -962,9 +1072,10 @@ export class TaskManager {
           session?.messages.find(message => message.id === round.instructionMessageId)?.content;
       }
       if (!instruction) {
-        task.status = 'waiting_user';
-        round.status = 'waiting_user';
-        round.waitReason = 'proof_required';
+        // Dead-end if we wait for "proof" with no criteria UI. Fail honestly.
+        task.status = 'failed';
+        round.status = 'failed';
+        round.failureCategory = 'missing_instruction';
         task.revision += 1;
         await this.persist(task);
         return;
@@ -974,7 +1085,8 @@ export class TaskManager {
       const isSkillRun = task.sourceSkillId !== undefined;
       // Freeze instruction-derived success text before the agent acts so baseline is pre-submit.
       if (!isSkillRun && !this.lockedCriteriaRounds.has(this.roundKey(taskId, roundId))) {
-        const implicit = this.extractImplicitCompletionCriteria(instruction);
+        const tabOrigin = task.targetRefs.find(ref => ref.kind === 'page')?.urlOrigin;
+        const implicit = this.extractImplicitCompletionCriteria(instruction, tabOrigin);
         if (implicit.length > 0) {
           await this.freezeCriteria(taskId, roundId, implicit);
         }
@@ -1065,7 +1177,10 @@ export class TaskManager {
         // Live open-site goals often omit planner criteria; re-derive from the instruction
         // while still running so we can verify the page URL and emit a receipt.
         const instruction = this.instructions.get(taskId) ?? '';
-        const recoveryDrafts = this.extractImplicitCompletionCriteria(instruction);
+        const recoveryDrafts = this.extractImplicitCompletionCriteria(
+          instruction,
+          task.targetRefs.find(ref => ref.kind === 'page')?.urlOrigin,
+        );
         if (recoveryDrafts.length > 0) {
           await this.freezeCriteria(taskId, runRoundId, recoveryDrafts);
           const afterFreeze = await getTask(taskId);
@@ -1104,6 +1219,9 @@ export class TaskManager {
         }
       }
       if (round.criteria.length === 0) {
+        // Understanding / open-ended goals often have no freezeable criteria.
+        // Prefer complete with the model summary (answer) over hang or opaque fail.
+        const answer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
         let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
           const current = await getTask(taskId);
@@ -1112,7 +1230,23 @@ export class TaskManager {
             handoffRoundId = current.currentRoundId;
             return;
           }
-          await this.persistWaitingUser(current, this.currentRound(current), 'proof_required');
+          const currentRound = this.currentRound(current);
+          if (answer.length > 0) {
+            // Surface the answer on the round for UI; keep goalSummary generic.
+            currentRound.instructionSummary = answer.slice(0, 2000);
+            delete currentRound.waitReason;
+            delete currentRound.failureCategory;
+            await this.persistVerifiedReceipt(current, currentRound, []);
+            return;
+          }
+          // No answer either — fail honestly (never proof_required with 0 buttons).
+          current.status = 'failed';
+          currentRound.status = 'failed';
+          currentRound.failureCategory = 'no_completion_criteria';
+          delete currentRound.waitReason;
+          current.revision += 1;
+          current.updatedAt = this.deps.now();
+          await this.persist(current);
         });
         if (handoffRoundId) {
           runRoundId = handoffRoundId;
@@ -1170,6 +1304,18 @@ export class TaskManager {
         criteria: round.criteria,
         observations,
       });
+      const outcomeAnswer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
+      // Multi-intent goals like "play + copy first comment" must not complete on media alone.
+      const instructionForRound =
+        this.instructions.get(taskId) ||
+        task.goalSummary ||
+        (round.instructionSummary && round.instructionSummary !== 'User instruction'
+          ? round.instructionSummary
+          : '') ||
+        '';
+      const needsDeliverable = this.instructionRequestsUserDeliverable(instructionForRound);
+      const deliverableOk =
+        !needsDeliverable || this.hasSubstantiveDeliverableAnswer(outcomeAnswer, instructionForRound);
       let retry = false;
       let handoffRoundId: string | undefined;
       await this.queueTransition(async () => {
@@ -1186,12 +1332,41 @@ export class TaskManager {
           allowsVerifiedComplete({
             completionPassed: checked.passed,
             hasRequiredCriteria: currentRound.criteria.some(criterion => criterion.required),
-          })
+          }) &&
+          deliverableOk
         ) {
+          if (outcomeAnswer.length > 0) {
+            currentRound.instructionSummary = outcomeAnswer.slice(0, 2000);
+          }
           await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
           return;
         }
+        // Criteria green but user still asked for text we never got — keep working, do not fake done.
+        if (
+          allowsVerifiedComplete({
+            completionPassed: checked.passed,
+            hasRequiredCriteria: currentRound.criteria.some(criterion => criterion.required),
+          }) &&
+          needsDeliverable &&
+          !deliverableOk
+        ) {
+          current.revision += 1;
+          await this.persist(current);
+          retry = true;
+          return;
+        }
         if (verificationRetries >= 1) {
+          if (needsDeliverable && !deliverableOk && checked.passed) {
+            // Do not hang on proof_required with no button — fail with a clear product category.
+            current.status = 'failed';
+            currentRound.status = 'failed';
+            currentRound.failureCategory = 'no_action';
+            delete currentRound.waitReason;
+            current.revision += 1;
+            current.updatedAt = this.deps.now();
+            await this.persist(current);
+            return;
+          }
           await this.persistWaitingUser(current, currentRound, 'proof_required');
           return;
         }
@@ -1213,8 +1388,50 @@ export class TaskManager {
         continue;
       }
       verificationRetries += 1;
-      driver.addFollowUp('Completion was not verified; inspect the current page and continue.');
+      if (needsDeliverable && !deliverableOk && checked.passed) {
+        driver.addFollowUp(
+          'Page checks passed but the user also asked for extracted text (comment/copy/summary). Read the page, copy the requested content, and reply with that text before finishing.',
+        );
+      } else {
+        driver.addFollowUp('Completion was not verified; inspect the current page and continue.');
+      }
     }
+  }
+
+  /** User expects content returned in chat (comment, copy, summary), not only page side-effects. */
+  private instructionRequestsUserDeliverable(instruction: string): boolean {
+    const text = instruction.replace(/\s+/g, ' ').trim();
+    if (!text) return false;
+    return (
+      /复制/.test(text) ||
+      /发给我|发我|告诉我|回复我|贴给我/.test(text) ||
+      /第一条评论|评论内容|热评/.test(text) ||
+      /摘录|摘要|总结/.test(text) ||
+      /把.{1,40}给(我|你)/.test(text) ||
+      /\b(copy|tell me|send me|first comment)\b/i.test(text) ||
+      // R1-class: table/CSV extract must land as chat deliverable, not page-only done.
+      /\bextract\b.+\b(csv|table)\b/i.test(text) ||
+      /\b(csv|table)\b.+\b(name|price|rating)\b/i.test(text) ||
+      /(?:抽取|提取|导出).{0,24}(?:表|CSV|csv)/i.test(text)
+    );
+  }
+
+  private hasSubstantiveDeliverableAnswer(summary: string, goalText = ''): boolean {
+    const s = summary.replace(/\s+/g, ' ').trim();
+    if (s.length < 8) return false;
+    if (/^(done|完成|ok|已完成|success|好了|opened|playing|paused)[.!。！]*$/i.test(s)) return false;
+    // Media/page status is evidence, not the comment/copy the user asked for.
+    if (/^(视频|媒体).{0,12}(播放|暂停|核对)/.test(s)) return false;
+    if (/^(目标)?标签已关闭/.test(s)) return false;
+    if (/^页面(地址|状态)已/.test(s)) return false;
+    if (/^下载已(开始|完成)/.test(s)) return false;
+    if (/^(Browser opened|Switched to|Playing video|Opened |Paused video)/i.test(s)) return false;
+    if (/User instruction/i.test(s)) return false;
+    const goal = goalText.replace(/\s+/g, ' ').trim();
+    if (goal && (s === goal || s.includes(goal) || (s.length <= goal.length + 4 && goal.includes(s)))) {
+      return false;
+    }
+    return true;
   }
 
   private canApplyDriverOutcome(task: TaskSession | null, taskId: string, driver: ExecutorDriver): task is TaskSession {
@@ -1224,12 +1441,61 @@ export class TaskManager {
   /**
    * Probe completion against the task's bound tab, not whatever tab is currently
    * focused (side-panel tabs / e2e focus steal would otherwise miss page_text).
+   * tab_state / download_state do not require a live page attach (closed tabs).
    */
   private async observeTaskCriteria(task: TaskSession, criteria: CompletionCriterion[]): Promise<ProbeObservation[]> {
-    if (Number.isSafeInteger(task.activeTabId)) {
-      await this.deps.switchTab(task.activeTabId);
+    const now = this.deps.now();
+    const tabCriteria = criteria.filter(criterion => criterion.kind === 'tab_state');
+    const downloadCriteria = criteria.filter(criterion => criterion.kind === 'download_state');
+    const pageCriteria = criteria.filter(
+      criterion => criterion.kind !== 'tab_state' && criterion.kind !== 'download_state',
+    );
+
+    const tabObservations: ProbeObservation[] = [];
+    for (const criterion of tabCriteria) {
+      const tabId = this.tabIdFromTargetRef(criterion.targetRefId) ?? task.activeTabId;
+      const state = await this.probeTabState(tabId);
+      tabObservations.push({
+        criterionId: criterion.id,
+        roundId: criterion.roundId,
+        targetRefId: criterion.targetRefId.startsWith('tab-') ? criterion.targetRefId : `tab-${tabId}`,
+        observedAt: now,
+        source: 'page',
+        value: state === 'closed' ? 'closed' : state === 'active' ? 'active' : 'inactive',
+      });
     }
-    return this.deps.observeCriteria(criteria);
+
+    const downloadObservations: ProbeObservation[] = [];
+    for (const criterion of downloadCriteria) {
+      const state = await this.probeDownloadState();
+      downloadObservations.push({
+        criterionId: criterion.id,
+        roundId: criterion.roundId,
+        targetRefId: criterion.targetRefId,
+        observedAt: now,
+        source: 'page',
+        value: state,
+      });
+    }
+
+    let pageObservations: ProbeObservation[] = [];
+    if (pageCriteria.length > 0) {
+      if (Number.isSafeInteger(task.activeTabId)) {
+        try {
+          await this.deps.switchTab(task.activeTabId);
+        } catch {
+          // Tab may have been closed; page criteria then simply miss.
+        }
+      }
+      pageObservations = await this.deps.observeCriteria(pageCriteria);
+    }
+    return [...tabObservations, ...downloadObservations, ...pageObservations];
+  }
+
+  private tabIdFromTargetRef(targetRefId: string): number | undefined {
+    if (!targetRefId.startsWith('tab-')) return undefined;
+    const n = Number(targetRefId.slice(4));
+    return Number.isSafeInteger(n) ? n : undefined;
   }
 
   private applyOutcome(task: TaskSession, outcome: ExecutorOutcome): void {
@@ -1285,7 +1551,11 @@ export class TaskManager {
             this.freezeCriterion(
               draft,
               round.id,
-              draft.kind === 'media_state' && latestMediaTarget ? latestMediaTarget.id : tabTargetRefId,
+              draft.kind === 'media_state' && latestMediaTarget
+                ? latestMediaTarget.id
+                : draft.kind === 'download_state'
+                  ? 'download:session'
+                  : tabTargetRefId,
               frozenAt,
               userFieldValues,
             ),
@@ -1298,7 +1568,7 @@ export class TaskManager {
         observation =>
           observation.source === 'page' &&
           observation.roundId === round.id &&
-          /^(?:tab-\d+|media:[a-f0-9]{64})$/.test(observation.targetRefId),
+          /^(?:tab-\d+|media:[a-f0-9]{64}|download:session)$/.test(observation.targetRefId),
       );
       const observedTabTargets = new Set(
         pageObservations.map(observation => observation.targetRefId).filter(target => target.startsWith('tab-')),
@@ -1350,7 +1620,7 @@ export class TaskManager {
       observation =>
         observation.source === 'page' &&
         observation.roundId === roundId &&
-        /^(?:tab-\d+|media:[a-f0-9]{64})$/.test(observation.targetRefId),
+        /^(?:tab-\d+|media:[a-f0-9]{64}|download:session)$/.test(observation.targetRefId),
     );
     for (const criterion of criteria) {
       const observation = observations.find(item => item.criterionId === criterion.id);
@@ -1367,6 +1637,8 @@ export class TaskManager {
         return { ...template, expected: template.expectedTemplate };
       case 'element_state':
       case 'media_state':
+      case 'tab_state':
+      case 'download_state':
       case 'user_confirmed':
         return template;
     }
@@ -1405,6 +1677,20 @@ export class TaskManager {
         case 'media_state':
           return {
             kind: 'media_state',
+            operator: criterion.operator,
+            expected: criterion.expected,
+            required: criterion.required,
+          };
+        case 'tab_state':
+          return {
+            kind: 'tab_state',
+            operator: criterion.operator,
+            expected: criterion.expected,
+            required: criterion.required,
+          };
+        case 'download_state':
+          return {
+            kind: 'download_state',
             operator: criterion.operator,
             expected: criterion.expected,
             required: criterion.required,
@@ -1462,6 +1748,10 @@ export class TaskManager {
         return { ...base, kind: 'user_confirmed', operator: 'equals', expected: true };
       case 'media_state':
         return { ...base, kind: 'media_state', operator: draft.operator, expected: draft.expected };
+      case 'tab_state':
+        return { ...base, kind: 'tab_state', operator: draft.operator, expected: draft.expected };
+      case 'download_state':
+        return { ...base, kind: 'download_state', operator: draft.operator, expected: draft.expected };
     }
   }
 
@@ -1481,12 +1771,27 @@ export class TaskManager {
    * - Open + open first video ("打开YouTube并点击第一个视频") → url starts_with /watch (or site equivalent)
    * - Explicit success text ("success is Saved successfully" / "until you see Done") → page_text
    */
-  private extractImplicitCompletionCriteria(instruction: string): CompletionCriterionDraft[] {
+  private extractImplicitCompletionCriteria(
+    instruction: string,
+    tabOrigin?: string,
+  ): CompletionCriterionDraft[] {
     const drafts: CompletionCriterionDraft[] = [];
     const seen = new Set<string>();
     const fieldValues = this.extractUserFieldValues(instruction);
 
-    const completionUrl = this.extractOpenSiteCompletionUrl(instruction);
+    let completionUrl = this.extractOpenSiteCompletionUrl(instruction);
+    // Already on bilibili/youtube + "open first video" (no "打开 bilibili" in text).
+    if (!completionUrl && tabOrigin && this.instructionRequestsOpenMedia(instruction)) {
+      try {
+        const originUrl =
+          tabOrigin.startsWith('http://') || tabOrigin.startsWith('https://')
+            ? tabOrigin
+            : `https://${tabOrigin}`;
+        completionUrl = this.mediaWatchUrlForSite(originUrl);
+      } catch {
+        completionUrl = null;
+      }
+    }
     if (completionUrl && !seen.has(completionUrl)) {
       seen.add(completionUrl);
       drafts.push({ kind: 'url', operator: 'starts_with', expected: completionUrl, required: true });
@@ -1506,7 +1811,74 @@ export class TaskManager {
         drafts.push({ kind: 'page_text', operator: 'present', expected, required: true });
       }
     }
+
+    // T0 control goals: freeze observable criteria so model verbal done cannot complete alone.
+    if (this.instructionRequestsCloseTab(instruction) && !seen.has('tab_state:closed')) {
+      seen.add('tab_state:closed');
+      drafts.push({ kind: 'tab_state', operator: 'equals', expected: 'closed', required: true });
+    }
+    if (this.instructionRequestsDownload(instruction) && !seen.has('download_state:finished')) {
+      seen.add('download_state:finished');
+      drafts.push({ kind: 'download_state', operator: 'equals', expected: 'finished', required: true });
+    }
+    // Media play/pause only when not an "open first video" navigation goal.
+    if (!this.instructionRequestsOpenMedia(instruction) && !completionUrl) {
+      if (this.instructionRequestsMediaPause(instruction) && !seen.has('media_state:paused')) {
+        seen.add('media_state:paused');
+        drafts.push({ kind: 'media_state', operator: 'equals', expected: 'paused', required: true });
+      } else if (this.instructionRequestsMediaPlay(instruction) && !seen.has('media_state:playing')) {
+        seen.add('media_state:playing');
+        drafts.push({ kind: 'media_state', operator: 'equals', expected: 'playing', required: true });
+      }
+    }
+
     return drafts.slice(0, 3);
+  }
+
+  private instructionRequestsCloseTab(instruction: string): boolean {
+    const text = instruction.replace(/\s+/g, ' ').trim();
+    if (!text) return false;
+    return (
+      /关掉(这个)?(页|标签|标签页|tab)?/i.test(text) ||
+      /关闭(这个)?(页|标签|标签页|窗口)/.test(text) ||
+      /关页/.test(text) ||
+      /close\s+(this\s+)?(tab|page|window)/i.test(text) ||
+      /close\s+the\s+(current\s+)?(tab|page)/i.test(text)
+    );
+  }
+
+  private instructionRequestsDownload(instruction: string): boolean {
+    const text = instruction.replace(/\s+/g, ' ').trim();
+    if (!text) return false;
+    return (
+      /下载(这个|该|一下)?(视频|影片|音频|文件|内容)?/.test(text) ||
+      /\bdownload\s+(this\s+)?(video|audio|file|media)?\b/i.test(text)
+    );
+  }
+
+  private instructionRequestsMediaPause(instruction: string): boolean {
+    const text = instruction.replace(/\s+/g, ' ').trim();
+    if (!text) return false;
+    return (
+      /暂停/.test(text) ||
+      /停一下/.test(text) ||
+      /停下/.test(text) ||
+      /停止播放/.test(text) ||
+      /\bpause\b/i.test(text) ||
+      /\bstop\s+(the\s+)?(video|audio|media|playback)\b/i.test(text)
+    );
+  }
+
+  private instructionRequestsMediaPlay(instruction: string): boolean {
+    const text = instruction.replace(/\s+/g, ' ').trim();
+    if (!text) return false;
+    return (
+      /播放/.test(text) ||
+      /继续播/.test(text) ||
+      /开始播/.test(text) ||
+      /\bplay\b/i.test(text) ||
+      /\bresume\s+(the\s+)?(video|audio|media|playback)\b/i.test(text)
+    );
   }
 
   /**

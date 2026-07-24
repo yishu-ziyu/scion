@@ -68,10 +68,10 @@ export const inputTextActionSchema: ActionSchema = {
 // Tab Management Actions
 export const switchTabActionSchema: ActionSchema = {
   name: 'switch_tab',
-  description: 'Switch to tab by tab id',
+  description: 'Focus/switch to a tab by tab id (task-bound tab when tab_id omitted)',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
-    tab_id: z.coerce.number().int().describe('id of the tab to switch to'),
+    tab_id: z.coerce.number().int().optional().describe('id of the tab to switch to; defaults to task tab'),
   }),
 };
 
@@ -86,10 +86,10 @@ export const openTabActionSchema: ActionSchema = {
 
 export const closeTabActionSchema: ActionSchema = {
   name: 'close_tab',
-  description: 'Close tab by tab id',
+  description: 'Close a tab by id; omit tab_id to close the current task-bound tab',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
-    tab_id: z.coerce.number().int().describe('id of the tab'),
+    tab_id: z.coerce.number().int().optional().describe('id of the tab; defaults to current task tab'),
   }),
 };
 

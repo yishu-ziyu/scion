@@ -64,6 +64,9 @@
   "chat_input_placeholder": {
     "message": "Como posso ajudar?"
   },
+  "chat_empty_hint": {
+    "message": "Envie uma tarefa para começar. Progresso acima; resultados aqui."
+  },
   "chat_task_mode_badge": {
     "message": "Tarefa: agente"
   },
@@ -981,6 +984,18 @@
   "chat_task_done_body": {
     "message": "O resultado da página foi verificado. Esta etapa terminou com segurança."
   },
+  "chat_task_partial_title": {
+    "message": "Só parte do objetivo foi concluída"
+  },
+  "chat_task_partial_body": {
+    "message": "Parte da verificação passou, mas ainda falta entregar conteúdo do objetivo. Avalie e continue com um follow-up."
+  },
+  "chat_task_partial_done_label": {
+    "message": "Feito"
+  },
+  "chat_task_partial_missing_label": {
+    "message": "Ainda falta"
+  },
   "chat_task_next_step_title": {
     "message": "O que você pode fazer agora"
   },
@@ -1034,6 +1049,9 @@
   },
   "chat_task_action_switch_tab": {
     "message": "Trocar aba"
+  },
+  "chat_task_action_close_tab": {
+    "message": "Fechar aba"
   },
   "chat_task_action_click": {
     "message": "Clicar no controle da página"
@@ -1091,6 +1109,27 @@
   },
   "chat_task_attempt_blocked": {
     "message": "Bloqueado"
+  },
+  "chat_task_activity_heading": {
+    "message": "Atividade"
+  },
+  "chat_task_activity_thinking": {
+    "message": "Pensando"
+  },
+  "chat_task_activity_viewing": {
+    "message": "Vendo $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1",
+        "example": "bilibili.com"
+      }
+    }
+  },
+  "chat_task_activity_waiting": {
+    "message": "Aguardando você"
+  },
+  "chat_task_activity_wait_hint": {
+    "message": "Ações sensíveis pausam aqui"
   },
   "chat_task_activity_understanding": {
     "message": "Lendo a página"
@@ -1159,7 +1198,7 @@
     "message": "O resultado da página corresponde ao objetivo"
   },
   "chat_task_receipt_technical": {
-    "message": "Recibo técnico"
+    "message": "Detalhes técnicos"
   },
   "chat_task_skill_saving": {
     "message": "Salvando…"
@@ -1335,5 +1374,14 @@
   },
   "chat_task_bind_missing": {
     "message": "Nenhuma aba de página utilizável. Abra um site e tente de novo."
+  },
+  "chat_task_cancel": {
+    "message": "Encerrar tarefa"
+  },
+  "chat_task_fail_no_criteria": {
+    "message": "Sem critério de conclusão; inicie uma nova tarefa com objetivo mais claro."
+  },
+  "chat_task_fail_missing_instruction": {
+    "message": "Instrução ausente. Inicie uma nova tarefa."
   }
 }

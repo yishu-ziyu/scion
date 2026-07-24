@@ -66,6 +66,22 @@ Harder journeys (Feishu submit with approval, Bilibili pause binding) are longer
 
 Version compress: **v0.1** Browser Agent → **v0.2** Reliable (retry, recovery, eval, benchmark) → **v0.3** Personal memory → **v1.0** Personal Browser OS. Current work = v0.1–v0.2 only.
 
+## Capability ceiling A→C (owner 2026-07-23)
+
+Full decision: `docs/decisions/003-a-to-c-capability-ceiling-and-voice.md`.
+
+- **Now = A:** extension-native reliability on the user's real Chrome is the acceptance floor.
+- **Direction = C:** capability depth should keep moving toward native-browser-class agent harness (attachment, control surface, room to compound). Do not treat “A is good enough forever” as success.
+- **Means:** companions (native host, optional CDP attach, offscreen) are allowed as muscle under the same plugin face; forking Chromium is not the default path (`decisions/001` stays the entry form until Owner reopens it).
+- **Why:** private plugin that increasingly understands this user needs a strong executable frame first, then local personalization compound interest—not a feature list.
+
+## Dual voice
+
+- **Engineering / eval / ADRs:** precise geek terms allowed and preferred when they reduce ambiguity.
+- **Product UI / user-facing copy:** plain human language; verified outcomes without dumping kernel jargon on the user.
+- **Presentation leakage is a product bug:** never show Planner/Navigator/step_failed/observe_failed/internal enums on the main task UI. Map via `presentation/*` + i18n. Axioms: `docs/product/014-executable-framework-axioms.md`.
+- **Task UX after user asks (Claw-aligned):** human steps, stop + follow-up, completion with checkable outcome, optional in-page “working on this page” bar — `docs/design/005-chijie-task-ux-from-claw.md`. Parity stories: `docs/product/016-sider-claw-parity-matrix.md`. **Goals + acceptance gates:** `docs/product/017-claw-parity-goals-and-acceptance.md`.
+
 ## Delivery order (MVP slices)
 
 1. **Slice A (minimum green):** Tabbit-class “open YouTube” — task mode → real navigation → human-readable steps → verified done (optional success/partial/fail feedback).

@@ -10,6 +10,7 @@ import { analytics } from './services/analytics';
 import { ensurePersonalDefaults } from '../personal/bootstrap';
 import { TaskManager } from './task/manager';
 import { PortRegistry } from './task/port-registry';
+import { chromeTabsSendMessage, syncPageOperatingBar } from './task/page-operating';
 import { browserContext, createExecutorDriver } from './agent/factory';
 
 const logger = createLogger('background');
@@ -26,10 +27,54 @@ const taskManager = new TaskManager({
     const page = await browserContext.getCurrentPage();
     return page.observeCompletionCriteria(criteria);
   },
+  probeTabState: async tabId => {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      return tab.active ? 'active' : 'inactive';
+    } catch {
+      return 'closed';
+    }
+  },
+  probeDownloadState: async () => {
+    if (typeof chrome === 'undefined' || !chrome.downloads?.search) return 'none';
+    return new Promise(resolve => {
+      try {
+        chrome.downloads.search({ orderBy: ['-startTime'], limit: 8 }, items => {
+          if (chrome.runtime.lastError || !items?.length) {
+            resolve('none');
+            return;
+          }
+          const recent = items.filter(item => {
+            const started = Date.parse(item.startTime || '');
+            return Number.isFinite(started) && Date.now() - started < 120_000;
+          });
+          if (recent.some(item => item.state === 'complete')) {
+            resolve('finished');
+            return;
+          }
+          if (recent.some(item => item.state === 'in_progress')) {
+            resolve('started');
+            return;
+          }
+          resolve('none');
+        });
+      } catch {
+        resolve('none');
+      }
+    });
+  },
   now: () => Date.now(),
 });
 
-taskManager.subscribe(event => sidePanelPorts.broadcast(port => port.postMessage({ type: 'task_event', event })));
+taskManager.subscribe(event => {
+  sidePanelPorts.broadcast(port => port.postMessage({ type: 'task_event', event }));
+  void taskManager
+    .activeSnapshot()
+    .then(snapshot =>
+      syncPageOperatingBar(snapshot, (tabId, message) => chromeTabsSendMessage(tabId, message)),
+    )
+    .catch(error => logger.error('Page operating bar sync failed', error));
+});
 
 // Personal fork: seed MiniMax-M3 into chrome.storage on every SW boot (no GUI).
 void ensurePersonalDefaults().catch(error => logger.error('Personal bootstrap failed', error));

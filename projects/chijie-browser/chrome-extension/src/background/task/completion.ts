@@ -96,6 +96,8 @@ function matches(criterion: CompletionCriterion, value: boolean | string): boole
       return typeof value === 'boolean' && value === (criterion.operator === 'present');
     case 'element_state':
     case 'media_state':
+    case 'tab_state':
+    case 'download_state':
       return value === criterion.expected;
     case 'user_confirmed':
       return value === true;

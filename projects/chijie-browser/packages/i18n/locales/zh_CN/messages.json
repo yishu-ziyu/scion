@@ -64,6 +64,9 @@
   "chat_input_placeholder": {
     "message": "我能帮你做什么？"
   },
+  "chat_empty_hint": {
+    "message": "发一条任务开始。过程在上方卡片，结果会落在这里。"
+  },
   "chat_task_mode_badge": {
     "message": "任务：代理任务"
   },
@@ -80,7 +83,7 @@
     "message": "附加文本文件（txt、md、json、csv 等）"
   },
   "chat_task_steps_heading": {
-    "message": "执行步骤"
+    "message": "操作记录"
   },
   "chat_task_rating_prompt": {
     "message": "本次任务完成得怎么样？"
@@ -981,6 +984,18 @@
   "chat_task_done_body": {
     "message": "页面结果已核对通过，可以放心结束这一步。"
   },
+  "chat_task_partial_title": {
+    "message": "只完成了部分目标"
+  },
+  "chat_task_partial_body": {
+    "message": "有一部分已经核对，但目标里还有未交付的内容。你可以评分后继续补充说明。"
+  },
+  "chat_task_partial_done_label": {
+    "message": "已做到"
+  },
+  "chat_task_partial_missing_label": {
+    "message": "还缺"
+  },
   "chat_task_next_step_title": {
     "message": "接下来你可以"
   },
@@ -1035,6 +1050,9 @@
   "chat_task_action_switch_tab": {
     "message": "切换标签"
   },
+  "chat_task_action_close_tab": {
+    "message": "关闭标签"
+  },
   "chat_task_action_click": {
     "message": "点击元素"
   },
@@ -1045,7 +1063,7 @@
     "message": "键盘输入"
   },
   "chat_task_action_media": {
-    "message": "媒体控制"
+    "message": "播放或暂停媒体"
   },
   "chat_task_action_scroll": {
     "message": "滚动页面"
@@ -1091,6 +1109,27 @@
   },
   "chat_task_attempt_blocked": {
     "message": "已阻止"
+  },
+  "chat_task_activity_heading": {
+    "message": "活动"
+  },
+  "chat_task_activity_thinking": {
+    "message": "思考中"
+  },
+  "chat_task_activity_viewing": {
+    "message": "正在查看 $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1",
+        "example": "bilibili.com"
+      }
+    }
+  },
+  "chat_task_activity_waiting": {
+    "message": "等待你确认"
+  },
+  "chat_task_activity_wait_hint": {
+    "message": "关键操作会先停在这里"
   },
   "chat_task_activity_understanding": {
     "message": "正在理解页面"
@@ -1159,7 +1198,7 @@
     "message": "页面结果符合目标"
   },
   "chat_task_receipt_technical": {
-    "message": "技术回执"
+    "message": "技术详情"
   },
   "chat_task_skill_saving": {
     "message": "正在保存…"
@@ -1335,5 +1374,14 @@
   },
   "chat_task_bind_missing": {
     "message": "没有可用的网页标签。请先打开目标网站，再发送。"
+  },
+  "chat_task_cancel": {
+    "message": "结束任务"
+  },
+  "chat_task_fail_no_criteria": {
+    "message": "这个任务没有可自动验收的完成条件，所以无法自动结束。请点「新任务」后，用更明确的目标再说一次（例如打开某网站、点某个按钮）。"
+  },
+  "chat_task_fail_missing_instruction": {
+    "message": "读不到任务指令。请开新任务再试。"
   }
 }

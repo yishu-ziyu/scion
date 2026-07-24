@@ -64,6 +64,9 @@
   "chat_input_placeholder": {
     "message": "有什麼需要協助的嗎？"
   },
+  "chat_empty_hint": {
+    "message": "送出一條任務開始。過程在上方卡片，結果會落在這裡。"
+  },
   "chat_task_mode_badge": {
     "message": "任務：代理任務"
   },
@@ -981,6 +984,18 @@
   "chat_task_done_body": {
     "message": "頁面結果已核對通過，可以放心結束這一步。"
   },
+  "chat_task_partial_title": {
+    "message": "只完成了部分目標"
+  },
+  "chat_task_partial_body": {
+    "message": "有一部分已經核對，但目標裡還有未交付的內容。你可以評分後繼續補充說明。"
+  },
+  "chat_task_partial_done_label": {
+    "message": "已做到"
+  },
+  "chat_task_partial_missing_label": {
+    "message": "還缺"
+  },
   "chat_task_next_step_title": {
     "message": "接下來你可以"
   },
@@ -1034,6 +1049,9 @@
   },
   "chat_task_action_switch_tab": {
     "message": "切換分頁"
+  },
+  "chat_task_action_close_tab": {
+    "message": "關閉分頁"
   },
   "chat_task_action_click": {
     "message": "點擊頁面元件"
@@ -1091,6 +1109,27 @@
   },
   "chat_task_attempt_blocked": {
     "message": "已阻止"
+  },
+  "chat_task_activity_heading": {
+    "message": "活動"
+  },
+  "chat_task_activity_thinking": {
+    "message": "思考中"
+  },
+  "chat_task_activity_viewing": {
+    "message": "正在查看 $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1",
+        "example": "bilibili.com"
+      }
+    }
+  },
+  "chat_task_activity_waiting": {
+    "message": "等待你確認"
+  },
+  "chat_task_activity_wait_hint": {
+    "message": "關鍵操作會先停在這裡"
   },
   "chat_task_activity_understanding": {
     "message": "正在理解頁面"
@@ -1159,7 +1198,7 @@
     "message": "頁面結果符合目標"
   },
   "chat_task_receipt_technical": {
-    "message": "技術回執"
+    "message": "技術詳情"
   },
   "chat_task_skill_saving": {
     "message": "正在儲存…"
@@ -1335,5 +1374,14 @@
   },
   "chat_task_bind_missing": {
     "message": "沒有可用的網頁分頁。請先開啟目標網站，再傳送。"
+  },
+  "chat_task_cancel": {
+    "message": "結束任務"
+  },
+  "chat_task_fail_no_criteria": {
+    "message": "這個任務沒有可自動驗收的完成條件，所以無法自動結束。請開新任務並用更明確的目標再說一次。"
+  },
+  "chat_task_fail_missing_instruction": {
+    "message": "讀不到任務指令。請開新任務再試。"
   }
 }

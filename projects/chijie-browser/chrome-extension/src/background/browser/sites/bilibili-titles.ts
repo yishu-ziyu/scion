@@ -99,11 +99,12 @@ export function formatBilibiliTitleEnrichment(titles: string[], surface: 'home' 
   if (titles.length === 0) return '';
   const label =
     surface === 'home' ? 'bilibili home video titles' : surface === 'favlist' ? 'bilibili favlist titles' : 'bilibili video titles';
-  const lines = titles.map((t, i) => `  ${i + 1}. ${t}`);
+  // Use bullets, NOT 1. 2. 3. — models confuse those with Interactive element indexes.
+  const lines = titles.map(t => `  - ${t}`);
   return [
     `${label} (selector=${BILI_VIDEO_CARD_TITLE_SELECTOR}):`,
     ...lines,
-    'Hint: click the card title link to open a video; do not search for unrelated controls.',
+    'Hint: match a title in Interactive elements by text and use THAT index; numbered lists above are NOT element indexes. Prefer go_to_url to a /video/BV… link when listed.',
   ].join('\n');
 }
 

@@ -44,6 +44,18 @@ const completionCriterionDraftSchema = z.discriminatedUnion('kind', [
     required: z.boolean().default(true),
   }),
   z.object({
+    kind: z.literal('tab_state'),
+    operator: z.literal('equals'),
+    expected: z.enum(['closed', 'active']),
+    required: z.boolean().default(true),
+  }),
+  z.object({
+    kind: z.literal('download_state'),
+    operator: z.literal('equals'),
+    expected: z.enum(['started', 'finished']),
+    required: z.boolean().default(true),
+  }),
+  z.object({
     kind: z.literal('user_confirmed'),
     operator: z.literal('equals'),
     expected: z.literal(true),

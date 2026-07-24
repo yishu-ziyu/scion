@@ -107,8 +107,10 @@ describe('observe enrichment', () => {
     const block = formatBilibiliTitleEnrichment(['标题A', '标题B'], 'home');
     expect(block).toContain('bilibili home video titles');
     expect(block).toContain(BILI_VIDEO_CARD_TITLE_SELECTOR);
-    expect(block).toContain('1. 标题A');
-    expect(block).toContain('2. 标题B');
+    expect(block).toContain('- 标题A');
+    expect(block).toContain('- 标题B');
+    expect(block).not.toContain('1. 标题A');
+    expect(block).toMatch(/NOT element indexes/i);
   });
 
   it('enrichObserveWithBilibiliTitles only on list surfaces', () => {

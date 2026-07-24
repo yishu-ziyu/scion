@@ -62,6 +62,9 @@ describe('Feature: user-visible failure categories (ticket 04)', () => {
   it('flags machine tokens as engineer noise', () => {
     expect(isEngineerFailureNoise('step_failed')).toBe(true);
     expect(isEngineerFailureNoise('observe_failed')).toBe(true);
+    expect(isEngineerFailureNoise('no_progress on tab')).toBe(true);
+    expect(isEngineerFailureNoise('ExecutorDriver timeout')).toBe(true);
     expect(isEngineerFailureNoise(productFailureLabel('login_wall'))).toBe(false);
   });
 });
+
