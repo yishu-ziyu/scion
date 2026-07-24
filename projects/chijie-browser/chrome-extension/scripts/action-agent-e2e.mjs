@@ -89,7 +89,10 @@ function resolveMiniMaxApiKey() {
 const chromePath = resolveChromePath();
 
 function silentWav() {
-  const dataBytes = 8000;
+  // ~1s clip ends before e2e re-reads #fixture-audio.paused after task complete,
+  // so play looked green in receipt while DOM already showed paused. Keep 30s.
+  const sampleRate = 8000;
+  const dataBytes = sampleRate * 30;
   const out = Buffer.alloc(44 + dataBytes);
   out.write('RIFF', 0);
   out.writeUInt32LE(36 + dataBytes, 4);
@@ -97,8 +100,8 @@ function silentWav() {
   out.writeUInt32LE(16, 16);
   out.writeUInt16LE(1, 20);
   out.writeUInt16LE(1, 22);
-  out.writeUInt32LE(8000, 24);
-  out.writeUInt32LE(8000, 28);
+  out.writeUInt32LE(sampleRate, 24);
+  out.writeUInt32LE(sampleRate, 28);
   out.writeUInt16LE(1, 32);
   out.writeUInt16LE(8, 34);
   out.write('data', 36);
@@ -119,7 +122,16 @@ const server = http.createServer(async (request, response) => {
     response.writeHead(200, { 'content-type': 'audio/wav' });
     return response.end(silentWav());
   }
-  const fixture = url.pathname === '/media' ? 'media.html' : 'form.html';
+  const fixtureByPath = {
+    '/media': 'media.html',
+    '/products': 'products.html',
+    '/form': 'form.html',
+  };
+  const fixture = fixtureByPath[url.pathname] || (url.pathname === '/' ? 'form.html' : null);
+  if (!fixture) {
+    response.writeHead(404);
+    return response.end('not found');
+  }
   const html = await readFile(path.resolve(__dirname, '../test/fixtures', fixture));
   response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   response.end(html);

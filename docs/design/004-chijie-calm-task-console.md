@@ -170,6 +170,18 @@ last_modified: "2026-07-15"
 
 没有可信 `knownTotalSteps` 时，不显示百分比、进度条或 `x/x`。
 
+### Presentation leakage（硬禁止）
+
+**定义：** 内部执行状态、核名、协议字段未经映射进入用户主 UI。
+
+主任务卡 / 步骤列表 / 完成区 **不得** 出现：`Planner`、`Navigator`、`step_failed`、`observe_failed`、`json_parse_failed`、`no_progress`、`ExecutorDriver`、`pageRevision`、后端名 `nano`/`control`、原始 `failureCategory` 字符串。
+
+所有用户可见文案经 `presentation/*` + i18n；失败用产品码映射（见 `failure-taxonomy.ts`）。  
+完整公理：`docs/product/014-executable-framework-axioms.md` Part C。  
+工程与评测通道可以保留内部码；默认任务路径不能。
+
+任务发出后的 **页内操作条 / 人话步骤 / 成果链接 / 停止与连续控制** 见 **[005-chijie-task-ux-from-claw.md](005-chijie-task-ux-from-claw.md)**（对标 Sider Claw，不抄工具 log）。
+
 ### Edges
 
 - 暂停提交后立即禁用按钮；收到 paused snapshot 后显示最近已确认动作。

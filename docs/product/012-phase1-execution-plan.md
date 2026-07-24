@@ -31,7 +31,8 @@ TSR = verified_pass / attempts
 ```
 
 - verified = 页面可观察结果，不是模型口头 done  
-- 同步记录：平均耗时、失败分类（错页 / 看不懂 / 点错 / 卡住 / 超时）
+- 同步记录：平均耗时、失败分类（错页 / 看不懂 / 点错 / 卡住 / 超时）  
+- **固定任务集与换核对打协议：`product/013-quality-first-tsr-bakeoff.md`（出身归零）**
 
 ## 里程碑与人机闸门
 

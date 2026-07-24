@@ -29,6 +29,7 @@ const ALLOWED_ACTIONS = new Set([
   'scroll_to_bottom',
   'open_tab',
   'switch_tab',
+  'focus_tab',
   'close_tab',
   'get_dropdown_options',
   'select_dropdown_option',
@@ -37,6 +38,12 @@ const ALLOWED_ACTIONS = new Set([
   'previous_page',
   'next_page',
 ]);
+
+/** Alias model-facing names onto registered action handlers. */
+function normalizeActionName(name: string): string {
+  if (name === 'focus_tab') return 'switch_tab';
+  return name;
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -73,6 +80,16 @@ function parseCriteria(raw: unknown): CompletionCriterionDraft[] {
           out.push({ kind: 'media_state', operator: 'equals', expected: row.expected, required });
         }
         break;
+      case 'tab_state':
+        if (row.operator === 'equals' && (row.expected === 'closed' || row.expected === 'active')) {
+          out.push({ kind: 'tab_state', operator: 'equals', expected: row.expected, required });
+        }
+        break;
+      case 'download_state':
+        if (row.operator === 'equals' && (row.expected === 'started' || row.expected === 'finished')) {
+          out.push({ kind: 'download_state', operator: 'equals', expected: row.expected, required });
+        }
+        break;
       case 'user_confirmed':
         out.push({ kind: 'user_confirmed', operator: 'equals', expected: true, required });
         break;
@@ -97,13 +114,25 @@ function parseCriteria(raw: unknown): CompletionCriterionDraft[] {
   return out;
 }
 
+/** Coerce model-emitted index ("12", 12.0) to a finite number; drop NaN. */
+function normalizeActionArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...args };
+  if ('index' in out) {
+    const raw = out.index;
+    const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw.trim()) : Number.NaN;
+    if (Number.isFinite(n)) out.index = n;
+    else delete out.index;
+  }
+  return out;
+}
+
 function parseAction(raw: Record<string, unknown>): { name: string; args: Record<string, unknown> } | null {
   // Shape A: { action_name, action_args }
   if (typeof raw.action_name === 'string') {
     const name = raw.action_name;
     if (!ALLOWED_ACTIONS.has(name)) return null;
     const args = asRecord(raw.action_args) ?? asRecord(raw.args) ?? {};
-    return { name, args: { ...args } };
+    return { name: normalizeActionName(name), args: normalizeActionArgs({ ...args }) };
   }
 
   // Shape B: { action: { name, args } }
@@ -112,7 +141,7 @@ function parseAction(raw: Record<string, unknown>): { name: string; args: Record
     const name = actionObj.name;
     if (!ALLOWED_ACTIONS.has(name)) return null;
     const args = asRecord(actionObj.args) ?? {};
-    return { name, args: { ...args } };
+    return { name: normalizeActionName(name), args: normalizeActionArgs({ ...args }) };
   }
 
   // Shape C: navigator-style { action: [ { click_element: { index: 1 } } ] }
@@ -122,7 +151,7 @@ function parseAction(raw: Record<string, unknown>): { name: string; args: Record
       for (const [key, value] of Object.entries(first)) {
         if (ALLOWED_ACTIONS.has(key)) {
           const args = asRecord(value) ?? {};
-          return { name: key, args: { ...args } };
+          return { name: normalizeActionName(key), args: normalizeActionArgs({ ...args }) };
         }
       }
     }
@@ -137,7 +166,7 @@ function parseAction(raw: Record<string, unknown>): { name: string; args: Record
       }
       rest[key] = value;
     }
-    return { name: raw.name, args: rest };
+    return { name: normalizeActionName(raw.name), args: normalizeActionArgs(rest) };
   }
 
   return null;
@@ -195,12 +224,15 @@ Schema:
 
 Rules:
 1. One action per turn. Prefer the smallest step that advances the task.
-2. On the first useful turn include completion_criteria if the goal is verifiable (success text, media_state, url). For "open YouTube and click the first video", prefer url starts_with https://www.youtube.com/watch (not just the homepage).
-3. When the goal is already met on the page, set "done": true and omit action_name (or use done). Do not re-open the homepage or re-click the same video.
-4. For HTML audio/video play/pause use action_name "control_media" with action_args { "command": "play"|"pause" }. Do not click native shadow media controls.
-5. Form submit / send / buy / delete will be gated by product approval — still propose the click with clear intent in action_args.intent when needed. Plain link/navigation clicks are not form submits.
-6. Never invent element indexes that are not listed. Indexes come from the interactive elements list.
-7. Do not claim login_required unless a clear login wall is visible.
-8. Never put passwords or secrets into action_args.
-9. Screenshot / save page image / 截图 / 保存到下载文件夹: use action_name "save_screenshot" (optional action_args.filename). After the tool reports success, set "done": true. Never click browser chrome, OS share sheets, or page "download" buttons to fake a screenshot save.
+2. On the first useful turn include completion_criteria if the goal is verifiable (success text, media_state, tab_state, download_state, url). For "open YouTube and click the first video", prefer url starts_with https://www.youtube.com/watch (not just the homepage).
+2b. Never treat 404 / "This page isn't available" / empty playlist error shells as success. URL criteria alone are invalid if the page is an error page; keep working or recover (search library / Library / Liked videos) instead of done.
+3. When the goal is already met on the page, set "done": true and omit action_name (or use done). Do not re-open the homepage or re-click the same video. Model "done" alone never completes without matching page/tab/download evidence.
+4. For HTML audio/video play/pause use action_name "control_media" with action_args { "command": "play"|"pause", optional "target_digest" }. Do not click native shadow media controls. Continuous control reuses the last media digest when target_digest is omitted.
+5. Close/focus tabs with close_tab / switch_tab (or focus_tab). Omit tab_id to use the task-bound current tab. For close goals set completion_criteria tab_state expected closed.
+6. Form submit / send / buy / delete will be gated by product approval — still propose the click with clear intent in action_args.intent when needed. Plain link/navigation clicks are not form submits.
+7. Never invent element indexes that are not listed. Indexes come from the interactive elements list.
+8. Do not claim login_required unless a clear login wall is visible.
+9. Never put passwords or secrets into action_args.
+10. Screenshot / save page image / 截图 / 保存到下载文件夹: use action_name "save_screenshot" (optional action_args.filename). After the tool reports success, set "done": true. Never click browser chrome, OS share sheets, or page "download" buttons to fake a screenshot save.
+11. Download goals need download_state finished (or started) evidence; never claim download complete without it.
 `;

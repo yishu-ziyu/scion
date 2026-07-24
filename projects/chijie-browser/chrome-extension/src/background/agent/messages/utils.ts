@@ -322,7 +322,15 @@ export function normalizeAgentJsonShape(data: Record<string, unknown>): Record<s
     if (!Array.isArray(out.completion_criteria)) {
       out.completion_criteria = [];
     } else {
-      const allowed = new Set(['url', 'page_text', 'element_state', 'media_state', 'user_confirmed']);
+      const allowed = new Set([
+        'url',
+        'page_text',
+        'element_state',
+        'media_state',
+        'tab_state',
+        'download_state',
+        'user_confirmed',
+      ]);
       out.completion_criteria = out.completion_criteria
         .filter(item => item && typeof item === 'object' && !Array.isArray(item))
         .map(item => {

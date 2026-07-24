@@ -279,7 +279,9 @@ describe('Feature: design/003 task main blocks', () => {
   it('humanActionLabel maps machine actions to Chinese product copy', async () => {
     const { humanActionLabel } = await import('../../components/TaskStatusCard');
     expect(humanActionLabel('input_text')).toBe('填写表单');
-    expect(humanActionLabel('control_media')).toBe('媒体控制');
+    expect(humanActionLabel('control_media')).toBe('播放或暂停媒体');
+    expect(humanActionLabel('close_tab')).toBe('关闭标签');
+    expect(humanActionLabel('switch_tab')).toBe('切换标签');
   });
 
   it('header brand uses scion logo asset', () => {
@@ -341,15 +343,70 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toContain('type="radio"');
   });
 
+  it('TaskStatusCard activity panel uses icons and elapsed responsibility stream', () => {
+    expect(taskStatusCardSource).toContain('data-testid="task-activity-panel"');
+    expect(taskStatusCardSource).toContain('data-testid="task-activity-live"');
+    expect(taskStatusCardSource).toContain('ActivityGlyph');
+    expect(taskStatusCardSource).toContain('activityIconForAction');
+    expect(taskStatusCardSource).toContain('formatActivityDuration');
+    expect(taskStatusCardSource).toContain('attemptDisplayTitle');
+    expect(taskStatusCardSource).toContain('displaySummary');
+    // design/006 §5 #3: live line prefers displaySummary; fallback 正在{人话} · host.
+    expect(taskStatusCardSource).toContain('activityLiveActingLine');
+    expect(taskStatusCardSource).not.toMatch(/Planner|Navigator|step_failed/);
+  });
+
+  it('completion block always shows result sentence and copyable deliverable slot', () => {
+    expect(taskStatusCardSource).toContain('requiredCompletionResult');
+    expect(taskStatusCardSource).toContain('data-testid="completion-result"');
+    expect(taskStatusCardSource).toContain('completion-deliverable');
+    expect(taskStatusCardSource).toContain('chijie-completion-deliverable');
+    expect(taskStatusCardSource).toContain('completion-deliverable-copy');
+    expect(componentsCss).toContain('.chijie-completion-deliverable');
+  });
+
   it('completion block is gated on receipt helper (no bare model done)', () => {
     expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
     expect(taskStatusCardSource).toMatch(/shouldShowVerifiedDone\(snapshot,\s*round\?\.receipt\)/);
   });
 
   it('puts consequential approval before execution history in reading order', () => {
-    expect(taskStatusCardSource.indexOf('task-approval-card')).toBeLessThan(
-      taskStatusCardSource.indexOf('task-round-timeline'),
+    // Render order in the return tree (not pre-return const definitions).
+    const returnIdx = taskStatusCardSource.lastIndexOf('return (');
+    const tree = taskStatusCardSource.slice(returnIdx);
+    expect(tree.indexOf('task-approval-card')).toBeLessThan(tree.indexOf('{stepsHistory}'));
+    expect(tree.indexOf('task-approval-card')).toBeGreaterThan(tree.indexOf('task-goal-block'));
+  });
+
+  it('feature-first hierarchy: status → goal → primary organism → steps; chat keeps height', () => {
+    const returnIdx = taskStatusCardSource.lastIndexOf('return (');
+    const tree = taskStatusCardSource.slice(returnIdx);
+    // Goal stays on the card while work runs (not buried under steps).
+    expect(tree.indexOf('task-goal-block')).toBeLessThan(tree.indexOf('task-activity-panel'));
+    // Primary organism attribute drives density / max-height CSS.
+    expect(taskStatusCardSource).toContain('data-primary-organism={primaryOrganism}');
+    expect(taskStatusCardSource).toContain('taskPrimaryOrganism');
+    // waiting_approval: no live row competing with the decision card.
+    const liveSlice = taskStatusCardSource.slice(
+      taskStatusCardSource.indexOf('const showLiveActivity'),
+      taskStatusCardSource.indexOf('const showActivityPanel'),
     );
+    expect(liveSlice).toContain("status === 'running'");
+    expect(liveSlice).not.toContain('waiting_approval');
+    // Completion honesty before secondary step history when verified/partial.
+    expect(tree.indexOf("primaryOrganism === 'completion' && completionBlock")).toBeLessThan(
+      tree.indexOf("primaryOrganism !== 'activity' && showActivityPanel"),
+    );
+    // Running: activity panel is the primary organism block.
+    expect(tree).toContain("primaryOrganism === 'activity' && showActivityPanel");
+    expect(tree).toContain('data-primary="true"');
+    // Shell: chat min-height + card max-height so composer stays usable.
+    expect(componentsCss).toMatch(/\.chijie-chat-log[\s\S]{0,120}min-height:\s*8\.5rem/);
+    expect(componentsCss).toMatch(/\.chijie-paper-card[\s\S]{0,200}max-height:\s*min\(36vh,\s*320px\)/);
+    expect(componentsCss).toMatch(/flex:\s*0\s+0\s+auto/);
+    expect(sidePanelSource).toContain('chijie-workspace');
+    expect(sidePanelSource).toContain('chijie-chat-log');
+    expect(sidePanelSource).toContain('chijie-composer');
   });
 
   it('locks approval controls while a decision is being acknowledged', () => {

@@ -213,6 +213,32 @@ export function fixtureNavigateControlSteps(opts?: { url?: string; urlStartsWith
 }
 
 /**
+ * R1 product-table script: empty plan (list fields already true at baseline) →
+ * candidate_complete with CSV deliverable summary.
+ * TaskManager stores summary as instructionSummary for side-panel deliverable.
+ */
+export function fixtureProductTableControlSteps(opts?: {
+  csvSummary?: string;
+}): ControlScriptStep[] {
+  const summary =
+    opts?.csvSummary ??
+    [
+      '已提取 6 件商品（CSV）：',
+      'name,price,rating',
+      'Alpha Wireless Headphones,$49.99,4.5',
+      'Beta Mechanical Keyboard,$89.00,4.8',
+      'Gamma USB-C Hub,$34.50,4.2',
+      'Delta Desk Lamp,$27.99,4.0',
+      'Epsilon Notebook Stand,$19.95,4.6',
+      'Zeta Webcam Cover,$8.49,3.9',
+    ].join('\n');
+  return [
+    { type: 'plan', criteria: [] },
+    { type: 'candidate_complete', summary },
+  ];
+}
+
+/**
  * Fixture media script: plan media_state → play → pause same digest path → candidate complete.
  */
 export function fixtureMediaControlSteps(opts?: { playDigest?: string }): ControlScriptStep[] {

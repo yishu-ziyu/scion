@@ -2,6 +2,7 @@
 <html>
   <body>
     <label for="fixture-audio">Fixture audio</label>
-    <audio id="fixture-audio" controls muted src="/audio.wav"></audio>
+    <!-- loop: e2e asserts paused===false after completed; short non-looping clips end first -->
+    <audio id="fixture-audio" controls muted loop src="/audio.wav"></audio>
   </body>
 </html>

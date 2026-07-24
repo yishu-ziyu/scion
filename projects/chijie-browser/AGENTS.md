@@ -186,3 +186,10 @@ Full change list + CDP commands: **`../../HANDOVER.md`**.
 | Calm task console (visual/three-state) | `../../docs/design/004-chijie-calm-task-console.md` |
 | E2E evidence index | `../../reports/nanobrowser/` |
 | Upstream-style long style essay (backup) | `AGENTS.md.bak-20260714` |
+
+---
+
+## Lessons
+
+- 2026-07-23: Sider Claw 30 demos are mandatory live scorecard work (`docs/product/018`), not optional research. Do not substitute a small tracer set for the full 30; do not push personalization ahead of 018; do not claim parity while rows stay `not_run`. Update 018 after every case run.
+- 2026-07-24: URL completion must not pass on 404 / soft-404 shells (e.g. YouTube `playlist?list=FL` + "This page isn't available"). Use `pageLooksUnavailable` in URL probes; empty observation value fails starts_with/equals.

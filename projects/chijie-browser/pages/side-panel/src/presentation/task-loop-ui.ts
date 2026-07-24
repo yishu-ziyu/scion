@@ -48,15 +48,49 @@ export function shouldShowExecutionSteps(attempts: ActionAttempt[] | undefined |
 }
 
 /**
- * Default expanded when the task is still active; collapsed OK after terminal.
- * Caller may override with user toggle.
+ * Default expanded while the agent is actively moving; collapse after terminal
+ * so the chat/composer keep a real reading area (design/004 layout contract).
+ * waiting_approval also collapses — approval card must dominate (design/005 P6).
+ * User can still expand the step list.
  */
 export function defaultStepsExpanded(status: string): boolean {
   return status === 'running';
 }
 
+/**
+ * Which surface owns the task card for goal-directed reading order.
+ * status → goal → (approval | activity | completion | recovery) → steps → chat.
+ */
+export function taskPrimaryOrganism(input: {
+  status: string;
+  hasPendingApproval?: boolean;
+  showVerifiedDone?: boolean;
+}): 'approval' | 'activity' | 'completion' | 'recovery' | 'idle' {
+  if (input.status === 'waiting_approval' && input.hasPendingApproval !== false) {
+    return 'approval';
+  }
+  if (input.showVerifiedDone) return 'completion';
+  if (input.status === 'running') return 'activity';
+  if (
+    input.status === 'waiting_user' ||
+    input.status === 'inputs_required' ||
+    input.status === 'failed' ||
+    input.status === 'interrupted' ||
+    input.status === 'cancelled'
+  ) {
+    return 'recovery';
+  }
+  return 'idle';
+}
+
+/**
+ * True if copy is engineer-primary (presentation leakage).
+ * Keep in sync with product/014 Part C and failure-taxonomy isEngineerFailureNoise.
+ */
 export function isMachinePrimaryCopy(text: string): boolean {
-  return /\b(step_failed|Planner|Navigator|PLANNER|NAVIGATOR)\b/i.test(text);
+  return /\b(step_failed|Planner|Navigator|PLANNER|NAVIGATOR|observe_failed|json_parse_failed|no_progress|ExecutorDriver|pageRevision|failure_class|false_complete|wrong_tab|attach_mode|llm_failed|control_script_exhausted)\b/i.test(
+    text,
+  );
 }
 
 export function ratingStorageKey(receiptId: string): string {

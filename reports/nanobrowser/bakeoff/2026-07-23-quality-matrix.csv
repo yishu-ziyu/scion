@@ -1,0 +1,27 @@
+date,arm,task_id,attempt,git_sha,model,attach_mode,outcome,false_complete,wrong_tab,latency_ms,failure_class,notes
+2026-07-23,A0,B01,0,pending,MiniMax-M3,user_chrome,invalid_run,0,0,,env,pre-reload; deterministic go_to_url landed in dist; formal attempts after extension reload
+2026-07-23,A0,A01,1,pending,MiniMax-M3,user_chrome,fail,0,0,,loop_stuck,pre-fix: proof_required empty criteria hang; post-fix not re-scored
+2026-07-23,A0,B01,1,61a9c31,MiniMax-M3,user_chrome,fail,0,0,326,other,{"accepted": false; "commandId": "93bbf183-1027-4faa-baa9-1bd70f80c603"; "taskId": "a3c99e42-9290-4488-9ad4-41831e353c5c"; "revision": 0; "error": "invalid_transition"}
+2026-07-23,A0,B01,2,61a9c31,MiniMax-M3,user_chrome,verified_pass,0,0,13105,,url=https://www.bilibili.com/video/BV1Q1Km6BEBo/?vd_source=71a60c69c62b4a8d6486f36e235bbeb0
+2026-07-23,A0,B01,3,61a9c31,MiniMax-M3,user_chrome,verified_pass,0,0,8834,,url=https://www.bilibili.com/video/BV1PdKp6dEcq/
+2026-07-23,A0,A02,1,61a9c31,MiniMax-M3,user_chrome,fail,0,0,73509,understand_miss,status=waiting_user cat=None url=https://www.bilibili.com/
+2026-07-23,A0,A02,2,61a9c31,MiniMax-M3,user_chrome,fail,0,0,11937,verify_fail,no_completion_criteria url=https://www.bilibili.com/
+2026-07-23,A0,A02,3,61a9c31,MiniMax-M3,user_chrome,fail,0,0,21999,verify_fail,no_completion_criteria url=https://www.bilibili.com/
+2026-07-23,A0,B04,1,61a9c31,MiniMax-M3,user_chrome,verified_pass,0,0,14987,,url=https://www.wikipedia.org/
+2026-07-23,A0,B04,2,61a9c31,MiniMax-M3,user_chrome,verified_pass,0,0,10698,,url=https://www.wikipedia.org/
+2026-07-23,A0,B04,3,61a9c31,MiniMax-M3,user_chrome,verified_pass,0,0,8818,,url=https://www.wikipedia.org/
+2026-07-23,A0,A02,1,post-understand,MiniMax-M3,user_chrome,verified_pass,0,0,6543,,status=completed answer=是。host=bilibili.com cat=None
+2026-07-23,A0,A02,2,post-understand,MiniMax-M3,user_chrome,verified_pass,0,0,7405,,status=completed answer=是。host=bilibili.com cat=None
+2026-07-23,A0,A02,3,post-understand,MiniMax-M3,user_chrome,verified_pass,0,0,8721,,status=completed answer=是。host=bilibili.com cat=None
+2026-07-23,A0,B01,1,wave2,MiniMax-M3,user_chrome,fail,0,0,92521,verify_fail,on_video status=running url=https://www.bilibili.com/video/BV1cDT16HEkE/
+2026-07-23,A0,B01,2,wave2,MiniMax-M3,user_chrome,fail,0,0,92154,verify_fail,on_video status=waiting_user url=https://www.bilibili.com/video/BV1cDT16HEkE/
+2026-07-23,A0,A01,1,wave2,MiniMax-M3,user_chrome,verified_pass,0,0,7293,,answer=标题：哔哩哔哩 (゜-゜)つロ 干杯~-bilibili；域名：bilibili.com
+2026-07-23,A0,A01,2,wave2,MiniMax-M3,user_chrome,verified_pass,0,0,8539,,answer=标题：哔哩哔哩 (゜-゜)つロ 干杯~-bilibili；域名：bilibili.com
+2026-07-23,A0,A01,3,wave2,MiniMax-M3,user_chrome,verified_pass,0,0,7643,,answer=标题：哔哩哔哩 (゜-゜)つロ 干杯~-bilibili；域名：bilibili.com
+2026-07-23,A0,A03,1,wave2,MiniMax-M3,user_chrome,fail,0,0,11406,understand_miss,status=failed answer=User instruction url=
+2026-07-23,A0,A03,2,wave2,MiniMax-M3,user_chrome,verified_pass,0,0,14612,,answer=站点 youtube.com；标题 (2) YouTube url=https://www.youtube.com/
+2026-07-23,A0,B01,1,wave2b,MiniMax-M3,user_chrome,fail,0,0,92829,loop_stuck,status=running cat=None wait=None attempts=[] page=https://www.bilibili.com/
+2026-07-23,A0,B01,2,wave2b,MiniMax-M3,user_chrome,verified_pass,0,0,18469,,url=https://www.bilibili.com/video/BV139jB6BEhJ/?vd_source=71a60c69c62b4a8d6486f36e235bbeb0; attempts=['go_to_url:observed']
+2026-07-23,A0,B01,3,wave2b,MiniMax-M3,user_chrome,fail,0,0,92926,loop_stuck,status=running cat=None wait=None attempts=[] page=https://www.bilibili.com/
+2026-07-23,A0,A03,1,wave2b,MiniMax-M3,user_chrome,verified_pass,0,0,21025,,answer=站点 youtube.com；标题 (3) YouTube url=https://www.youtube.com/
+2026-07-23,A0,A03,2,wave2b,MiniMax-M3,user_chrome,verified_pass,0,0,15119,,answer=站点 youtube.com；标题 (3) YouTube url=https://www.youtube.com/

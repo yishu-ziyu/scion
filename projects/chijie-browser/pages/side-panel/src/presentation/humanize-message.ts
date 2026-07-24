@@ -62,6 +62,29 @@ export function looksLikeMachineToken(text: string): boolean {
   return false;
 }
 
+/**
+ * Browser chrome / step telemetry that belongs in the task card steps, not chat.
+ * design/005 A1: no Browser: process log as primary conversation.
+ */
+export function isProcessNoiseContent(text: string): boolean {
+  const t = text.replace(/\s+/g, ' ').trim();
+  if (!t) return true;
+  if (/^Browser opened\.?$/i.test(t)) return true;
+  if (/^Switched to https?:\/\//i.test(t)) return true;
+  if (/^Opened (tab|page|url)\b/i.test(t)) return true;
+  if (/^Playing video( for \d+ seconds?)?\.?$/i.test(t)) return true;
+  if (/^Paused video\.?$/i.test(t)) return true;
+  if (/^Navigat(ed|ing) to\b/i.test(t)) return true;
+  if (/^Click(ed|ing)\b/i.test(t) && t.length < 80) return true;
+  if (/^Scroll(ed|ing)\b/i.test(t) && t.length < 80) return true;
+  if (/^(任务完成|已完成|Done|Task complete)\.?$/i.test(t)) return true;
+  if (/^User instruction$/i.test(t)) return true;
+  if (/^Run Skill:/i.test(t)) return true;
+  // English tool-log lines that leak into chat as the "assistant" body
+  if (/^(Browser|Navigator|Planner|Validator)\s*:/i.test(t)) return true;
+  return false;
+}
+
 export function classifyFailure(details: string | undefined, copy: HumanCopy = DEFAULT_ZH_COPY): {
   body: string;
   detail?: string;
@@ -170,6 +193,17 @@ export function humanizeStoredMessage(msg: Message, copy: HumanCopy = DEFAULT_ZH
     };
   }
 
+  // Historical process telemetry: hide from chat (task card is SSOT for steps).
+  if (isProcessNoiseContent(content) || isProcessNoiseContent(embedded.body)) {
+    return {
+      kind: 'system_note',
+      title: copy.assistant,
+      body: '',
+      timestamp: msg.timestamp,
+      rawActor: actor,
+    };
+  }
+
   // Any non-user actor → 助手
   const kind: DisplayKind =
     actor === Actors.SYSTEM && looksLikeMachineToken(content) ? 'system_note' : 'assistant';
@@ -239,10 +273,11 @@ export function classifyAgentEvent(
       return { action: 'append_failure', content: body, detail };
     }
     if (state === ExecutionState.STEP_OK) {
-      if (!details || looksLikeMachineToken(details)) {
+      if (!details || looksLikeMachineToken(details) || isProcessNoiseContent(details)) {
+        // Task card owns steps/progress; chat only gets real deliverables or failures.
         return { action: 'suppress' };
       }
-      // Light process: short human prose only
+      // Only surface short human prose that looks like an answer, not telemetry.
       const text = details.length > 200 ? `${details.slice(0, 200)}…` : details;
       return { action: 'append_assistant', content: text };
     }

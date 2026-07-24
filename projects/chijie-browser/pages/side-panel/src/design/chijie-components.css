@@ -25,13 +25,20 @@
   line-height: 1.1;
 }
 
+/*
+ * Task card is a summary strip, not the whole side panel.
+ * Chat must keep a real reading area (design/004: continuous control not crushed).
+ * flex-grow/shrink 0: card sizes to content up to max-height; chat flexes below.
+ */
 .chijie-paper-card {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
-  gap: 12px;
-  max-height: min(64vh, 640px);
-  margin: 12px 12px 0;
-  padding: 16px;
+  gap: 8px;
+  /* Hard cap so composer + chat never collapse to a single line. */
+  max-height: min(36vh, 320px);
+  margin: 8px 10px 0;
+  padding: 12px 12px 10px;
   overflow: auto;
   border: 1px solid var(--chijie-border);
   border-radius: var(--chijie-radius-xl);
@@ -40,12 +47,42 @@
   animation: chijie-surface-enter 180ms ease-out;
 }
 
+/* Approval needs more room for the decision card; still leave chat visible. */
+.chijie-paper-card[data-status='waiting_approval'],
+.chijie-paper-card[data-primary-organism='approval'] {
+  max-height: min(46vh, 400px);
+}
+
+/* Running: a bit more for live activity + steps, never more than half the panel. */
+.chijie-paper-card[data-status='running'],
+.chijie-paper-card[data-primary-organism='activity'] {
+  max-height: min(40vh, 360px);
+}
+
+/* Completion / partial: keep short so follow-up chat stays the reading surface. */
+.chijie-paper-card[data-primary-organism='completion'] {
+  max-height: min(36vh, 320px);
+}
+
+.chijie-workspace {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .chijie-paper-card[data-attention='true'] {
   border-color: #e8c98f;
 }
 
 .chijie-paper-card[data-status='completed'] {
   border-color: #a9c7bb;
+}
+
+.chijie-paper-card[data-coverage='partial'],
+.chijie-paper-card[data-status='waiting_user'][data-coverage='partial'] {
+  border-color: #e8c98f;
 }
 
 .chijie-surface-card {
@@ -186,8 +223,23 @@ summary:focus-visible,
 .chijie-task-goal {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   margin: 0;
+}
+
+.chijie-task-goal-toggle {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chijie-task-goal-toggle:focus-visible {
+  outline: 2px solid var(--chijie-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .chijie-task-goal-kicker {
@@ -202,10 +254,20 @@ summary:focus-visible,
 .chijie-task-goal-text {
   margin: 0;
   color: var(--chijie-paper-ink);
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 650;
-  line-height: 1.38;
+  line-height: 1.4;
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.chijie-task-goal-text[data-expanded='true'] {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
 }
 
 .chijie-policy-hint {
@@ -227,10 +289,170 @@ summary:focus-visible,
   color: var(--chijie-accent-signal);
 }
 
+/* Codex/Claw-style responsibility stream inside the task card */
+.chijie-activity-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* When activity is the primary organism (running), give live row breathing room. */
+.chijie-activity-panel[data-primary='true'] .chijie-activity-live {
+  min-height: 44px;
+}
+
+/* Under approval/completion, history is secondary — denser, less chrome. */
+.chijie-activity-panel[data-secondary='true'] {
+  gap: 4px;
+  padding-top: 2px;
+  opacity: 0.96;
+}
+
+.chijie-approval-card[data-primary='true'] {
+  flex: 0 0 auto;
+}
+
+.chijie-activity-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--chijie-muted);
+  font-family: var(--chijie-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chijie-activity-header-label {
+  font-weight: 650;
+  color: var(--chijie-foreground);
+  letter-spacing: 0.06em;
+}
+
+.chijie-activity-header-sep {
+  opacity: 0.55;
+}
+
+.chijie-activity-header-elapsed {
+  font-variant-numeric: tabular-nums;
+}
+
+.chijie-activity-live {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 8px;
+  gap: 8px;
+  align-items: start;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #c9ded5;
+  border-radius: var(--chijie-radius-lg);
+  background: linear-gradient(180deg, #f3faf6 0%, var(--chijie-accent-subtle) 100%);
+  color: var(--chijie-accent-signal);
+}
+
+.chijie-activity-live[data-mode='waiting'] {
+  border-color: #e8c98f;
+  background: var(--chijie-warning-subtle);
+  color: var(--chijie-warning);
+}
+
+.chijie-activity-live-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.chijie-activity-live-copy strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chijie-activity-live-copy span {
+  color: var(--chijie-muted);
+  font-size: 10px;
+}
+
+.chijie-activity-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--chijie-surface);
+  color: var(--chijie-foreground);
+  border: 1px solid var(--chijie-border);
+}
+
+.chijie-activity-icon.is-live,
+.chijie-activity-icon[data-phase='acting'],
+.chijie-activity-icon[data-phase='viewing'] {
+  border-color: #c9ded5;
+  background: #fff;
+  color: var(--chijie-accent-signal);
+}
+
+.chijie-activity-icon[data-phase='thinking'] {
+  color: var(--chijie-muted);
+}
+
+.chijie-activity-icon[data-phase='done'] {
+  border-color: #c9ded5;
+  color: var(--chijie-accent);
+}
+
+.chijie-activity-icon[data-phase='waiting'] {
+  border-color: #e8c98f;
+  color: var(--chijie-warning);
+  background: #fffdf7;
+}
+
+.chijie-activity-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chijie-activity-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chijie-activity-stream li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 6px 4px;
+  border-radius: var(--chijie-radius-md);
+}
+
+.chijie-activity-stream li.is-active,
+.chijie-activity-stream li.is-pending {
+  background: var(--chijie-accent-subtle);
+}
+
+.chijie-activity-stream li.is-pending {
+  background: var(--chijie-warning-subtle);
+}
+
 .chijie-activity-dot {
   width: 8px;
   height: 8px;
   flex: 0 0 auto;
+  margin-top: 6px;
   border-radius: 50%;
   background: var(--chijie-accent);
   animation: chijie-activity-pulse 900ms ease-in-out infinite alternate;
@@ -367,6 +589,16 @@ summary:focus-visible,
   font-size: 10px;
 }
 
+.chijie-round-target {
+  max-width: 9rem;
+  overflow: hidden;
+  color: var(--chijie-accent-signal);
+  font-family: var(--chijie-font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chijie-round-time {
   color: var(--chijie-muted);
   font-family: var(--chijie-font-mono);
@@ -445,11 +677,89 @@ summary:focus-visible,
 }
 
 .chijie-done-block {
-  padding: 12px;
+  padding: 9px 10px;
   border: 1px solid #a9c7bb;
   border-radius: var(--chijie-radius-lg);
   background: #edf6f1;
   color: var(--chijie-accent-signal);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.chijie-done-block.is-partial {
+  border-color: #e8c98f;
+  background: #fff8ec;
+  color: var(--chijie-warning, #93641a);
+}
+
+/* Deliverable slot: clickable / copyable result payload (design/006 §5 #2). */
+.chijie-completion-deliverable {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px 9px;
+  border: 1px dashed #a9c7bb;
+  border-radius: var(--chijie-radius-lg);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.chijie-completion-deliverable-text {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--chijie-foreground);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: pointer;
+}
+
+.chijie-completion-deliverable-text:hover,
+.chijie-completion-deliverable-text:focus-visible {
+  color: var(--chijie-accent);
+  outline: none;
+}
+
+.chijie-completion-deliverable-hint {
+  color: var(--chijie-muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.chijie-coverage-block {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #e8d9b8;
+  color: var(--chijie-foreground);
+  font-size: 11px;
+}
+
+.chijie-coverage-block.is-missing {
+  border-top-color: #e8c98f;
+}
+
+.chijie-coverage-label {
+  margin-bottom: 4px;
+  color: var(--chijie-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.chijie-coverage-block ul {
+  margin: 0;
+  padding-left: 1.1em;
+}
+
+.chijie-coverage-block li {
+  margin: 2px 0;
 }
 
 .chijie-evidence-list {
@@ -528,8 +838,8 @@ summary:focus-visible,
   align-items: center;
   justify-content: center;
   min-width: 0;
-  min-height: 40px;
-  padding: 7px 8px;
+  min-height: 32px;
+  padding: 5px 6px;
   border: 0;
   border-left: 1px solid var(--chijie-border);
   background: transparent;
@@ -661,12 +971,15 @@ summary:focus-visible,
 }
 
 .chijie-chat-log {
+  flex: 1 1 auto;
+  min-height: 8.5rem;
   background: var(--chijie-background);
   color: var(--chijie-foreground);
 }
 
 .chijie-composer {
-  padding: 10px 12px 12px;
+  flex: 0 0 auto;
+  padding: 8px 10px 10px;
   border-top: 1px solid var(--chijie-border);
   background: var(--chijie-surface);
 }

@@ -11,6 +11,7 @@
     "dev": "cross-env __DEV__=true vite build --mode development",
     "test": "pnpm vitest run",
     "e2e:action-agent": "node scripts/action-agent-e2e.mjs",
+    "e2e:r1-extract": "node scripts/r1-extract-e2e.mjs",
     "lint": "eslint ./ --ext .ts,.js,.tsx,.jsx",
     "lint:fix": "pnpm lint --fix",
     "prettier": "prettier . --write --ignore-path ../.prettierignore",
