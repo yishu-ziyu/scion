@@ -1,0 +1,29 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-02-eval-combined,W3,013-A01,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,1775,,,url=https://www.wikipedia.org/
+2026-08-02-eval-combined,W3,013-A02,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,fail,0,0,0,0,other,,Timed out after waiting 30000ms
+2026-08-02-eval-combined,W3,013-A03,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,6541,,,url=https://www.youtube.com/
+2026-08-02-eval-combined,W3,013-B01,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,2890,,,url=https://www.bilibili.com/video/BV1hiGA6bEAN/
+2026-08-02-eval-combined,W3,013-B04,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,5296,,,url=https://www.wikipedia.org/
+2026-08-02-eval-combined,W3,013-B06,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,fail,0,0,0,0,other,,failed: 失败了
+失败了
+youtube.com
+
+当前目标
+
+打开首页上第一个视频
+
+活动
+·
+32S
+操作记录3
+接下来你可以
+模型反复失败或步数耗尽
+模型反复失败或步数耗尽
+你
+你
+打开首页上第一个视频
+14:48
+正在读
+youtube.com · YouTube
+任务：代理任务
+发送

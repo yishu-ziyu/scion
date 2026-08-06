@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as Favorites from '@extension/storage/lib/prompt/favorites';
 import { TaskManager, type ExecutorDriver } from '../manager';
-import type { ExecutorHooks, ObserveCriteria } from '../contracts';
+import type { ExecutorHooks, ExecutorOutcome, ObserveCriteria } from '../contracts';
 import { Action } from '../../agent/actions/builder';
 import { clickElementActionSchema } from '../../agent/actions/schemas';
 import { ActionResult } from '../../agent/types';
@@ -79,7 +79,7 @@ vi.mock('../../agent/factory', () => ({
 }));
 
 const hangingDriver = (): ExecutorDriver => ({
-  run: vi.fn(() => new Promise(() => {})),
+  run: vi.fn(async (): Promise<ExecutorOutcome> => new Promise(() => {})),
   addFollowUp: vi.fn(),
   pause: vi.fn(),
   resume: vi.fn(),
@@ -181,19 +181,6 @@ describe('OSS idea experiments (parallel suite)', () => {
       intent: 'submit the form',
       index: 1,
     });
-    await vi.waitFor(async () =>
-      expect(await manager.snapshot('task-exp-b')).toMatchObject({ status: 'waiting_approval' }),
-    );
-    const waiting = await manager.snapshot('task-exp-b');
-    const approval = waiting!.rounds[0].approvals[0];
-    await manager.dispatch({
-      type: 'approve',
-      commandId: 'approve-b',
-      taskId: waiting!.id,
-      expectedRevision: waiting!.revision,
-      roundId: waiting!.currentRoundId,
-      approvalId: approval.id,
-    });
     await pending;
     await vi.waitFor(async () =>
       expect(await manager.snapshot('task-exp-b')).toMatchObject({
@@ -248,16 +235,6 @@ describe('OSS idea experiments (parallel suite)', () => {
     const pending = hooks.dispatchAction(roundId, new Action(execute, clickElementActionSchema, true), {
       intent: 'submit the form',
       index: 1,
-    });
-    await vi.waitFor(async () => expect((await manager.snapshot('task-exp-c'))?.status).toBe('waiting_approval'));
-    const waiting = await manager.snapshot('task-exp-c');
-    await manager.dispatch({
-      type: 'approve',
-      commandId: 'approve-c',
-      taskId: waiting!.id,
-      expectedRevision: waiting!.revision,
-      roundId: waiting!.currentRoundId,
-      approvalId: waiting!.rounds[0].approvals[0].id,
     });
     await pending;
     await vi.waitFor(async () => expect((await manager.snapshot('task-exp-c'))?.status).toBe('completed'));

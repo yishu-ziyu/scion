@@ -1,6 +1,6 @@
 /**
  * design/003 Screen B — Options overview for 持节.
- * Pipeline, model tier, approval policy, Skill note, receipt prefs, sites placeholder, privacy.
+ * Pipeline, model tier, autonomy policy, Skill note, receipt prefs, sites placeholder, privacy.
  */
 import { useEffect, useState } from 'react';
 import {
@@ -13,9 +13,6 @@ type Backend = 'control' | 'nano';
 
 export function OverviewSettings() {
   const [settings, setSettings] = useState<GeneralSettingsConfig>(DEFAULT_GENERAL_SETTINGS);
-  const [externalApproval, setExternalApproval] = useState(true);
-  const [draftForms, setDraftForms] = useState(true);
-  const [forcePauseSubmit, setForcePauseSubmit] = useState(false);
   const [receiptScreenshot, setReceiptScreenshot] = useState(true);
   const [receiptUrl, setReceiptUrl] = useState(true);
   const [receiptTime, setReceiptTime] = useState(true);
@@ -39,7 +36,7 @@ export function OverviewSettings() {
       <header className="mb-2">
         <h2 className="text-xl font-semibold text-[var(--chijie-paper)]">总览</h2>
         <p className="mt-1 text-sm text-[var(--chijie-muted)]">
-          持节 · 浏览器行动 Agent：委托 → 轮次 → 审批 → 完成回执
+          持节 · 长程任务 Agent：委托 → 计划 → 自主执行 → 可验证交付
         </p>
       </header>
 
@@ -51,15 +48,13 @@ export function OverviewSettings() {
           <div className="mb-4 flex flex-wrap items-center gap-2 text-sm text-[var(--chijie-foreground)]">
             <span className="rounded-full border border-[var(--chijie-border)] px-3 py-1">任务委托</span>
             <span className="text-[var(--chijie-muted)]">→</span>
-            <span className="rounded-full border border-[var(--chijie-border)] px-3 py-1">轮次执行</span>
+            <span className="rounded-full border border-[var(--chijie-border)] px-3 py-1">计划执行</span>
             <span className="text-[var(--chijie-muted)]">→</span>
-            <span className="rounded-full border border-[var(--chijie-border)] px-3 py-1">审批</span>
-            <span className="text-[var(--chijie-muted)]">→</span>
-            <span className="rounded-full border border-[var(--chijie-border)] px-3 py-1">完成回执</span>
+            <span className="rounded-full border border-[var(--chijie-border)] px-3 py-1">可验证交付</span>
           </div>
           <ul className="space-y-2 text-sm text-[var(--chijie-foreground)]">
             <li>✓ 已启用侧栏</li>
-            <li>✓ 外部提交需审批</li>
+            <li>✓ 任务内自主执行</li>
             <li>✓ 页面证据已开启</li>
           </ul>
         </article>
@@ -104,44 +99,6 @@ export function OverviewSettings() {
                 </button>
               </div>
               <p className="mt-1 text-xs text-[var(--chijie-muted)]">对应 G6：执行核可切换，L4 契约不变。</p>
-            </div>
-          </div>
-        </article>
-
-        {/* 3. Approval */}
-        <article className="chijie-settings-card" data-testid="overview-approval">
-          <h3 className="mb-3 text-base font-medium">3. 审批</h3>
-          <div className="space-y-4 text-sm">
-            <ToggleRow
-              label="对外提交前请求一次批准（推荐）"
-              hint="提交到外部站点或发送前，请求您的批准。"
-              checked={externalApproval}
-              onChange={setExternalApproval}
-              testId="toggle-external-approval"
-            />
-            <ToggleRow
-              label="填写表单时可自动草稿"
-              hint="根据上下文自动填充表单草稿，待您确认后提交。"
-              checked={draftForms}
-              onChange={setDraftForms}
-              testId="toggle-draft-forms"
-            />
-            <ToggleRow
-              label="提交前强制暂停"
-              hint="在提交动作前暂停，等待您的明确批准。"
-              checked={forcePauseSubmit}
-              onChange={setForcePauseSubmit}
-              testId="toggle-force-pause"
-            />
-            <div className="rounded-md border border-[#e8c48a] bg-[#fff6e8] p-3 text-[var(--chijie-paper-ink)]">
-              <div className="text-xs font-medium opacity-70">审批预览</div>
-              <div className="mt-1 text-sm">将向外部站点提交表单 · 供应商注册申请表</div>
-              <div className="mt-2 flex gap-2">
-                <span className="rounded-full bg-[var(--chijie-accent)] px-3 py-1 text-xs text-[#fff8f0]">批准一次</span>
-                <span className="rounded-full border border-[var(--chijie-paper-ink)] px-3 py-1 text-xs">
-                  拒绝 / 退回修改
-                </span>
-              </div>
             </div>
           </div>
         </article>

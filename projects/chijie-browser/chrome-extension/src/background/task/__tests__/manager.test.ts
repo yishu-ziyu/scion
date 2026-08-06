@@ -121,6 +121,225 @@ describe('TaskManager lifecycle', () => {
     expect(JSON.stringify(store.sessions.get('task-1'))).not.toContain('open the form');
   });
 
+  it('persists a mission plan without raw instruction text', async () => {
+    const manager = new TaskManager({
+      createExecutor: async () => fakeDriver(),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-plan',
+      taskId: 'task-plan',
+      instruction: '调研竞品；输出表格；写结论',
+      chatSessionId: 'chat-plan',
+      instructionMessageId: 'message-plan',
+      tabId: 7,
+    });
+    const snap = await manager.snapshot('task-plan');
+    expect(snap?.plan?.phases).toHaveLength(3);
+    expect(snap?.plan?.phases[0]).toMatchObject({ id: 'phase-1', title: '调研', status: 'active' });
+    expect(snap?.plan?.phases[1]?.title).toBe('输出');
+    expect(snap?.plan?.phases[2]?.title).toBe('总结');
+    expect(snap?.plan?.goal).toBe('User task');
+    expect(JSON.stringify(snap)).not.toContain('竞品');
+  });
+
+  it('preserves mission plan across pause and resume', async () => {
+    const manager = new TaskManager({
+      createExecutor: async () => fakeDriver(),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-plan-resume',
+      taskId: 'task-plan-resume',
+      instruction: '调研 10 家竞品；输出对比表；写一份结论',
+      chatSessionId: 'chat-plan-resume',
+      instructionMessageId: 'message-plan-resume',
+      tabId: 7,
+    });
+    const before = await manager.snapshot('task-plan-resume');
+    const planBefore = structuredClone(before?.plan);
+    expect(planBefore?.phases.map(p => p.title)).toEqual(['调研', '输出', '总结']);
+
+    await manager.dispatch({
+      type: 'pause',
+      commandId: 'pause-plan',
+      taskId: 'task-plan-resume',
+      expectedRevision: 1,
+    });
+    await manager.dispatch({
+      type: 'resume',
+      commandId: 'resume-plan',
+      taskId: 'task-plan-resume',
+      expectedRevision: 2,
+    });
+
+    const after = await manager.snapshot('task-plan-resume');
+    expect(after?.status).toBe('running');
+    expect(after?.plan).toEqual(planBefore);
+    expect(JSON.stringify(after?.plan)).not.toContain('竞品');
+  });
+
+  it('attaches freeze criteria to the active mission phase', async () => {
+    let hooks!: ExecutorHooks;
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: false,
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-plan-attach',
+      taskId: 'task-plan-attach',
+      instruction: '调研竞品；输出表格；写结论',
+      chatSessionId: 'chat-plan-attach',
+      instructionMessageId: 'message-plan-attach',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-plan-attach');
+    await hooks.onPlan(roundId, [
+      { kind: 'page_text', operator: 'present', expected: '对比表', required: true },
+    ]);
+    const snap = await manager.snapshot('task-plan-attach');
+    const criterionId = snap?.rounds[0]?.criteria[0]?.id;
+    expect(criterionId).toBeTruthy();
+    expect(snap?.plan?.phases[0]).toMatchObject({
+      status: 'active',
+      criteriaIds: [criterionId],
+    });
+    expect(snap?.plan?.phases[1]?.criteriaIds).toEqual([]);
+  });
+
+  it('advances multi-phase plan on successful attempts when no criteria bound', async () => {
+    let hooks!: ExecutorHooks;
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-plan-heuristic',
+      taskId: 'task-plan-heuristic',
+      instruction: '调研竞品；输出表格；写结论',
+      chatSessionId: 'chat-plan-heuristic',
+      instructionMessageId: 'message-plan-heuristic',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-plan-heuristic');
+    // No freeze → active phase keeps empty criteriaIds; attempt heuristic applies.
+    await hooks.dispatchAction(
+      roundId,
+      new Action(async () => new ActionResult({ success: true }), waitActionSchema),
+      { seconds: 1, intent: 'wait' },
+    );
+    let snap = await manager.snapshot('task-plan-heuristic');
+    expect(snap?.plan?.phases.map(p => p.status)).toEqual(['done', 'active', 'planned']);
+
+    await hooks.dispatchAction(
+      roundId,
+      new Action(async () => new ActionResult({ success: true }), waitActionSchema),
+      { seconds: 1, intent: 'wait again' },
+    );
+    snap = await manager.snapshot('task-plan-heuristic');
+    expect(snap?.plan?.phases.map(p => p.status)).toEqual(['done', 'done', 'active']);
+  });
+
+  it('marks remaining mission phases done on verified complete', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    let hooks!: ExecutorHooks;
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    let pageTextPresent = false;
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 200,
+          source: 'page' as const,
+          value: item.kind === 'page_text' ? pageTextPresent : false,
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-plan-done',
+      taskId: 'task-plan-done',
+      instruction: '调研竞品；输出表格；写结论',
+      chatSessionId: 'chat-plan-done',
+      instructionMessageId: 'message-plan-done',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-plan-done');
+    // Freeze while baseline is false so post-complete observations can pass.
+    await hooks.onPlan(roundId, [
+      { kind: 'page_text', operator: 'present', expected: 'done marker', required: true },
+    ]);
+
+    // Intermediate progress already marked phase-1 done.
+    const mid = await manager.snapshot('task-plan-done');
+    if (mid?.plan) {
+      mid.plan.phases[0] = {
+        ...mid.plan.phases[0]!,
+        status: 'done',
+        evidenceIds: [...(mid.plan.phases[0]?.evidenceIds ?? []), 'seed'],
+      };
+      mid.plan.phases[1] = { ...mid.plan.phases[1]!, status: 'active' };
+      if (mid.plan.phases[0]?.status === 'done' && mid.plan.phases[1]?.status === 'active') {
+        store.sessions.set('task-plan-done', structuredClone(mid));
+      }
+    }
+
+    pageTextPresent = true;
+    finish({ kind: 'candidate_complete', summary: 'all done' });
+
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-plan-done')).toMatchObject({ status: 'completed' });
+    });
+    const done = await manager.snapshot('task-plan-done');
+    expect(done?.plan?.phases.map(p => p.status)).toEqual(['done', 'done', 'done']);
+    // Intermediate evidence preserved on the already-done phase.
+    expect(done?.plan?.phases[0]?.evidenceIds).toContain('seed');
+  });
+
   it('rejects a second concurrent task', async () => {
     const manager = new TaskManager({
       createExecutor: async () => fakeDriver(),
@@ -170,7 +389,6 @@ describe('TaskManager lifecycle', () => {
           commandAcks: {},
           criteria: [],
           attempts: [],
-          approvals: [],
           evidence: [],
         },
       ],
@@ -184,6 +402,43 @@ describe('TaskManager lifecycle', () => {
     });
     await manager.recover();
     await expect(manager.snapshot('task-1')).resolves.toMatchObject({ status: 'interrupted' });
+  });
+
+  it('migrates a legacy waiting_approval task to interrupted on recover', async () => {
+    store.sessions.set('task-legacy-approval', {
+      id: 'task-legacy-approval',
+      goalSummary: 'User task',
+      status: 'waiting_approval',
+      revision: 2,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionSummary: 'User instruction',
+          status: 'waiting_approval',
+          commandAcks: {},
+          criteria: [],
+          attempts: [],
+          evidence: [],
+        },
+      ],
+    });
+    const manager = new TaskManager({
+      createExecutor: async () => fakeDriver(),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 200,
+      ...noPostCommitBackoff,
+    });
+    await manager.recover();
+    await expect(manager.snapshot('task-legacy-approval')).resolves.toMatchObject({
+      status: 'interrupted',
+      rounds: [{ status: 'interrupted' }],
+    });
   });
 
   it('keeps disconnect interruption authoritative over the stopped driver outcome', async () => {
@@ -844,7 +1099,7 @@ describe('TaskManager lifecycle', () => {
     ]);
   });
 
-  it('consumes one persisted approval before invoking an external commit', async () => {
+  it('executes an external commit exactly once without approval and keeps target binding', async () => {
     let hooks!: ExecutorHooks;
     let now = 100;
     const driver = fakeDriver();
@@ -875,7 +1130,7 @@ describe('TaskManager lifecycle', () => {
       { kind: 'page_text', operator: 'present', expected: 'Saved', required: true },
     ]);
     now = 150;
-    const pending = hooks.dispatchAction(
+    const result = await hooks.dispatchAction(
       approvalRoundId,
       new Action(executeExternalCommit, clickElementActionSchema, true),
       {
@@ -883,45 +1138,14 @@ describe('TaskManager lifecycle', () => {
         index: 4,
       },
     );
-    await vi.waitFor(async () => {
-      expect(await manager.snapshot('task-approval')).toMatchObject({ status: 'waiting_approval' });
-    });
-    const waiting = await manager.snapshot('task-approval');
-    if (!waiting) throw new Error('Expected waiting approval snapshot');
-    const round = waiting.rounds.find(item => item.id === waiting.currentRoundId);
-    const approval = round?.approvals[0];
-    if (!approval) throw new Error('Expected pending approval');
-    expect(executeExternalCommit).not.toHaveBeenCalled();
-
-    const approveCommand = {
-      type: 'approve' as const,
-      commandId: 'approve-1',
-      taskId: waiting.id,
-      expectedRevision: waiting.revision,
-      roundId: round.id,
-      approvalId: approval.id,
-    };
-    const ack = await manager.dispatch(approveCommand);
-    const result = await pending;
     expect(result.actionResult.success).toBe(true);
     expect(executeExternalCommit).toHaveBeenCalledTimes(1);
-    expect(await manager.dispatch(approveCommand)).toEqual(ack);
-    await vi.waitFor(async () => {
-      expect(await manager.snapshot('task-approval')).toMatchObject({
-        status: 'running',
-        rounds: [
-          {
-            attempts: [{ state: 'observed' }],
-            approvals: [{ status: 'consumed' }],
-            criteria: [{ notBefore: 150 }],
-          },
-        ],
-      });
-    });
-    expect(JSON.stringify(await manager.snapshot('task-approval'))).not.toContain('secret form value');
+    const snap = await manager.snapshot('task-approval');
+    expect(snap?.rounds[0]?.attempts[0]?.state).toBe('observed');
+    expect(JSON.stringify(snap)).not.toContain('secret form value');
   });
 
-  it('rejects replay of a consumed approval under a fresh command id', async () => {
+  it('keeps external commit state internal without a user approval record', async () => {
     let hooks!: ExecutorHooks;
     const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
     const manager = new TaskManager({
@@ -945,44 +1169,12 @@ describe('TaskManager lifecycle', () => {
     });
     await vi.waitFor(() => expect(hooks).toBeDefined());
     const roundId = await taskRoundId(manager, 'task-approval-replay');
-    const pending = hooks.dispatchAction(roundId, new Action(executeExternalCommit, clickElementActionSchema, true), {
+    const result = await hooks.dispatchAction(roundId, new Action(executeExternalCommit, clickElementActionSchema, true), {
       intent: 'submit form',
       index: 4,
     });
-    await vi.waitFor(async () => {
-      expect(await manager.snapshot('task-approval-replay')).toMatchObject({ status: 'waiting_approval' });
-    });
-    const waiting = await manager.snapshot('task-approval-replay');
-    const round = waiting?.rounds.find(item => item.id === roundId);
-    const approval = round?.approvals[0];
-    if (!waiting || !round || !approval) throw new Error('Expected pending approval');
-
-    await manager.dispatch({
-      type: 'approve',
-      commandId: 'approve-once',
-      taskId: waiting.id,
-      expectedRevision: waiting.revision,
-      roundId,
-      approvalId: approval.id,
-    });
-    await pending;
-    const consumed = await manager.snapshot('task-approval-replay');
-    if (!consumed) throw new Error('Expected consumed approval snapshot');
-
-    await expect(
-      manager.dispatch({
-        type: 'approve',
-        commandId: 'approve-replay',
-        taskId: consumed.id,
-        expectedRevision: consumed.revision,
-        roundId,
-        approvalId: approval.id,
-      }),
-    ).resolves.toMatchObject({ accepted: false, error: 'invalid_transition' });
     expect(executeExternalCommit).toHaveBeenCalledTimes(1);
-    await expect(manager.snapshot('task-approval-replay')).resolves.toMatchObject({
-      rounds: [{ approvals: [{ status: 'consumed' }] }],
-    });
+    expect(result.attempt.state).toBe('observed');
   });
 
   it('freezes success text from the instruction when the planner returns empty criteria', async () => {
@@ -1312,9 +1504,8 @@ describe('TaskManager lifecycle', () => {
       });
     });
     expect(executeClick).toHaveBeenCalledTimes(1);
-    // Must not raise waiting_approval for a plain thumbnail link.
     const snap = await manager.snapshot('task-watch-click');
-    expect(snap?.rounds[0]?.approvals ?? []).toHaveLength(0);
+    expect(snap?.rounds[0]?.attempts[0]?.state).toBe('observed');
   });
 
   it('recovers open-site criteria after candidate_complete and completes with a receipt', async () => {
@@ -1508,22 +1699,6 @@ describe('TaskManager lifecycle', () => {
       intent: 'submit the form',
       index: 1,
     });
-    await vi.waitFor(async () => {
-      expect(await manager.snapshot('task-post-commit')).toMatchObject({ status: 'waiting_approval' });
-    });
-    const waiting = await manager.snapshot('task-post-commit');
-    if (!waiting) throw new Error('Expected waiting approval');
-    const round = waiting.rounds.find(item => item.id === waiting.currentRoundId);
-    const approval = round?.approvals[0];
-    if (!approval || !round) throw new Error('Expected approval');
-    await manager.dispatch({
-      type: 'approve',
-      commandId: 'approve-post-commit',
-      taskId: waiting.id,
-      expectedRevision: waiting.revision,
-      roundId: round.id,
-      approvalId: approval.id,
-    });
     await pending;
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-post-commit')).toMatchObject({
@@ -1537,76 +1712,7 @@ describe('TaskManager lifecycle', () => {
     expect(switchTab).toHaveBeenCalledWith(7);
   });
 
-  it('does not execute an approved commit after the task is paused', async () => {
-    let hooks!: ExecutorHooks;
-    let finishRecheck!: (value: typeof store.targetObservation) => void;
-    store.observeActionTarget
-      .mockResolvedValueOnce(store.targetObservation)
-      .mockImplementationOnce(() => new Promise(resolve => (finishRecheck = resolve)));
-    const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
-    const manager = new TaskManager({
-      createExecutor: vi.fn(async (input, nextHooks) => {
-        expect(input.taskId).toBe('task-pause-race');
-        hooks = nextHooks;
-        return fakeDriver();
-      }),
-      switchTab: vi.fn(),
-      observeCriteria: vi.fn(async () => []),
-      now: () => 100,
-      ...noPostCommitBackoff,
-    });
-    await manager.dispatch({
-      type: 'start',
-      commandId: 'start-pause-race',
-      taskId: 'task-pause-race',
-      instruction: 'submit form',
-      chatSessionId: 'chat-1',
-      instructionMessageId: 'message-1',
-      tabId: 7,
-    });
-    await vi.waitFor(() => expect(hooks).toBeDefined());
-    const pauseRaceRoundId = await taskRoundId(manager, 'task-pause-race');
-    const pending = hooks.dispatchAction(
-      pauseRaceRoundId,
-      new Action(executeExternalCommit, clickElementActionSchema, true),
-      {
-        intent: 'submit form',
-        index: 4,
-      },
-    );
-    await vi.waitFor(async () => {
-      expect(await manager.snapshot('task-pause-race')).toMatchObject({ status: 'waiting_approval' });
-    });
-    const waiting = await manager.snapshot('task-pause-race');
-    if (!waiting) throw new Error('Expected waiting approval snapshot');
-    const round = waiting.rounds[0];
-    const approval = round?.approvals[0];
-    if (!round || !approval) throw new Error('Expected pending approval');
-    await manager.dispatch({
-      type: 'approve',
-      commandId: 'approve-pause-race',
-      taskId: waiting.id,
-      expectedRevision: waiting.revision,
-      roundId: round.id,
-      approvalId: approval.id,
-    });
-    await vi.waitFor(() => expect(finishRecheck).toBeTypeOf('function'));
-    const running = await manager.snapshot('task-pause-race');
-    if (!running) throw new Error('Expected running snapshot');
-    await manager.dispatch({
-      type: 'pause',
-      commandId: 'pause-before-commit',
-      taskId: running.id,
-      expectedRevision: running.revision,
-    });
-    finishRecheck(store.targetObservation);
-
-    await expect(pending).rejects.toThrow('Task is not running');
-    expect(executeExternalCommit).not.toHaveBeenCalled();
-    await expect(manager.snapshot('task-pause-race')).resolves.toMatchObject({ status: 'paused' });
-  });
-
-  it('stops automatic execution when an approved commit outcome is uncertain', async () => {
+  it('stops automatic execution when an external commit outcome is uncertain', async () => {
     let hooks!: ExecutorHooks;
     const driver = fakeDriver();
     const manager = new TaskManager({
@@ -1642,23 +1748,6 @@ describe('TaskManager lifecycle', () => {
       ),
       { intent: 'submit form', index: 4 },
     );
-    await vi.waitFor(async () => {
-      expect(await manager.snapshot('task-uncertain-live')).toMatchObject({ status: 'waiting_approval' });
-    });
-    const waiting = await manager.snapshot('task-uncertain-live');
-    if (!waiting) throw new Error('Expected waiting approval snapshot');
-    const round = waiting.rounds[0];
-    const approval = round?.approvals[0];
-    if (!round || !approval) throw new Error('Expected pending approval');
-    await manager.dispatch({
-      type: 'approve',
-      commandId: 'approve-uncertain-live',
-      taskId: waiting.id,
-      expectedRevision: waiting.revision,
-      roundId: round.id,
-      approvalId: approval.id,
-    });
-
     // Soft-return path: execute throw becomes ActionResult.error (no rethrow into loop).
     await expect(pending).resolves.toMatchObject({
       actionResult: { error: 'click outcome unknown' },
@@ -1708,22 +1797,6 @@ describe('TaskManager lifecycle', () => {
         index: 4,
       },
     );
-    await vi.waitFor(async () => {
-      expect(await manager.snapshot('task-disconnect-uncertain')).toMatchObject({ status: 'waiting_approval' });
-    });
-    const waiting = await manager.snapshot('task-disconnect-uncertain');
-    if (!waiting) throw new Error('Expected waiting approval snapshot');
-    const round = waiting.rounds[0];
-    const approval = round?.approvals[0];
-    if (!round || !approval) throw new Error('Expected pending approval');
-    await manager.dispatch({
-      type: 'approve',
-      commandId: 'approve-disconnect-uncertain',
-      taskId: waiting.id,
-      expectedRevision: waiting.revision,
-      roundId: round.id,
-      approvalId: approval.id,
-    });
     await vi.waitFor(() => expect(executeExternalCommit).toHaveBeenCalledTimes(1));
 
     await manager.interruptActive();
@@ -1811,7 +1884,6 @@ describe('TaskManager lifecycle', () => {
               proposedAt: 1,
             },
           ],
-          approvals: [],
           evidence: [],
         },
       ],
@@ -1835,69 +1907,6 @@ describe('TaskManager lifecycle', () => {
           status: 'waiting_user',
           waitReason: 'commit_outcome_uncertain',
           attempts: [{ state: 'uncertain' }],
-        },
-      ],
-    });
-  });
-
-  it('rejects a stale pending approval during cold recovery', async () => {
-    store.sessions.set('task-pending', {
-      id: 'task-pending',
-      goalSummary: 'User task',
-      status: 'waiting_approval',
-      revision: 3,
-      activeTabId: 7,
-      currentRoundId: 'round-1',
-      targetRefs: [],
-      createdAt: 1,
-      updatedAt: 1,
-      rounds: [
-        {
-          id: 'round-1',
-          instructionSummary: 'User instruction',
-          status: 'waiting_approval',
-          commandAcks: {},
-          criteria: [],
-          attempts: [
-            {
-              id: 'attempt-1',
-              roundId: 'round-1',
-              actionName: 'click_element',
-              effect: 'external_commit',
-              argsDigest: 'digest',
-              state: 'proposed',
-              proposedAt: 1,
-            },
-          ],
-          approvals: [
-            {
-              id: 'approval-1',
-              attemptId: 'attempt-1',
-              roundId: 'round-1',
-              summary: 'Submit the current form',
-              status: 'pending',
-            },
-          ],
-          evidence: [],
-        },
-      ],
-    });
-    const manager = new TaskManager({
-      createExecutor: vi.fn(async () => fakeDriver()),
-      switchTab: vi.fn(),
-      observeCriteria: vi.fn(async () => []),
-      now: () => 100,
-      ...noPostCommitBackoff,
-    });
-
-    await manager.recover();
-
-    await expect(manager.snapshot('task-pending')).resolves.toMatchObject({
-      status: 'interrupted',
-      rounds: [
-        {
-          attempts: [{ state: 'blocked' }],
-          approvals: [{ status: 'rejected', decidedAt: 100 }],
         },
       ],
     });

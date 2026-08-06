@@ -100,7 +100,13 @@ export class Action {
     const schemaStr =
       schemaProperties.length > 0 ? `{${this.name()}: {${schemaProperties.join(', ')}}}` : `{${this.name()}: {}}`;
 
-    return `${this.schema.description}:\n${schemaStr}`;
+    const lines = [this.schema.description];
+    if (this.schema.whenToUse) lines.push(`When to use: ${this.schema.whenToUse}`);
+    if (this.schema.whenNotToUse) lines.push(`Do NOT use when: ${this.schema.whenNotToUse}`);
+    if (this.schema.examples?.length) lines.push(`Examples: ${this.schema.examples.join(' | ')}`);
+    if (this.schema.returns) lines.push(`Returns: ${this.schema.returns}`);
+    if (this.schema.costHint) lines.push(`Cost hint: ${this.schema.costHint}`);
+    return `${lines.join('\n')}:\n${schemaStr}`;
   }
 
   /**

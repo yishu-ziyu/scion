@@ -29,6 +29,7 @@ function pageWithElement(node: DOMElementNode): Page {
   const state = build_initial_state(7, 'https://example.test/form', 'Fixture');
   state.selectorMap.set(4, node);
   (page as unknown as { _cachedState: typeof state })._cachedState = state;
+  vi.spyOn(page, 'getState').mockResolvedValue(state);
   return page;
 }
 
@@ -57,6 +58,7 @@ describe('Page action target observation', () => {
         urlOrigin: 'https://example.test',
         digest: expect.stringMatching(/^[a-f0-9]{64}$/),
       },
+      pageRevision: expect.stringMatching(/^7\|https:\/\/example\.test\|[a-f0-9]{64}$/),
     });
     expect(JSON.stringify(observation)).not.toContain('Submit invoice');
   });
@@ -78,6 +80,27 @@ describe('Page action target observation', () => {
     await expect(page.observeActionTarget('click_element', { index: 4 }, 'before')).rejects.toThrow(
       'no longer available',
     );
+  });
+
+  it('refreshes the snapshot frame before resolving an index action', async () => {
+    const original = element('button', { 'aria-label': 'Save' });
+    original.children.push(new DOMTextNode('Save', true, original));
+    const page = pageWithElement(original);
+    const first = await page.observeActionTarget('click_element', { index: 4 }, 'before');
+
+    const changed = element('button', { 'aria-label': 'Delete' });
+    changed.children.push(new DOMTextNode('Delete', true, changed));
+    const changedState = build_initial_state(7, 'https://example.test/form', 'Fixture');
+    changedState.selectorMap.set(4, changed);
+    vi.mocked(page.getState).mockImplementation(async () => {
+      (page as unknown as { _cachedState: typeof changedState })._cachedState = changedState;
+      return changedState;
+    });
+
+    const second = await page.observeActionTarget('click_element', { index: 4 }, 'before');
+
+    expect(second.pageRevision).not.toBe(first.pageRevision);
+    expect(page.getState).toHaveBeenCalledTimes(2);
   });
 
   it('observes the resulting page after a commit without replaying the old index', async () => {

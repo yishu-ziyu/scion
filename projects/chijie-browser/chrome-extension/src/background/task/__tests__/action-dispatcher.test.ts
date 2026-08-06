@@ -15,25 +15,25 @@ describe('EffectPolicy', () => {
     ['search_google', {}, 'allow'],
     ['go_to_url', { url: 'https://example.com' }, 'allow'],
     ['go_back', {}, 'allow'],
-    ['click_element', { tag: 'button', type: 'submit', inForm: true }, 'approval'],
+    ['click_element', { tag: 'button', type: 'submit', inForm: true }, 'allow'],
     // Ordinary UI / navigation clicks are reversible (YouTube thumbs, menus, tabs).
     ['click_element', { tag: 'div', role: 'button', inForm: false }, 'allow'],
-    ['click_element', { tag: 'input', type: 'submit', inForm: false }, 'approval'],
+    ['click_element', { tag: 'input', type: 'submit', inForm: false }, 'allow'],
     ['click_element', { tag: 'a', type: '', inForm: false, semanticNavigation: true }, 'allow'],
     ['click_element', { tag: 'a', type: '', inForm: false, hasSemanticName: true }, 'allow'],
     ['click_element', { tag: 'a', type: '', inForm: false }, 'allow'],
     ['click_element', { tag: 'button', type: 'button', inForm: false }, 'allow'],
     // In-form <button> without type defaults to submit in HTML.
-    ['click_element', { tag: 'button', type: '', inForm: true }, 'approval'],
+    ['click_element', { tag: 'button', type: '', inForm: true }, 'allow'],
     ['click_element', { tag: 'button', type: 'button', inForm: true }, 'allow'],
-    ['click_element', { tag: 'a', type: '', inForm: false, semanticCommit: true }, 'approval'],
-    ['click_element', { tag: 'a', type: '', inForm: false, intent: 'Delete item' }, 'approval'],
-    ['click_element', { tag: 'a', type: '', inForm: false, intent: 'Revoke access' }, 'approval'],
+    ['click_element', { tag: 'a', type: '', inForm: false, semanticCommit: true }, 'allow'],
+    ['click_element', { tag: 'a', type: '', inForm: false, intent: 'Delete item' }, 'allow'],
+    ['click_element', { tag: 'a', type: '', inForm: false, intent: 'Revoke access' }, 'allow'],
     // "Open dispute" is navigation to a form, not submit/commit.
     ['click_element', { tag: 'a', type: '', inForm: false, intent: 'Open dispute' }, 'allow'],
-    ['click_element', { tag: 'a', type: '', inForm: false, intent: 'Submit dispute' }, 'approval'],
-    ['send_keys', { activeTag: 'input', inForm: true, keys: 'Enter' }, 'approval'],
-    ['send_keys', { activeTag: 'textarea', inForm: true, keys: 'Control+Enter' }, 'approval'],
+    ['click_element', { tag: 'a', type: '', inForm: false, intent: 'Submit dispute' }, 'allow'],
+    ['send_keys', { activeTag: 'input', inForm: true, keys: 'Enter' }, 'allow'],
+    ['send_keys', { activeTag: 'textarea', inForm: true, keys: 'Control+Enter' }, 'allow'],
     ['send_keys', { activeTag: 'body', inForm: false, keys: 'PageDown' }, 'allow'],
     ['input_text', { tag: 'input', type: 'password' }, 'block'],
     ['input_text', { tag: 'input', type: 'text' }, 'allow'],
@@ -57,11 +57,7 @@ describe('EffectPolicy', () => {
 });
 
 describe('ActionDispatcher', () => {
-  it('does not invoke an external commit before approval and invokes it once after approval', async () => {
-    let decide!: (value: 'approved' | 'rejected') => void;
-    const approval = new Promise<'approved' | 'rejected'>(resolve => {
-      decide = resolve;
-    });
+  it('executes an external commit exactly once without interrupting for approval', async () => {
     const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
     const action = new Action(executeExternalCommit, clickElementActionSchema, true);
     const persistedStates: string[] = [];
@@ -70,7 +66,6 @@ describe('ActionDispatcher', () => {
       persistAttempt: vi.fn(async attempt => {
         persistedStates.push(attempt.state);
       }),
-      requestApproval: vi.fn(async () => approval),
       observe: vi.fn(async (_request, _args, phase) => ({
         target: {
           id: 'target-1',
@@ -84,45 +79,6 @@ describe('ActionDispatcher', () => {
         evidence: phase === 'after' ? [] : [],
       })),
     });
-    const pending = dispatcher.dispatch({
-      taskId: 'task-1',
-      roundId: 'round-1',
-      action,
-      rawArgs: { intent: 'submit form', index: 4 },
-    });
-
-    await vi.waitFor(() => expect(executeExternalCommit).not.toHaveBeenCalled());
-    decide('approved');
-    const result = await pending;
-    expect(result.actionResult.success).toBe(true);
-    expect(executeExternalCommit).toHaveBeenCalledTimes(1);
-    expect(persistedStates).toEqual(['proposed', 'approved', 'executing', 'observed']);
-  });
-
-  it('does not invoke a rejected external commit', async () => {
-    const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
-    const action = new Action(executeExternalCommit, clickElementActionSchema, true);
-    const persistedStates: string[] = [];
-    const dispatcher = new ActionDispatcher({
-      now: () => 100,
-      persistAttempt: vi.fn(async attempt => {
-        persistedStates.push(attempt.state);
-      }),
-      requestApproval: vi.fn(async () => 'rejected' as const),
-      observe: vi.fn(async () => ({
-        target: {
-          id: 'target-1',
-          kind: 'element' as const,
-          tabId: 7,
-          frameId: 0 as const,
-          urlOrigin: 'https://example.test',
-          digest: 'button-1',
-        },
-        effectTarget: { tag: 'button', type: 'submit', inForm: true },
-        evidence: [],
-      })),
-    });
-
     const result = await dispatcher.dispatch({
       taskId: 'task-1',
       roundId: 'round-1',
@@ -130,9 +86,9 @@ describe('ActionDispatcher', () => {
       rawArgs: { intent: 'submit form', index: 4 },
     });
 
-    expect(result.attempt.state).toBe('blocked');
-    expect(executeExternalCommit).not.toHaveBeenCalled();
-    expect(persistedStates).toEqual(['proposed', 'blocked']);
+    expect(result.actionResult.success).toBe(true);
+    expect(executeExternalCommit).toHaveBeenCalledTimes(1);
+    expect(persistedStates).toEqual(['proposed', 'authorized', 'executing', 'observed']);
   });
 
   it('invalidates approval when the target fingerprint changes', async () => {
@@ -145,7 +101,6 @@ describe('ActionDispatcher', () => {
       persistAttempt: vi.fn(async attempt => {
         persistedStates.push(attempt.state);
       }),
-      requestApproval: vi.fn(async () => 'approved' as const),
       observe: vi.fn(async () => {
         observation += 1;
         return {
@@ -172,7 +127,7 @@ describe('ActionDispatcher', () => {
 
     expect(result.attempt.state).toBe('blocked');
     expect(executeExternalCommit).not.toHaveBeenCalled();
-    expect(persistedStates).toEqual(['proposed', 'approved', 'blocked']);
+    expect(persistedStates).toEqual(['proposed', 'authorized', 'blocked']);
   });
 
   it('does not execute an unclaimed index after the observed target changes', async () => {
@@ -200,7 +155,6 @@ describe('ActionDispatcher', () => {
       persistAttempt: vi.fn(async attempt => {
         persistedStates.push(attempt.state);
       }),
-      requestApproval: vi.fn(async () => 'approved' as const),
       observe,
     });
 
@@ -227,7 +181,6 @@ describe('ActionDispatcher', () => {
     const dispatcher = new ActionDispatcher({
       now: () => 100,
       persistAttempt: vi.fn(async () => undefined),
-      requestApproval: vi.fn(async () => 'approved' as const),
       observe: vi.fn(async (_request, _args, phase) => {
         phases.push(phase);
         return {
@@ -268,7 +221,6 @@ describe('ActionDispatcher', () => {
     const dispatcher = new ActionDispatcher({
       now: () => 100,
       persistAttempt: vi.fn(async () => undefined),
-      requestApproval: vi.fn(async () => 'approved' as const),
       observe: vi.fn(async (_request, _args, phase) => {
         phases.push(phase);
         return {
@@ -312,7 +264,6 @@ describe('ActionDispatcher', () => {
       persistAttempt: vi.fn(async attempt => {
         persistedStates.push(attempt.state);
       }),
-      requestApproval: vi.fn(async () => 'approved' as const),
       observe: vi.fn(async () => ({
         target: {
           id: 'target-1',
@@ -340,7 +291,7 @@ describe('ActionDispatcher', () => {
       attempt: { state: 'uncertain' },
       actionResult: { error: 'commit transport failed' },
     });
-    expect(persistedStates).toEqual(['proposed', 'approved', 'executing', 'uncertain']);
+    expect(persistedStates).toEqual(['proposed', 'authorized', 'executing', 'uncertain']);
   });
 
   it('rejects mutate when claimed pageRevision is stale (product/007)', async () => {
@@ -349,7 +300,6 @@ describe('ActionDispatcher', () => {
     const dispatcher = new ActionDispatcher({
       now: () => 100,
       persistAttempt: vi.fn(async () => undefined),
-      requestApproval: vi.fn(async () => 'approved' as const),
       observe: vi.fn(async () => ({
         target: {
           id: 'target-1',
@@ -388,7 +338,6 @@ describe('ActionDispatcher', () => {
     const dispatcher = new ActionDispatcher({
       now: () => 100,
       persistAttempt: vi.fn(async () => undefined),
-      requestApproval: vi.fn(async () => 'approved' as const),
       observe: vi.fn(async () => ({
         target: {
           id: 'target-1',
@@ -428,7 +377,6 @@ describe('ActionDispatcher', () => {
       persistAttempt: vi.fn(async attempt => {
         persistedStates.push(attempt.state);
       }),
-      requestApproval: vi.fn(async () => 'approved' as const),
       observe: vi.fn(async () => ({
         target: {
           id: 'target-1',
@@ -451,7 +399,7 @@ describe('ActionDispatcher', () => {
     });
 
     expect(result.attempt.state).toBe('uncertain');
-    expect(persistedStates).toEqual(['proposed', 'approved', 'executing', 'uncertain']);
+    expect(persistedStates).toEqual(['proposed', 'authorized', 'executing', 'uncertain']);
   });
 
 });

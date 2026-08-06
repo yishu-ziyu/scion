@@ -18,7 +18,6 @@ describe('waitUserActionTestId (g3-wait-afford)', () => {
     'captcha_required',
     'target_missing',
     'target_ambiguous',
-    'approval_rejected',
     'skill_inputs_required',
   ] as const)('%s maps to wait-continue', reason => {
     expect(waitUserActionTestId(reason)).toBe('wait-continue');

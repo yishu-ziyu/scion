@@ -50,7 +50,6 @@ export function shouldShowExecutionSteps(attempts: ActionAttempt[] | undefined |
 /**
  * Default expanded while the agent is actively moving; collapse after terminal
  * so the chat/composer keep a real reading area (design/004 layout contract).
- * waiting_approval also collapses — approval card must dominate (design/005 P6).
  * User can still expand the step list.
  */
 export function defaultStepsExpanded(status: string): boolean {
@@ -59,16 +58,12 @@ export function defaultStepsExpanded(status: string): boolean {
 
 /**
  * Which surface owns the task card for goal-directed reading order.
- * status → goal → (approval | activity | completion | recovery) → steps → chat.
+ * status → goal → (activity | completion | recovery) → steps → chat.
  */
 export function taskPrimaryOrganism(input: {
   status: string;
-  hasPendingApproval?: boolean;
   showVerifiedDone?: boolean;
-}): 'approval' | 'activity' | 'completion' | 'recovery' | 'idle' {
-  if (input.status === 'waiting_approval' && input.hasPendingApproval !== false) {
-    return 'approval';
-  }
+}): 'activity' | 'completion' | 'recovery' | 'idle' {
   if (input.showVerifiedDone) return 'completion';
   if (input.status === 'running') return 'activity';
   if (
@@ -97,7 +92,7 @@ export function ratingStorageKey(receiptId: string): string {
   return `chijie.taskOutcomeRating.${receiptId}`;
 }
 
-/** Only page-observed outcomes count as completed work. Approval is permission, not evidence. */
+/** Only page-observed outcomes count as completed work. */
 export function observedAttemptCount(attempts: ActionAttempt[] | undefined | null): number {
   return attempts?.filter(attempt => attempt.state === 'observed').length ?? 0;
 }

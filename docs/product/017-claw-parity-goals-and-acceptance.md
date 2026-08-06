@@ -3,7 +3,7 @@ title: "Claw 对标：目标冻结与验收门（可执行）"
 description: "调研→目标→里程碑验收句；开发只对本文 when I do X I see Y 交差。M-80 定义与 016 一致。"
 category: "product"
 number: "017"
-status: current
+status: historical
 services: ["projects/chijie-browser"]
 related:
   - "product/016"

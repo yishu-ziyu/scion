@@ -10,12 +10,12 @@ Global `~/.grok/AGENTS.md` still applies for communication and safety.
 **Phase discipline (parity first):** [docs/product/011-browser-agent-parity-first.md](./docs/product/011-browser-agent-parity-first.md)
 **Read for runtime continuity (CDP / inject / E2E):** [HANDOVER.md](./HANDOVER.md)
 **Product vocabulary:** [CONTEXT.md](./CONTEXT.md)
-**Docs drive development:** [docs/README.md](./docs/README.md) → [011](./docs/product/011-browser-agent-parity-first.md) → [003](./docs/product/003-north-star.md) → [004](./docs/product/004-docs-driven-dev.md)
+**Docs drive development:** [docs/README.md](./docs/README.md) → [021](./docs/product/021-long-horizon-task-agent.md) → [004](./docs/product/004-docs-driven-dev.md)
 **Doc index:** [docs/DOCS_INDEX.md](./docs/DOCS_INDEX.md)
 
 ### Docs-driven rule (hard)
 
-1. Before coding browser-agent features, open `docs/product/003-north-star.md` and confirm `current_milestone` in `.ship/tasks/plan-large-nanobrowser-second-development/control/run_state.yaml`.
+1. Before coding long-horizon task features, open `docs/product/021-long-horizon-task-agent.md` and confirm `current_milestone` in `.ship/tasks/plan-large-nanobrowser-second-development/control/run_state.yaml`.
 2. Every change must map to a gate **G#** or a PRD requirement; otherwise update docs first.
 3. Accuracy parity target: Meituan Tabbit public **Agent ~91.8%** / web-ops **≥70%** (see 003). Mid-model MiniMax-M3 for official scores.
 4. Do not thrash: finish current M before starting the next.
@@ -125,7 +125,7 @@ From `CONTEXT.md` and `docs/decisions/001`:
 - **Skill** = reusable semantic recipe (inputs, outcome, approval); not replaying stale element indexes
 - This cycle: keep **Chrome extension** as the carrier (no fork Chromium, no cloud browser)
 
-Task runtime L4 shell is landed (TaskManager / ActionDispatcher / CompletionChecker); default production core is `control` (`docs/design/002`). `docs/design/001` remains partially-outdated historical architecture - load with `design/002` + `product/008` + `design/004` for current task loop and calm console.
+Task runtime L4 shell is landed (TaskManager / ActionDispatcher / CompletionChecker); default production core is `control` (`docs/design/002`). `docs/design/001` remains partially-outdated historical architecture - load with `design/002` + `product/021` + `design/004` for current task loop and plan console.
 
 ---
 

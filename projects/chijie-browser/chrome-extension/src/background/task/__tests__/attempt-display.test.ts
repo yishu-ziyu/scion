@@ -40,6 +40,17 @@ describe('buildAttemptDisplaySummary', () => {
     ).toBe('密码框（需你自己输入）');
   });
 
+  it('never persists arbitrary intent for an external commit', () => {
+    expect(
+      buildAttemptDisplaySummary({
+        actionName: 'click_element',
+        args: { index: 3, intent: 'submit the form with secret form value' },
+        effectTarget: { tag: 'button', type: 'submit' },
+        redactIntent: true,
+      }),
+    ).toBe('点击提交按钮');
+  });
+
   it('scrolls to short visible text', () => {
     expect(
       buildAttemptDisplaySummary({

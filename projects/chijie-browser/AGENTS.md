@@ -1,16 +1,16 @@
 # 持节 (chijie-browser) — agent rules
 
-Chrome MV3 browser action agent (pnpm + Turbo monorepo). Product name: **持节 / Chijie**.
+Chrome MV3 long-horizon task agent (pnpm + Turbo monorepo). Product name: **持节 / Chijie**.
 Upstream rootstock: https://github.com/nanobrowser/nanobrowser · package version in `package.json`.
 
 Lab parent: `../../AGENTS.md` · hygiene: `../../ENGINEERING.md` · ops: `../../HANDOVER.md` · product terms: `../../CONTEXT.md` · brand: `PRODUCT.md`
 
-**Product docs (drive work):** `../../docs/README.md` → `../../docs/product/003-north-star.md` + `004-docs-driven-dev.md` + `001-nanobrowser-prd.md`.
+**Product docs (drive work):** `../../docs/README.md` → `../../docs/product/021-long-horizon-task-agent.md` + `004-docs-driven-dev.md`.
 
 This file is **ops for the extension monorepo**. MiniMax / CDP detail lives in HANDOVER — open it for runtime continuity, not as chat filler.
 **Single tree:** this directory is the only copy; `~/projects/chijie-browser` is a symlink here.
 
-When implementing product behavior, prefer PRD + north-star gates over historical Nano upstream patterns.
+When implementing product behavior, prefer the current long-horizon task spec over historical Nano upstream patterns.
 User-facing brand strings: **持节**, not Nanobrowser / 奕枢 / OpenClaw.
 
 ---
@@ -182,7 +182,7 @@ Full change list + CDP commands: **`../../HANDOVER.md`**.
 | Why Chrome extension | `../../docs/decisions/001-keep-chrome-extension.md` |
 | Task runtime (L4 shell; partially-outdated) | `../../docs/design/001-browser-action-task-runtime.md` |
 | Production core swap (default `control`) | `../../docs/design/002-production-core-swap.md` |
-| Tabbit-class task loop index | `../../docs/product/008-tabbit-class-agent-task-loop-spec.md` |
+| Long-horizon task Agent spec | `../../docs/product/021-long-horizon-task-agent.md` |
 | Calm task console (visual/three-state) | `../../docs/design/004-chijie-calm-task-console.md` |
 | E2E evidence index | `../../reports/nanobrowser/` |
 | Upstream-style long style essay (backup) | `AGENTS.md.bak-20260714` |

@@ -54,7 +54,6 @@ describe('concrete task store recovery', () => {
               proposedAt: 1,
             },
           ],
-          approvals: [],
           evidence: [],
         },
       ],

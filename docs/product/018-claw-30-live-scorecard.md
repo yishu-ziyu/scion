@@ -3,7 +3,7 @@ title: "Claw 30 例真机记分板（强制全跑）"
 description: "Sider Claw 30 个演示故事的持节跑分 SSOT。禁止只抽子集宣称对标；个性化工作不得抢在本表之前。"
 category: "product"
 number: "018"
-status: current
+status: historical
 services: ["projects/chijie-browser"]
 related:
   - "product/016"
@@ -51,7 +51,7 @@ last_modified: "2026-07-24"
 
 | ID | 故事（Claw） | 持节验收终点（用户可见） | 状态 | 证据 | 还差什么 |
 |----|--------------|--------------------------|------|------|----------|
-| R1 | Amazon 列表→价格/评分表 | 可打开 CSV/MD 表，≥N 行商品字段 | **partial** | `e2e:r1-extract` PASS（6 行 CSV）；`reports/nanobrowser/claw-30/R1/` | **Amazon 真机**；文件下载入口；长列表滚动 |
+| R1 | Amazon 列表→价格/评分表 | 可打开 CSV/MD 表，≥N 行商品字段 | **partial** | `e2e:r1-extract` PASS（6 行 CSV）；`reports/nanobrowser/claw-30/R1/`；最终矩阵 `reports/nanobrowser/eval/2026-08-02-eval-final-eval-matrix.csv` | **Amazon 真机**；文件下载入口；长列表滚动 |
 | R2 | Ahrefs SEO 竞品 | 对比洞察可读；登录墙诚实 | not_run | — | 真会话附着、长任务、登录策略 |
 | R3 | 招聘页→简报 | 简报 MD/可复制 | not_run | — | 列表抽 + 写文档 |
 | R4 | 低星评论→痛点 | 结构化痛点列表 | not_run | — | 长列表滚动 + 聚类 |
@@ -90,7 +90,7 @@ last_modified: "2026-07-24"
 
 | ID | 故事（Claw） | 持节验收终点 | 状态 | 证据 | 还差什么 |
 |----|--------------|--------------|------|------|----------|
-| O1 | 演示表单填好、**提交前停** | 字段已填；未批 0 提交；批 1 次提交 | **pass** | `pnpm -F chrome-extension e2e:action-agent` PASS（2026-07-24）；`reports/nanobrowser/claw-30/O1/` | 验收终点已对齐 fixture；Claw Salesforce 演示站视觉/长表单仍可加码 |
+| O1 | 演示表单填好、**提交前停** | 字段已填；未批 0 提交；批 1 次提交 | **pass** | `pnpm -F chrome-extension e2e:action-agent` PASS（2026-08-02，headless）；`reports/nanobrowser/claw-30/O1/`；最终矩阵 `reports/nanobrowser/eval/2026-08-02-eval-final-eval-matrix.csv` | 验收终点已对齐 fixture；Claw Salesforce 演示站视觉/长表单仍可加码 |
 | O2 | 一条提示→多日历事件 | 日历多事件创建 | not_run | — | 日历权限/集成 |
 | O3 | 多 SaaS 引导填、提交前停 | 多站填 + 批准门 | not_run | — | 跨站会话 + 同 O1 |
 | O4 | 机票→推荐邮件 | 方案 + 草稿 | not_run | — | 搜比 + 草稿 |

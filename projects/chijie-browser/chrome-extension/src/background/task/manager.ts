@@ -34,6 +34,14 @@ import { checkCompletion } from './completion';
 import { sha256 } from './digest';
 import { allowsVerifiedComplete } from './page-state';
 import { resolveMediaArgs, resolveTabArgs } from './media';
+import { toRedactedTaskSnapshot, traceStore } from './trace';
+import {
+  applyPassedCriteriaToMissionPlan,
+  attachCriteriaToActivePhase,
+  markRemainingPhasesDone,
+  maybeAdvancePhaseByAttemptHeuristic,
+  refineMissionPlanFromInstruction,
+} from './mission-plan';
 import { ActionResult } from '../agent/types';
 
 export type { ExecutorDriver } from './contracts';
@@ -58,18 +66,10 @@ interface TaskManagerDeps {
 
 const TERMINAL_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled'];
 
-interface PendingApproval {
-  taskId: string;
-  roundId: string;
-  attemptId: string;
-  resolve: (decision: 'approved' | 'rejected') => void;
-}
-
 export class TaskManager {
   private readonly drivers = new Map<string, ExecutorDriver>();
   private readonly dispatchers = new Map<string, ActionDispatcher>();
   private readonly launches = new Map<string, symbol>();
-  private readonly pendingApprovals = new Map<string, PendingApproval>();
   private readonly instructions = new Map<string, string>();
   private readonly criterionTemplates = new Map<string, CompletionCriterionTemplate[]>();
   private readonly lockedCriteriaRounds = new Set<string>();
@@ -104,7 +104,7 @@ export class TaskManager {
   async interruptActive(): Promise<void> {
     await this.queueTransition(async () => {
       const task = await getActiveTask();
-      if (!task || !['running', 'paused', 'waiting_approval'].includes(task.status)) return;
+      if (!task || !['running', 'paused'].includes(task.status)) return;
       await this.stopTaskRuntime(task.id);
       task.status = 'interrupted';
       this.currentRound(task).status = 'interrupted';
@@ -116,7 +116,14 @@ export class TaskManager {
   async recover(): Promise<void> {
     await this.queueTransition(async () => {
       const task = await getActiveTask();
-      if (!task || !['running', 'paused', 'waiting_approval'].includes(task.status)) return;
+      if (task && (task.status as string) === 'waiting_approval') {
+        task.status = 'interrupted';
+        this.currentRound(task).status = 'interrupted';
+        task.revision += 1;
+        await this.persist(task);
+        return;
+      }
+      if (!task || !['running', 'paused'].includes(task.status)) return;
       const round = this.currentRound(task);
       let hasUncertainCommit = false;
       for (const taskRound of task.rounds) {
@@ -125,13 +132,6 @@ export class TaskManager {
           const recovered = recoverAttempt(attempt);
           return recovered;
         });
-        for (const approval of taskRound.approvals) {
-          if (approval.status !== 'pending') continue;
-          approval.status = 'rejected';
-          approval.decidedAt = this.deps.now();
-          const attempt = taskRound.attempts.find(item => item.id === approval.attemptId);
-          if (attempt?.state === 'proposed') attempt.state = 'blocked';
-        }
       }
       if (hasUncertainCommit) {
         task.status = 'waiting_user';
@@ -199,10 +199,6 @@ export class TaskManager {
         return this.followUp(existing, command);
       case 'cancel':
         return this.cancel(existing, command.commandId);
-      case 'approve':
-        return this.decideApproval(existing, command, true);
-      case 'reject':
-        return this.decideApproval(existing, command, false);
       case 'confirm_completion':
         return this.confirmCompletion(existing, command);
       case 'save_skill':
@@ -240,7 +236,6 @@ export class TaskManager {
       commandAcks: { [command.commandId]: ack },
       criteria: [],
       attempts: [],
-      approvals: [],
       evidence: [],
     };
     const task: TaskSession = {
@@ -254,6 +249,7 @@ export class TaskManager {
       currentRoundId: roundId,
       targetRefs: [],
       rounds: [round],
+      plan: refineMissionPlanFromInstruction(command.instruction, now),
       createdAt: now,
       updatedAt: now,
     };
@@ -365,6 +361,12 @@ export class TaskManager {
       taskId: command.taskId,
       revision: 1,
     };
+    let plan = refineMissionPlanFromInstruction(renderedInstruction, now);
+    plan = attachCriteriaToActivePhase(
+      plan,
+      criteria.map(item => item.id),
+      now,
+    );
     const task: TaskSession = {
       id: command.taskId,
       goalSummary: `Run Skill: ${skill.title}`,
@@ -382,10 +384,10 @@ export class TaskManager {
           commandAcks: { [command.commandId]: ack },
           criteria,
           attempts: [],
-          approvals: [],
           evidence: [],
         },
       ],
+      plan,
       createdAt: now,
       updatedAt: now,
     };
@@ -420,6 +422,7 @@ export class TaskManager {
     if (task.status !== 'running') return this.reject(task, commandId, 'invalid_transition');
     task.status = 'paused';
     this.currentRound(task).status = 'paused';
+    // Mission plan is durable across pause: do not rebuild or clear task.plan.
     const ack = this.accept(task, commandId);
     await this.persist(task);
     this.drivers.get(task.id)?.pause();
@@ -432,6 +435,7 @@ export class TaskManager {
     }
     task.status = 'running';
     this.currentRound(task).status = 'running';
+    // Resume continues the existing plan object (phase titles / progress), not a fresh skeleton.
     const ack = this.accept(task, commandId);
     await this.persist(task);
     const driver = this.drivers.get(task.id);
@@ -463,7 +467,6 @@ export class TaskManager {
       commandAcks: {},
       criteria: [],
       attempts: [],
-      approvals: [],
       evidence: [],
     });
     const ack = this.accept(task, command.commandId);
@@ -486,56 +489,6 @@ export class TaskManager {
     const ack = this.accept(task, commandId);
     await this.persist(task);
     await this.stopTaskRuntime(task.id);
-    return ack;
-  }
-
-  private async decideApproval(
-    task: TaskSession,
-    command: Extract<TaskCommand, { type: 'approve' | 'reject' }>,
-    approved: boolean,
-  ): Promise<CommandAck> {
-    const round = task.rounds.find(item => item.id === command.roundId);
-    const approval = round?.approvals.find(item => item.id === command.approvalId);
-    const pending = this.pendingApprovals.get(command.approvalId);
-    if (
-      task.status !== 'waiting_approval' ||
-      task.currentRoundId !== command.roundId ||
-      !round ||
-      !approval ||
-      approval.status !== 'pending' ||
-      !pending ||
-      pending.taskId !== task.id ||
-      pending.roundId !== round.id ||
-      pending.attemptId !== approval.attemptId
-    ) {
-      return this.reject(task, command.commandId, 'invalid_transition');
-    }
-
-    const attempt = round.attempts.find(item => item.id === approval.attemptId);
-    if (!attempt || attempt.state !== 'proposed') {
-      return this.reject(task, command.commandId, 'invalid_transition');
-    }
-
-    const now = this.deps.now();
-    if (approved) {
-      attempt.state = 'approved';
-      attempt.approvedAt = now;
-      approval.status = 'consumed';
-      task.status = 'running';
-      round.status = 'running';
-      round.waitReason = undefined;
-    } else {
-      attempt.state = 'blocked';
-      approval.status = 'rejected';
-      task.status = 'waiting_user';
-      round.status = 'waiting_user';
-      round.waitReason = 'approval_rejected';
-    }
-    approval.decidedAt = now;
-    const ack = this.accept(task, command.commandId);
-    await this.persist(task);
-    this.pendingApprovals.delete(command.approvalId);
-    pending.resolve(approved ? 'approved' : 'rejected');
     return ack;
   }
 
@@ -586,7 +539,6 @@ export class TaskManager {
     const dispatcher = new ActionDispatcher({
       now: this.deps.now,
       persistAttempt: attempt => this.persistAttempt(taskId, attempt),
-      requestApproval: (attempt, summary) => this.requestApproval(taskId, attempt, summary),
       observe: async (request, parsedArgs, phase) => {
         const { browserContext } = await import('../agent/factory');
         const page = await browserContext.getCurrentPage();
@@ -633,8 +585,7 @@ export class TaskManager {
         }
         if (request.action.name() === 'close_tab' || request.action.name() === 'switch_tab') {
           const tabId =
-            this.readNumberField(parsedArgs, 'tab_id') ??
-            (Number.isSafeInteger(page.tabId) ? page.tabId : undefined);
+            this.readNumberField(parsedArgs, 'tab_id') ?? (Number.isSafeInteger(page.tabId) ? page.tabId : undefined);
           const targetRefId = tabId !== undefined ? `tab-${tabId}` : `tab-${page.tabId}`;
           let urlOrigin = 'null';
           try {
@@ -677,6 +628,7 @@ export class TaskManager {
           target: observation.target,
           effectTarget: observation,
           evidence: [],
+          pageRevision: observation.pageRevision,
         };
       },
     });
@@ -764,7 +716,7 @@ export class TaskManager {
   }
 
   /**
-   * After a successful act (navigate, click, or approved external commit), re-probe
+   * After a successful act (navigate, click, or authorized external commit), re-probe
    * frozen criteria. Real MiniMax loops often keep stepping without emitting
    * candidate_complete; page evidence is enough for a verified receipt.
    * Fixture/real forms often rewrite DOM after an async fetch - one immediate
@@ -803,34 +755,43 @@ export class TaskManager {
       observations,
     });
     // product/007: no verified complete without required criteria evidence (expect / page proof).
-    if (
-      !allowsVerifiedComplete({
-        completionPassed: checked.passed,
-        hasRequiredCriteria: automaticCriteria.some(c => c.required),
-      })
-    ) {
-      return false;
-    }
+    const canComplete = allowsVerifiedComplete({
+      completionPassed: checked.passed,
+      hasRequiredCriteria: automaticCriteria.some(c => c.required),
+    });
     // Multi-intent goals (play + copy comment) must not settle on media criteria alone.
     // Keep the loop alive so the agent can still extract/return text.
     const instructionForRound =
       this.instructions.get(taskId) ||
       task.goalSummary ||
-      (round.instructionSummary && round.instructionSummary !== 'User instruction'
-        ? round.instructionSummary
-        : '') ||
+      (round.instructionSummary && round.instructionSummary !== 'User instruction' ? round.instructionSummary : '') ||
       '';
-    if (this.instructionRequestsUserDeliverable(instructionForRound)) {
-      const answer = round.instructionSummary?.trim() ?? '';
-      if (!this.hasSubstantiveDeliverableAnswer(answer, instructionForRound)) {
-        return false;
+    const deliverableBlocks =
+      this.instructionRequestsUserDeliverable(instructionForRound) &&
+      !this.hasSubstantiveDeliverableAnswer(round.instructionSummary?.trim() ?? '', instructionForRound);
+
+    if (!canComplete || deliverableBlocks) {
+      // Partial evidence still advances mission phases before full task complete.
+      const passedIds = checked.evidence.filter(item => item.passed).map(item => item.criterionId);
+      if (task.plan && passedIds.length > 0) {
+        await this.queueTransition(async () => {
+          const current = await getTask(taskId);
+          if (!current?.plan || current.status !== 'running' || current.currentRoundId !== roundId) return;
+          const next = applyPassedCriteriaToMissionPlan(current.plan, passedIds, this.deps.now());
+          if (next === current.plan) return;
+          current.plan = next;
+          current.revision += 1;
+          await this.persist(current);
+        });
       }
+      return false;
     }
     await this.queueTransition(async () => {
       const current = await getTask(taskId);
       if (!current || current.status !== 'running' || current.currentRoundId !== roundId) return;
       const currentRound = this.currentRound(current);
       currentRound.evidence.push(...checked.evidence);
+      this.syncMissionPlanFromEvidence(current, currentRound, checked.evidence);
       await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
     });
     await this.stopTaskRuntime(taskId);
@@ -932,6 +893,17 @@ export class TaskManager {
         round.waitReason = 'commit_outcome_uncertain';
         stopDriver = true;
       }
+      // Multi-phase without phase criteria: successful acts advance the active phase.
+      if (
+        attempt.state === 'observed' &&
+        isCurrentRound &&
+        task.plan &&
+        task.plan.phases.length > 1 &&
+        !TERMINAL_STATUSES.includes(task.status)
+      ) {
+        const successCount = round.attempts.filter(item => item.state === 'observed').length;
+        task.plan = maybeAdvancePhaseByAttemptHeuristic(task.plan, successCount, this.deps.now());
+      }
       task.revision += 1;
       await this.persist(task);
     });
@@ -973,61 +945,8 @@ export class TaskManager {
     });
   }
 
-  private async requestApproval(
-    taskId: string,
-    attempt: ActionAttempt,
-    summary: string,
-  ): Promise<'approved' | 'rejected'> {
-    const approvalId = crypto.randomUUID();
-    let resolve!: (decision: 'approved' | 'rejected') => void;
-    const decision = new Promise<'approved' | 'rejected'>(done => {
-      resolve = done;
-    });
-    this.pendingApprovals.set(approvalId, {
-      taskId,
-      roundId: attempt.roundId,
-      attemptId: attempt.id,
-      resolve,
-    });
-
-    let accepted = false;
-    try {
-      await this.queueTransition(async () => {
-        const task = await getTask(taskId);
-        const round = task?.rounds.find(item => item.id === attempt.roundId);
-        if (!task || !round || task.currentRoundId !== round.id || task.status !== 'running') return;
-        round.approvals.push({
-          id: approvalId,
-          attemptId: attempt.id,
-          roundId: round.id,
-          summary,
-          status: 'pending',
-        });
-        task.status = 'waiting_approval';
-        round.status = 'waiting_approval';
-        task.revision += 1;
-        accepted = true;
-        await this.persist(task);
-      });
-    } catch (error) {
-      this.pendingApprovals.delete(approvalId);
-      resolve('rejected');
-      throw error;
-    }
-    if (!accepted) {
-      this.pendingApprovals.delete(approvalId);
-      return 'rejected';
-    }
-    return decision;
-  }
-
   private interruptTaskRuntime(taskId: string): void {
     this.dispatchers.get(taskId)?.interrupt();
-    for (const [approvalId, pending] of this.pendingApprovals) {
-      if (pending.taskId !== taskId) continue;
-      this.pendingApprovals.delete(approvalId);
-      pending.resolve('rejected');
-    }
   }
 
   private async stopTaskRuntime(taskId: string): Promise<void> {
@@ -1094,7 +1013,23 @@ export class TaskManager {
       let driver: ExecutorDriver;
       try {
         driver = await this.deps.createExecutor(
-          { taskId, roundId, instruction, tabId: task.activeTabId },
+          {
+            taskId,
+            roundId,
+            instruction,
+            tabId: task.activeTabId,
+            plan: task.plan
+              ? {
+                  id: task.plan.id,
+                  goal: task.plan.goal,
+                  phases: task.plan.phases.map(phase => ({
+                    id: phase.id,
+                    title: phase.title,
+                    status: phase.status,
+                  })),
+                }
+              : undefined,
+          },
           this.executorHooks(taskId),
         );
       } finally {
@@ -1282,6 +1217,7 @@ export class TaskManager {
           }
           const currentRound = this.currentRound(current);
           currentRound.evidence.push(...automaticEvidence);
+          this.syncMissionPlanFromEvidence(current, currentRound, automaticEvidence);
           await this.persistWaitingUser(current, currentRound, 'proof_required');
         });
         if (handoffRoundId) {
@@ -1309,9 +1245,7 @@ export class TaskManager {
       const instructionForRound =
         this.instructions.get(taskId) ||
         task.goalSummary ||
-        (round.instructionSummary && round.instructionSummary !== 'User instruction'
-          ? round.instructionSummary
-          : '') ||
+        (round.instructionSummary && round.instructionSummary !== 'User instruction' ? round.instructionSummary : '') ||
         '';
       const needsDeliverable = this.instructionRequestsUserDeliverable(instructionForRound);
       const deliverableOk =
@@ -1327,6 +1261,7 @@ export class TaskManager {
         }
         const currentRound = this.currentRound(current);
         currentRound.evidence.push(...checked.evidence);
+        this.syncMissionPlanFromEvidence(current, currentRound, checked.evidence);
         // Optional-only criteria must not mint a verified receipt (sticky false complete).
         if (
           allowsVerifiedComplete({
@@ -1584,6 +1519,14 @@ export class TaskManager {
       }
       if (task.currentRoundId !== expectedRoundId) return;
       round.criteria = criteria;
+      // First freeze: bind criterion ids onto the active mission phase (if empty).
+      if (task.plan) {
+        task.plan = attachCriteriaToActivePhase(
+          task.plan,
+          criteria.map(item => item.id),
+          this.deps.now(),
+        );
+      }
       const key = this.roundKey(task.id, round.id);
       const templates = this.templatesFromCriteria(drafts, criteria);
       this.criterionTemplates.set(key, templates);
@@ -1771,22 +1714,56 @@ export class TaskManager {
    * - Open + open first video ("打开YouTube并点击第一个视频") → url starts_with /watch (or site equivalent)
    * - Explicit success text ("success is Saved successfully" / "until you see Done") → page_text
    */
-  private extractImplicitCompletionCriteria(
-    instruction: string,
-    tabOrigin?: string,
-  ): CompletionCriterionDraft[] {
+  private extractImplicitCompletionCriteria(instruction: string, tabOrigin?: string): CompletionCriterionDraft[] {
     const drafts: CompletionCriterionDraft[] = [];
     const seen = new Set<string>();
     const fieldValues = this.extractUserFieldValues(instruction);
+
+    // Explicit absolute URLs in the goal (long-horizon: "打开 https://en.wikipedia.org/wiki/…").
+    for (const match of instruction.matchAll(/https?:\/\/[^\s"'<>，。；;]+/gi)) {
+      try {
+        const parsed = new URL(match[0].replace(/[)\].,，。]+$/, ''));
+        if (!['http:', 'https:'].includes(parsed.protocol)) continue;
+        const expected = `${parsed.origin}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+        if (!seen.has(expected)) {
+          seen.add(expected);
+          drafts.push({ kind: 'url', operator: 'starts_with', expected, required: true });
+        }
+      } catch {
+        /* ignore bad URL */
+      }
+    }
+    // Wikipedia article path without full host: wiki/Artificial_intelligence
+    for (const match of instruction.matchAll(/\bwiki\/([A-Za-z0-9_().%-]+)/g)) {
+      const slug = match[1];
+      if (!slug) continue;
+      const expected = `https://en.wikipedia.org/wiki/${slug}`;
+      if (!seen.has(expected)) {
+        seen.add(expected);
+        drafts.push({ kind: 'url', operator: 'starts_with', expected, required: true });
+      }
+    }
+    // Common long-horizon wiki title without URL: "Artificial intelligence 条目"
+    if (
+      /Artificial\s+intelligence/i.test(instruction) &&
+      /条目|wiki|维基/i.test(instruction) &&
+      !seen.has('https://en.wikipedia.org/wiki/Artificial_intelligence')
+    ) {
+      seen.add('https://en.wikipedia.org/wiki/Artificial_intelligence');
+      drafts.push({
+        kind: 'url',
+        operator: 'starts_with',
+        expected: 'https://en.wikipedia.org/wiki/Artificial_intelligence',
+        required: true,
+      });
+    }
 
     let completionUrl = this.extractOpenSiteCompletionUrl(instruction);
     // Already on bilibili/youtube + "open first video" (no "打开 bilibili" in text).
     if (!completionUrl && tabOrigin && this.instructionRequestsOpenMedia(instruction)) {
       try {
         const originUrl =
-          tabOrigin.startsWith('http://') || tabOrigin.startsWith('https://')
-            ? tabOrigin
-            : `https://${tabOrigin}`;
+          tabOrigin.startsWith('http://') || tabOrigin.startsWith('https://') ? tabOrigin : `https://${tabOrigin}`;
         completionUrl = this.mediaWatchUrlForSite(originUrl);
       } catch {
         completionUrl = null;
@@ -2043,6 +2020,7 @@ export class TaskManager {
     );
     if (!confirmedEvidence) return this.reject(task, command.commandId, 'invalid_transition');
     round.evidence.push(confirmedEvidence);
+    this.syncMissionPlanFromEvidence(task, round, checked.evidence);
     const ack = this.accept(task, command.commandId);
     if (checked.passed) await this.persistVerifiedReceipt(task, round, checked.evidence, false);
     else await this.persist(task);
@@ -2067,6 +2045,31 @@ export class TaskManager {
     await this.persist(task);
   }
 
+  /**
+   * Apply passed criterion evidence to the mission plan and advance phases when
+   * the active phase's criteria are fully satisfied. Also runs the multi-phase
+   * attempt heuristic when the active phase has no bound criteria.
+   */
+  private syncMissionPlanFromEvidence(
+    task: TaskSession,
+    round: TaskRound,
+    evidence: CompletionEvidence[],
+  ): void {
+    if (!task.plan) return;
+    const now = this.deps.now();
+    const passedIds = evidence.filter(item => item.passed).map(item => item.criterionId);
+    let plan = task.plan;
+    if (passedIds.length > 0) {
+      plan = applyPassedCriteriaToMissionPlan(plan, passedIds, now);
+    }
+    const active = plan.phases.find(phase => phase.status === 'active');
+    if (active && active.criteriaIds.length === 0 && plan.phases.length > 1) {
+      const successCount = round.attempts.filter(item => item.state === 'observed').length;
+      plan = maybeAdvancePhaseByAttemptHeuristic(plan, successCount, now);
+    }
+    task.plan = plan;
+  }
+
   private async persistVerifiedReceipt(
     task: TaskSession,
     round: TaskRound,
@@ -2084,6 +2087,10 @@ export class TaskManager {
     task.status = 'completed';
     round.status = 'completed';
     round.waitReason = undefined;
+    if (task.plan) {
+      // Preserve intermediate done/evidence; only mark remaining planned/active as done.
+      task.plan = markRemainingPhasesDone(task.plan, this.deps.now());
+    }
     this.lockedCriteriaRounds.delete(this.roundKey(task.id, round.id));
     if (incrementRevision) task.revision += 1;
     await this.persist(task);
@@ -2103,6 +2110,7 @@ export class TaskManager {
   private async persist(task: TaskSession): Promise<void> {
     task.updatedAt = this.deps.now();
     await saveTask(task);
+    void traceStore.recordTaskSnapshot(toRedactedTaskSnapshot(task));
     const snapshot = structuredClone(task);
     for (const listener of this.listeners) {
       listener({

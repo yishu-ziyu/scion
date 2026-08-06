@@ -83,7 +83,7 @@ export function formatActivityDuration(seconds: number): string {
 export function activityPhaseForAttempt(state: string | undefined): ActivityPhase {
   switch (state) {
     case 'executing':
-    case 'approved':
+    case 'authorized':
       return 'acting';
     case 'proposed':
       return 'thinking';
@@ -110,9 +110,6 @@ export function activityLiveHeadline(input: {
   const host = (input.siteHost || '').replace(/^www\./, '').trim();
   const label = (input.siteLabel || '').trim();
 
-  if (input.status === 'waiting_approval') {
-    return { phase: 'waiting', icon: 'wait', mode: 'waiting' };
-  }
   if (input.status === 'waiting_user' || input.status === 'inputs_required') {
     return { phase: 'waiting', icon: 'wait', mode: 'waiting' };
   }

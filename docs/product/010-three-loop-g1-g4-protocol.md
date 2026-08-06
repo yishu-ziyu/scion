@@ -5,7 +5,7 @@ category: "product"
 number: "010"
 status: current
 services: ["projects/chijie-browser"]
-related: ["product/003", "product/008", "product/009", "product/004"]
+related: ["product/021", "product/009", "product/004"]
 last_modified: "2026-07-16"
 ---
 

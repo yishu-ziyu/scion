@@ -7,12 +7,23 @@ export function isUnderstandingOnlyInstruction(instruction: string): boolean {
   const text = instruction.replace(/\s+/g, ' ').trim();
   if (!text) return false;
 
+  // Multi-phase / multi-step goals always need the act loop (book ch2 / product 021).
+  if (
+    /多阶段|多步骤|分阶段/.test(text) ||
+    /[;；]\s*\S+/.test(text) ||
+    /(?:^|[^\d])[1-9]\s*[)）.、]\s*\S+/.test(text) ||
+    /不要在.{0,24}报完成/.test(text)
+  ) {
+    return false;
+  }
+
   // Strong navigation / act verbs → not understanding-only.
   if (
     /打开\s*https?:\/\//i.test(text) ||
     /打开\s*(第一|第一个|第一行|youtube|bilibili|油管|哔哩|b站|维基|wikipedia)/i.test(text) ||
+    /搜索并打开|搜索.{0,12}打开|进入.{0,12}维基|离开当前/.test(text) ||
     /点击|填写|提交|播放|暂停|滚动|搜索框|输入\s*\S+/.test(text) ||
-    /\b(click|type|submit|play|pause|scroll|navigate)\b/i.test(text)
+    /\b(click|type|submit|play|pause|scroll|navigate|search\s+and\s+open)\b/i.test(text)
   ) {
     return false;
   }

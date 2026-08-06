@@ -50,6 +50,15 @@ export interface ExecutorInput {
   roundId: string;
   instruction: string;
   tabId: number;
+  /**
+   * Optional mission plan snapshot for long-horizon context (book ch2 / product 021).
+   * Prefer code-maintained phases only; never pass raw secrets.
+   */
+  plan?: {
+    id: string;
+    goal: string;
+    phases: Array<{ id: string; title: string; status: string }>;
+  };
 }
 
 export class StaleTaskRoundError extends Error {

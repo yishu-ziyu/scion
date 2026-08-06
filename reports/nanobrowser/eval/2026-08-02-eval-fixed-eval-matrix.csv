@@ -1,0 +1,4 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-02-eval-fixed,W3,013-B05,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,6652,,,url=https://en.wikipedia.org/wiki/Agent
+2026-08-02-eval-fixed,W3,013-B07,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,2908,,,url=https://www.iana.org/help/example-domains
+2026-08-02-eval-fixed,W3,013-B08,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,4120,,,url=https://en.wikipedia.org/wiki/Artificial_intelligence

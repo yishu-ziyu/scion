@@ -3,7 +3,7 @@ title: "质量优先 TSR Bake-off（出身归零）"
 description: "固定任务集 + 可换执行核对打；Nanobrowser 出身不计分；主 Chrome 当前标签为硬约束。"
 category: "product"
 number: "013"
-status: current
+status: historical
 services: ["projects/chijie-browser"]
 related:
   - "decisions/001"

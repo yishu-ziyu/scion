@@ -24,6 +24,7 @@ function hooksMock(): ExecutorHooks & {
           actionName: action.name(),
           state: 'observed' as const,
           effect: 'reversible' as const,
+          argsDigest: 'digest',
           proposedAt: 1,
         },
         evidence: [],

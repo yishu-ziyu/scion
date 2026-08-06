@@ -10,7 +10,6 @@ import { t } from '@extension/i18n';
 export type ProductFailureCode =
   | 'login_wall'
   | 'selector_miss'
-  | 'approval_timeout'
   | 'false_complete'
   | 'model_loop'
   | 'other';
@@ -18,7 +17,6 @@ export type ProductFailureCode =
 const PRODUCT_FAILURE_MESSAGE_KEYS = {
   login_wall: 'chat_task_product_fail_login_wall',
   selector_miss: 'chat_task_product_fail_selector_miss',
-  approval_timeout: 'chat_task_product_fail_approval_timeout',
   false_complete: 'chat_task_product_fail_false_complete',
   model_loop: 'chat_task_product_fail_model_loop',
   other: 'chat_task_product_fail_other',
@@ -31,9 +29,6 @@ export const PRODUCT_FAILURE_LABELS: Record<ProductFailureCode, string> = {
   },
   get selector_miss() {
     return t(PRODUCT_FAILURE_MESSAGE_KEYS.selector_miss);
-  },
-  get approval_timeout() {
-    return t(PRODUCT_FAILURE_MESSAGE_KEYS.approval_timeout);
   },
   get false_complete() {
     return t(PRODUCT_FAILURE_MESSAGE_KEYS.false_complete);
@@ -71,10 +66,6 @@ export function toProductFailureCode(category: string | undefined | null): Produ
     c === 'no_action'
   ) {
     return 'selector_miss';
-  }
-
-  if (c === 'approval_timeout' || c === 'approval_rejected') {
-    return 'approval_timeout';
   }
 
   if (c === 'false_complete') {

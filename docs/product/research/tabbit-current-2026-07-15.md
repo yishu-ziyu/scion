@@ -7,7 +7,7 @@ owner: P1
 researched_at: "2026-07-15"
 related:
   - product/003
-  - product/008
+  - product/021
   - CONTEXT.md
 ---
 

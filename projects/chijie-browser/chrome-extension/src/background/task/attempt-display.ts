@@ -6,6 +6,8 @@
 export type AttemptDisplayInput = {
   actionName: string;
   args?: unknown;
+  /** External-commit intents may contain form values; never persist them. */
+  redactIntent?: boolean;
   effectTarget?: {
     tag?: string;
     type?: string;
@@ -15,8 +17,7 @@ export type AttemptDisplayInput = {
   urlOrigin?: string;
 };
 
-const MACHINE_INTENT =
-  /^(perform the requested|click element|input text|control media|go to url|done|step_|act_)/i;
+const MACHINE_INTENT = /^(perform the requested|click element|input text|control media|go to url|done|step_|act_)/i;
 
 function readString(args: unknown, key: string): string | undefined {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return undefined;
@@ -30,7 +31,11 @@ function hostFromUrl(url: string | undefined): string | undefined {
     const host = new URL(url.includes('://') ? url : `https://${url}`).hostname.replace(/^www\./, '');
     return host || undefined;
   } catch {
-    const cleaned = url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]?.trim();
+    const cleaned = url
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '')
+      .split('/')[0]
+      ?.trim();
     return cleaned || undefined;
   }
 }
@@ -73,10 +78,10 @@ function fieldKindLabel(type: string | undefined, tag: string | undefined): stri
 export function buildAttemptDisplaySummary(input: AttemptDisplayInput): string {
   const name = input.actionName;
   const args = input.args;
-  const intent =
-    sanitizeIntent(readString(args, 'intent')) || sanitizeIntent(input.effectTarget?.intent);
-  const host =
-    hostFromUrl(readString(args, 'url')) || hostFromOrigin(input.urlOrigin);
+  const intent = input.redactIntent
+    ? undefined
+    : sanitizeIntent(readString(args, 'intent')) || sanitizeIntent(input.effectTarget?.intent);
+  const host = hostFromUrl(readString(args, 'url')) || hostFromOrigin(input.urlOrigin);
   const command = readString(args, 'command');
   const keys = readString(args, 'keys');
   const scrollText = readString(args, 'text');
@@ -142,8 +147,7 @@ export function buildAttemptDisplaySummary(input: AttemptDisplayInput): string {
 
 /** Optional short target chip (host or field), never a secret. */
 export function buildAttemptTargetLabel(input: AttemptDisplayInput): string | undefined {
-  const host =
-    hostFromUrl(readString(input.args, 'url')) || hostFromOrigin(input.urlOrigin);
+  const host = hostFromUrl(readString(input.args, 'url')) || hostFromOrigin(input.urlOrigin);
   if (host) return host;
   const field = fieldKindLabel(input.effectTarget?.type, input.effectTarget?.tag);
   if (field && !field.includes('密码')) return field;

@@ -6,7 +6,6 @@ import {
   FiHome,
   FiCpu,
   FiShield,
-  FiCheckSquare,
   FiFileText,
   FiGlobe,
   FiLock,
@@ -24,7 +23,6 @@ import { AnalyticsSettings } from './components/AnalyticsSettings';
 type TabTypes =
   | 'overview'
   | 'models'
-  | 'approval'
   | 'skill'
   | 'receipt'
   | 'sites'
@@ -37,7 +35,6 @@ type TabTypes =
 const TABS: { id: TabTypes; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
   { id: 'overview', icon: FiHome, label: '总览' },
   { id: 'models', icon: FiCpu, label: '模型' },
-  { id: 'approval', icon: FiCheckSquare, label: '审批' },
   { id: 'skill', icon: FiFileText, label: 'Skill' },
   { id: 'receipt', icon: FiFileText, label: '回执' },
   { id: 'sites', icon: FiGlobe, label: '站点权限' },
@@ -63,7 +60,6 @@ const Options = () => {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'overview':
-      case 'approval':
       case 'skill':
       case 'receipt':
       case 'sites':
@@ -94,7 +90,7 @@ const Options = () => {
             data-testid="options-logo"
           />
         </div>
-        <p className="mb-4 text-xs text-[var(--chijie-muted)]">持节 · 浏览器行动 Agent 设置</p>
+        <p className="mb-4 text-xs text-[var(--chijie-muted)]">持节 · 长程任务 Agent 设置</p>
         <ul className="space-y-2">
           {TABS.map(item => (
             <li key={item.id}>

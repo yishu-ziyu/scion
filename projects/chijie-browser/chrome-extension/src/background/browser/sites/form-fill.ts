@@ -1,6 +1,6 @@
 /**
  * Deterministic form fill for O1 / e2e fixture (and simple Name+Submit pages).
- * Avoids mid-model click-only no_progress on the classic fill→approve-submit path.
+ * Avoids mid-model click-only no_progress on the classic fill→submit path.
  */
 
 export type FormFillGoal = {

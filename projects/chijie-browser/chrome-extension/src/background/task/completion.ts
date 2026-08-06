@@ -69,7 +69,7 @@ function rejectionReason(
   if (observation.targetRefId !== criterion.targetRefId) return 'wrong_target';
   if (observation.observedAt < criterion.notBefore) return 'stale';
   // Deadline starts from notBefore (advanced to executingAt on external commits),
-  // not frozenAt. Otherwise any approval wait longer than timeoutMs always times out
+  // not frozenAt. Otherwise any long verification wait would time out.
   // even when the post-commit observation is fresh.
   const deadline = criterion.notBefore + criterion.timeoutMs;
   if (input.now > deadline || observation.observedAt > deadline) {

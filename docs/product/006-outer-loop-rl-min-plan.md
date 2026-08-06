@@ -3,10 +3,10 @@ title: "外环 RL 最小方案（个人玩家 · Token 消耗）"
 description: "可选后续项：在可验证闸门上多次 rollout，用奖励筛轨迹并沉淀 Skill；不训权重。当前只写方案，不默认执行。"
 category: "product"
 number: "006"
-status: draft
+status: current
 services: ["projects/chijie-browser", "experiments/agent-core-bakeoff"]
 related: ["product/001", "product/003", "product/004", "product/005", "design/002"]
-last_modified: "2026-07-15"
+last_modified: "2026-08-02"
 ---
 
 # 006 — 外环 RL 最小方案
@@ -15,8 +15,8 @@ last_modified: "2026-07-15"
 
 | 项 | 值 |
 |----|-----|
-| 文档角色 | **方案归档**，供以后加项时用 |
-| 是否默认执行 | **否** |
+| 文档角色 | **执行中**（Wave 5 已由 Owner 验收） |
+| 是否默认执行 | **是**（仅本地 fixture 与安全轨迹；真实站仍需 Owner 登录） |
 | 与当前里程碑 | **不占用** M3；不改 `current_milestone` |
 | 何时再开 | Owner 明确说「开外环 RL / 跑阶段 A」之后 |
 

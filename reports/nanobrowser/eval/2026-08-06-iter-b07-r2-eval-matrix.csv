@@ -1,0 +1,2 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-06-iter-b07-r2,W3,013-B07,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.3.0,baseline,fail,0,0,0,0,login_wall,,login_wall: 需要你处理 需要你处理 example.com 当前目标 点击页面上的 More information... 链接 任务计划 操作 活动 · 1M 28S 等待你确认 关键操作会先停在这里 操作记录5 接下来你可以 按下方按钮操作，或直接发下一条指令。 我已处理好，继续 结束任务 停止任务 你 你 点击页面上的 More information... 链接 23:44 正在读 iana.o

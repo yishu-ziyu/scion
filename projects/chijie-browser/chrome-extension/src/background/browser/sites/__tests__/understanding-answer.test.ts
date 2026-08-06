@@ -20,6 +20,19 @@ describe('isUnderstandingOnlyInstruction', () => {
     expect(isUnderstandingOnlyInstruction('打开 https://www.wikipedia.org')).toBe(false);
     expect(isUnderstandingOnlyInstruction('点击提交并填写 Name')).toBe(false);
   });
+
+  it('rejects multi-phase / long-horizon goals even if they mention 标题 or host', () => {
+    expect(
+      isUnderstandingOnlyInstruction(
+        '这是一个多阶段任务：1) 进入英文维基；2) 搜索并打开 Artificial intelligence 条目；3) 在回复中写出当前页标题是否包含 Artificial intelligence，并带上 host。不要在搜索结果列表页就报完成。',
+      ),
+    ).toBe(false);
+    expect(
+      isUnderstandingOnlyInstruction(
+        '调研 10 家竞品；输出对比表；写一份结论',
+      ),
+    ).toBe(false);
+  });
 });
 
 describe('answerUnderstandingFromPage', () => {

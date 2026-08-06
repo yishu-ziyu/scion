@@ -7,8 +7,7 @@ import { sha256 } from './digest';
 import { assertMutableStateBinding, classifyActOutcome, makePageRevision, readClaimedState } from './page-state';
 
 export type EffectDecision =
-  | { kind: 'allow'; effect: 'read' | 'reversible' }
-  | { kind: 'approval'; effect: 'external_commit'; summary: string }
+  | { kind: 'allow'; effect: 'read' | 'reversible' | 'external_commit' }
   | { kind: 'block'; reason: string };
 
 interface EffectTarget {
@@ -43,24 +42,24 @@ export function decideEffect(input: {
     return { kind: 'block', reason: 'Sensitive inputs require direct user entry' };
   }
   if (actionName === 'click_element') {
-    // Commit intent always gates (submit/buy/delete/… in model intent or semantic flag).
+    // Commit intent is an external-commit label, not a user-approval gate.
     if (signalsCommit) {
-      return { kind: 'approval', effect: 'external_commit', summary: 'Perform the requested external action' };
+      return { kind: 'allow', effect: 'external_commit' };
     }
     // Native submit controls only - not every link/button (YouTube thumbs are <a>/role=button).
     if (type === 'submit' || type === 'image') {
-      return { kind: 'approval', effect: 'external_commit', summary: 'Submit the current form' };
+      return { kind: 'allow', effect: 'external_commit' };
     }
     // HTML: <button> inside a form defaults to type=submit when type is omitted.
     if (tag === 'button' && target.inForm && (!type || type === 'submit')) {
-      return { kind: 'approval', effect: 'external_commit', summary: 'Submit the current form' };
+      return { kind: 'allow', effect: 'external_commit' };
     }
     // Navigation and ordinary UI clicks (links, thumbs, role=button) are reversible.
     return { kind: 'allow', effect: 'reversible' };
   }
   if (actionName === 'send_keys' && keys?.split('+').some(key => key.trim() === 'enter')) {
-    // Enter can submit forms; keep gated. (PageDown etc. never hit this branch.)
-    return { kind: 'approval', effect: 'external_commit', summary: 'Submit with Enter' };
+    // Enter can submit forms; label it external_commit for audit/recovery. (PageDown etc. never hit this branch.)
+    return { kind: 'allow', effect: 'external_commit' };
   }
   if (['done', 'cache_content', 'get_dropdown_options', 'wait', 'save_screenshot'].includes(actionName)) {
     return { kind: 'allow', effect: 'read' };
@@ -87,7 +86,6 @@ export interface ActionDispatcherDeps {
   now(): number;
   observe(request: DispatchRequest, parsedArgs: unknown, phase: 'before' | 'after'): Promise<TargetObservation>;
   persistAttempt(attempt: ActionAttempt): Promise<void>;
-  requestApproval(attempt: ActionAttempt, summary: string): Promise<'approved' | 'rejected'>;
 }
 
 export function recoverAttempt(attempt: ActionAttempt): ActionAttempt {
@@ -122,6 +120,7 @@ export class ActionDispatcher {
     const displayInput = {
       actionName: request.action.name(),
       args: parsedArgs,
+      redactIntent: decision.kind === 'allow' && decision.effect === 'external_commit',
       effectTarget: {
         ...before.effectTarget,
         intent: this.readString(parsedArgs, 'intent') ?? before.effectTarget.intent,
@@ -132,8 +131,7 @@ export class ActionDispatcher {
       id: crypto.randomUUID(),
       roundId: request.roundId,
       actionName: request.action.name(),
-      effect:
-        decision.kind === 'approval' ? 'external_commit' : decision.kind === 'allow' ? decision.effect : 'reversible',
+      effect: decision.kind === 'allow' ? decision.effect : 'reversible',
       targetDigest: before.target?.digest,
       argsDigest,
       displaySummary: buildAttemptDisplaySummary(displayInput),
@@ -166,25 +164,16 @@ export class ActionDispatcher {
       });
     }
 
-    if (decision.kind === 'approval') {
-      const approval = await this.deps.requestApproval(attempt, decision.summary);
-      if (approval === 'rejected' || this.interrupted) {
-        attempt = { ...attempt, state: 'blocked' };
-        await this.deps.persistAttempt(attempt);
-        return this.result(new ActionResult({ error: 'Action was not approved' }), attempt, before, {
-          actOutcome: 'didnt',
-        });
-      }
-      attempt = { ...attempt, state: 'approved', approvedAt: this.deps.now() };
+    if (decision.kind === 'allow' && decision.effect === 'external_commit') {
+      attempt = { ...attempt, state: 'authorized', authorizedAt: this.deps.now() };
       await this.deps.persistAttempt(attempt);
-
       let rechecked: TargetObservation;
       try {
         rechecked = this.withPageRevision(await this.deps.observe(request, parsedArgs, 'before'));
       } catch {
         attempt = { ...attempt, state: 'blocked' };
         await this.deps.persistAttempt(attempt);
-        return this.result(new ActionResult({ error: 'Approved target could not be revalidated' }), attempt, before, {
+        return this.result(new ActionResult({ error: 'Authorized target could not be revalidated' }), attempt, before, {
           actOutcome: 'unknown',
         });
       }
@@ -192,7 +181,7 @@ export class ActionDispatcher {
         attempt = { ...attempt, state: 'blocked' };
         await this.deps.persistAttempt(attempt);
         return this.result(
-          new ActionResult({ error: 'Approved target changed; replan required' }),
+          new ActionResult({ error: 'Authorized target changed; replan required' }),
           attempt,
           rechecked,
           { actOutcome: 'didnt' },

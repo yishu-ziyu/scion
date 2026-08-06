@@ -15,7 +15,7 @@ Then skim `reports/nanobrowser/2026-07-13-minimax-e2e-cdp.md` when debugging CDP
 
 Ship a personal Nanobrowser fork that runs on **main Chrome** with **MiniMax Token Plan (MiniMax-M3)**, Chinese UI, no GUI secret entry, and robust enough JSON handling for mid-tier models that emit `<think>` tags.
 
-Broader product intent: 持节 browser action agent - task mode, verified completion, one-shot approval; default core `control` (observe-act), `nano` demotable. See `CONTEXT.md` + `docs/product/008`.
+Broader product intent: 持节 long-horizon task agent - mission/plan, task-scoped autonomy, verified delivery; default core `control` (observe-act), `nano` demotable. See `CONTEXT.md` + `docs/product/021`.
 
 ---
 

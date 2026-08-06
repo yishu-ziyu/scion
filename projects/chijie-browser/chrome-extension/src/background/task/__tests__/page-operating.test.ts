@@ -4,7 +4,6 @@ import { shouldShowPageOperatingBar, syncPageOperatingBar } from '../page-operat
 describe('page operating bar (design/005 P3)', () => {
   it('shows only while task status is running', () => {
     expect(shouldShowPageOperatingBar('running')).toBe(true);
-    expect(shouldShowPageOperatingBar('waiting_approval')).toBe(false);
     expect(shouldShowPageOperatingBar('completed')).toBe(false);
     expect(shouldShowPageOperatingBar(undefined)).toBe(false);
   });

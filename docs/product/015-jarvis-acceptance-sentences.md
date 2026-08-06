@@ -3,7 +3,7 @@ title: "贾维斯验收句（冻结）"
 description: "浏览器贾维斯 Phase 1 固定自然语言任务句；每句含前置、verified_pass、failure_class；改字 = 新任务 ID。"
 category: "product"
 number: "015"
-status: current
+status: historical
 services: ["projects/chijie-browser"]
 related:
   - "product/003"

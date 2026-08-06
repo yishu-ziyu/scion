@@ -3,7 +3,7 @@ title: "从 pi-computer-use 可借鉴什么（持节）"
 description: "研读 injaneity/pi-computer-use 后，写清持节该借的控制论与状态机、明确不借什么、以及建议落地顺序。供转发对齐。"
 category: "product"
 number: "007"
-status: current
+status: historical
 services: ["projects/chijie-browser"]
 related: ["product/001", "product/003", "product/005", "design/001", "design/002", "decisions/001"]
 last_modified: "2026-07-15"

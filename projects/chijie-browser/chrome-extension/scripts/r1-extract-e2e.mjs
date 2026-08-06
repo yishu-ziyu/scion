@@ -11,13 +11,14 @@
  * Does not run form/media legs (those stay in action-agent-e2e.mjs).
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { connect, launch } from 'puppeteer-core';
+import { hasEvalApiKey, resolveModel, seedEvalLlm } from './lib/eval-provider.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../dist');
@@ -26,9 +27,11 @@ const timeout = Number(process.env.E2E_TIMEOUT_MS || 120_000);
 const connectUrl = process.env.CDP_URL || process.env.CONNECT_URL || '';
 const forceReset = process.env.FORCE_RESET === '1';
 const isConnectMode = Boolean(connectUrl);
-const reportDir =
-  process.env.R1_REPORT_DIR ||
-  path.resolve(__dirname, '../../../../reports/nanobrowser/claw-30/R1');
+const reportDir = process.env.R1_REPORT_DIR || path.resolve(__dirname, '../../../../reports/nanobrowser/claw-30/R1');
+const evalTaskId = process.env.EVAL_TASK_ID || '018-R1';
+const promptVersion = process.env.PROMPT_VERSION || 'chijie-control-v0.3.0';
+const policyTag = process.env.POLICY_TAG || 'baseline';
+const model = resolveModel();
 
 const GOAL = 'Extract products to a CSV table with name, price, rating';
 
@@ -56,46 +59,7 @@ function resolveChromePath() {
   return candidates[candidates.length - 1];
 }
 
-function parseEnvFile(filePath) {
-  if (!existsSync(filePath)) return {};
-  const out = {};
-  for (const line of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
-    const t = line.trim();
-    if (!t || t.startsWith('#')) continue;
-    const i = t.indexOf('=');
-    if (i <= 0) continue;
-    const k = t.slice(0, i).trim();
-    let v = t.slice(i + 1).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-      v = v.slice(1, -1);
-    }
-    out[k] = v;
-  }
-  return out;
-}
 
-function resolveMiniMaxApiKey() {
-  if (process.env.MINIMAX_API_KEY) return process.env.MINIMAX_API_KEY;
-  if (process.env.MINIMAX_TOKEN_PLAN_KEY) return process.env.MINIMAX_TOKEN_PLAN_KEY;
-  const files = [
-    path.join(os.homedir(), '.config/ai-providers/env.local'),
-    path.join(os.homedir(), '.config/ai-providers/.env'),
-    path.resolve(__dirname, '../../../.env.local'),
-    path.resolve(__dirname, '../../.env.local'),
-  ];
-  for (const file of files) {
-    const env = parseEnvFile(file);
-    const key = (env.MINIMAX_API_KEY || env.MINIMAX_TOKEN_PLAN_KEY || '').trim();
-    if (key) return key;
-  }
-  const secretsPath = path.resolve(__dirname, '../src/personal/secrets.local.ts');
-  if (existsSync(secretsPath)) {
-    const text = readFileSync(secretsPath, 'utf8');
-    const match = text.match(/PERSONAL_MINIMAX_API_KEY\s*=\s*['"]([^'"]+)['"]/);
-    if (match?.[1]) return match[1];
-  }
-  return '';
-}
 
 const chromePath = resolveChromePath();
 
@@ -152,46 +116,9 @@ async function dumpPanel(panel, label) {
   return info;
 }
 
+/** Inject eval LLM (default MiniMax; optional PROVIDER=custom_openai for Grok etc.). */
 async function seedMiniMax(panel) {
-  const apiKey = resolveMiniMaxApiKey();
-  assert(apiKey, 'MINIMAX_API_KEY is required (env or ~/.config/ai-providers/env.local)');
-  const model = process.env.MINIMAX_MODEL || 'MiniMax-M3';
-  const baseUrl = process.env.MINIMAX_BASE_URL || 'https://api.minimaxi.com/v1';
-  await panel.evaluate(
-    async ({ apiKey, model, baseUrl }) =>
-      chrome.storage.local.set({
-        'llm-api-keys': {
-          providers: {
-            minimax: {
-              name: 'MiniMax',
-              type: 'custom_openai',
-              apiKey,
-              baseUrl,
-              modelNames: [model],
-              createdAt: Date.now(),
-            },
-          },
-        },
-        'agent-models': {
-          agents: {
-            planner: { provider: 'minimax', modelName: model, parameters: { temperature: 0.1, topP: 0.1 } },
-            navigator: { provider: 'minimax', modelName: model, parameters: { temperature: 0.1, topP: 0.1 } },
-          },
-        },
-        'general-settings': {
-          maxSteps: 100,
-          maxActionsPerStep: 5,
-          maxFailures: 3,
-          useVision: false,
-          useVisionForPlanner: false,
-          planningInterval: 3,
-          displayHighlights: false,
-          minWaitPageLoad: 250,
-          agentCoreBackend: 'control',
-        },
-      }),
-    { apiKey, model, baseUrl },
-  );
+  await seedEvalLlm(panel);
 }
 
 async function openPanelForTarget(extensionId, target, { seed = false } = {}) {
@@ -232,7 +159,7 @@ async function ensureGoalSend(panel) {
       return { status, hasSend, hasStop: Boolean(stop) };
     });
     if (state.hasSend) return;
-    if (state.hasStop && (state.status === 'running' || state.status === 'waiting_approval' || !state.status)) {
+    if (state.hasStop && (state.status === 'running' || !state.status)) {
       await panel.evaluate(() => {
         const stop = [...document.querySelectorAll('button')].find(button =>
           /停止|Stop/i.test(button.textContent || ''),
@@ -329,7 +256,7 @@ async function waitExtractCompleted(panel) {
       const receipt = document.querySelector('[data-testid="completion-receipt"]')?.textContent || '';
       return { status, body, deliverable, result, receipt };
     });
-    if (snap.status === 'running' || snap.status === 'waiting_approval' || snap.status === 'waiting_user') {
+    if (snap.status === 'running' || snap.status === 'waiting_user') {
       seenRunning = true;
     }
 
@@ -397,7 +324,7 @@ try {
   assert(existsSync(path.join(extensionPath, 'manifest.json')), `missing extension dist at ${extensionPath}`);
   console.log('[r1-e2e] extensionPath=', extensionPath);
   console.log('[r1-e2e] origin=', origin);
-  console.log('[r1-e2e] hasMiniMaxKey=', Boolean(resolveMiniMaxApiKey()));
+  console.log('[r1-e2e] hasEvalApiKey=', hasEvalApiKey());
 
   if (connectUrl) {
     console.log('[r1-e2e] connect mode', connectUrl);
@@ -407,7 +334,7 @@ try {
     console.log('[r1-e2e] chromePath=', chromePath);
     browser = await launch({
       executablePath: chromePath,
-      headless: false,
+      headless: process.env.HEADLESS !== 'false',
       userDataDir: profilePath,
       ignoreDefaultArgs: ['--disable-extensions'],
       args: [
@@ -454,6 +381,22 @@ try {
   console.log(
     `[r1-e2e] PASS status=${result.status} header=${result.scored.hasHeader} dataRows=${result.scored.dataRows}`,
   );
+  console.log(
+    `matrix_row ${JSON.stringify({
+      task_id: evalTaskId,
+      attempt: 1,
+      model,
+      prompt_version: promptVersion,
+      policy_tag: policyTag,
+      outcome: 'verified_pass',
+      false_complete: 0,
+      wrong_tab: 0,
+      unapproved_commit: 0,
+      latency_ms: 0,
+      failure_class: '',
+      notes: `rows=${result.scored.dataRows}`,
+    })}`,
+  );
 
   const reportPath = writeReport({
     status: 'pass',
@@ -469,6 +412,22 @@ try {
   console.log(`r1-extract-e2e PASS report=${reportPath}`);
 } catch (error) {
   console.error('[r1-e2e] FAIL', error);
+  console.log(
+    `matrix_row ${JSON.stringify({
+      task_id: evalTaskId,
+      attempt: 1,
+      model,
+      prompt_version: promptVersion,
+      policy_tag: policyTag,
+      outcome: 'fail',
+      false_complete: 0,
+      wrong_tab: 0,
+      unapproved_commit: 0,
+      latency_ms: 0,
+      failure_class: 'other',
+      notes: String(error?.stack || error).slice(0, 200),
+    })}`,
+  );
   try {
     writeReport({
       status: 'fail',

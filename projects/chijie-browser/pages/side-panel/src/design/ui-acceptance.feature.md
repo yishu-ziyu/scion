@@ -23,13 +23,6 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - Then the visible text contains a done title/body
 - And the visible text does not contain `receipt:`
 
-## Scenario: Waiting for approval is the primary focus
-
-- Given status `waiting_approval` with a pending approval
-- When the card is rendered
-- Then primary CTA is "批准一次" (or locale equivalent)
-- And actions stack vertically (column layout)
-
 ## Scenario: Skill template prefilled from last goal
 
 - Given the last user instruction contains `FIELD_SENTINEL_8472`

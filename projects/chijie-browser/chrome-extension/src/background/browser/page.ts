@@ -25,6 +25,7 @@ import { sha256 } from '../task/digest';
 import type { CompletionCriterion } from '@extension/storage/lib/task';
 import type { ProbeObservation } from '../task/contracts';
 import { pageLooksUnavailable } from './page-availability';
+import { captureActionFrame } from '../task/action-frame';
 
 const logger = createLogger('Page');
 
@@ -46,6 +47,8 @@ export interface ActionTargetObservation {
   hasSemanticName: boolean;
   semanticCommit: boolean;
   semanticNavigation: boolean;
+  /** Immutable observation that made an element index meaningful. */
+  pageRevision?: string;
 }
 
 export type MediaBindingResult =
@@ -1393,7 +1396,7 @@ export default class Page {
         }, expectedHref);
         if (!activated) throw new Error('Navigation target changed before activation');
       } else {
-        // A started pointer click cannot be cancelled. Await it so a slow approved
+        // A started pointer click cannot be cancelled. Await it so a slow authorized
         // submit is never marked uncertain while the same click later commits.
         await element.click();
       }
@@ -1426,6 +1429,12 @@ export default class Page {
     return selectorMap.get(index) || null;
   }
 
+  /** Controlled page evaluate for deterministic Harness shortcuts. */
+  async evaluate(fn: string | ((...args: unknown[]) => unknown), ...args: unknown[]): Promise<unknown> {
+    if (!this._puppeteerPage) throw new Error('Page is not attached');
+    return this._puppeteerPage.evaluate(fn as never, ...(args as never[]));
+  }
+
   async observeActionTarget(
     actionName: string,
     parsedArgs: unknown,
@@ -1434,6 +1443,7 @@ export default class Page {
     if (phase === 'after') {
       const urlOrigin = this.urlOrigin();
       const digest = await sha256(JSON.stringify({ tabId: this._tabId, urlOrigin, page: await sha256(this.url()) }));
+      const pageRevision = await this.currentActionFrameRevision();
       return {
         target: {
           id: `target-${digest.slice(0, 16)}`,
@@ -1447,10 +1457,14 @@ export default class Page {
         hasSemanticName: false,
         semanticCommit: false,
         semanticNavigation: false,
+        pageRevision,
       };
     }
     const args = parsedArgs && typeof parsedArgs === 'object' ? (parsedArgs as Record<string, unknown>) : {};
     const index = typeof args.index === 'number' ? args.index : undefined;
+    // Index refs belong to the model's last Snapshot Frame. Refresh before
+    // resolving so ActionDispatcher can reject a frame that drifted meanwhile.
+    if (index !== undefined) await this.getState(false);
     const node = index === undefined ? null : this.getDomElementByIndex(index);
     if (index !== undefined && !node) throw new Error('Action target is missing');
     const attributes = node?.attributes ?? {};
@@ -1601,6 +1615,7 @@ export default class Page {
         semanticNavigation,
       }),
     );
+    const pageRevision = await this.currentActionFrameRevision();
     return {
       target: {
         id: `target-${digest.slice(0, 16)}`,
@@ -1619,7 +1634,14 @@ export default class Page {
       hasSemanticName,
       semanticCommit,
       semanticNavigation,
+      pageRevision,
     };
+  }
+
+  private async currentActionFrameRevision(): Promise<string | undefined> {
+    const state = this._cachedState ?? this._state;
+    if (!state) return undefined;
+    return (await captureActionFrame(state, this.url())).pageRevision;
   }
 
   async observeCompletionCriteria(criteria: CompletionCriterion[]): Promise<ProbeObservation[]> {

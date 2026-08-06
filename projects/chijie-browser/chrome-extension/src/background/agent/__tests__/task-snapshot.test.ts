@@ -24,7 +24,6 @@ function snapshot(
         commandAcks: {},
         criteria: [],
         attempts: [],
-        approvals: [],
         evidence: [],
       },
     ],

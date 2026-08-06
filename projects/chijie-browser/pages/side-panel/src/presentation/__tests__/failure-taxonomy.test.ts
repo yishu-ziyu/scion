@@ -10,7 +10,6 @@ import {
 const PRODUCT_LABEL_BY_KEY: Record<string, string> = {
   chat_task_product_fail_login_wall: '需要登录或验证',
   chat_task_product_fail_selector_miss: '找不到要点的目标',
-  chat_task_product_fail_approval_timeout: '等待确认超时',
   chat_task_product_fail_false_complete: '完成判定不可靠',
   chat_task_product_fail_model_loop: '任务陷入重复尝试',
   chat_task_product_fail_other: '任务未能完成',
@@ -67,4 +66,3 @@ describe('Feature: user-visible failure categories (ticket 04)', () => {
     expect(isEngineerFailureNoise(productFailureLabel('login_wall'))).toBe(false);
   });
 });
-

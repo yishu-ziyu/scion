@@ -1,0 +1,4 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-06-iter-lh-minimax,W3-LH,021-LH-01,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.3.0,baseline,fail,1,0,0,1703,verify_fail,,false_complete verify=url_and_page_text expected=wikipedia.org/wiki/Artificial_intelligence||Artificial intelligence url=https://www.wikipedia.org/
+2026-08-06-iter-lh-minimax,W3-LH,021-LH-02,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.3.0,baseline,fail,0,0,0,0,login_wall,,login_wall: 需要你处理 需要你处理 en.wikipedia.org 当前目标 这是一个多阶段任务：1) 离开当前 example.com；2) 打开 https://en.wikipedia.org/wiki/Web_browser ；3) 确认页面正文出现 web browser 相关内容后再完成。完成时 URL 必须仍在该维基条目。 任务计划 这是一个 ) 打开 ) 确认 活动 · 27S 等待你
+2026-08-06-iter-lh-minimax,W3-LH,021-LH-03,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.3.0,baseline,verified_pass,0,0,0,1722,,,url=http://127.0.0.1:50245/products

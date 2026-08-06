@@ -1,0 +1,2 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-06-iter-lh01-grok,W3-swap,021-LH-01,1,e5ae741,grok-4.5,user_chrome,chijie-control-v0.3.0,model-swap-grok,fail,0,0,0,0,login_wall,,login_wall: 需要你处理 需要你处理 en.wikipedia.org 当前目标 进入英文维基；搜索并打开 Artificial intelligence 条目；确认 URL 在 wiki/Artificial_intelligence 后再完成。不要在门户或搜索结果列表页报完成。 任务计划 打开 调研 验证 活动 · 40S 等待你确认 关键操作会先停在这里 操作记录2 接下来你可以 按下方按钮操作，或

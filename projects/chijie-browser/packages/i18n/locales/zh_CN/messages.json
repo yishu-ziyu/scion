@@ -954,10 +954,7 @@
   "chat_task_status_paused": {
     "message": "已暂停"
   },
-  "chat_task_status_waiting_approval": {
-    "message": "等你确认"
-  },
-  "chat_task_status_waiting_user": {
+    "chat_task_status_waiting_user": {
     "message": "需要你处理"
   },
   "chat_task_status_inputs_required": {
@@ -1005,11 +1002,11 @@
   "chat_task_section_rounds": {
     "message": "轮次"
   },
-  "chat_task_section_approval": {
-    "message": "审批 · 需要你的操作"
-  },
-  "chat_task_current_goal": {
+    "chat_task_current_goal": {
     "message": "当前目标"
+  },
+  "chat_task_plan_heading": {
+    "message": "任务计划"
   },
   "chat_task_current_site": {
     "message": "当前站点"
@@ -1017,22 +1014,7 @@
   "chat_task_progress": {
     "message": "进度"
   },
-  "chat_task_policy_external": {
-    "message": "策略：会改变外部页面的操作，将暂停并请你审批。"
-  },
-  "chat_task_approval_heading": {
-    "message": "即将执行一次对外操作"
-  },
-  "chat_task_approval_explain": {
-    "message": "它准备执行一个不可轻易撤销的操作，请确认："
-  },
-  "chat_task_approve": {
-    "message": "批准并执行一次"
-  },
-  "chat_task_reject": {
-    "message": "不批准，返回修改"
-  },
-  "chat_task_receipt_id": {
+            "chat_task_receipt_id": {
     "message": "回执 ID"
   },
   "chat_task_receipt_time": {
@@ -1089,17 +1071,14 @@
   "chat_task_action_generic": {
     "message": "执行页面操作"
   },
-  "chat_task_attempt_pending_approval": {
-    "message": "即将执行（需审批）"
-  },
-  "chat_task_attempt_observed": {
+    "chat_task_attempt_observed": {
     "message": "已核对"
   },
   "chat_task_attempt_executing": {
     "message": "执行中"
   },
-  "chat_task_attempt_approved": {
-    "message": "已批准"
+  "chat_task_attempt_authorized": {
+    "message": "已授权执行"
   },
   "chat_task_attempt_proposed": {
     "message": "准备中"
@@ -1146,40 +1125,7 @@
       }
     }
   },
-  "chat_task_approval_action_generic": {
-    "message": "执行一次对外操作"
-  },
-  "chat_task_approval_action_click": {
-    "message": "执行一次页面确认操作"
-  },
-  "chat_task_approval_field_action": {
-    "message": "将要做什么"
-  },
-  "chat_task_approval_field_location": {
-    "message": "作用位置"
-  },
-  "chat_task_approval_field_impact": {
-    "message": "可能影响"
-  },
-  "chat_task_approval_field_after": {
-    "message": "批准之后"
-  },
-  "chat_task_approval_impact_external": {
-    "message": "页面会产生一次对外变更，可能无法自动撤回"
-  },
-  "chat_task_approval_after_once": {
-    "message": "只执行这一次操作，并继续核对页面结果"
-  },
-  "chat_task_approval_once": {
-    "message": "本次批准只对这一个操作有效。"
-  },
-  "chat_task_approval_pending": {
-    "message": "正在批准…"
-  },
-  "chat_task_reject_pending": {
-    "message": "正在返回…"
-  },
-  "chat_task_evidence_url": {
+                        "chat_task_evidence_url": {
     "message": "页面地址符合目标"
   },
   "chat_task_evidence_text": {
@@ -1242,10 +1188,7 @@
   "chat_task_hint_captcha": {
     "message": "先在网页里完成验证码，再继续。"
   },
-  "chat_task_hint_rejected": {
-    "message": "你拒绝了上次操作。若还要做，重新发一条指令。"
-  },
-  "chat_task_hint_proof": {
+    "chat_task_hint_proof": {
     "message": "它认为需要你亲眼确认结果。确认无误就点「我确认已经完成」。"
   },
   "chat_task_hint_uncertain": {
@@ -1323,10 +1266,7 @@
   "chat_task_product_fail_selector_miss": {
     "message": "找不到目标元素或页面"
   },
-  "chat_task_product_fail_approval_timeout": {
-    "message": "等待批准超时"
-  },
-  "chat_task_product_fail_false_complete": {
+    "chat_task_product_fail_false_complete": {
     "message": "页面未达成却报完成"
   },
   "chat_task_product_fail_model_loop": {

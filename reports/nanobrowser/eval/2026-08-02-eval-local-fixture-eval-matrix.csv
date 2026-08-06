@@ -1,0 +1,3 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-02-eval-local-fixture,W3,018-O1,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,34352,,,form+skill+media+privacy fixture path
+2026-08-02-eval-local-fixture,W3,018-R1,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,0,,,rows=6

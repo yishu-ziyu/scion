@@ -59,6 +59,11 @@ export interface ObserveActLoopOptions {
   /** Optional re-observe after successful act (browser-use style). */
   reobserve?: () => Promise<string>;
   onPhase?: (event: LoopPhaseEvent) => void;
+  /**
+   * Optional policy gate for action errors (book ch5): retry only when the
+   * error is recoverable. Defaults to true to preserve existing behavior.
+   */
+  shouldRetryFailure?: (error: string) => boolean;
 }
 
 /**
@@ -147,6 +152,9 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
     try {
       const result = await act({ name: decision.name, args: decision.args });
       if (result.error) {
+        if (options.shouldRetryFailure && !options.shouldRetryFailure(result.error)) {
+          return { kind: 'failed', category: 'action_failed' };
+        }
         failures += 1;
         pendingNoProgressBefore = undefined;
         if (failures >= budget) return { kind: 'failed', category: 'action_failed' };
