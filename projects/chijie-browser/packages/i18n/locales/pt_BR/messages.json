@@ -954,10 +954,7 @@
   "chat_task_status_paused": {
     "message": "Pausado"
   },
-  "chat_task_status_waiting_approval": {
-    "message": "Aguardando sua confirmação"
-  },
-  "chat_task_status_waiting_user": {
+    "chat_task_status_waiting_user": {
     "message": "Precisa de você"
   },
   "chat_task_status_inputs_required": {
@@ -1005,11 +1002,11 @@
   "chat_task_section_rounds": {
     "message": "Rodadas"
   },
-  "chat_task_section_approval": {
-    "message": "Aprovação · requer sua ação"
-  },
-  "chat_task_current_goal": {
+    "chat_task_current_goal": {
     "message": "Objetivo atual"
+  },
+  "chat_task_plan_heading": {
+    "message": "Plano da missão"
   },
   "chat_task_current_site": {
     "message": "Site atual"
@@ -1017,22 +1014,7 @@
   "chat_task_progress": {
     "message": "Progresso"
   },
-  "chat_task_policy_external": {
-    "message": "Ações que alteram uma página externa pausam para sua aprovação."
-  },
-  "chat_task_approval_heading": {
-    "message": "Uma ação externa está pronta para execução"
-  },
-  "chat_task_approval_explain": {
-    "message": "Ele quer executar algo difícil de desfazer. Confirme:"
-  },
-  "chat_task_approve": {
-    "message": "Aprovar e executar uma vez"
-  },
-  "chat_task_reject": {
-    "message": "Não aprovar; voltar"
-  },
-  "chat_task_receipt_id": {
+            "chat_task_receipt_id": {
     "message": "ID do recibo"
   },
   "chat_task_receipt_time": {
@@ -1089,17 +1071,14 @@
   "chat_task_action_generic": {
     "message": "Executar ação na página"
   },
-  "chat_task_attempt_pending_approval": {
-    "message": "Pronto para executar (requer aprovação)"
-  },
-  "chat_task_attempt_observed": {
+    "chat_task_attempt_observed": {
     "message": "Verificado"
   },
   "chat_task_attempt_executing": {
     "message": "Em execução"
   },
-  "chat_task_attempt_approved": {
-    "message": "Aprovado"
+  "chat_task_attempt_authorized": {
+    "message": "Autorizado"
   },
   "chat_task_attempt_proposed": {
     "message": "Preparando"
@@ -1146,40 +1125,7 @@
       }
     }
   },
-  "chat_task_approval_action_generic": {
-    "message": "Executar uma ação externa"
-  },
-  "chat_task_approval_action_click": {
-    "message": "Executar uma confirmação na página"
-  },
-  "chat_task_approval_field_action": {
-    "message": "Ação"
-  },
-  "chat_task_approval_field_location": {
-    "message": "Local"
-  },
-  "chat_task_approval_field_impact": {
-    "message": "Possível impacto"
-  },
-  "chat_task_approval_field_after": {
-    "message": "Após aprovar"
-  },
-  "chat_task_approval_impact_external": {
-    "message": "A página terá uma alteração externa que pode não ser reversível automaticamente"
-  },
-  "chat_task_approval_after_once": {
-    "message": "Executar apenas esta ação e depois verificar o resultado da página"
-  },
-  "chat_task_approval_once": {
-    "message": "Esta aprovação vale apenas para esta ação."
-  },
-  "chat_task_approval_pending": {
-    "message": "Aprovando…"
-  },
-  "chat_task_reject_pending": {
-    "message": "Voltando…"
-  },
-  "chat_task_evidence_url": {
+                        "chat_task_evidence_url": {
     "message": "O endereço da página corresponde ao objetivo"
   },
   "chat_task_evidence_text": {
@@ -1242,10 +1188,7 @@
   "chat_task_hint_captcha": {
     "message": "Resolva o captcha na página e continue."
   },
-  "chat_task_hint_rejected": {
-    "message": "Você recusou a última ação. Envie uma nova instrução se ainda quiser."
-  },
-  "chat_task_hint_proof": {
+    "chat_task_hint_proof": {
     "message": "Ele precisa que você confirme o resultado. Toque em confirmar se estiver certo."
   },
   "chat_task_hint_uncertain": {
@@ -1323,10 +1266,7 @@
   "chat_task_product_fail_selector_miss": {
     "message": "Elemento ou página alvo não encontrados"
   },
-  "chat_task_product_fail_approval_timeout": {
-    "message": "Aprovação expirou"
-  },
-  "chat_task_product_fail_false_complete": {
+    "chat_task_product_fail_false_complete": {
     "message": "Marcado como concluído sem prova na página"
   },
   "chat_task_product_fail_model_loop": {

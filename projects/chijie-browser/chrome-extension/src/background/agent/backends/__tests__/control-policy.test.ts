@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { parseControlPolicyDecision } from '../control-policy';
+import {
+  buildAgentStatusBar,
+  parseControlPolicyDecision,
+  renderControlSystemPrompt,
+  CONTROL_PROMPT_VERSION,
+} from '../control-policy';
 
 describe('parseControlPolicyDecision', () => {
   it('parses action_name shape', () => {
     const d = parseControlPolicyDecision({
       observation: 'name empty',
       done: false,
-      completion_criteria: [
-        { kind: 'page_text', operator: 'present', expected: 'Saved successfully', required: true },
-      ],
+      completion_criteria: [{ kind: 'page_text', operator: 'present', expected: 'Saved successfully', required: true }],
       action_name: 'input_text',
       action_args: { index: 1, text: 'BakeoffName', intent: 'fill' },
     });
@@ -109,5 +112,34 @@ describe('parseControlPolicyDecision', () => {
       name: 'save_screenshot',
       args: { filename: 'sspai-home.jpg', intent: 'save page shot' },
     });
+  });
+});
+
+describe('agent status bar / prompt versioning', () => {
+  it('renders deterministic status bar fields', () => {
+    const bar = buildAgentStatusBar({
+      url: 'https://example.com',
+      title: 'Example',
+      pageRevision: 'rev-1',
+      step: 2,
+      maxSteps: 10,
+      attemptCount: 3,
+      noProgressStreak: 1,
+      criteriaCount: 2,
+    });
+    expect(bar).toContain('url: https://example.com');
+    expect(bar).toContain('step: 3/10');
+    expect(bar).toContain('no_progress: 1');
+  });
+
+  it('includes prompt version and optional status block', () => {
+    const prompt = renderControlSystemPrompt({ statusBar: 'url: https://example.com' });
+    expect(CONTROL_PROMPT_VERSION).toBe('chijie-control-v0.3.0');
+    expect(prompt).toContain(CONTROL_PROMPT_VERSION);
+    expect(prompt).toContain('<agent_status>');
+    expect(prompt).toContain('url: https://example.com');
+    expect(prompt).toContain('Long-horizon');
+    expect(prompt).toContain('plan memory');
+    expect(prompt).toContain('Never invent done without observable');
   });
 });

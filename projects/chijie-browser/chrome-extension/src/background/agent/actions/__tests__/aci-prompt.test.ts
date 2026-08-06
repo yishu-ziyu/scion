@@ -1,0 +1,49 @@
+import { describe, expect, it } from 'vitest';
+import { Action } from '../builder';
+import { ActionResult } from '../../types';
+import {
+  ALL_ACTION_SCHEMAS,
+  clickElementActionSchema,
+  searchGoogleActionSchema,
+  switchTabActionSchema,
+  waitActionSchema,
+  type ActionSchema,
+} from '../schemas';
+
+function promptFor(schema: ActionSchema): string {
+  return new Action(async () => new ActionResult({ extractedContent: 'ok' }), schema, true).prompt();
+}
+
+describe('action ACI prompt', () => {
+  it('renders when/not-when/examples/boundary into the model-facing prompt', () => {
+    const prompt = promptFor(clickElementActionSchema);
+    expect(prompt).toContain('When to use:');
+    expect(prompt).toContain('Do NOT use when:');
+    expect(prompt).toContain('Examples:');
+    expect(prompt).toContain('stale index');
+  });
+
+  it.each([
+    ['search_google', searchGoogleActionSchema, 'open-ended lookup'],
+    ['wait', waitActionSchema, 'explicitly asks to wait'],
+    ['switch_tab', switchTabActionSchema, 'wrong_tab'],
+  ] as const)('%s renders ACI fields in prompt', (_name, schema, marker) => {
+    const prompt = promptFor(schema);
+    expect(prompt).toContain('When to use:');
+    expect(prompt).toContain('Do NOT use when:');
+    expect(prompt).toContain('Examples:');
+    expect(prompt).toContain('Returns:');
+    expect(prompt).toContain('Cost hint:');
+    expect(prompt).toContain(marker);
+  });
+
+  it('every exported ActionSchema has full ACI metadata', () => {
+    for (const schema of ALL_ACTION_SCHEMAS) {
+      expect(schema.whenToUse, `${schema.name}.whenToUse`).toBeTruthy();
+      expect(schema.whenNotToUse, `${schema.name}.whenNotToUse`).toBeTruthy();
+      expect(schema.examples?.length, `${schema.name}.examples`).toBeGreaterThan(0);
+      expect(schema.returns, `${schema.name}.returns`).toBeTruthy();
+      expect(schema.costHint, `${schema.name}.costHint`).toBeTruthy();
+    }
+  });
+});

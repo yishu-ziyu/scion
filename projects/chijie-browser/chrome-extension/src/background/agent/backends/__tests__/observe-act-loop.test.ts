@@ -96,6 +96,20 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
     expect(outcome).toEqual({ kind: 'failed', category: 'action_failed' });
   });
 
+  it('fails immediately when the caller policy says the error is not retryable', async () => {
+    const outcome = await runObserveActLoop({
+      maxSteps: 10,
+      maxFailures: 2,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'ok',
+      decide: async () => ({ kind: 'action', name: 'input_text', args: { index: 1 } }),
+      act: async () => ({ error: 'Invalid input: NaN' }),
+      shouldRetryFailure: () => false,
+    });
+    expect(outcome).toEqual({ kind: 'failed', category: 'action_failed' });
+  });
+
   it('thrown act errors still map to dispatch_failed (soft backends must return {error})', async () => {
     const outcome = await runObserveActLoop({
       maxSteps: 10,

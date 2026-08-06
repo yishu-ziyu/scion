@@ -3,7 +3,7 @@ title: "持节侧栏 Feature-First 流程（映射现有组件）"
 description: "从既有功能出发：Goal → Flow → UI 节点 → Atomic 层；不写绿场视觉重做。服务 Claw 30 记分板门，个性化后置。"
 category: "design"
 number: "006"
-status: current
+status: historical
 services: ["projects/chijie-browser/pages/side-panel"]
 related:
   - "design/003"

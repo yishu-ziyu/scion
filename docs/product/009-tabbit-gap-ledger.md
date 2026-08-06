@@ -3,9 +3,9 @@ title: "Tabbit 差距台账与缩差顺序"
 description: "以 Chrome 插件为最终形态，对标 Tabbit 的能力与体验，并持续记录差距、优先级与证据。"
 category: "product"
 number: "009"
-status: current
+status: historical
 services: ["projects/chijie-browser"]
-related: ["product/003", "product/008", "decisions/001", "research/tabbit-current-2026-07-15"]
+related: ["product/021", "product/003", "decisions/001", "research/tabbit-current-2026-07-15"]
 last_modified: "2026-07-15"
 ---
 

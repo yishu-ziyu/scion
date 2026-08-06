@@ -39,21 +39,27 @@ vi.mock('../../../browser/context', () => ({
   },
 }));
 
-const createNanoExecutorDriver = vi.fn(async () => ({
-  run: vi.fn(),
-  addFollowUp: vi.fn(),
-  pause: vi.fn(),
-  resume: vi.fn(),
-  stop: vi.fn(),
-}));
+const createNanoExecutorDriver = vi.fn(async (...args: unknown[]) => {
+  void args;
+  return {
+    run: vi.fn(),
+    addFollowUp: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    stop: vi.fn(),
+  };
+});
 
-const createLlmControlDriver = vi.fn(async () => ({
-  run: vi.fn(),
-  addFollowUp: vi.fn(),
-  pause: vi.fn(),
-  resume: vi.fn(),
-  stop: vi.fn(),
-}));
+const createLlmControlDriver = vi.fn(async (...args: unknown[]) => {
+  void args;
+  return {
+    run: vi.fn(),
+    addFollowUp: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    stop: vi.fn(),
+  };
+});
 
 vi.mock('../nano', () => ({
   createNanoExecutorDriver: (...args: unknown[]) => createNanoExecutorDriver(...args),
@@ -81,21 +87,15 @@ describe('factory multi-backend (design/002)', () => {
 
   it('createExecutorDriver nano path calls nano backend', async () => {
     const hooks = { onPlan: vi.fn(), dispatchAction: vi.fn() };
-    await createExecutorDriver(
-      { taskId: 't', roundId: 'r', instruction: 'i', tabId: 1 },
-      hooks,
-      { backend: 'nano' },
-    );
+    await createExecutorDriver({ taskId: 't', roundId: 'r', instruction: 'i', tabId: 1 }, hooks, { backend: 'nano' });
     expect(createNanoExecutorDriver).toHaveBeenCalledOnce();
   });
 
   it('createExecutorDriver control without steps uses LLM control driver', async () => {
     const hooks = { onPlan: vi.fn(), dispatchAction: vi.fn() };
-    await createExecutorDriver(
-      { taskId: 't', roundId: 'r', instruction: 'i', tabId: 1 },
-      hooks,
-      { backend: 'control' },
-    );
+    await createExecutorDriver({ taskId: 't', roundId: 'r', instruction: 'i', tabId: 1 }, hooks, {
+      backend: 'control',
+    });
     expect(createLlmControlDriver).toHaveBeenCalledOnce();
     expect(createNanoExecutorDriver).not.toHaveBeenCalled();
   });
@@ -111,16 +111,16 @@ describe('factory multi-backend (design/002)', () => {
           actionName: action.name(),
           state: 'observed' as const,
           effect: 'reversible' as const,
+          argsDigest: 'digest',
           proposedAt: 1,
         },
         evidence: [],
       })),
     };
-    const driver = await createExecutorDriver(
-      { taskId: 't', roundId: 'r', instruction: 'i', tabId: 1 },
-      hooks,
-      { backend: 'control', control: { steps: fixtureFormControlSteps() } },
-    );
+    const driver = await createExecutorDriver({ taskId: 't', roundId: 'r', instruction: 'i', tabId: 1 }, hooks, {
+      backend: 'control',
+      control: { steps: fixtureFormControlSteps() },
+    });
     const outcome = await driver.run('r');
     expect(outcome.kind).toBe('candidate_complete');
     expect(createNanoExecutorDriver).not.toHaveBeenCalled();

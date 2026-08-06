@@ -4,7 +4,7 @@ import { recoverAttempt } from '../action-dispatcher';
 describe('external commit recovery', () => {
   it.each([
     ['proposed', 'proposed'],
-    ['approved', 'approved'],
+    ['authorized', 'authorized'],
     ['executing', 'uncertain'],
     ['observed', 'observed'],
   ] as const)('recovers %s without executing as %s', (before, after) => {

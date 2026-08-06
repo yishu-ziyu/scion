@@ -3,13 +3,15 @@ title: "浏览器行动 Agent 北极星（唯一最终目标）"
 description: "效果对齐美团 Tabbit 披露的 Agent 准确率；日常 Chrome 可验证委托；中等模型；壳保留核可换。"
 category: "product"
 number: "003"
-status: current
+status: superseded
 services: ["projects/chijie-browser"]
 related: ["product/001", "product/002", "product/011", "decisions/001", "decisions/002"]
 last_modified: "2026-07-23"
 ---
 
 # 003 — 北极星（唯一最终目标）
+
+> 2026-08-02：产品北极星由 `product/021` 取代。本文保留为旧方向历史文档：浏览器操作演示、Tabbit 对齐和强制审批不再作为当前目标。仍可复用的部分：Chrome 插件载体、中等模型、证据完成、可换执行核。
 
 ## 当前阶段（读这个再开工）
 

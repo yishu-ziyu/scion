@@ -1,0 +1,4 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-06-iter-lh-final,W3-LH,021-LH-01,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.3.0,baseline,verified_pass,0,0,0,23732,,,url=https://en.wikipedia.org/wiki/Artificial_intelligence
+2026-08-06-iter-lh-final,W3-LH,021-LH-02,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.3.0,baseline,verified_pass,0,0,0,10198,,,url=https://en.wikipedia.org/wiki/Web_browser
+2026-08-06-iter-lh-final,W3-LH,021-LH-03,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.3.0,baseline,verified_pass,0,0,0,1731,,,url=http://127.0.0.1:55744/products

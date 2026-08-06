@@ -180,7 +180,7 @@ async function main() {
     const profilePath = path.join(os.tmpdir(), `scion-slice-a-${process.pid}`);
     browser = await launch({
       executablePath: chromePath,
-      headless: false,
+      headless: process.env.HEADLESS !== 'false',
       args: [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,

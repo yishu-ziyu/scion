@@ -1,0 +1,2 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-06-iter-lh02-r3,W3-LH,021-LH-02,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.3.0,baseline,fail,0,0,0,0,login_wall,,login_wall: 需要你处理 需要你处理 en.wikipedia.org 当前目标 离开 example.com；打开 https://en.wikipedia.org/wiki/Web_browser ；确认页面正文含 web browser 后再完成。不要把普通维基页面当成登录墙。 任务计划 离开 e 打开 验证 活动 · 27S 等待你确认 关键操作会先停在这里 操作记录1 接下来你可以 按下方按钮操

@@ -1,5 +1,7 @@
 # Shared product language
 
+> 2026-08-02：产品北极星已更新为 **长程任务 Agent**（`docs/product/021`）。下面的旧“浏览器行动 Agent / 审批”表述只在历史语境中保留；当前实现按 `decisions/004` 默认任务内自主执行。
+
 ## Browser action agent
 
 An Agent that operates browser pages until a user goal reaches a verifiable outcome. It is not a page-opening shortcut or a sidebar chatbot.
@@ -26,13 +28,14 @@ An immutable summary of one Task Round's outcome, observable evidence, approved 
 
 ## External commit
 
-An action that creates a visible or difficult-to-reverse result outside the Agent, such as submitting, purchasing, sending, publishing, deleting, or changing permissions. It requires one-use approval immediately before execution.
+An action that creates a visible or difficult-to-reverse result outside the Agent, such as submitting, purchasing, sending, publishing, deleting, or changing permissions. It remains a risk/audit label, but is no longer a default approval gate.
 
-## Approval policy (MVP)
+## Approval policy (current)
 
-- **Read / navigate / fill-in-progress / media control that is reversible:** no approval gate.
-- **Actions labeled external commit:** stop and require one-use user approval before execute; zero unapproved external commits.
-- Classification is per action (and thus per task mix), not a global “always ask” or “never ask”.
+- **Task-scoped autonomy:** user giving a goal authorizes the actions clearly required by that goal.
+- **External commits execute directly** and remain labeled for receipt/audit/privacy redaction.
+- **Stop, not approve:** the user can stop or correct the task at any time; this replaces step-by-step permission popups.
+- **Only out-of-scope high-risk actions** need explanation/confirmation; sensitive inputs still reject automatic entry.
 
 ## Skill
 
@@ -125,13 +128,13 @@ Full decision: `docs/decisions/003-a-to-c-capability-ceiling-and-voice.md`.
 
 ## North star
 
-Single end goal: a powerful Chrome browser-agent plugin benchmarked against Tabbit's capability and experience, not its native-browser shell. The Chrome extension is the final product form. See `docs/product/003-north-star.md` and the living gap ledger `docs/product/009-tabbit-gap-ledger.md`.
+Single end goal: a powerful long-horizon task agent plugin that runs in the user's Chrome and delivers verifiable outcomes. The Chrome extension is the final product form. See `docs/product/021-long-horizon-task-agent.md`.
 Gates G1–G7 beat intermediate thrash. Current milestone is always named there.
 
 ## Docs-driven development
 
 See `docs/README.md` and `docs/product/004-docs-driven-dev.md`.
-North star and gates: `docs/product/003-north-star.md`.
+North star: `docs/product/021-long-horizon-task-agent.md`.
 
 ## Team loop (2026-07-16)
 

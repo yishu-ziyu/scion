@@ -3,7 +3,7 @@ title: "持节任务 UX 原则（对标 Sider Claw，反泄漏）"
 description: "页内操作条、人话步骤、可交付成果链接、停止与连续控制；学 Claw 结果即成，不学工具 log 文案。"
 category: "design"
 number: "005"
-status: current
+status: historical
 services: ["projects/chijie-browser/pages/side-panel", "projects/chijie-browser/chrome-extension"]
 related:
   - "design/003"

@@ -47,12 +47,6 @@
   animation: chijie-surface-enter 180ms ease-out;
 }
 
-/* Approval needs more room for the decision card; still leave chat visible. */
-.chijie-paper-card[data-status='waiting_approval'],
-.chijie-paper-card[data-primary-organism='approval'] {
-  max-height: min(46vh, 400px);
-}
-
 /* Running: a bit more for live activity + steps, never more than half the panel. */
 .chijie-paper-card[data-status='running'],
 .chijie-paper-card[data-primary-organism='activity'] {
@@ -194,7 +188,6 @@ summary:focus-visible,
   color: var(--chijie-accent-signal);
 }
 
-.chijie-task-status-pill[data-status='waiting_approval'],
 .chijie-task-status-pill[data-status='waiting_user'],
 .chijie-task-status-pill[data-status='inputs_required'] {
   background: var(--chijie-warning-subtle);
@@ -270,6 +263,62 @@ summary:focus-visible,
   overflow: visible;
 }
 
+.chijie-mission-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--chijie-border);
+}
+
+.chijie-mission-plan-label {
+  color: var(--chijie-muted);
+  font-family: var(--chijie-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.chijie-mission-phases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chijie-mission-phases li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--chijie-border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: var(--chijie-foreground);
+  font-size: 11px;
+}
+
+.chijie-mission-phase-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--chijie-muted);
+}
+
+.chijie-mission-phases li[data-status='active'] .chijie-mission-phase-dot {
+  background: var(--chijie-accent);
+}
+
+.chijie-mission-phases li[data-status='done'] .chijie-mission-phase-dot {
+  background: var(--chijie-accent-signal);
+}
+
+.chijie-mission-phases li[data-status='blocked'] .chijie-mission-phase-dot {
+  background: var(--chijie-warning);
+}
+
 .chijie-policy-hint {
   margin: 2px 0 0;
   color: var(--chijie-warning);
@@ -302,15 +351,11 @@ summary:focus-visible,
   min-height: 44px;
 }
 
-/* Under approval/completion, history is secondary — denser, less chrome. */
+/* Under completion, history is secondary — denser, less chrome. */
 .chijie-activity-panel[data-secondary='true'] {
   gap: 4px;
   padding-top: 2px;
   opacity: 0.96;
-}
-
-.chijie-approval-card[data-primary='true'] {
-  flex: 0 0 auto;
 }
 
 .chijie-activity-header {
@@ -603,77 +648,6 @@ summary:focus-visible,
   color: var(--chijie-muted);
   font-family: var(--chijie-font-mono);
   font-size: 9px;
-}
-
-.chijie-approval-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid #e8c98f;
-  border-radius: var(--chijie-radius-lg);
-  background: var(--chijie-warning-subtle);
-  color: var(--chijie-paper-ink);
-}
-
-.chijie-approval-card .chijie-mono-label {
-  color: var(--chijie-warning);
-}
-
-.chijie-approval-title {
-  margin: 0;
-  color: #65430e;
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.chijie-approval-details {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-}
-
-.chijie-approval-details > div {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 8px;
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.chijie-approval-details dt {
-  color: var(--chijie-warning);
-  font-weight: 600;
-}
-
-.chijie-approval-details dd {
-  min-width: 0;
-  margin: 0;
-  color: var(--chijie-foreground);
-  overflow-wrap: anywhere;
-}
-
-.chijie-approval-summary,
-.chijie-approval-once {
-  margin: 0;
-  padding-top: 8px;
-  border-top: 1px solid #ead8b3;
-  color: #65430e;
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.chijie-approval-once {
-  padding-top: 0;
-  border-top: 0;
-  color: var(--chijie-muted);
-}
-
-.chijie-approval-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
 }
 
 .chijie-done-block {

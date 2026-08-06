@@ -63,7 +63,7 @@ function makeAction(name: string, handlers?: ControlLoopOptions['actionHandlers'
     async (input: Record<string, unknown>) => {
       const handler = handlers?.[name];
       if (handler) return handler(input);
-      // Default no-op success: TaskManager journey tests only need policy/approval/evidence paths.
+      // Default no-op success: TaskManager journey tests only need policy/evidence paths.
       return new ActionResult({
         success: true,
         extractedContent: name === 'done' ? String(input.text ?? '') : null,
@@ -154,7 +154,7 @@ export function createControlLoopDriver(
 }
 
 /**
- * Fixture form script: plan success text → fill → submit (approval gated by EffectPolicy) → candidate complete.
+ * Fixture form script: plan success text → fill → submit → candidate complete.
  * Fill/submit use real indices when wired to a live page; in pure TaskManager tests handlers may no-op.
  */
 export function fixtureFormControlSteps(opts?: {

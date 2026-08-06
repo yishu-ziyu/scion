@@ -46,6 +46,8 @@ export class DOMHistoryElement {
     public viewportInfo: ViewportInfo | null = null,
   ) {}
 
+  // Legacy DOM history serialization is intentionally untyped for JSON round-trips.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   toDict(): Record<string, any> {
     return {
       tagName: this.tagName,

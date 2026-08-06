@@ -3,7 +3,7 @@ title: "浏览器行动任务运行时"
 description: "定义可验证任务、连续控制、动作审批和本地 Skill 的扩展内架构。"
 category: "design"
 number: "001"
-status: partially-outdated
+status: historical
 services: ["projects/chijie-browser/chrome-extension/src/background", "projects/chijie-browser/pages/side-panel", "projects/chijie-browser/packages/storage"]
 related: ["decisions/001", "decisions/002", "design/002", "product/003"]
 last_modified: "2026-07-15"
@@ -17,7 +17,7 @@ last_modified: "2026-07-15"
 
 - 已实现：`TaskManager`、`ActionDispatcher`、`CompletionChecker`、审批令牌、媒体 target digest、本地 Skill 基础、侧栏任务快照与人类时间线。
 - 生产默认执行核已切到 **`control`**（observe→decide→act→re-observe）；`nano` Planner/Navigator 可拔。细节见 **`design/002`**。
-- 文中「空文件 `manager.ts`」「全局 `currentExecutor`」、以及把默认核写成 Nano 的段落均已过时；以代码与 `design/002` / `product/008` 为准。
+- 文中「空文件 `manager.ts`」「全局 `currentExecutor`」、以及把默认核写成 Nano 的段落均已过时；以代码与 `design/002` / `product/021` 为准。
 - 侧栏视觉与三态以 **`design/004`** 为准；本文不负责像素与动效。
 
 ## 决策摘要

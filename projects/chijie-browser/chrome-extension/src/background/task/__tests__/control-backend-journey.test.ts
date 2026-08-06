@@ -1,6 +1,6 @@
 /**
  * M2: control backend under TaskManager (design/002 A2).
- * Scripted form path: plan → fill → submit (approval) → verified receipt.
+ * Scripted form path: plan → fill → submit → verified receipt.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompletionCriterion } from '@extension/storage/lib/task';
@@ -66,7 +66,7 @@ vi.mock('../../agent/factory', () => ({
 describe('control backend under TaskManager (G6 seam)', () => {
   beforeEach(() => store.sessions.clear());
 
-  it('control form script: approve once then verified complete; no field values in snapshot', async () => {
+  it('control form script: executes external commit once then verified complete; no field values in snapshot', async () => {
     let submissions = 0;
     let observationCall = 0;
     const observeCriteria = vi.fn(async (criteria: CompletionCriterion[]) => {
@@ -109,38 +109,17 @@ describe('control backend under TaskManager (G6 seam)', () => {
     });
 
     await vi.waitFor(async () => {
-      expect((await manager.snapshot('task-ctrl'))?.status).toBe('waiting_approval');
-    });
-
-    const waiting = await manager.snapshot('task-ctrl');
-    if (!waiting) throw new Error('missing task');
-    const round = waiting.rounds.find(item => item.id === waiting.currentRoundId);
-    const approval = round?.approvals[0];
-    if (!round || !approval) throw new Error('missing approval');
-    expect(submissions).toBe(0);
-
-    await manager.dispatch({
-      type: 'approve',
-      commandId: 'approve-ctrl',
-      taskId: 'task-ctrl',
-      expectedRevision: waiting.revision,
-      roundId: round.id,
-      approvalId: approval.id,
-    });
-
-    await vi.waitFor(async () => {
-      expect(await manager.snapshot('task-ctrl')).toMatchObject({
-        status: 'completed',
-      });
+      expect((await manager.snapshot('task-ctrl'))?.status).toBe('completed');
     });
 
     expect(submissions).toBe(1);
     const snap = await manager.snapshot('task-ctrl');
     expect(JSON.stringify(snap)).not.toContain('FIELD_SENTINEL_CTRL');
     expect(snap?.rounds[0]?.receipt).toBeTruthy();
+    expect(snap?.plan?.phases.every(phase => phase.status === 'done')).toBe(true);
   });
 
-  it('navigate-first script: go_to_url + wait via TaskManager; steps recorded; no approval', async () => {
+  it('navigate-first script: go_to_url + wait via TaskManager; steps recorded; no external gate', async () => {
     let currentUrl = 'about:blank';
     const observeCriteria = vi.fn(async (criteria: CompletionCriterion[]) =>
       criteria.map(item => ({
@@ -196,10 +175,9 @@ describe('control backend under TaskManager (G6 seam)', () => {
     expect(currentUrl).toBe('https://www.youtube.com/');
     // Side panel / extension pages must not be the navigated content target
     expect(isForbiddenTaskContentUrl(currentUrl)).toBe(false);
-    expect(round?.approvals ?? []).toHaveLength(0);
   });
 
-  it('ticket 05: go_to_url never waits approval; form submit does (single commit after approve)', async () => {
+  it('ticket 05: go_to_url and form submit both execute within task scope', async () => {
     // --- reversible navigate ---
     let navUrl = 'about:blank';
     const navObserve = vi.fn(async (criteria: CompletionCriterion[]) =>
@@ -243,8 +221,6 @@ describe('control backend under TaskManager (G6 seam)', () => {
     await vi.waitFor(async () => {
       expect((await navManager.snapshot('task-nav-5'))?.status).toBe('completed');
     });
-    expect((await navManager.snapshot('task-nav-5'))?.status).not.toBe('waiting_approval');
-
     // --- external commit form ---
     let submits = 0;
     let obs = 0;
@@ -283,23 +259,6 @@ describe('control backend under TaskManager (G6 seam)', () => {
       instruction: 'submit form',
       chatSessionId: 'c-form',
       instructionMessageId: 'm-form',
-    });
-    await vi.waitFor(async () => {
-      expect((await formManager.snapshot('task-form-5'))?.status).toBe('waiting_approval');
-    });
-    expect(submits).toBe(0);
-    const waiting = await formManager.snapshot('task-form-5');
-    if (!waiting) throw new Error('missing');
-    const round = waiting.rounds.find(r => r.id === waiting.currentRoundId);
-    const approval = round?.approvals[0];
-    if (!round || !approval) throw new Error('missing approval');
-    await formManager.dispatch({
-      type: 'approve',
-      commandId: 'ap-5',
-      taskId: 'task-form-5',
-      expectedRevision: waiting.revision,
-      roundId: round.id,
-      approvalId: approval.id,
     });
     await vi.waitFor(async () => {
       expect((await formManager.snapshot('task-form-5'))?.status).toBe('completed');

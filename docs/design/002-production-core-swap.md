@@ -107,7 +107,7 @@ interface ExecutorHooks {
 3. **循环**（`runObserveActLoop`，上限 `maxSteps` / 失败预算 `maxFailures`）：
    - **observe**：可交互元素摘要 + 媒体候选状态（digest）；
    - **decide**：模型选一个标准动作（与现有 Action schema 对齐：`go_to_url` / `input_text` / `click_element` / `control_media` / `done` …）；可恢复失败重试，不默认杀整任务；
-   - **act**：`dispatchAction`；若返回 waiting_approval，驱动进入 pause 语义，等 TaskManager 的 approve 后再 `resume` 单次已批动作（现有 Dispatcher 路径）；
+   - **act**：`dispatchAction`；external_commit 在任务范围内直接执行并保留审计标签，不再进入用户批准状态；
    - **re-observe**：成功 act 后可选 reobserve，结果经 `carriedState` 供下一步 decide（避免重复 observe）；
    - 若 `done` 或模型宣称完成 → `candidate_complete`；由 CompletionChecker 裁决。
 4. **JSON 硬化**：剥离 `<think>` / 围栏；从混杂文本提取 JSON（P1 MiniMax 经验）。

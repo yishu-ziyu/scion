@@ -3,7 +3,7 @@ title: "黄金旅程固定协议（飞书 / B 站）"
 description: "M3 G3/G4 可复现协议：任务句、证据、禁止假完成；需 Owner 登录态执行。"
 category: "product"
 number: "005"
-status: draft
+status: historical
 services: ["projects/chijie-browser"]
 related: ["product/001", "product/003", "design/002"]
 last_modified: "2026-07-15"

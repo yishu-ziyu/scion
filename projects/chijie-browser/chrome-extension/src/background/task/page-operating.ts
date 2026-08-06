@@ -10,7 +10,7 @@ export type PageOperatingSnapshot = {
 
 const MSG_TYPE = 'CHIJIE_PAGE_OPERATING' as const;
 
-/** Only show bar while the task is actively driving the page (not waiting for approval). */
+/** Only show bar while the task is actively driving the page. */
 export function shouldShowPageOperatingBar(status: string | undefined): boolean {
   return status === 'running';
 }

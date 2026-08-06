@@ -25,7 +25,6 @@ describe('continuous media control', () => {
     const dispatcher = new ActionDispatcher({
       now: () => 100,
       persistAttempt: vi.fn(),
-      requestApproval: vi.fn(async () => 'approved' as const),
       observe: vi.fn(async (request, _args, phase) => {
         const observed = await page.observeMedia();
         return {
@@ -189,7 +188,6 @@ describe('tab close control + evidence', () => {
     const dispatcher = new ActionDispatcher({
       now: () => 200,
       persistAttempt: vi.fn(),
-      requestApproval: vi.fn(async () => 'approved' as const),
       observe: vi.fn(async (request, parsedArgs, phase) => {
         const tabId =
           parsedArgs && typeof parsedArgs === 'object' && 'tab_id' in parsedArgs

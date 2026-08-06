@@ -9,6 +9,8 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { ChatOllama } from '@langchain/ollama';
 import { ChatDeepSeek } from '@langchain/deepseek';
 
+/* eslint-disable @typescript-eslint/no-explicit-any -- legacy provider compatibility layer */
+
 const maxTokens = 1024 * 4;
 
 // Custom ChatLlama class to handle Llama API response format
@@ -21,6 +23,9 @@ class ChatLlama extends ChatOpenAI {
   async completionWithRetry(request: any, options?: any): Promise<any> {
     try {
       // Make the request using the parent's implementation
+      // The installed @langchain/openai types omit completionWithRetry from
+      // ChatOpenAI even though the runtime base class still exposes it.
+      // @ts-expect-error -- runtime API present
       const response = await super.completionWithRetry(request, options);
 
       // Check if this is a Llama API response format
@@ -68,27 +73,6 @@ function isOpenAIReasoningModel(modelName: string): boolean {
   return (
     modelNameWithoutProvider.startsWith('o') ||
     (modelNameWithoutProvider.startsWith('gpt-5') && !modelNameWithoutProvider.startsWith('gpt-5-chat'))
-  );
-}
-
-// Function to check if a model is an Anthropic Opus model
-function isAnthropicOpusModel(modelName: string): boolean {
-  // Extract the model name without provider prefix if present
-  let modelNameWithoutProvider = modelName;
-  if (modelName.startsWith('anthropic/')) {
-    modelNameWithoutProvider = modelName.substring(10);
-  }
-  return modelNameWithoutProvider.startsWith('claude-opus');
-}
-
-// check if a model is sonnet-4-5 or haiku-4-5
-function isAnthropic4_5Model(modelName: string): boolean {
-  let modelNameWithoutProvider = modelName;
-  if (modelName.startsWith('anthropic/')) {
-    modelNameWithoutProvider = modelName.substring(10);
-  }
-  return (
-    modelNameWithoutProvider.startsWith('claude-sonnet-4-5') || modelNameWithoutProvider.startsWith('claude-haiku-4-5')
   );
 }
 

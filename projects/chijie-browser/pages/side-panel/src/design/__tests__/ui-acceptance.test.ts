@@ -22,7 +22,7 @@ import {
   sourceHasBannedSkyChrome,
 } from '../contracts';
 import { t } from '@extension/i18n';
-import { approvalActionLabel, humanApprovalSummary, instructionToSkillTemplate } from '../../components/TaskStatusCard';
+import { instructionToSkillTemplate } from '../../components/TaskStatusCard';
 import { commandRejectionMessage } from '../../SidePanel';
 
 // Ready/dev i18n resolves via t.devLocale, not chrome.i18n. Pin zh_CN so
@@ -95,7 +95,6 @@ describe('Feature: Side panel uses 持节 design system', () => {
   describe('Scenario: Status card speaks human language', () => {
     it('maps machine statuses to i18n keys, not raw enums as the only output', () => {
       expect(statusLabelKey('running')).toBe('chat_task_status_running');
-      expect(statusLabelKey('waiting_approval')).toBe('chat_task_status_waiting_approval');
       expect(statusLabelKey('completed')).toBe('chat_task_status_completed');
       expect(statusLabelKey('failed')).toBe('chat_task_status_failed');
     });
@@ -123,26 +122,11 @@ describe('Feature: Side panel uses 持节 design system', () => {
     });
   });
 
-  describe('Scenario: Waiting for approval uses vertical primary layout contract', () => {
+  describe('Scenario: Task recovery copy stays user-facing', () => {
     it('task actions container is a column flex class', () => {
       const block = componentsCss.slice(componentsCss.indexOf('.chijie-action-stack'));
       expect(block).toContain('.chijie-action-stack');
       expect(block.slice(0, 200)).toContain('flex-direction: column');
-    });
-
-    it('hides generic executor prose while preserving specific human detail', () => {
-      expect(humanApprovalSummary('Perform the requested external action')).toBeNull();
-      expect(humanApprovalSummary('将发布这条评论')).toBe('将发布这条评论');
-    });
-
-    it('describes approval without assuming every external action is a form submission', () => {
-      expect(
-        approvalActionLabel(
-          { actionName: 'click_element', effect: 'external_commit' } as Parameters<typeof approvalActionLabel>[0],
-          'Perform the requested external action',
-        ),
-      ).toBe('执行一次页面确认操作');
-      expect(approvalActionLabel(undefined, '将删除这条记录')).toBe('将删除这条记录');
     });
 
     it('turns rejected command enums into user-facing recovery copy', () => {
@@ -248,7 +232,7 @@ describe('Feature: Side panel uses 持节 design system', () => {
     });
 
     it('keeps the active composer available and renders one stop control', () => {
-      expect(sidePanelSource).toContain("const busy = taskSnapshot.status === 'waiting_approval'");
+      expect(sidePanelSource).toContain('const busy = false');
       expect(sidePanelSource).toContain('showStopButton={false}');
       expect(sidePanelSource).toContain('data-task-active={showStopButton');
       expect(sidePanelSource).toContain('data-testid="empty-composer-spacer"');
@@ -264,16 +248,15 @@ describe('Feature: Side panel uses 持节 design system', () => {
 });
 
 describe('Feature: design/003 task main blocks', () => {
-  it('TaskStatusCard source includes goal/rounds/approval testids', () => {
+  it('TaskStatusCard source includes goal/rounds/completion testids', () => {
     expect(taskStatusCardSource).toContain('task-goal-block');
+    expect(taskStatusCardSource).toContain('mission-plan');
     expect(taskStatusCardSource).toContain('task-round-timeline');
-    expect(taskStatusCardSource).toContain('task-approval-card');
     expect(taskStatusCardSource).toContain('completion-receipt');
     expect(taskStatusCardSource).toContain('completion-receipt-meta');
     expect(taskStatusCardSource).toContain('completion-receipt-details');
     expect(taskStatusCardSource).toContain('completion-evidence-list');
-    expect(taskStatusCardSource).not.toContain('批准一次'); // uses i18n key
-    expect(taskStatusCardSource).toContain('chat_task_approve');
+    expect(taskStatusCardSource).not.toContain('批准一次');
   });
 
   it('humanActionLabel maps machine actions to Chinese product copy', async () => {
@@ -296,7 +279,6 @@ describe('Feature: design/003 task main blocks', () => {
     expect(optionsTsx).toContain('logo-header.png');
     expect(overview).toContain('overview-pipeline');
     expect(overview).toContain('overview-model');
-    expect(overview).toContain('overview-approval');
     expect(overview).toContain('overview-skill');
     expect(overview).toContain('overview-receipt');
     expect(overview).toContain('overview-privacy');
@@ -370,14 +352,6 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toMatch(/shouldShowVerifiedDone\(snapshot,\s*round\?\.receipt\)/);
   });
 
-  it('puts consequential approval before execution history in reading order', () => {
-    // Render order in the return tree (not pre-return const definitions).
-    const returnIdx = taskStatusCardSource.lastIndexOf('return (');
-    const tree = taskStatusCardSource.slice(returnIdx);
-    expect(tree.indexOf('task-approval-card')).toBeLessThan(tree.indexOf('{stepsHistory}'));
-    expect(tree.indexOf('task-approval-card')).toBeGreaterThan(tree.indexOf('task-goal-block'));
-  });
-
   it('feature-first hierarchy: status → goal → primary organism → steps; chat keeps height', () => {
     const returnIdx = taskStatusCardSource.lastIndexOf('return (');
     const tree = taskStatusCardSource.slice(returnIdx);
@@ -386,13 +360,11 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     // Primary organism attribute drives density / max-height CSS.
     expect(taskStatusCardSource).toContain('data-primary-organism={primaryOrganism}');
     expect(taskStatusCardSource).toContain('taskPrimaryOrganism');
-    // waiting_approval: no live row competing with the decision card.
     const liveSlice = taskStatusCardSource.slice(
       taskStatusCardSource.indexOf('const showLiveActivity'),
       taskStatusCardSource.indexOf('const showActivityPanel'),
     );
     expect(liveSlice).toContain("status === 'running'");
-    expect(liveSlice).not.toContain('waiting_approval');
     // Completion honesty before secondary step history when verified/partial.
     expect(tree.indexOf("primaryOrganism === 'completion' && completionBlock")).toBeLessThan(
       tree.indexOf("primaryOrganism !== 'activity' && showActivityPanel"),
@@ -407,12 +379,6 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(sidePanelSource).toContain('chijie-workspace');
     expect(sidePanelSource).toContain('chijie-chat-log');
     expect(sidePanelSource).toContain('chijie-composer');
-  });
-
-  it('locks approval controls while a decision is being acknowledged', () => {
-    expect(taskStatusCardSource).toContain('approvalDecision');
-    expect(taskStatusCardSource).toContain('disabled={approvalDecision !== null}');
-    expect(taskStatusCardSource).toContain('aria-busy={approvalDecision !== null}');
   });
 
   it('keeps Skill form input until the save command is acknowledged', () => {

@@ -1,0 +1,8 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-02-eval-public,W3,013-A01,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,1683,,,url=https://www.wikipedia.org/
+2026-08-02-eval-public,W3,013-A02,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,1678,,,url=https://www.bilibili.com/
+2026-08-02-eval-public,W3,013-A03,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,6575,,,url=https://www.youtube.com/
+2026-08-02-eval-public,W3,013-B01,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,2902,,,url=https://www.bilibili.com/video/BV1hiGA6bEAN/
+2026-08-02-eval-public,W3,013-B04,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,verified_pass,0,0,0,8930,,,url=https://www.wikipedia.org/
+2026-08-02-eval-public,W3,013-B06,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,fail,0,0,0,0,other,,failed: 失败了 失败了 youtube.com 当前目标 打开首页上第一个视频 活动 · 1M 05S 操作记录3 接下来你可以 模型反复失败或步数耗尽 模型反复失败或步数耗尽 你 你 打开首页上第一个视频 14:55 正在读 youtube.com · YouTube 任务：代理任务 发送
+2026-08-02-eval-public,W3,013-B07,1,e5ae741,MiniMax-M3,user_chrome,chijie-control-v0.2.0,baseline,fail,0,0,0,0,other,,failed: 失败了 失败了 example.com · Example Domain 当前目标 点击页面上的 More information... 链接 接下来你可以 找不到目标元素或页面 找不到目标元素或页面 你 你 点击页面上的 More information... 链接 14:57 正在读 example.com · Example Domain 任务：代理任务 发送

@@ -1,6 +1,6 @@
 task_id: plan-large-nanobrowser-second-development
 active: true
-current_phase: design
+current_phase: implementation
 status: running
 workflow: product-lifecycle-v2
 updated_at: "2026-07-15T02:45:00Z"
@@ -9,11 +9,24 @@ ui_evidence:
   - docs/design/003-chijie-ui-interaction.md
   - projects/chijie-browser/pages/options/src/components/OverviewSettings.tsx
 north_star: docs/product/003-north-star.md
+north_star_021: docs/product/021-long-horizon-task-agent.md
+autonomy_decision: docs/decisions/004-task-scoped-autonomy.md
 docs_driven: docs/product/004-docs-driven-dev.md
 accuracy_reference: "Meituan Tabbit 1.0 Agent success 91.8%; web-ops bench 70%"
 parity_target: "verified success >= 91.8% on golden journeys (MiniMax-M3)"
-current_milestone: M3
-current_milestone_goal: "Feishu G3 + Bilibili G4 verified >=91.8% (MiniMax-M3); protocol product/005"
+current_milestone: long_horizon_v1
+current_milestone_goal: "Mission/Plan + long-horizon context memory + autonomous task-scoped execution"
+plan_019_status: current
+eval_master: docs/product/020-eval-master.md
+next_default: long_horizon_eval_harden_and_outer_loop
+long_horizon_agent_book_iteration: "2026-08-06"
+long_horizon_agent_book_evidence:
+  - reports/nanobrowser/agent-book-iteration/2026-08-06-gap-matrix.md
+  - reports/nanobrowser/agent-book-iteration/2026-08-06-iteration-report.md
+  - reports/nanobrowser/eval/2026-08-06-iter-minimax-mini-eval-matrix.csv
+  - reports/nanobrowser/eval/2026-08-06-iter-grok-mini-eval-matrix.csv
+  - reports/nanobrowser/eval/2026-08-06-iter-lh01-r5-eval-matrix.csv
+  - reports/nanobrowser/eval/2026-08-06-iter-lh02-grok-eval-matrix.csv
 m1_status: complete
 m1_evidence:
   - reports/nanobrowser/bakeoff/2026-07-14-m1-matrix.csv

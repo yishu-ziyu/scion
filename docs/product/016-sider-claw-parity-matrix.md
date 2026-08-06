@@ -3,7 +3,7 @@ title: "Sider Claw 30 例 → 持节验收矩阵"
 description: "将 Claw 落地页 30 个演示映射为持节能力簇、里程碑、验收句引用与当前缺口；作为 80% 对标清单。"
 category: "product"
 number: "016"
-status: current
+status: historical
 services: ["projects/chijie-browser"]
 related:
   - "product/011"

@@ -1,0 +1,3 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-06-iter-lh-grok-final,W3-swap,021-LH-01,1,e5ae741,grok-4.5,user_chrome,chijie-control-v0.3.0,model-swap-grok,verified_pass,0,0,0,20937,,,url=https://en.wikipedia.org/wiki/Artificial_intelligence
+2026-08-06-iter-lh-grok-final,W3-swap,021-LH-02,1,e5ae741,grok-4.5,user_chrome,chijie-control-v0.3.0,model-swap-grok,verified_pass,0,0,0,7710,,,url=https://en.wikipedia.org/wiki/Web_browser

@@ -4,11 +4,28 @@ export interface ActionSchema {
   name: string;
   description: string;
   schema: z.ZodType;
+  /** ACI: when the model should reach for this tool. */
+  whenToUse?: string;
+  /** ACI: boundary/negative case; usually more valuable than the positive rule. */
+  whenNotToUse?: string;
+  examples?: string[];
+  returns?: string;
+  costHint?: string;
 }
 
 export const doneActionSchema: ActionSchema = {
   name: 'done',
   description: 'Complete task',
+  whenToUse:
+    'When the user goal is met with verifiable browser evidence (page state, URL, visible text, media paused/playing), or when the task is blocked after reasonable retries.',
+  whenNotToUse:
+    'Do not call done after a single click or navigation without checking outcome; model text alone is not completion.',
+  examples: [
+    'done { text: "Form submitted; confirmation banner visible", success: true }',
+    'done { text: "Login wall blocks the page; need credentials", success: false }',
+  ],
+  returns: 'Ends the task loop; text and success are stored as the final result.',
+  costHint: 'Terminal; no further browser actions after this.',
   schema: z.object({
     text: z.string(),
     success: z.boolean(),
@@ -20,6 +37,16 @@ export const searchGoogleActionSchema: ActionSchema = {
   name: 'search_google',
   description:
     'Search the query in Google in the current tab, the query should be a search query like humans search in Google, concrete and not vague or super long. More the single most important items.',
+  whenToUse:
+    'When the user asks an open-ended lookup and you do not yet have a concrete URL (find a site, product, docs, video title).',
+  whenNotToUse:
+    'Do not use when a full URL is already known; use go_to_url. Do not invent long multi-clause queries; keep one concrete search intent.',
+  examples: [
+    'search_google { query: "Bilibili official", intent: "find bilibili homepage" }',
+    'search_google { query: "YouTube MiniMax M3 review", intent: "find video results" }',
+  ],
+  returns: 'Navigation to Google SERP in the current tab; re-observe for result links.',
+  costHint: 'Full page load of search results; prefer one precise query over repeated vague searches.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     query: z.string(),
@@ -29,6 +56,11 @@ export const searchGoogleActionSchema: ActionSchema = {
 export const goToUrlActionSchema: ActionSchema = {
   name: 'go_to_url',
   description: 'Navigate to URL in the current tab',
+  whenToUse: 'When the user goal includes opening a known URL or a deterministic link target.',
+  whenNotToUse: 'Do not fabricate search URLs; use search_google for open-ended lookups.',
+  examples: ['go_to_url { url: "https://en.wikipedia.org/wiki/Main_Page", intent: "open wikipedia" }'],
+  returns: 'Navigation result and final URL on re-observe.',
+  costHint: 'Page load dominates; wait before evidence.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     url: z.string(),
@@ -38,6 +70,13 @@ export const goToUrlActionSchema: ActionSchema = {
 export const goBackActionSchema: ActionSchema = {
   name: 'go_back',
   description: 'Go back to the previous page',
+  whenToUse:
+    'When the previous history entry is the intended recovery (wrong link, need SERP again, leave a dead-end form page).',
+  whenNotToUse:
+    'Do not use as a substitute for switch_tab or open_tab; history may be empty or leave the task site. Prefer go_to_url when the target URL is known.',
+  examples: ['go_back { intent: "return to search results" }'],
+  returns: 'Browser history back; re-observe URL and content.',
+  costHint: 'One history navigation; may trigger a full reload.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
   }),
@@ -46,6 +85,11 @@ export const goBackActionSchema: ActionSchema = {
 export const clickElementActionSchema: ActionSchema = {
   name: 'click_element',
   description: 'Click element by index',
+  whenToUse: 'Click the indexed element shown in the latest Snapshot frame.',
+  whenNotToUse: 'Do not use a stale index from an earlier frame; re-observe first.',
+  examples: ['click_element { index: 3, intent: "open first video" }'],
+  returns: 'Action result summary and observed page change.',
+  costHint: 'One DOM click plus re-observe.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     // coerce: MiniMax / mid models often emit "1" instead of 1
@@ -57,6 +101,11 @@ export const clickElementActionSchema: ActionSchema = {
 export const inputTextActionSchema: ActionSchema = {
   name: 'input_text',
   description: 'Input text into an interactive input element',
+  whenToUse: 'Fill a text input whose index exists in the current Snapshot frame.',
+  whenNotToUse: 'Never pass passwords/secrets; only execute external commits when the current task requires them.',
+  examples: ['input_text { index: 1, text: "BakeoffName", intent: "fill name" }'],
+  returns: 'Success or error with element context.',
+  costHint: 'One evaluate call; may need a click before focusing.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.coerce.number().int().describe('index of the element'),
@@ -69,6 +118,16 @@ export const inputTextActionSchema: ActionSchema = {
 export const switchTabActionSchema: ActionSchema = {
   name: 'switch_tab',
   description: 'Focus/switch to a tab by tab id (task-bound tab when tab_id omitted)',
+  whenToUse:
+    'When the needed page already exists in another open tab (compare two docs, return to B站/YouTube after opening a login popup tab).',
+  whenNotToUse:
+    'Do not switch to an unbound/unrelated tab; wrong_tab is a product failure. Prefer open_tab only when no suitable tab exists.',
+  examples: [
+    'switch_tab { tab_id: 42, intent: "return to video tab" }',
+    'switch_tab { intent: "focus task-bound tab" }',
+  ],
+  returns: 'Focused tab id; re-observe that tab only.',
+  costHint: 'Cheap focus change; always re-observe after switch.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     tab_id: z.coerce.number().int().optional().describe('id of the tab to switch to; defaults to task tab'),
@@ -78,6 +137,13 @@ export const switchTabActionSchema: ActionSchema = {
 export const openTabActionSchema: ActionSchema = {
   name: 'open_tab',
   description: 'Open URL in new tab',
+  whenToUse:
+    'When the task needs a parallel page without destroying the current one (docs beside form, second video, OAuth callback tab).',
+  whenNotToUse:
+    'Do not open a new tab when navigating the current tab is enough; avoid tab sprawl. Prefer go_to_url for single-path flows.',
+  examples: ['open_tab { url: "https://www.bilibili.com", intent: "open bilibili in new tab" }'],
+  returns: 'New tab opened and usually focused; re-observe the new tab.',
+  costHint: 'Full page load plus a new tab to track; higher risk of wrong_tab later.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     url: z.string().describe('url to open'),
@@ -87,6 +153,11 @@ export const openTabActionSchema: ActionSchema = {
 export const closeTabActionSchema: ActionSchema = {
   name: 'close_tab',
   description: 'Close a tab by id; omit tab_id to close the current task-bound tab',
+  whenToUse: 'When the user explicitly asks to close a tab and the bound tab is correct.',
+  whenNotToUse: 'Never close an unbound/unintended tab; wrong_tab is a product failure.',
+  examples: ['close_tab { intent: "close this page" }'],
+  returns: 'Tab closed or error.',
+  costHint: 'Immediate and irreversible; only execute when the current task explicitly requires it.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     tab_id: z.coerce.number().int().optional().describe('id of the tab; defaults to current task tab'),
@@ -107,6 +178,15 @@ export const closeTabActionSchema: ActionSchema = {
 export const cacheContentActionSchema: ActionSchema = {
   name: 'cache_content',
   description: 'Cache what you have found so far from the current page for future use',
+  whenToUse:
+    'When you extracted facts you will need after navigation (price, title, order id, video BV/URL) and the next step leaves this page.',
+  whenNotToUse:
+    'Do not dump the whole page HTML; cache only task-relevant snippets. Not a substitute for done or re-observe.',
+  examples: [
+    'cache_content { content: "Video title: xxx; BV: BVxxxx", intent: "remember video identity" }',
+  ],
+  returns: 'Content stored in agent memory for later steps.',
+  costHint: 'Cheap memory write; no DOM mutation.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     content: z.string().default('').describe('content to cache'),
@@ -117,6 +197,16 @@ export const scrollToPercentActionSchema: ActionSchema = {
   name: 'scroll_to_percent',
   description:
     'Scrolls to a particular vertical percentage of the document or an element. If no index of element is specified, scroll the whole document.',
+  whenToUse:
+    'When you know roughly where content sits (comments ~80%, footer ~100%, mid-feed) and need a precise vertical jump.',
+  whenNotToUse:
+    'Prefer scroll_to_text when looking for a known label; prefer next_page/previous_page for viewport-sized steps. Do not use a stale element index.',
+  examples: [
+    'scroll_to_percent { yPercent: 80, intent: "jump near comments" }',
+    'scroll_to_percent { yPercent: 0, index: 12, intent: "reset list container" }',
+  ],
+  returns: 'Viewport/container scrolled; re-observe for newly visible indices.',
+  costHint: 'One scroll + re-observe; cheaper than many small next_page hops when target position is known.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     yPercent: z.number().int().describe('percentage to scroll to - min 0, max 100; 0 is top, 100 is bottom'),
@@ -127,6 +217,12 @@ export const scrollToPercentActionSchema: ActionSchema = {
 export const scrollToTopActionSchema: ActionSchema = {
   name: 'scroll_to_top',
   description: 'Scroll the document in the window or an element to the top',
+  whenToUse:
+    'When you need the page or a scrollable panel at the top (nav, first result, video header after deep scroll).',
+  whenNotToUse: 'Do not use if you only need a small upward step; prefer previous_page. Avoid stale container index.',
+  examples: ['scroll_to_top { intent: "return to page header" }'],
+  returns: 'Scrolled to top; re-observe.',
+  costHint: 'One scroll jump; may load lazy content at top.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().nullable().optional().describe('index of the element'),
@@ -136,6 +232,13 @@ export const scrollToTopActionSchema: ActionSchema = {
 export const scrollToBottomActionSchema: ActionSchema = {
   name: 'scroll_to_bottom',
   description: 'Scroll the document in the window or an element to the bottom',
+  whenToUse:
+    'When the goal is footer, oldest comments, load-more at end of feed, or end of long article.',
+  whenNotToUse:
+    'Avoid if you only need the next screen of results; use next_page. Infinite scroll may need wait after bottom.',
+  examples: ['scroll_to_bottom { intent: "reach footer / load more" }'],
+  returns: 'Scrolled to bottom; re-observe (and often wait for lazy load).',
+  costHint: 'One jump; infinite feeds may need wait + another scroll.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().nullable().optional().describe('index of the element'),
@@ -146,6 +249,13 @@ export const previousPageActionSchema: ActionSchema = {
   name: 'previous_page',
   description:
     'Scroll the document in the window or an element to the previous page. If no index is specified, scroll the whole document.',
+  whenToUse:
+    'When content just scrolled out upward and you need one viewport of content back (feed, long docs, chat log).',
+  whenNotToUse:
+    'This is scroll, not browser history go_back. Do not use to leave the site. Prefer scroll_to_text for a known label.',
+  examples: ['previous_page { intent: "one viewport up" }'],
+  returns: 'Viewport scrolled up roughly one page; re-observe.',
+  costHint: 'Cheap scroll; repeat only as needed.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().nullable().optional().describe('index of the element'),
@@ -156,6 +266,13 @@ export const nextPageActionSchema: ActionSchema = {
   name: 'next_page',
   description:
     'Scroll the document in the window or an element to the next page. If no index is specified, scroll the whole document.',
+  whenToUse:
+    'When the target is below the fold and you need one viewport down (search results, B站 comment thread, long form).',
+  whenNotToUse:
+    'Not browser pagination of history. Prefer scroll_to_text when the target string is known; prefer scroll_to_percent for large jumps.',
+  examples: ['next_page { intent: "reveal more results" }'],
+  returns: 'Viewport scrolled down roughly one page; re-observe for new indices.',
+  costHint: 'Cheap scroll; prefer over many blind click attempts on off-screen targets.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().nullable().optional().describe('index of the element'),
@@ -165,6 +282,16 @@ export const nextPageActionSchema: ActionSchema = {
 export const scrollToTextActionSchema: ActionSchema = {
   name: 'scroll_to_text',
   description: 'If you dont find something which you want to interact with in current viewport, try to scroll to it',
+  whenToUse:
+    'When a known visible string exists on the page but is off-screen (section title, button label, username, price).',
+  whenNotToUse:
+    'Do not use for fuzzy search across the web; text must be on the current document. Prefer next_page if text is unknown.',
+  examples: [
+    'scroll_to_text { text: "Submit", intent: "bring submit into view" }',
+    'scroll_to_text { text: "评论", nth: 1, intent: "jump to comments heading" }',
+  ],
+  returns: 'Scrolls so the nth match is in view, or reports not found.',
+  costHint: 'One text locate + scroll; fails fast if text absent.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     text: z.string().describe('text to scroll to'),
@@ -181,6 +308,16 @@ export const sendKeysActionSchema: ActionSchema = {
   name: 'send_keys',
   description:
     'Send strings of special keys like Backspace, Insert, PageDown, Delete, Enter. Shortcuts such as `Control+o`, `Control+Shift+T` are supported as well. This gets used in keyboard press. Be aware of different operating systems and their shortcuts',
+  whenToUse:
+    'When the UI needs keyboard semantics (Enter to submit search, Escape to close modal, Arrow keys in menus, Backspace to edit).',
+  whenNotToUse:
+    'Prefer input_text for bulk text entry into an indexed field. Do not assume OS-specific shortcuts work the same on every site; macOS often uses Meta instead of Control.',
+  examples: [
+    'send_keys { keys: "Enter", intent: "submit search" }',
+    'send_keys { keys: "Escape", intent: "close dialog" }',
+  ],
+  returns: 'Keys dispatched to the focused page; re-observe for side effects.',
+  costHint: 'Cheap key event; focus must already be correct.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     keys: z.string().describe('keys to send'),
@@ -190,6 +327,12 @@ export const sendKeysActionSchema: ActionSchema = {
 export const controlMediaActionSchema: ActionSchema = {
   name: 'control_media',
   description: 'Play or pause the currently bound visible HTML audio/video element',
+  whenToUse:
+    'Play or pause page HTML media (B站/YouTube/local video/audio) via the element API, not by guessing UI chrome.',
+  whenNotToUse: 'Do not click native shadow controls or fake paused/playing state.',
+  examples: ['control_media { command: "play" }', 'control_media { command: "pause", target_digest: "..." }'],
+  returns: 'Bound media digest and observed paused/playing state.',
+  costHint: 'Element API call; no page navigation.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     command: z.enum(['play', 'pause']),
@@ -200,6 +343,13 @@ export const controlMediaActionSchema: ActionSchema = {
 export const getDropdownOptionsActionSchema: ActionSchema = {
   name: 'get_dropdown_options',
   description: 'Get all options from a native dropdown',
+  whenToUse:
+    'Before selecting, when you need the legal option list of a native <select> (country, shipping, form enums).',
+  whenNotToUse:
+    'Does not work on custom div menus; those need click_element. Call only with a current Snapshot index of a real select.',
+  examples: ['get_dropdown_options { index: 5, intent: "list country options" }'],
+  returns: 'List of option texts for the dropdown.',
+  costHint: 'Cheap read of select options; no selection change.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().describe('index of the dropdown element'),
@@ -209,6 +359,13 @@ export const getDropdownOptionsActionSchema: ActionSchema = {
 export const selectDropdownOptionActionSchema: ActionSchema = {
   name: 'select_dropdown_option',
   description: 'Select dropdown option for interactive element index by the text of the option you want to select',
+  whenToUse:
+    'When filling forms that use a native <select> and you know the exact option text (often after get_dropdown_options).',
+  whenNotToUse:
+    'Do not invent option labels; mismatch fails. Custom combobox UIs need click_element sequences instead.',
+  examples: ['select_dropdown_option { index: 5, text: "United States", intent: "choose country" }'],
+  returns: 'Option selected or error if text not found.',
+  costHint: 'One select mutation + re-observe; may trigger dependent fields.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     index: z.number().int().describe('index of the dropdown element'),
@@ -220,6 +377,11 @@ export const saveScreenshotActionSchema: ActionSchema = {
   name: 'save_screenshot',
   description:
     'Capture the current page viewport as a JPEG and save it to the browser Downloads folder. Use when the user asks to screenshot / 截图 / save image to downloads. Do not click OS or browser chrome download UI.',
+  whenToUse: 'When the user asks for a screenshot or saving a page image.',
+  whenNotToUse: 'Do not use for downloading videos or documents; use download-specific paths.',
+  examples: ['save_screenshot { filename: "page.jpg" }'],
+  returns: 'Downloads folder filename or error.',
+  costHint: 'One viewport capture and download write.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     filename: z
@@ -232,8 +394,44 @@ export const saveScreenshotActionSchema: ActionSchema = {
 export const waitActionSchema: ActionSchema = {
   name: 'wait',
   description: 'Wait for x seconds default 3, do NOT use this action unless user asks to wait explicitly',
+  whenToUse:
+    'Only when the user explicitly asks to wait, or after a known async UI (upload spinner, media buffer, captcha countdown) where re-observe alone is too early.',
+  whenNotToUse:
+    'Do not wait by default between every action. Prefer re-observe after navigation/click. Never use wait to replace verification of success.',
+  examples: [
+    'wait { seconds: 3, intent: "user asked to pause" }',
+    'wait { seconds: 5, intent: "allow video buffer after play" }',
+  ],
+  returns: 'Sleeps then continues; no page mutation by itself.',
+  costHint: 'Burns wall-clock time and agent steps; keep seconds small.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     seconds: z.number().int().default(3).describe('amount of seconds'),
   }),
 };
+
+/** All exported action schemas (for tests / registry). */
+export const ALL_ACTION_SCHEMAS: ActionSchema[] = [
+  doneActionSchema,
+  searchGoogleActionSchema,
+  goToUrlActionSchema,
+  goBackActionSchema,
+  clickElementActionSchema,
+  inputTextActionSchema,
+  switchTabActionSchema,
+  openTabActionSchema,
+  closeTabActionSchema,
+  cacheContentActionSchema,
+  scrollToPercentActionSchema,
+  scrollToTopActionSchema,
+  scrollToBottomActionSchema,
+  previousPageActionSchema,
+  nextPageActionSchema,
+  scrollToTextActionSchema,
+  sendKeysActionSchema,
+  controlMediaActionSchema,
+  getDropdownOptionsActionSchema,
+  selectDropdownOptionActionSchema,
+  saveScreenshotActionSchema,
+  waitActionSchema,
+];

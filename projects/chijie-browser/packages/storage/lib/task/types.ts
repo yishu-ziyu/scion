@@ -1,7 +1,6 @@
 export type TaskStatus =
   | 'running'
   | 'paused'
-  | 'waiting_approval'
   | 'waiting_user'
   | 'inputs_required'
   | 'interrupted'
@@ -12,7 +11,6 @@ export type TaskStatus =
 export type WaitReason =
   | 'login_required'
   | 'captcha_required'
-  | 'approval_rejected'
   | 'proof_required'
   | 'commit_outcome_uncertain'
   | 'target_missing'
@@ -74,7 +72,7 @@ export interface CompletionReceipt {
   evidenceDigests: string[];
 }
 
-export type AttemptState = 'proposed' | 'approved' | 'executing' | 'observed' | 'uncertain' | 'blocked';
+export type AttemptState = 'proposed' | 'authorized' | 'executing' | 'observed' | 'uncertain' | 'blocked';
 
 export interface ActionAttempt {
   id: string;
@@ -92,18 +90,28 @@ export interface ActionAttempt {
   targetLabel?: string;
   state: AttemptState;
   proposedAt: number;
-  approvedAt?: number;
+  authorizedAt?: number;
   executingAt?: number;
   observedAt?: number;
 }
 
-export interface ApprovalSummary {
+export type MissionPhaseStatus = 'planned' | 'active' | 'done' | 'blocked';
+
+export interface MissionPhase {
   id: string;
-  attemptId: string;
-  roundId: string;
-  summary: string;
-  status: 'pending' | 'approved' | 'rejected' | 'consumed';
-  decidedAt?: number;
+  title: string;
+  status: MissionPhaseStatus;
+  criteriaIds: string[];
+  evidenceIds: string[];
+  notes: string[];
+}
+
+export interface MissionPlan {
+  id: string;
+  goal: string;
+  phases: MissionPhase[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 export type CommandAck =
@@ -135,7 +143,6 @@ export type TaskCommand =
       instructionMessageId: string;
     })
   | (ExistingTaskCommand & { type: 'pause' | 'resume' | 'cancel' })
-  | (ExistingTaskCommand & { type: 'approve' | 'reject'; roundId: string; approvalId: string })
   | (ExistingTaskCommand & { type: 'confirm_completion'; roundId: string; criterionId: string })
   | (ExistingTaskCommand & { type: 'save_skill'; roundId: string; title: string; instructionTemplate: string })
   | {
@@ -155,7 +162,6 @@ export interface TaskRound {
   commandAcks: Record<string, CommandAck>;
   criteria: CompletionCriterion[];
   attempts: ActionAttempt[];
-  approvals: ApprovalSummary[];
   evidence: CompletionEvidence[];
   receipt?: CompletionReceipt;
   waitReason?: WaitReason;
@@ -178,6 +184,7 @@ export interface TaskSession {
   currentRoundId: string;
   targetRefs: BrowserTargetRef[];
   rounds: TaskRound[];
+  plan?: MissionPlan;
   createdAt: number;
   updatedAt: number;
 }

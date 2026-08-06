@@ -954,10 +954,7 @@
   "chat_task_status_paused": {
     "message": "Paused"
   },
-  "chat_task_status_waiting_approval": {
-    "message": "Waiting for your OK"
-  },
-  "chat_task_status_waiting_user": {
+    "chat_task_status_waiting_user": {
     "message": "Needs you"
   },
   "chat_task_status_inputs_required": {
@@ -999,16 +996,7 @@
   "chat_task_next_step_title": {
     "message": "What you can do next"
   },
-  "chat_task_approval_explain": {
-    "message": "It wants to do something hard to undo. Please confirm:"
-  },
-  "chat_task_approve": {
-    "message": "Approve and perform once"
-  },
-  "chat_task_reject": {
-    "message": "Don't approve; go back"
-  },
-  "chat_task_confirm_done": {
+        "chat_task_confirm_done": {
     "message": "I confirm it is done"
   },
   "chat_task_pause": {
@@ -1035,10 +1023,7 @@
   "chat_task_hint_captcha": {
     "message": "Solve the captcha on the page, then continue."
   },
-  "chat_task_hint_rejected": {
-    "message": "You rejected the last action. Send a new instruction if you still want it done."
-  },
-  "chat_task_hint_proof": {
+    "chat_task_hint_proof": {
     "message": "It needs your eyes on the result. Tap confirm if it looks right."
   },
   "chat_task_hint_uncertain": {
@@ -1074,11 +1059,11 @@
   "chat_task_section_rounds": {
     "message": "Rounds"
   },
-  "chat_task_section_approval": {
-    "message": "Approval · your action"
-  },
-  "chat_task_current_goal": {
+    "chat_task_current_goal": {
     "message": "Goal"
+  },
+  "chat_task_plan_heading": {
+    "message": "Mission plan"
   },
   "chat_task_current_site": {
     "message": "Site"
@@ -1086,13 +1071,7 @@
   "chat_task_progress": {
     "message": "Progress"
   },
-  "chat_task_policy_external": {
-    "message": "Actions that change an external page pause for your approval."
-  },
-  "chat_task_approval_heading": {
-    "message": "About to perform an external action"
-  },
-  "chat_task_receipt_id": {
+      "chat_task_receipt_id": {
     "message": "Receipt ID"
   },
   "chat_task_receipt_time": {
@@ -1149,17 +1128,14 @@
   "chat_task_action_generic": {
     "message": "Perform page action"
   },
-  "chat_task_attempt_pending_approval": {
-    "message": "Ready to perform (approval required)"
-  },
-  "chat_task_attempt_observed": {
+    "chat_task_attempt_observed": {
     "message": "Verified"
   },
   "chat_task_attempt_executing": {
     "message": "In progress"
   },
-  "chat_task_attempt_approved": {
-    "message": "Approved"
+  "chat_task_attempt_authorized": {
+    "message": "Authorized"
   },
   "chat_task_attempt_proposed": {
     "message": "Preparing"
@@ -1206,40 +1182,7 @@
       }
     }
   },
-  "chat_task_approval_action_generic": {
-    "message": "Perform one external action"
-  },
-  "chat_task_approval_action_click": {
-    "message": "Perform one page confirmation action"
-  },
-  "chat_task_approval_field_action": {
-    "message": "Action"
-  },
-  "chat_task_approval_field_location": {
-    "message": "Location"
-  },
-  "chat_task_approval_field_impact": {
-    "message": "Possible impact"
-  },
-  "chat_task_approval_field_after": {
-    "message": "After approval"
-  },
-  "chat_task_approval_impact_external": {
-    "message": "The page will change externally and may not be automatically reversible"
-  },
-  "chat_task_approval_after_once": {
-    "message": "Perform only this action, then verify the page result"
-  },
-  "chat_task_approval_once": {
-    "message": "This approval applies only to this action."
-  },
-  "chat_task_approval_pending": {
-    "message": "Approving…"
-  },
-  "chat_task_reject_pending": {
-    "message": "Going back…"
-  },
-  "chat_task_evidence_url": {
+                        "chat_task_evidence_url": {
     "message": "Page address matches the goal"
   },
   "chat_task_evidence_text": {
@@ -1323,10 +1266,7 @@
   "chat_task_product_fail_selector_miss": {
     "message": "Target element or page not found"
   },
-  "chat_task_product_fail_approval_timeout": {
-    "message": "Approval timed out"
-  },
-  "chat_task_product_fail_false_complete": {
+    "chat_task_product_fail_false_complete": {
     "message": "Marked complete without page proof"
   },
   "chat_task_product_fail_model_loop": {

@@ -181,7 +181,7 @@ function tryParseJsonObject(raw: string): Record<string, unknown> | null {
     } catch {
       // Only repair strings that look like JSON. Repairing free prose+JSON
       // (e.g. "Here is my plan: ```json ...") can invent empty objects.
-      const looksLikeJson = /^\s*[{\[]/.test(candidate);
+      const looksLikeJson = /^\s*[[{]/.test(candidate);
       if (!looksLikeJson) continue;
       try {
         const repaired = jsonrepair(candidate);
@@ -478,9 +478,7 @@ export function extractJsonFromModelOutput(content: string): Record<string, unkn
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     // Keep a short hint so Service Worker / CDP logs show why, not only the generic label
-    throw new ResponseParseError(
-      `Could not manually extract JSON from model output (${detail.slice(0, 160)})`,
-    );
+    throw new ResponseParseError(`Could not manually extract JSON from model output (${detail.slice(0, 160)})`);
   }
 }
 

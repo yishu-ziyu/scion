@@ -13,6 +13,47 @@ export interface ControlPolicyDecision {
   waitingUser: 'login_required' | 'captcha_required' | null;
 }
 
+export const CONTROL_PROMPT_VERSION = 'chijie-control-v0.3.0';
+
+export interface AgentStatusBarInput {
+  url?: string;
+  title?: string;
+  pageRevision?: string;
+  step?: number;
+  maxSteps?: number;
+  attemptCount?: number;
+  noProgressStreak?: number;
+  criteriaCount?: number;
+  lastEvidence?: string;
+  /** Optional active mission phase id (long-horizon plan). */
+  activePhaseId?: string;
+}
+
+/** Deterministic, code-maintained status bar (book ch2). */
+export function buildAgentStatusBar(input: AgentStatusBarInput): string {
+  const rows: string[] = [
+    `url: ${input.url ?? 'unknown'}`,
+    `title: ${input.title ?? 'unknown'}`,
+    `frame: ${input.pageRevision ?? 'none'}`,
+    `step: ${(input.step ?? 0) + 1}/${input.maxSteps ?? 0}`,
+    `attempts: ${input.attemptCount ?? 0}`,
+    `no_progress: ${input.noProgressStreak ?? 0}`,
+    `criteria: ${input.criteriaCount ?? 0}`,
+  ];
+  if (input.activePhaseId) rows.push(`active_phase: ${input.activePhaseId}`);
+  if (input.lastEvidence) rows.push(`last_evidence: ${input.lastEvidence}`);
+  return rows.join('\n');
+}
+
+export interface ControlSystemPromptOptions {
+  statusBar?: string;
+}
+
+export function renderControlSystemPrompt(options: ControlSystemPromptOptions = {}): string {
+  const statusBlock = options.statusBar ? `\n\n<agent_status>\n${options.statusBar}\n</agent_status>` : '';
+  return `${CONTROL_SYSTEM_PROMPT_BODY}\n\nPrompt version: ${CONTROL_PROMPT_VERSION}.${statusBlock}`;
+}
+
 const ALLOWED_ACTIONS = new Set([
   'done',
   'input_text',
@@ -186,29 +227,33 @@ export function parseControlPolicyDecision(raw: Record<string, unknown>): Contro
     // Do not force waiting_user from observation alone (planner false-positive history).
   }
 
+  // Task-scoped autonomy (decisions/004): drop model-proposed user_confirmed criteria.
+  // Human confirmation is for proof UI only when code cannot verify, not a default planner tool.
+  const autonomousCriteria = criteria.filter(item => item.kind !== 'user_confirmed');
+
   if (waitingUser) {
-    return { observation, criteria, done: false, action: null, waitingUser };
+    return { observation, criteria: autonomousCriteria, done: false, action: null, waitingUser };
   }
 
   if (done) {
-    return { observation, criteria, done: true, action: null, waitingUser: null };
+    return { observation, criteria: autonomousCriteria, done: true, action: null, waitingUser: null };
   }
 
   const action = parseAction(raw);
   if (action?.name === 'done') {
     return {
       observation,
-      criteria,
+      criteria: autonomousCriteria,
       done: true,
       action: null,
       waitingUser: null,
     };
   }
 
-  return { observation, criteria, done: false, action, waitingUser: null };
+  return { observation, criteria: autonomousCriteria, done: false, action, waitingUser: null };
 }
 
-export const CONTROL_SYSTEM_PROMPT = `You control a real Chrome tab for one user task.
+const CONTROL_SYSTEM_PROMPT_BODY = `You control a real Chrome tab for one user task.
 Output ONE JSON object only. No markdown fences. No prose outside JSON.
 
 Schema:
@@ -229,10 +274,16 @@ Rules:
 3. When the goal is already met on the page, set "done": true and omit action_name (or use done). Do not re-open the homepage or re-click the same video. Model "done" alone never completes without matching page/tab/download evidence.
 4. For HTML audio/video play/pause use action_name "control_media" with action_args { "command": "play"|"pause", optional "target_digest" }. Do not click native shadow media controls. Continuous control reuses the last media digest when target_digest is omitted.
 5. Close/focus tabs with close_tab / switch_tab (or focus_tab). Omit tab_id to use the task-bound current tab. For close goals set completion_criteria tab_state expected closed.
-6. Form submit / send / buy / delete will be gated by product approval — still propose the click with clear intent in action_args.intent when needed. Plain link/navigation clicks are not form submits.
-7. Never invent element indexes that are not listed. Indexes come from the interactive elements list.
+6. Form submit / send / buy / delete are task-scoped actions: execute them when the user's task requires them, still propose the click with clear intent in action_args.intent. Plain link/navigation clicks are not form submits.
+7. Never invent element indexes that are not listed. Indexes are short-lived refs bound automatically to the shown Snapshot frame. If an action reports a stale frame/target, use the next observation instead of retrying the old index.
 8. Do not claim login_required unless a clear login wall is visible.
 9. Never put passwords or secrets into action_args.
 10. Screenshot / save page image / 截图 / 保存到下载文件夹: use action_name "save_screenshot" (optional action_args.filename). After the tool reports success, set "done": true. Never click browser chrome, OS share sheets, or page "download" buttons to fake a screenshot save.
 11. Download goals need download_state finished (or started) evidence; never claim download complete without it.
+12. Long-horizon / multi-phase:
+    - Read <agent_status> and any plan memory / trajectory summary in the message; stay on the active phase.
+    - Finish current-phase evidence before advancing to the next phase.
+    - Never invent done without observable page/tab/download evidence that matches the criteria.
 `;
+
+export const CONTROL_SYSTEM_PROMPT = renderControlSystemPrompt();

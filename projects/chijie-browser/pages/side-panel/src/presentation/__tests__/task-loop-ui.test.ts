@@ -85,14 +85,12 @@ describe('Feature: Tabbit-class task loop UI (ticket 01, seam S1)', () => {
 
   it('defaults steps expanded only while running so terminal cards stay short', () => {
     expect(defaultStepsExpanded('running')).toBe(true);
-    expect(defaultStepsExpanded('waiting_approval')).toBe(false);
     // design/004: terminal collapses steps by default; chat must keep height.
     expect(defaultStepsExpanded('completed')).toBe(false);
     expect(defaultStepsExpanded('failed')).toBe(false);
   });
 
   it('picks feature-first primary organism for goal-directed reading order', () => {
-    expect(taskPrimaryOrganism({ status: 'waiting_approval', hasPendingApproval: true })).toBe('approval');
     expect(taskPrimaryOrganism({ status: 'running' })).toBe('activity');
     expect(taskPrimaryOrganism({ status: 'completed', showVerifiedDone: true })).toBe('completion');
     expect(taskPrimaryOrganism({ status: 'waiting_user' })).toBe('recovery');
@@ -115,7 +113,7 @@ describe('Feature: Tabbit-class task loop UI (ticket 01, seam S1)', () => {
     expect(
       observedAttemptCount([
         attempt,
-        { ...attempt, id: 'a2', state: 'approved' },
+        { ...attempt, id: 'a2', state: 'authorized' },
         { ...attempt, id: 'a3', state: 'executing' },
       ]),
     ).toBe(1);

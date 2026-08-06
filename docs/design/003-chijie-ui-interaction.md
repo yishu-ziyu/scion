@@ -3,7 +3,7 @@ title: "持节 v1 交互设计（侧栏主路径 + 设置总览）"
 description: "归档 ChatGPT 交互稿；对照北极星产品语言与代码落点；实现以本文 + 附图为准。"
 category: "design"
 number: "003"
-status: draft
+status: historical
 services: ["projects/chijie-browser/pages/side-panel", "projects/chijie-browser/pages/options"]
 related: ["product/001", "product/003", "design/001", "design/002"]
 last_modified: "2026-07-15"

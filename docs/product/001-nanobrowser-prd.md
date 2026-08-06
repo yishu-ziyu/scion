@@ -3,7 +3,7 @@ title: "Nanobrowser 二开：可验证浏览器行动 Agent PRD"
 description: "定义单任务连续控制、可验证完成、动作审批与本地 Skill 复用的首个产品闭环。"
 category: "product"
 number: "001"
-status: draft
+status: historical
 services: ["projects/chijie-browser/chrome-extension", "projects/chijie-browser/pages/side-panel", "projects/chijie-browser/packages/storage"]
 related: ["decisions/001", "decisions/002", "design/001", "product/003", "product/004"]
 last_modified: "2026-07-15"

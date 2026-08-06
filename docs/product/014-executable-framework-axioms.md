@@ -3,12 +3,12 @@ title: "可执行框架公理（指哪打哪）"
 description: "持节底层六层 + 展示层反泄漏；人话产品面与工程附录分离；A→C 能力路径服从 decisions/003。"
 category: "product"
 number: "014"
-status: current
+status: historical
 services: ["projects/chijie-browser"]
 related:
   - "product/003"
   - "product/007"
-  - "product/008"
+  - "product/021"
   - "product/011"
   - "product/013"
   - "decisions/001"
@@ -17,7 +17,7 @@ related:
   - "design/002"
   - "design/004"
   - "CONTEXT"
-last_modified: "2026-07-23"
+last_modified: "2026-07-30"
 ---
 
 # 014 — 可执行框架公理（指哪打哪）
@@ -126,6 +126,8 @@ last_modified: "2026-07-23"
 | 过期 | 动作必须携带观察世代；过期 ref **拒绝执行**，强制再观察（见 product/007） |
 | 披露 | 先结构摘要，再按需展开；避免整页 HTML 灌模型 |
 | 媒体 | 候选 + digest；连续控制继承 digest |
+
+落地状态（2026-07-30）：control 路径已由 `design/007` 的 Snapshot Frame 自动给 index 动作绑定 `pageRevision`；旧 frame 在 mutate 前拒绝。稳定 locator 与错误分层仍待 TSR 证据。
 
 ## B3. Action surface（原语）
 

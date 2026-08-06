@@ -146,7 +146,6 @@ describe('local semantic Skill', () => {
           commandAcks: {},
           criteria: [],
           attempts: [],
-          approvals: [],
           evidence: [],
         },
       ],
@@ -191,7 +190,6 @@ describe('local semantic Skill', () => {
           commandAcks: {},
           criteria: [],
           attempts: [],
-          approvals: [],
           evidence: [],
         },
       ],
@@ -244,7 +242,6 @@ describe('local semantic Skill', () => {
             },
           ],
           attempts: [],
-          approvals: [],
           evidence: [],
           receipt: {
             id: 'receipt-cold',

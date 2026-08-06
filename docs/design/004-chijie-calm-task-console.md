@@ -3,9 +3,9 @@ title: "持节安静任务控制台（侧栏三态视觉与动效）"
 description: "把侧栏统一为任务优先的浅色控制台，细化运行中、等待批准、已验证三态及其数据契约、动效和验收。"
 category: "design"
 number: "004"
-status: current
+status: historical
 services: ["projects/chijie-browser/pages/side-panel", "projects/chijie-browser/chrome-extension/src/background/task", "projects/chijie-browser/packages/storage"]
-related: ["product/003", "product/008", "design/001", "design/003"]
+related: ["product/021", "product/003", "design/001", "design/003"]
 last_modified: "2026-07-15"
 ---
 

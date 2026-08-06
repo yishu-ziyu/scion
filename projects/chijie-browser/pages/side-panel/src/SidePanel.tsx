@@ -200,10 +200,10 @@ const SidePanel = () => {
 
   useEffect(() => {
     if (!taskSnapshot) return;
-    const busy = taskSnapshot.status === 'waiting_approval';
+    const busy = false;
     const requiresExplicitResume = taskSnapshot.status === 'interrupted' || taskSnapshot.status === 'inputs_required';
     setInputEnabled(!busy && !requiresExplicitResume);
-    setShowStopButton(taskSnapshot.status === 'running' || taskSnapshot.status === 'waiting_approval');
+    setShowStopButton(taskSnapshot.status === 'running');
     // Follow-up needs a chat session bound to the task (skill runs have none).
     // Without a session, treat the next goal as a fresh start so instruction can persist.
     const followable = ['running', 'paused', 'waiting_user', 'completed'].includes(taskSnapshot.status);

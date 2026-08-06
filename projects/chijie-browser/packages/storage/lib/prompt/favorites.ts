@@ -36,7 +36,6 @@ export interface FavoriteSkill {
   instructionTemplate: string;
   inputs: SkillInput[];
   criteria: CompletionCriterionTemplate[];
-  approvalPolicy: 'default' | 'always_confirm_commits';
   sourceTaskId: string;
   version: 1;
 }
@@ -157,7 +156,6 @@ export function createSkillDefinition(input: {
     instructionTemplate,
     inputs,
     criteria: structuredClone(input.criteria),
-    approvalPolicy: 'default',
     sourceTaskId: input.sourceTaskId,
     version: 1,
   };
@@ -330,7 +328,7 @@ export function createFavoritesStorage(): FavoritePromptsStorage {
       if (existing) return existing;
       let stored!: FavoriteSkill;
       await favoritesStorage.set(previous => {
-        stored = { ...canonical, approvalPolicy: skill.approvalPolicy, id: previous.nextId };
+        stored = { ...canonical, id: previous.nextId };
         return {
           nextId: previous.nextId + 1,
           prompts: [stored, ...previous.prompts],
