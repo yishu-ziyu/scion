@@ -7,6 +7,7 @@ import type {
   CompletionEvidence,
   WaitReason,
 } from '@extension/storage/lib/task';
+import type { TaskArtifact } from './artifact';
 
 export type CompletionCriterionDraft =
   | { kind: 'url'; operator: 'equals' | 'starts_with'; expected: string; required: boolean }
@@ -82,7 +83,12 @@ export interface ExecutorDriver {
 }
 
 export type ExecutorOutcome =
-  | { kind: 'candidate_complete'; summary: string }
+  | {
+      kind: 'candidate_complete';
+      summary: string;
+      /** product/022 deliverables — still require VerificationEngine. */
+      artifacts?: TaskArtifact[];
+    }
   | { kind: 'waiting_user'; reason: WaitReason }
   | { kind: 'paused' }
   | { kind: 'cancelled' }

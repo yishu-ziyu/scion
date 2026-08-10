@@ -10,6 +10,16 @@ export interface EvalFeatureFlags {
   enableRetryRecovery: boolean;
   /** Book ch2-style trajectory compression in control-llm userPrompt. */
   enableContextCompression: boolean;
+  /** product/022: route observe/act through Browser Kernel. */
+  enableBrowserKernelV1: boolean;
+  /** product/022: feed observation diffs into model context. */
+  enableObservationDiff: boolean;
+  /** product/022: discover/run Skill Runtime before LLM. */
+  enableSkillRuntime: boolean;
+  /** product/022: allow declarative learned SkillPlans. */
+  enableLearnedSkills: boolean;
+  /** product/022: artifact criteria in independent verifier. */
+  enableArtifactVerification: boolean;
 }
 
 export interface EvalSettingsConfig {
@@ -32,6 +42,11 @@ export const DEFAULT_EVAL_SETTINGS: EvalSettingsConfig = {
     enableDeterministicYouTube: true,
     enableRetryRecovery: true,
     enableContextCompression: true,
+    enableBrowserKernelV1: true,
+    enableObservationDiff: false,
+    enableSkillRuntime: true,
+    enableLearnedSkills: false,
+    enableArtifactVerification: true,
   },
 };
 

@@ -22,6 +22,7 @@
 12. product/006-outer-loop-rl-min-plan.md ← 可选后续：外环 RL（draft，默认不执行）
 13. product/020-eval-master.md ← 统一评估任务注册表与矩阵列
 14. product/019-ai-agent-book-build-plan.md ← AI Agent Book 建设规划（current，默认路线）
+15. product/022-adaptive-browser-harness-v1.md ← 下一层 Harness：Kernel / Skill / Diff / Verifier（proposed）
 ```
 
 > `product/003`、`product/011` 保留为旧方向历史文档；产品目标以 `product/021` 为准。
@@ -59,3 +60,5 @@ Owner 当轮明确口头/文字纠正
 **下一会话默认：** 实现长程上下文压缩与中断恢复，再接长程任务评估集。
 
 > `product/019` 已验收为 current：下一会话默认改为 Wave 1（评估与可观测性地基）；`product/020` 是其任务输入契约。
+
+> `product/022` 为 proposed：在 019/020/021 地基上把执行核升级为 Adaptive Browser Harness（Kernel + Skill Runtime + Observation Diff + Independent Verifier）；**未过 Release Gate 前不作为默认实现路线**，需 Owner 确认后才从 Phase 0 baseline 开工。
