@@ -1167,6 +1167,9 @@ export class TaskManager {
             artifacts,
             this.instructions.get(taskId) ?? task.goalSummary ?? '',
           );
+          const evidence = artifactGate.artifactEvidence ?? [];
+          const passedN = evidence.filter(e => e.passed).length;
+          const failedN = evidence.filter(e => !e.passed).length;
           const verifySpan = await traceStore.beginSpan({
             taskId,
             roundId: runRoundId,
@@ -1176,6 +1179,12 @@ export class TaskManager {
             data: {
               verdict: artifactGate.verdict,
               artifact_count: artifacts.length,
+              // product/022 Trace Gate: Verifier span contract
+              criteria: evidence.map(e => e.kind).join(',') || 'none',
+              passed: passedN,
+              failed: failedN,
+              inconclusive: artifactGate.verdict === 'INCONCLUSIVE' ? 1 : 0,
+              evidence_ref: artifacts[0]?.id ?? 'none',
             },
           });
           await traceStore.finishSpan(verifySpan, artifactGate.complete ? 'ok' : 'fail');

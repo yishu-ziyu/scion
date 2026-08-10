@@ -1,0 +1,11 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-11-022-stage1-current-v2,W1,013-A01,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_current_default,verified_pass,0,0,0,1753,,,url=https://www.wikipedia.org/
+2026-08-11-022-stage1-current-v2,W1,013-A03,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_current_default,verified_pass,0,0,0,17321,,,url=https://www.youtube.com/
+2026-08-11-022-stage1-current-v2,W1,013-B04,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_current_default,verified_pass,0,0,0,4092,,,url=https://www.wikipedia.org/
+2026-08-11-022-stage1-current-v2,W1,013-B05,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_current_default,verified_pass,0,0,0,5292,,,url=https://en.wikipedia.org/wiki/Agent
+2026-08-11-022-stage1-current-v2,W1,013-B06,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_current_default,verified_pass,0,0,0,12508,,,url=https://www.youtube.com/watch?v=8U9CIbrpLdE
+2026-08-11-022-stage1-current-v2,W1,013-B07,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_current_default,verified_pass,0,0,0,4093,,,url=https://www.iana.org/help/example-domains
+2026-08-11-022-stage1-current-v2,W1,013-B08,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_current_default,verified_pass,0,0,0,4087,,,url=https://en.wikipedia.org/wiki/Artificial_intelligence
+2026-08-11-022-stage1-current-v2,W1,021-LH-01,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_current_default,fail,0,0,0,0,other,,failed: 失败了 失败了 wikipedia.org · Wikipedia 当前目标 进入英文维基；搜索并打开 Artificial intelligence 条目；确认 URL 在 wiki/Artificial_intelligence 后再完成。不要在门户或搜索结果列表页报完成。 任务计划 打开 调研 验证 活动 · 15S 操作记录2 接下来你可以 找不到目标元素或页面 找不到目标元素或页面 你 你 进入英文维基；搜索并打开 Artificial intell
+2026-08-11-022-stage1-current-v2,W1,021-LH-02,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_current_default,verified_pass,0,0,0,5300,,,url=https://en.wikipedia.org/wiki/Web_browser
+2026-08-11-022-stage1-current-v2,W1,021-LH-03,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_current_default,verified_pass,0,0,0,1682,,,url=http://127.0.0.1:57142/products

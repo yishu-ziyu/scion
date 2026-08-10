@@ -1,0 +1,179 @@
+{
+  "75cad705-636d-4241-a5d1-de66806131cc": {
+    "createdAt": 1786385287438,
+    "spans": [
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 1,
+          "roundCount": 1
+        },
+        "id": "db0e1f75-5651-407f-8b85-24b5ad2faec8",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786385287438,
+        "status": "ok",
+        "taskId": "75cad705-636d-4241-a5d1-de66806131cc"
+      },
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 1,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 2,
+          "roundCount": 1
+        },
+        "id": "f4a51fb9-57c0-448f-a037-aac9692492db",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786385287450,
+        "status": "ok",
+        "taskId": "75cad705-636d-4241-a5d1-de66806131cc"
+      },
+      {
+        "data": {
+          "frame_id": "frame-msnjodvi-1",
+          "full_chars": 1051,
+          "material_change": true,
+          "page_revision": "1928428783|https://example.com|dbdd2f6338676d2c3856ff02cf1802399bf26376b25d8e79fb7ba418c42772a0",
+          "rendered_chars": 1051
+        },
+        "endedAt": 1786385287999,
+        "id": "73659eb9-6a6a-41a5-935b-b367a51b46d0",
+        "kind": "observe",
+        "name": "kernel.observe",
+        "roundId": "6bfc7d53-6956-46cd-a811-172f45ce5517",
+        "startedAt": 1786385287998,
+        "status": "ok",
+        "taskId": "75cad705-636d-4241-a5d1-de66806131cc"
+      },
+      {
+        "data": {
+          "step": 0
+        },
+        "endedAt": 1786385288001,
+        "id": "8d280982-dc1d-48bb-b987-3b2ece6cd2a6",
+        "kind": "skill",
+        "name": "skill.discover",
+        "roundId": "6bfc7d53-6956-46cd-a811-172f45ce5517",
+        "startedAt": 1786385287999,
+        "status": "ok",
+        "taskId": "75cad705-636d-4241-a5d1-de66806131cc"
+      },
+      {
+        "data": {
+          "model": "MiniMax-M3",
+          "step": 0
+        },
+        "endedAt": 1786385289573,
+        "id": "ae193323-c598-40cc-a327-c2ef1819ded2",
+        "kind": "llm",
+        "name": "control_llm_invoke",
+        "roundId": "6bfc7d53-6956-46cd-a811-172f45ce5517",
+        "startedAt": 1786385288001,
+        "status": "ok",
+        "taskId": "75cad705-636d-4241-a5d1-de66806131cc"
+      },
+      {
+        "data": {
+          "action": "go_to_url"
+        },
+        "endedAt": 1786385290851,
+        "id": "b0e4c6da-4454-4ce3-941f-77475395a51c",
+        "kind": "act",
+        "name": "kernel.act_go_to_url",
+        "roundId": "6bfc7d53-6956-46cd-a811-172f45ce5517",
+        "startedAt": 1786385289576,
+        "status": "ok",
+        "taskId": "75cad705-636d-4241-a5d1-de66806131cc"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 1,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 3,
+          "roundCount": 1
+        },
+        "id": "6f570be5-722a-4170-adec-8136bdc99dc8",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786385289580,
+        "status": "ok",
+        "taskId": "75cad705-636d-4241-a5d1-de66806131cc"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 1,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 4,
+          "roundCount": 1
+        },
+        "id": "43eeb6b6-7517-4688-99f9-67ae9e772882",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786385289584,
+        "status": "ok",
+        "taskId": "75cad705-636d-4241-a5d1-de66806131cc"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 1,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 5,
+          "roundCount": 1
+        },
+        "id": "a1cc0955-896b-4617-a55d-5e091e4366e7",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786385290842,
+        "status": "ok",
+        "taskId": "75cad705-636d-4241-a5d1-de66806131cc"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 1,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 6,
+          "roundCount": 1
+        },
+        "id": "b9c291fc-d67e-4c59-b63d-f9792473b600",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786385290845,
+        "status": "ok",
+        "taskId": "75cad705-636d-4241-a5d1-de66806131cc"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 1,
+          "evidenceCount": 1,
+          "receiptCount": 1,
+          "revision": 7,
+          "roundCount": 1
+        },
+        "id": "c88bba62-1674-424b-8cf7-db048dac8e7b",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786385290850,
+        "status": "ok",
+        "taskId": "75cad705-636d-4241-a5d1-de66806131cc"
+      }
+    ],
+    "taskId": "75cad705-636d-4241-a5d1-de66806131cc",
+    "terminalStatus": "completed",
+    "updatedAt": 1786385290851
+  }
+}

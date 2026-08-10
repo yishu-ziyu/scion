@@ -1,0 +1,16 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-11-022-diff-on,W1,021-LH-01,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,21424,,,url=https://en.wikipedia.org/wiki/Artificial_intelligence
+2026-08-11-022-diff-on,W1,021-LH-01,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,13745,,,url=https://en.wikipedia.org/wiki/Artificial_intelligence
+2026-08-11-022-diff-on,W1,021-LH-01,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,13236,,,url=https://en.wikipedia.org/wiki/Artificial_intelligence
+2026-08-11-022-diff-on,W1,021-LH-02,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,5298,,,url=https://en.wikipedia.org/wiki/Web_browser
+2026-08-11-022-diff-on,W1,021-LH-02,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,5360,,,url=https://en.wikipedia.org/wiki/Web_browser
+2026-08-11-022-diff-on,W1,021-LH-02,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,5311,,,url=https://en.wikipedia.org/wiki/Web_browser
+2026-08-11-022-diff-on,W1,021-LH-03,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,1678,,,url=http://127.0.0.1:63677/products
+2026-08-11-022-diff-on,W1,021-LH-03,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,1682,,,url=http://127.0.0.1:63726/products
+2026-08-11-022-diff-on,W1,021-LH-03,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,1686,,,url=http://127.0.0.1:63775/products
+2026-08-11-022-diff-on,W1,013-B04,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,4099,,,url=https://www.wikipedia.org/
+2026-08-11-022-diff-on,W1,013-B04,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,4102,,,url=https://www.wikipedia.org/
+2026-08-11-022-diff-on,W1,013-B04,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,4093,,,url=https://www.wikipedia.org/
+2026-08-11-022-diff-on,W1,013-B05,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,4100,,,url=https://en.wikipedia.org/wiki/Agent
+2026-08-11-022-diff-on,W1,013-B05,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,4098,,,url=https://en.wikipedia.org/wiki/Agent
+2026-08-11-022-diff-on,W1,013-B05,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_diff_on,verified_pass,0,0,0,4097,,,url=https://en.wikipedia.org/wiki/Agent

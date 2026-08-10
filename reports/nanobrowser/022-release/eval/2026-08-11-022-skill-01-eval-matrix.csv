@@ -1,0 +1,2 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-11-022-skill-01,W1,022-SKILL-01,1,9c32b17,MiniMax-M3,user_chrome,chijie-control-v0.3.0,022-harness,verified_pass,0,0,0,1695,,,url=http://127.0.0.1:64364/products
