@@ -62,6 +62,19 @@ last_modified: "2026-08-06"
 | 021-LH-01 | product/021 | wikipedia 门户 | URL 含 `/wiki/Artificial_intelligence` 且 page_text 含标题词 | MiniMax-M3 | ≥3 | 否 |
 | 021-LH-02 | product/021 | example.com → wiki | URL 含 `/wiki/Web_browser` 且 page_text 含 `web browser` | MiniMax-M3 | ≥3 | 否 |
 | 021-LH-03 | product/021 | products fixture | 侧栏交付含 `name,price,rating` 与最贵品 `Beta Mechanical Keyboard` | MiniMax-M3 | ≥3 | 否 |
+| 022-KERNEL-01 | product/022 | unit / control path | Kernel observe/act 契约；ON 路径可测 | MiniMax-M3 | ≥1 unit | 否 |
+| 022-DIFF-01 | product/022 | multi-step + Diff ON/OFF | payload 中位数降幅 ≥30% 且 TSR 不崩 | MiniMax-M3 | ≥3 | 否 |
+| 022-SKILL-01 | product/022 | list extract skill | generic list skill 完成表格提取 | MiniMax-M3 | ≥3 | 否 |
+| 022-SKILL-02 | product/022 | unit skill fail | 匹配 Skill 失败 → fallback，任务不直接死亡 | n/a unit | ≥1 unit | 否 |
+| 022-VERIFY-01 | product/022 | unit verifier | 错误 candidate_complete 必须被 Verifier 拒绝 | n/a unit | ≥1 unit | 否 |
+| 022-ARTIFACT-01 | product/022 | unit artifact | schema / row / source 真校验，非 summary | n/a unit | ≥1 unit | 否 |
+| 022-LEARN-01 | product/022 | learned plan | Candidate 换输入 3 次晋升（当前 enableLearnedSkills=false 可 BLOCKED） | MiniMax-M3 | ≥3 | 否 |
+
+Phase 0 / Regression task set id（runner `TASK_SET=phase0_022`）:
+
+```text
+013-A01,013-A03,013-B04,013-B05,013-B06,013-B07,013-B08,018-O1,018-R1,021-LH-01,021-LH-02,021-LH-03
+```
 
 ## 统一矩阵列
 

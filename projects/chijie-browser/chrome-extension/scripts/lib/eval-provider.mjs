@@ -183,12 +183,57 @@ export function buildEvalStoragePayload(cfg) {
   };
 }
 
+/**
+ * Optional eval feature-flag overlay (product/022 release campaign).
+ * EVAL_FEATURE_FLAGS_JSON='{"enableObservationDiff":true,"enableBrowserKernelV1":false}'
+ * or EVAL_ENABLE_OBSERVATION_DIFF=1 etc.
+ */
+export function resolveEvalFeatureFlags() {
+  const base = {
+    enableAgentStatusBar: true,
+    enableDeterministicFormFill: true,
+    enableDeterministicBilibili: true,
+    enableDeterministicYouTube: true,
+    enableRetryRecovery: true,
+    enableContextCompression: true,
+    enableBrowserKernelV1: true,
+    enableObservationDiff: false,
+    enableSkillRuntime: true,
+    enableLearnedSkills: false,
+    enableArtifactVerification: true,
+  };
+  if (process.env.EVAL_FEATURE_FLAGS_JSON) {
+    try {
+      Object.assign(base, JSON.parse(process.env.EVAL_FEATURE_FLAGS_JSON));
+    } catch {
+      // ignore bad json
+    }
+  }
+  const map = {
+    EVAL_ENABLE_BROWSER_KERNEL_V1: 'enableBrowserKernelV1',
+    EVAL_ENABLE_OBSERVATION_DIFF: 'enableObservationDiff',
+    EVAL_ENABLE_SKILL_RUNTIME: 'enableSkillRuntime',
+    EVAL_ENABLE_LEARNED_SKILLS: 'enableLearnedSkills',
+    EVAL_ENABLE_ARTIFACT_VERIFICATION: 'enableArtifactVerification',
+  };
+  for (const [envKey, flag] of Object.entries(map)) {
+    const v = process.env[envKey];
+    if (v === '1' || v === 'true') base[flag] = true;
+    if (v === '0' || v === 'false') base[flag] = false;
+  }
+  return base;
+}
+
 /** Seed planner/navigator LLM settings into extension storage (eval only). */
 export async function seedEvalLlm(panel) {
   const cfg = resolveEvalProvider();
   const payload = buildEvalStoragePayload(cfg);
+  payload['eval-settings'] = {
+    traceEnabled: true,
+    featureFlags: resolveEvalFeatureFlags(),
+  };
   console.log(
-    `[eval-provider] seed kind=${cfg.kind} providerId=${cfg.providerId} model=${cfg.model} baseUrl=${cfg.baseUrl} keyLen=${cfg.apiKey.length}`,
+    `[eval-provider] seed kind=${cfg.kind} providerId=${cfg.providerId} model=${cfg.model} baseUrl=${cfg.baseUrl} keyLen=${cfg.apiKey.length} flags=${JSON.stringify(payload['eval-settings'].featureFlags)}`,
   );
   await panel.evaluate(async storagePayload => chrome.storage.local.set(storagePayload), payload);
   return cfg;

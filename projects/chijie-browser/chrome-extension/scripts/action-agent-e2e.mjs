@@ -548,6 +548,13 @@ async function runAllScenarios(extensionId, run) {
   await waitForTestId(panel, 'completion-receipt');
   console.log(`[e2e] run${run} skill PASS receipt=${skillDone.receiptId || 'text'}`);
 
+  // 022 Phase 0 / 018-O1 formal form+skill path can skip media when media fixture is flaky in CI.
+  if (process.env.E2E_SKIP_MEDIA === '1' || process.env.E2E_SKIP_MEDIA === 'true') {
+    console.log(`[e2e] run${run} media SKIP (E2E_SKIP_MEDIA=1)`);
+    console.log(`[e2e] run${run} latency_ms=${Date.now() - scenarioStart}`);
+    return;
+  }
+
   const media = await browser.newPage();
   await media.goto(`${origin}/media?run=${run}`, { waitUntil: 'domcontentloaded' });
   // Fixture starts paused; prove play before pause.

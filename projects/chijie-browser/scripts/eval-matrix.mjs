@@ -31,7 +31,9 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
-const reportDir = path.resolve(projectRoot, '../../reports/nanobrowser/eval');
+const reportDir = process.env.REPORT_DIR
+  ? path.resolve(process.env.REPORT_DIR)
+  : path.resolve(projectRoot, '../../reports/nanobrowser/eval');
 
 /** Named task sets. TASKS=... overrides TASK_SET when both are set. */
 const TASK_SETS = {
@@ -40,6 +42,31 @@ const TASK_SETS = {
   public_ab: ['013-A01', '013-A02', '013-A03', '013-B01', '013-B04', '013-B05', '013-B06', '013-B07', '013-B08'],
   // product/021 long-horizon mini set: multi-phase, no Owner login
   long_horizon: ['021-LH-01', '021-LH-02', '021-LH-03'],
+  // product/022 Phase 0 release baseline task set (formal MiniMax)
+  phase0_022: [
+    '013-A01',
+    '013-A03',
+    '013-B04',
+    '013-B05',
+    '013-B06',
+    '013-B07',
+    '013-B08',
+    '018-O1',
+    '018-R1',
+    '021-LH-01',
+    '021-LH-02',
+    '021-LH-03',
+  ],
+  // product/022 dedicated harness tasks (unit/driver scripts where registered)
+  harness_022: [
+    '022-KERNEL-01',
+    '022-DIFF-01',
+    '022-SKILL-01',
+    '022-SKILL-02',
+    '022-VERIFY-01',
+    '022-ARTIFACT-01',
+    '022-LEARN-01',
+  ],
 };
 
 function resolveTasks() {
@@ -85,7 +112,10 @@ const csvPath = path.join(reportDir, `${stamp}-eval-matrix.csv`);
 const summaryPath = path.join(reportDir, `${stamp}-eval-summary.md`);
 
 const taskCommands = {
-  '018-O1': { script: ['chrome-extension/scripts/action-agent-e2e.mjs'], env: {} },
+  '018-O1': {
+    script: ['chrome-extension/scripts/action-agent-e2e.mjs'],
+    env: { E2E_SKIP_MEDIA: '1' },
+  },
   '018-R1': { script: ['chrome-extension/scripts/r1-extract-e2e.mjs'], env: {} },
   '013-C01': { script: ['chrome-extension/scripts/action-agent-e2e.mjs'], env: {} },
   '015-J-CONT-01': { script: ['chrome-extension/scripts/action-agent-e2e.mjs'], env: {} },
@@ -225,6 +255,29 @@ const taskCommands = {
       EXPECTED: 'name,price,rating||Beta Mechanical Keyboard',
       E2E_TIMEOUT_MS: '180000',
     },
+  },
+
+  // product/022 dedicated gates — unit harness (browser e2e subset runs via phase0_022)
+  '022-KERNEL-01': { script: ['scripts/eval-022-unit-gates.mjs'], env: { UNIT_TASK_FILTER: '022-KERNEL-01' } },
+  '022-DIFF-01': { script: ['scripts/eval-022-unit-gates.mjs'], env: { UNIT_TASK_FILTER: '022-DIFF-01' } },
+  // List/table extract skill path: reuse LH-03 fixture goal under dedicated task id (no new product code).
+  '022-SKILL-01': {
+    script: ['chrome-extension/scripts/eval-public-task.mjs'],
+    env: {
+      TARGET_URL: 'fixture://products',
+      GOAL:
+        '这是一个多阶段任务：1) 阅读当前产品列表页；2) 提取至少 5 行 name,price,rating 表格；3) 在回复中写出最贵商品的名称（应为 Beta Mechanical Keyboard）与价格。表格头必须含 name,price,rating。',
+      VERIFY: 'body_contains_all',
+      EXPECTED: 'name,price,rating||Beta Mechanical Keyboard',
+      E2E_TIMEOUT_MS: '180000',
+    },
+  },
+  '022-SKILL-02': { script: ['scripts/eval-022-unit-gates.mjs'], env: { UNIT_TASK_FILTER: '022-SKILL-02' } },
+  '022-VERIFY-01': { script: ['scripts/eval-022-unit-gates.mjs'], env: { UNIT_TASK_FILTER: '022-VERIFY-01' } },
+  '022-ARTIFACT-01': { script: ['scripts/eval-022-unit-gates.mjs'], env: { UNIT_TASK_FILTER: '022-ARTIFACT-01' } },
+  '022-LEARN-01': {
+    script: ['scripts/eval-022-unit-gates.mjs'],
+    env: { UNIT_TASK_FILTER: '022-LEARN-01' },
   },
 };
 

@@ -1,0 +1,200 @@
+{
+  "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6": {
+    "createdAt": 1786384812753,
+    "spans": [
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 1,
+          "roundCount": 1
+        },
+        "id": "095b96d4-0018-45ac-a01c-c5379170f7ea",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786384812753,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      },
+      {
+        "data": {
+          "frame_id": "frame-msnje8kv-1",
+          "full_chars": 4665,
+          "material_change": true,
+          "page_revision": "1359660826|https://en.wikipedia.org|89b241dd8546f7ecb096f402f58cca9df43ef9283d7e5090c4bc1f8f423a8151",
+          "rendered_chars": 4665
+        },
+        "endedAt": 1786384814576,
+        "id": "97377d8f-a5e0-4830-9955-e02e45346d51",
+        "kind": "observe",
+        "name": "kernel.observe",
+        "roundId": "35ec7664-81e2-4531-881b-15aef2ccd2e8",
+        "startedAt": 1786384814575,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      },
+      {
+        "data": {
+          "step": 0
+        },
+        "endedAt": 1786384814578,
+        "id": "f45f0b24-1674-4f88-8b15-0b99ea70df98",
+        "kind": "skill",
+        "name": "skill.discover",
+        "roundId": "35ec7664-81e2-4531-881b-15aef2ccd2e8",
+        "startedAt": 1786384814576,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      },
+      {
+        "data": {
+          "candidate_count": 1,
+          "duration": 0,
+          "fallback_used": false,
+          "outcome": "action",
+          "selected_reason": "wikipedia_search",
+          "skill_id": "builtin.search-and-open",
+          "skill_version": "1.0.0"
+        },
+        "endedAt": 1786384814578,
+        "id": "7d0da117-029b-4bdc-aee0-3c923c97b0e9",
+        "kind": "skill",
+        "name": "skill.run",
+        "roundId": "35ec7664-81e2-4531-881b-15aef2ccd2e8",
+        "startedAt": 1786384814578,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      },
+      {
+        "data": {
+          "action": "go_to_url"
+        },
+        "endedAt": 1786384815832,
+        "id": "28ad501b-c82a-49d5-9c67-eff7cc79d1e2",
+        "kind": "act",
+        "name": "kernel.act_go_to_url",
+        "roundId": "35ec7664-81e2-4531-881b-15aef2ccd2e8",
+        "startedAt": 1786384814579,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 2,
+          "roundCount": 1
+        },
+        "id": "921a9cdf-1e66-4fd5-8026-560a6a8b69be",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786384814581,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 3,
+          "roundCount": 1
+        },
+        "id": "0d73f41e-5e3b-4967-9990-a4de53ea71e6",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786384814582,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 4,
+          "roundCount": 1
+        },
+        "id": "1fd258ea-c3f8-4ee4-87d7-98770cc40b18",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786384815825,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 5,
+          "roundCount": 1
+        },
+        "id": "d5c6c386-c545-4fbd-b54c-b1793c7d0c4c",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786384815828,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      },
+      {
+        "data": {
+          "step": 1
+        },
+        "endedAt": 1786384816402,
+        "id": "3a41ed28-c3e6-4646-bbdd-db4c888df74f",
+        "kind": "skill",
+        "name": "skill.discover",
+        "roundId": "35ec7664-81e2-4531-881b-15aef2ccd2e8",
+        "startedAt": 1786384816401,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      },
+      {
+        "data": {
+          "candidate_count": 1,
+          "duration": 0,
+          "fallback_used": false,
+          "outcome": "done",
+          "selected_reason": "wikipedia_search",
+          "skill_id": "builtin.search-and-open",
+          "skill_version": "1.0.0"
+        },
+        "endedAt": 1786384816403,
+        "id": "cb211152-75f5-4815-9c59-6212cdb31335",
+        "kind": "skill",
+        "name": "skill.run",
+        "roundId": "35ec7664-81e2-4531-881b-15aef2ccd2e8",
+        "startedAt": 1786384816403,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 1,
+          "revision": 6,
+          "roundCount": 1
+        },
+        "id": "2b63bf63-4561-4aa0-9ad4-d14948b7bfe1",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786384816406,
+        "status": "ok",
+        "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6"
+      }
+    ],
+    "taskId": "b5b1b6a4-4a2b-4ad8-a421-c933d9bad7c6",
+    "terminalStatus": "completed",
+    "updatedAt": 1786384816406
+  }
+}

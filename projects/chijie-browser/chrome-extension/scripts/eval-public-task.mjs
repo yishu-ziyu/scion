@@ -9,7 +9,7 @@
  *     VERIFY=url_starts_with EXPECTED=https://www.wikipedia.org node chrome-extension/scripts/eval-public-task.mjs
  */
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
@@ -31,10 +31,14 @@ const expected = process.env.EXPECTED || '';
 const promptVersion = process.env.PROMPT_VERSION || 'chijie-control-v0.3.0';
 const policyTag = process.env.POLICY_TAG || 'baseline';
 const model = resolveModel();
+/** When set, dump chrome.storage eval-traces-v1 JSON after the run (Trace Gate evidence). */
+const traceDumpDir = process.env.TRACE_DUMP_DIR || '';
 
 let browser;
 let ownsBrowser = false;
 let fixtureServer;
+/** Panel page kept for optional post-run storage dump. */
+let panelPage;
 
 function resolveChromePath() {
   if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
@@ -317,6 +321,7 @@ try {
   await target.goto(effectiveTargetUrl, { waitUntil: 'domcontentloaded' });
   console.log('[public-task] target=', target.url());
   const panel = await openPanelForTarget(extensionId, target);
+  panelPage = panel;
   console.log('[public-task] panel ready');
   const startedAt = Date.now();
   await sendGoal(panel, target);
@@ -410,6 +415,27 @@ try {
   }
   process.exitCode = 1;
 } finally {
+  // Trace Gate: dump real eval-traces-v1 before tearing down the browser.
+  if (traceDumpDir && panelPage) {
+    try {
+      const traces = await panelPage.evaluate(async () => {
+        const key = 'eval-traces-v1';
+        const stored = await chrome.storage.local.get([key]);
+        return stored?.[key] ?? {};
+      });
+      mkdirSync(traceDumpDir, { recursive: true });
+      const outPath = path.join(traceDumpDir, `${taskId}-${Date.now()}.json`);
+      writeFileSync(outPath, JSON.stringify(traces, null, 2));
+      // Compact summary for logs (names only — no page body)
+      const names = [];
+      for (const t of Object.values(traces || {})) {
+        for (const s of t?.spans || []) names.push(s.name);
+      }
+      console.log(`[public-task] TRACE_DUMP path=${outPath} spans=${names.join(',')}`);
+    } catch (dumpErr) {
+      console.warn('[public-task] TRACE_DUMP failed', String(dumpErr?.message || dumpErr));
+    }
+  }
   if (ownsBrowser) {
     await browser?.close().catch(() => {});
     await rm(profilePath, { recursive: true, force: true }).catch(() => {});
