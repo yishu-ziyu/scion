@@ -9,24 +9,31 @@ related:
   - "product/016"
   - "product/017"
   - "product/015"
+  - "product/020"
+  - "product/021"
   - "product/research/sider-claw/016-sider-claw-demo-catalog-and-ux"
   - "design/005"
-last_modified: "2026-07-24"
+last_modified: "2026-08-11"
 ---
 
 # 018 — Claw 30 例真机记分板
 
-## Owner 纪律（2026-07-23 冻结）
+> **Historical eval asset only (2026-08-11).**
+> 当前产品北极星是 `product/021` 长程任务 Agent，不是 Claw 30 对标。
+> 本表保留跑分历史与参考故事；**不得**再被入口文档写成“强制全跑才允许做产品”。
+> 统一 task_id 与现行评估协议见 `product/020`。
 
-1. **30 例全部要跑**，不得用「先 3～5 条 tracer」替代全表。  
-2. 跑不过 Claw 示例效果 → **不得**宣称对标完成，也 **不得** 把精力先堆到更远的个性化。  
-3. 每条必须有：`run` 状态 + 证据路径 + 差距一句。  
+## Owner 纪律（2026-07-23 冻结；历史）
+
+1. **30 例全部要跑**，不得用「先 3～5 条 tracer」替代全表。
+2. 跑不过 Claw 示例效果 → **不得**宣称对标完成，也 **不得** 把精力先堆到更远的个性化。
+3. 每条必须有：`run` 状态 + 证据路径 + 差距一句。
 4. 状态码：
-   - `not_run` — 还没按本行验收句跑过  
-   - `auto_proxy` — 仅单元/journey 近似，**不算** Claw 故事过关  
-   - `partial` — 真机或 e2e 跑了，效果明显弱于 Claw 演示  
-   - `fail` — 跑了，达不到验收  
-   - `pass` — when I do X → I see Y 相对 Claw 故事成立（允许实现路径不同，**用户可见终点**要对齐）  
+   - `not_run` — 还没按本行验收句跑过
+   - `auto_proxy` — 仅单元/journey 近似，**不算** Claw 故事过关
+   - `partial` — 真机或 e2e 跑了，效果明显弱于 Claw 演示
+   - `fail` — 跑了，达不到验收
+   - `pass` — when I do X → I see Y 相对 Claw 故事成立（允许实现路径不同，**用户可见终点**要对齐）
 5. **宣称 Claw 80% / 个性化就绪** 的前置：`pass` 数达到 016 的 M-80 定义（M0–M4 故事），且本表无「关键路径全是 not_run」。
 
 ## 当前总览（更新于 2026-07-24）
@@ -115,10 +122,10 @@ last_modified: "2026-07-24"
 
 必须 **30 行都有至少一次 `not_run`→其他** 的更新。推荐波次（仍覆盖全表，只是时间序）：
 
-1. **波次 A — Operate 可见环：** O1 真机 → O3 →（O2 若有日历）  
-2. **波次 B — Research 抽表：** R1 → R8 → R6 → R7 → R4 → R3 → R5 → R2  
-3. **波次 C — Transform 交付：** T1 → T3 → T8 → T2 → T5 → T7 → T4 → T6  
-4. **波次 D — Generate 文件：** G5 CSV → G8 → G7 → G1/G2 → 其余  
+1. **波次 A — Operate 可见环：** O1 真机 → O3 →（O2 若有日历）
+2. **波次 B — Research 抽表：** R1 → R8 → R6 → R7 → R4 → R3 → R5 → R2
+3. **波次 C — Transform 交付：** T1 → T3 → T8 → T2 → T5 → T7 → T4 → T6
+4. **波次 D — Generate 文件：** G5 CSV → G8 → G7 → G1/G2 → 其余
 
 每波更新本表 + `reports/nanobrowser/claw-30/<ID>/` 证据。
 

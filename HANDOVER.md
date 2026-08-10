@@ -1,21 +1,21 @@
 # HANDOVER: scion / 持节 ops continuity
 
-**Audience:** Codex (or any agent) continuing development on this machine.  
-**Owner:** yishu-ziyu  
-**Date:** 2026-07-14 (single-tree merge); hygiene pass 2026-07-23  
+**Audience:** Codex (or any agent) continuing development on this machine.
+**Owner:** yishu-ziyu
+**Date:** 2026-07-14 (single-tree merge); hygiene pass 2026-07-23; truth-chain pass 2026-08-11
 **Status:** MiniMax-M3 personal fork is usable on main Chrome; **one code tree only** (dual-tree retired). multi-step Navigator E2E passed with known flaky mid-parse; extension-tab target isolation closed through attach-time regression review.
 
-**Day-to-day entry:** [README.md](./README.md) + [ENGINEERING.md](./ENGINEERING.md) + [AGENTS.md](./AGENTS.md).  
-This file is the **long ops narrative** (inject, CDP, log capture, historical E2E). Do not invent a second empty Chrome profile for 持节 tests.
+**Day-to-day entry:** [README.md](./README.md) + [ENGINEERING.md](./ENGINEERING.md) + [AGENTS.md](./AGENTS.md).
+Product truth chain is in AGENTS.md (021 → decision 004 → 020 → 019 → run_state). This file is the **long ops narrative** (inject, CDP, log capture, historical E2E). Do not invent a second empty Chrome profile for 持节 tests.
 Then skim `reports/nanobrowser/2026-07-13-minimax-e2e-cdp.md` when debugging CDP.
 
 ---
 
 ## 1. One-sentence mission
 
-Ship a personal Nanobrowser fork that runs on **main Chrome** with **MiniMax Token Plan (MiniMax-M3)**, Chinese UI, no GUI secret entry, and robust enough JSON handling for mid-tier models that emit `<think>` tags.
+Ship **持节**: a Chrome MV3 **long-horizon task Agent** on **main Chrome** with **MiniMax Token Plan (MiniMax-M3)**, Chinese UI, no GUI secret entry, robust mid-model JSON (`<think>`), mission/plan, **task-scoped autonomy** (no default step-approval), and verified delivery only.
 
-Broader product intent: 持节 long-horizon task agent - mission/plan, task-scoped autonomy, verified delivery; default core `control` (observe-act), `nano` demotable. See `CONTEXT.md` + `docs/product/021`.
+Default core `control` (observe-act), `nano` demotable. See `CONTEXT.md` + `docs/product/021` + `docs/decisions/004`.
 
 ---
 
@@ -50,9 +50,9 @@ There is **one** extension folder. Paths are aliases, not copies.
 
 When the user hits `step_failed` or other runtime errors:
 
-1. User (or agent, with CDP up): `chrome-cdp ensure` then `nanobrowser-logs`  
-   Script: `reports/nanobrowser/scripts/capture_logs.py`  
-2. Output (local, gitignored): `reports/nanobrowser/logs/LATEST.md` + `LATEST.jsonl`  
+1. User (or agent, with CDP up): `chrome-cdp ensure` then `nanobrowser-logs`
+   Script: `reports/nanobrowser/scripts/capture_logs.py`
+2. Output (local, gitignored): `reports/nanobrowser/logs/LATEST.md` + `LATEST.jsonl`
 3. Agent **reads LATEST.md** - do not ask the user to paste Service Worker consoles by default.
 
 Requires main Chrome on port 9222 and Nanobrowser side panel / SW alive.
@@ -241,8 +241,8 @@ Flags required when something is wrong:
 
 Failure mode already seen: process lists `--remote-debugging-port=9222` but nothing listens / `DevToolsActivePort` stale → `ensure` or `repair`.
 
-**Hard rule:** drive **main** Chrome (extensions + login).  
-Do **not** use empty `/tmp` profiles for Nanobrowser product E2E.  
+**Hard rule:** drive **main** Chrome (extensions + login).
+Do **not** use empty `/tmp` profiles for Nanobrowser product E2E.
 Deprecated: `~/bin/chrome-debug-launcher.sh` redirects to `chrome-cdp ensure`.
 
 Other profiles on this machine (do not confuse):
@@ -264,20 +264,20 @@ Other profiles on this machine (do not confuse):
 
 ## 8. Testing pitfalls (learned the hard way)
 
-1. **Side panel as a normal tab**  
-   If the chat UI is focused as a tab, Navigator may treat it as the active page and navigate *away* from the task context.  
+1. **Side panel as a normal tab**
+   If the chat UI is focused as a tab, Navigator may treat it as the active page and navigate *away* from the task context.
    Daily use: real Chrome **side panel**; keep the **content tab** active for navigation tasks.
 
-2. **401 after key rotate**  
+2. **401 after key rotate**
    Force rebuild with inject (`pnpm build`) so bootstrap writes the new key. Old keys in storage get overwritten by bootstrap when key is non-empty.
 
-3. **Intermediate JSON parse errors**  
+3. **Intermediate JSON parse errors**
    MiniMax still occasionally returns non-extractable payloads on long Navigator prompts. Retries often recover. Do not call the product "done" for strict 0-fail until a regression suite proves it.
 
-4. **CDP != human side panel**  
+4. **CDP != human side panel**
    Automations that open `chrome-extension://.../side-panel/index.html` as a page are not equivalent to `chrome.sidePanel` UX.
 
-5. **Unpacked path**  
+5. **Unpacked path**
    Chrome Load unpacked should stay on `~/projects/chijie-browser/dist` (symlink → scion graft). After rebuild, reload the extension card.
 
 ---

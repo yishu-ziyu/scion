@@ -9,20 +9,22 @@ Long runtime ops (CDP, MiniMax inject, log capture) stay in [HANDOVER.md](./HAND
 | Layer | Name |
 |-------|------|
 | Product (UI / Chrome store voice) | **持节** (Chijie) |
+| Product shape | Chrome MV3 **long-horizon task Agent** |
 | Lab monorepo | **scion** |
 | Extension package folder | `projects/chijie-browser/` |
 | Upstream rootstock | [nanobrowser/nanobrowser](https://github.com/nanobrowser/nanobrowser) |
 
 Do not brand new user-facing strings as Nanobrowser, 奕枢, or OpenClaw.
 
-## Phase discipline (do not skip)
+## Product truth (do not invent a second one)
 
-Full text: [docs/product/011-browser-agent-parity-first.md](./docs/product/011-browser-agent-parity-first.md).
+Conflict order is fixed in [AGENTS.md](./AGENTS.md):
 
-- **Now (v0.1–v0.2):** Browser Agent parity. Raise **Task Success Rate** via Understanding + Action + Loop only.
-- **Not now:** Memory product, knowledge graph, agent-platform architecture tours.
-- **Allowed now:** a stable **Memory Interface** with no-op / thin local sink so Phase 2 can plug in later.
-- Reject work that designs the end-state OS before the agent can walk.
+```text
+021 north star → decision 004 autonomy → 020 eval → 019 roadmap → run_state status
+```
+
+Historical docs (003, 011, 016–018, old approval UX) never override the chain above.
 
 ## Clean bar (what “tidy” means here)
 
@@ -31,10 +33,10 @@ Aligned with a normal **Chrome MV3 monorepo** (pnpm + Turbo + Vite):
 1. **One source tree** for the extension — no second clone to sync.
 2. **Generated artifacts never committed** — `node_modules/`, `dist/`, `dist-zip/`, `.turbo/`, coverage.
 3. **Secrets never committed** — `secrets.local.ts`, `.env*`, keys, pem.
-4. **Front door is product-true** — root `README.md` and extension `README.md` describe 持节, not upstream marketing.
+4. **Front door is product-true** — root `README.md` and extension `README.md` describe 持节 as a long-horizon task Agent, not upstream marketing and not Claw-30 parity theater.
 5. **Commands are package-defined only** — no invented scripts; prefer `pnpm -F <pkg> <script>`.
 6. **Tests live next to code** — `**/__tests__/**/*.test.ts` under `chrome-extension` (Vitest).
-7. **Docs have one index** — [docs/DOCS_INDEX.md](./docs/DOCS_INDEX.md); product work maps to a gate or numbered doc.
+7. **Docs have one index** — [docs/DOCS_INDEX.md](./docs/DOCS_INDEX.md); product work maps to a gate or numbered current doc.
 8. **Evidence has a home** — runtime / E2E notes under `reports/` (folder name `nanobrowser` is historical; product name is 持节).
 9. **No editor/OS junk** — `.DS_Store`, `.idea/`, stray `*.bak*`.
 10. **WIP is visible** — unfinished features either land behind tests or stay uncommitted; do not half-merge silent branches into `main` without note.
@@ -45,7 +47,7 @@ Aligned with a normal **Chrome MV3 monorepo** (pnpm + Turbo + Vite):
 scion/
   README.md                 # human front door
   ENGINEERING.md            # this file
-  AGENTS.md                 # agent lab rules
+  AGENTS.md                 # agent lab rules + truth chain
   CONTEXT.md                # product vocabulary
   HANDOVER.md               # long ops continuity (CDP, inject, E2E)
   docs/                     # product / design / decisions
@@ -95,7 +97,7 @@ Checklist:
 - [ ] `pnpm build` succeeds from `projects/chijie-browser`
 - [ ] `pnpm -F chrome-extension test` is green for the area you touch
 - [ ] Extension loads from `dist/` and side panel opens
-- [ ] Active product doc / gate for the change is named (or docs updated first)
+- [ ] Active product doc from the **021 → 004 → 020 → 019** chain is named (or docs updated first)
 
 ## Out of hygiene scope (do not “clean” by deleting)
 

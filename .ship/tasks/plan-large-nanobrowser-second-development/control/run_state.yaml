@@ -3,23 +3,34 @@ active: true
 current_phase: implementation
 status: running
 workflow: product-lifecycle-v2
-updated_at: "2026-07-15T02:45:00Z"
-ui_design_003: "UI-1–5 IA done (f228d1d); pixel polish optional"
-ui_evidence:
-  - docs/design/003-chijie-ui-interaction.md
-  - projects/chijie-browser/pages/options/src/components/OverviewSettings.tsx
-north_star: docs/product/003-north-star.md
-north_star_021: docs/product/021-long-horizon-task-agent.md
+updated_at: "2026-08-11T12:00:00Z"
+
+# Product truth (must match AGENTS.md chain; historical docs never override)
+north_star: docs/product/021-long-horizon-task-agent.md
 autonomy_decision: docs/decisions/004-task-scoped-autonomy.md
-docs_driven: docs/product/004-docs-driven-dev.md
-accuracy_reference: "Meituan Tabbit 1.0 Agent success 91.8%; web-ops bench 70%"
-parity_target: "verified success >= 91.8% on golden journeys (MiniMax-M3)"
-current_milestone: long_horizon_v1
-current_milestone_goal: "Mission/Plan + long-horizon context memory + autonomous task-scoped execution"
-plan_019_status: current
 eval_master: docs/product/020-eval-master.md
+plan_019: docs/product/019-ai-agent-book-build-plan.md
+docs_driven: docs/product/004-docs-driven-dev.md
+historical_north_star_003: docs/product/003-north-star.md  # historical only
+
+# Live milestone (aligned with 021 + 2026-08-06 evidence)
+current_milestone: long_horizon_v1
+current_milestone_goal: "Mission/Plan + long-horizon context memory + autonomous task-scoped execution + verified long_horizon eval"
+plan_019_status: current
 next_default: long_horizon_eval_harden_and_outer_loop
+accuracy_reference: "MiniMax-M3 official scores; Tabbit public numbers are quality reference only, not product north star"
+parity_target: "historical Claw/Tabbit parity sets are eval assets only; do not treat as current_milestone"
+
+# 2026-08-06 agent-book iteration (landed)
 long_horizon_agent_book_iteration: "2026-08-06"
+long_horizon_status: core_landed
+long_horizon_landed:
+  - mission_plan
+  - task_scoped_autonomy
+  - context_compression_deterministic
+  - full_aci_prompt
+  - long_horizon_task_set_021_lh
+  - formal_batch_minimax_10_of_10
 long_horizon_agent_book_evidence:
   - reports/nanobrowser/agent-book-iteration/2026-08-06-gap-matrix.md
   - reports/nanobrowser/agent-book-iteration/2026-08-06-iteration-report.md
@@ -27,6 +38,8 @@ long_horizon_agent_book_evidence:
   - reports/nanobrowser/eval/2026-08-06-iter-grok-mini-eval-matrix.csv
   - reports/nanobrowser/eval/2026-08-06-iter-lh01-r5-eval-matrix.csv
   - reports/nanobrowser/eval/2026-08-06-iter-lh02-grok-eval-matrix.csv
+
+# Historical browser-action milestones (kept for evidence lineage)
 m1_status: complete
 m1_evidence:
   - reports/nanobrowser/bakeoff/2026-07-14-m1-matrix.csv
@@ -42,6 +55,7 @@ m2_evidence:
   - docs/design/002-production-core-swap.md
   - reports/nanobrowser/m2-2026-07-15-g6-complete.md
 m3_status: blocked_on_owner_login
+m3_role: historical_golden_journey_not_north_star
 m3_protocol: docs/product/005-golden-journeys-protocol.md
 g7_status: code_audit_pass
 g7_evidence:
@@ -49,7 +63,18 @@ g7_evidence:
 g8_status: template_only
 g8_evidence:
   - reports/nanobrowser/tabbit-alignment.md
-outer_rl_status: deferred_plan_only
+
+# Outer loop: implemented, has been run, Skill candidates generated (not a live continuous process)
+outer_rl_status: candidates_generated
 outer_rl_spec: docs/product/006-outer-loop-rl-min-plan.md
 outer_rl_evidence_dir: reports/nanobrowser/outer-rl
-outer_rl_note: "Optional future item. Spec only; do not run matrix or treat as default work until Owner explicitly enables outer-loop RL. Does not change current_milestone M3."
+outer_rl_note: "outer-loop.mjs implemented and has been executed; Skill candidates exist under reports/nanobrowser/outer-rl/skills/candidates/ (incl. 021-LH-*). Not a continuously running job. Further harden/filter optional; real-site trajectories still need Owner login."
+outer_rl_evidence:
+  - reports/nanobrowser/outer-rl/2026-08-06-15-53-56-outer-loop-run.md
+  - reports/nanobrowser/outer-rl/skill-candidate-summary.md
+  - reports/nanobrowser/outer-rl/skills/candidates/
+
+ui_design_003: "UI-1–5 IA done (f228d1d); pixel polish optional; approval modal is not current UX"
+ui_evidence:
+  - docs/design/003-chijie-ui-interaction.md
+  - projects/chijie-browser/pages/options/src/components/OverviewSettings.tsx

@@ -1,14 +1,16 @@
 # Shared product language
 
-> 2026-08-02：产品北极星已更新为 **长程任务 Agent**（`docs/product/021`）。下面的旧“浏览器行动 Agent / 审批”表述只在历史语境中保留；当前实现按 `decisions/004` 默认任务内自主执行。
+> **Current north star:** long-horizon task Agent in the user's Chrome (`docs/product/021`).
+> **Current execution policy:** task-scoped autonomy (`docs/decisions/004`).
+> Old “browser action demo + step approval + Claw 30 parity” language is **historical** only.
 
-## Browser action agent
+## Long-horizon task Agent
 
-An Agent that operates browser pages until a user goal reaches a verifiable outcome. It is not a page-opening shortcut or a sidebar chatbot.
+An Agent that accepts a natural-language goal, maintains a mission/plan, operates the browser across pages and stages, and delivers a **verifiable** outcome. It is not a page-opening shortcut, a sidebar chatbot, or a single-action demo product.
 
 ## Task
 
-A user goal plus its browser context, action history, current tabs/objects, approval state, and completion condition.
+A user goal plus browser context, action history, current tabs/objects, risk/audit labels, and completion condition.
 
 ## Task Round
 
@@ -20,123 +22,103 @@ A follow-up instruction such as “pause it” or “continue the form” that r
 
 ## Verified completion
 
-Observable browser evidence that the requested outcome occurred, such as a submitted-form success state or a video entering the paused state. A model saying `done` is not sufficient by itself.
+Observable browser evidence that the requested outcome occurred. A model saying `done` is not sufficient by itself.
 
 ## Completion receipt
 
-An immutable summary of one Task Round's outcome, observable evidence, approved external commits, browser target, and completion time.
+An immutable summary of one Task Round's outcome, observable evidence, external-commit labels, browser target, and completion time.
 
 ## External commit
 
-An action that creates a visible or difficult-to-reverse result outside the Agent, such as submitting, purchasing, sending, publishing, deleting, or changing permissions. It remains a risk/audit label, but is no longer a default approval gate.
+An action that creates a visible or difficult-to-reverse result outside the Agent (submit, purchase, send, publish, delete, permission change). It is a **risk/audit label**, not a default approval gate.
 
 ## Approval policy (current)
 
-- **Task-scoped autonomy:** user giving a goal authorizes the actions clearly required by that goal.
+- **Task-scoped autonomy:** stating a goal authorizes the actions clearly required by that goal.
 - **External commits execute directly** and remain labeled for receipt/audit/privacy redaction.
-- **Stop, not approve:** the user can stop or correct the task at any time; this replaces step-by-step permission popups.
+- **Stop, not approve:** the user can stop or correct at any time; this replaces step-by-step permission popups.
 - **Only out-of-scope high-risk actions** need explanation/confirmation; sensitive inputs still reject automatic entry.
+
+Historical docs that still mention `waiting_approval` / submit-before-approve are pre-2026-08-02 records. Runtime may migrate legacy `waiting_approval` snapshots to `interrupted`; that is compatibility, not current UX.
 
 ## Skill
 
-A reusable semantic task recipe with inputs, expected outcome, and approval policy. The first implementation cycle includes local Skill saving and rerun, but excludes sharing and a marketplace. A raw replay of stale element indexes is not a Skill.
+A reusable semantic task recipe with inputs, expected outcome, and policy. Local save/rerun is in scope for early cycles; marketplace is not. Replaying stale element indexes is not a Skill.
 
 ## Quality first
 
-Correctness, safety, verified completion, privacy, and maintainability beat delivery speed and sunk cost. When quality requires replacing the Agent execution core, replace it; do not protect "we already built on Nano core."
+Correctness, safety, verified completion, privacy, and maintainability beat delivery speed and sunk cost. When quality requires replacing the Agent execution core, replace it (`docs/decisions/002`).
 
-## Agent task loop (MVP acceptance)
+## Agent task loop (core acceptance)
 
-The sole primary acceptance for the product MVP:
-
-1. User gives a natural-language goal in **task mode** (not casual chat).
-2. The main browser surface actually changes (navigate, fill, click, media control).
-3. The agent panel shows human-readable execution steps.
-4. Completion is shown only with observable page evidence (green check / receipt).
+1. User gives a natural-language goal in **task mode**.
+2. The main browser surface actually changes (navigate, fill, click, media control, multi-page work).
+3. The agent panel shows human-readable execution steps / plan stages.
+4. Completion is shown only with observable page evidence (receipt / checkable delivery).
 5. Optional user rating: success / partial / failed.
 
-Reference experience: Tabbit task mode (e.g. “open YouTube” → real YouTube tab + steps + done).
-
-Harder journeys (Feishu submit with approval, Bilibili pause binding) are longer instances of the same loop, not a different product.
-
-## Phase discipline (owner 2026-07-23)
-
-**Walk before dance.** Full doctrine: `docs/product/011-browser-agent-parity-first.md`.
-
-1. **Phase 1 — Browser Agent Parity:** reliable browser operation only. Compete on Task Success Rate against Sider Claw / browser-use / Operator-class products. Engineering cores: **Browser Understanding**, **Browser Action**, **Agent Loop** (observe → reason → act → re-observe).
-2. **Phase 2 — Differentiation:** Preference / Workflow / Procedural memory and the usage flywheel. **Not now.**
-3. **Memory:** implement **later**; keep a stable **Memory Interface** (no-op or thin local sink) so the task loop does not hard-wire storage. No knowledge graph in Phase 1.
-
-Version compress: **v0.1** Browser Agent → **v0.2** Reliable (retry, recovery, eval, benchmark) → **v0.3** Personal memory → **v1.0** Personal Browser OS. Current work = v0.1–v0.2 only.
+Short browser demos are **instances** of the same loop, not the product identity.
 
 ## Capability ceiling A→C (owner 2026-07-23)
 
 Full decision: `docs/decisions/003-a-to-c-capability-ceiling-and-voice.md`.
 
 - **Now = A:** extension-native reliability on the user's real Chrome is the acceptance floor.
-- **Direction = C:** capability depth should keep moving toward native-browser-class agent harness (attachment, control surface, room to compound). Do not treat “A is good enough forever” as success.
-- **Means:** companions (native host, optional CDP attach, offscreen) are allowed as muscle under the same plugin face; forking Chromium is not the default path (`decisions/001` stays the entry form until Owner reopens it).
-- **Why:** private plugin that increasingly understands this user needs a strong executable frame first, then local personalization compound interest—not a feature list.
+- **Direction = C:** deepen toward native-browser-class harness; do not treat “A forever” as success.
+- **Means:** companions allowed under the same plugin face; forking Chromium is not default (`decisions/001`).
 
 ## Dual voice
 
-- **Engineering / eval / ADRs:** precise geek terms allowed and preferred when they reduce ambiguity.
-- **Product UI / user-facing copy:** plain human language; verified outcomes without dumping kernel jargon on the user.
-- **Presentation leakage is a product bug:** never show Planner/Navigator/step_failed/observe_failed/internal enums on the main task UI. Map via `presentation/*` + i18n. Axioms: `docs/product/014-executable-framework-axioms.md`.
-- **Task UX after user asks (Claw-aligned):** human steps, stop + follow-up, completion with checkable outcome, optional in-page “working on this page” bar — `docs/design/005-chijie-task-ux-from-claw.md`. Parity stories: `docs/product/016-sider-claw-parity-matrix.md`. **Goals + acceptance gates:** `docs/product/017-claw-parity-goals-and-acceptance.md`.
+- **Engineering / eval / ADRs:** precise terms when they reduce ambiguity.
+- **Product UI:** plain language; no Planner/Navigator/`step_failed` leakage on the main task UI.
+- Historical Claw-aligned UX notes live under `docs/design/005` and `docs/product/016`–`018` as **historical** references only.
 
-## Delivery order (MVP slices)
-
-1. **Slice A (minimum green):** Tabbit-class “open YouTube” — task mode → real navigation → human-readable steps → verified done (optional success/partial/fail feedback).
-2. **Same core, next:** Feishu form + external-commit approval (simplified G3) and/or Bilibili pause binding (simplified G4); active-tab binding must match the page the user sees.
-3. Not a second product line: one agent loop and shell; only task difficulty grows. No platform stack before parity.
-
-## In scope this cycle (MVP / Phase 1)
+## In scope (current product line)
 
 - Task mode in the extension side panel
+- Mission/Plan, long-horizon context handling, interrupt/resume direction per 021/019
 - Browser understanding + action + agent loop
-- Human-readable execution steps
-- Verified completion (and optional success / partial / fail feedback)
-- Task Success Rate logging / evaluation hooks
+- Task-scoped autonomy (decision 004)
+- Verified completion + optional feedback
+- Eval hooks and matrix runs per 020
 - Chrome extension shell on daily Chrome
-- Official scoring / default agent model: **MiniMax-M3** (mid-tier)
+- Official scoring model: **MiniMax-M3**
 - Memory **interface** stub only (stable contract, empty or thin)
 
 ## Out of scope this cycle
 
-- Skill marketplace / 妙招广场
-- Preference / Workflow / Procedural memory **product** (Phase 2)
-- Personal knowledge graph / episodic store as a ship goal
-- Agent platform layers that do not raise Task Success Rate this cycle
-- Full custom browser (permanent non-goal unless Owner explicitly changes product direction)
+- Skill marketplace
+- Personal knowledge graph as a ship goal
+- Full custom browser
 - Desktop pet / 桌宠
 - Smart tab grouping as a product pillar
 - Multi-model “shelf” UI as a product pillar
+- Restoring default step-approval as the main product flow
 
-## Later intent (not scheduled)
+## Historical reference sets (not north star)
 
-- **Memory flywheel:** preference + workflow + procedural skills after Phase 1 reliability is proven. Parked; do not block v0.1–v0.2.
+- Claw 30 matrix and scorecard: `016` / `017` / `018` — eval/research assets only
+- Old parity doctrine: `011` — historical phase language
+- Old browser-action north star: `003` — superseded by `021`
 
 ## Shell vs core
 
-- **Shell (final product form):** Chrome extension on the user’s daily Chrome, with a side-panel **task mode** that implements the agent task loop. We benchmark Tabbit's capability and experience, not its native-browser shell.
-- **Product contract**: Task, agent task loop, approval, verified completion, receipt, Skill, privacy boundaries.
-- **Execution core (decided for MVP):** Two layers inside the extension (TypeScript), inspired by browser-use *architecture*, not the Python package:
-  1. **Agent loop** — observe page → state summary to model → choose action → execute → re-observe; tool set; failure retry. This is the product core; reimplemented in the extension.
-  2. **Browser control** — drive tabs/pages via extension APIs (`chrome.tabs`, `scripting`, `debugger` / CDP where needed) and event-style watchdogs for navigation, dialogs, downloads. Not a Python CDP client inside the service worker.
-- **Out of MVP default:** running stock browser-use as a side Python process (may be a later bake-off path only).
+- **Shell:** Chrome extension on daily Chrome with side-panel task mode.
+- **Product contract:** Task, agent loop, task-scoped autonomy, verified completion, receipt, Skill, privacy.
+- **Execution core:** default `control` (observe-act); `nano` demotable (`docs/design/002`).
+- Browser control via extension APIs; not a Python CDP client inside the service worker as the product path.
 
 ## North star
 
-Single end goal: a powerful long-horizon task agent plugin that runs in the user's Chrome and delivers verifiable outcomes. The Chrome extension is the final product form. See `docs/product/021-long-horizon-task-agent.md`.
-Gates G1–G7 beat intermediate thrash. Current milestone is always named there.
+Single end goal: a powerful **long-horizon task agent** plugin that runs in the user's Chrome and delivers verifiable outcomes.
+See `docs/product/021-long-horizon-task-agent.md`.
+Current milestone is named in that file and in `run_state.yaml` (must agree).
 
 ## Docs-driven development
 
 See `docs/README.md` and `docs/product/004-docs-driven-dev.md`.
-North star: `docs/product/021-long-horizon-task-agent.md`.
+Conflict order: Owner correction → **021** → **004 decision** → **020** → **019** → `run_state.yaml` → design/* → code.
 
-## Team loop (2026-07-16)
+## Team loop
 
 - Protocol: `docs/product/010-three-loop-g1-g4-protocol.md`
-- Closed slice: contract `docs/product/dev-contract-010-l1-no-progress-v1.md` → `no_progress` in observe-act-loop; G4 PASS `reports/nanobrowser/2026-07-16-contract-010-l1-no-progress-g4.md`

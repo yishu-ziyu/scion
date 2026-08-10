@@ -18,14 +18,15 @@ related:
   - "product/006"
   - "design/002"
   - "design/007"
-last_modified: "2026-08-02"
+last_modified: "2026-08-11"
 ---
 
 # 019 — AI Agent Book 驱动的持节建设规划
 
 ## 状态
 
-**current，Owner 已验收。** 本文件不改变 `current_milestone: M3`；下一会话默认按本文档 Wave 1 开工，不再默认继续堆功能或只跑真机。
+**current，Owner 已验收。** 产品北极星是 `product/021`（长程任务 Agent），**不是**旧 M3 飞书/B 站黄金旅程。
+执行状态以 `run_state.yaml` 的 `current_milestone: long_horizon_v1` 为准；本文描述 Harness / Eval / Observability / Outer Loop 建设路线。
 
 ## 执行状态
 
@@ -33,18 +34,18 @@ last_modified: "2026-08-02"
 |---|---|---|
 | Wave 0 | 完成 | 019 current、020 eval master、run_state 已登记 |
 | Wave 1 | 完成 | `task/trace.ts`、`scripts/eval-matrix.mjs`、`scripts/eval-model-swap.mjs`；矩阵报告 `reports/nanobrowser/eval/` |
-| Wave 2 | 完成 | 状态栏、prompt 版本化、ACI、特性开关、重试策略、最小压缩；单测 359/359、type-check 全绿 |
-| Wave 3 | 部分 | 最终矩阵 `2026-08-02-eval-final`：11 pass / 0 fail；真实站长尾仍待跑 |
-| Wave 4 | 阻塞 | 需要 Owner 日常 Chrome 登录态；协议仍为 product/005 |
-| Wave 5 | 部分 | `scripts/outer-loop.mjs` 已落地；最终矩阵 10 条合格轨迹已生成语义 Skill 候选；真实站轨迹待补 |
+| Wave 2 | 完成 | 状态栏、prompt 版本化、ACI、特性开关、重试策略、上下文压缩；2026-08-06 单测与 type-check 全绿 |
+| Wave 3 | 部分→加强 | 2026-08-06 formal batch MiniMax-M3 **10/10 verified_pass**（含 `021-LH-01..03`）；真站长尾仍待跑 |
+| Wave 4 | 阻塞 | Owner 日常 Chrome 登录态；协议仍为 product/005；**历史黄金旅程，非 021 北极星** |
+| Wave 5 | 进行中 | `scripts/outer-loop.mjs` 已跑；Skill candidates 已落盘 `reports/nanobrowser/outer-rl/skills/candidates/`；真实站轨迹待补 |
 
 ## 目的
 
 《深入理解 AI Agent：设计原理与工程实践》给出的不是一张功能清单，而是一条从 Demo 到生产 Agent 的建设路径：
 
-> Agent = LLM + 上下文 + 工具  
-> 生产 Agent = Model + Harness  
-> Harness = Context + Tools + Constrain + Verify + Correct  
+> Agent = LLM + 上下文 + 工具
+> 生产 Agent = Model + Harness
+> Harness = Context + Tools + Constrain + Verify + Correct
 > 长期可靠 = Evaluation + Observability + Continuous Evolution
 
 本规划把这条路径映射到 `持节 / Chijie`，先回答“一个 Agent 产品要能被可靠造出来，必须具备哪些部分”，再对照现状，最后给出新的建设顺序。
@@ -67,7 +68,7 @@ last_modified: "2026-08-02"
 - 工具是 ACI，不是普通 API：命名直观、参数有例子、边界明确、返回值结构清晰。
 - 工具粒度要少而稳，用有限原语组合复杂能力。
 - 参数传递必须保真：模型看到的世界和工具操作的世界不能有系统性偏差。
-- 外部提交、不可逆操作必须分级、审批、可审计。
+- 外部提交、不可逆操作必须分级、可审计；持节按 `decisions/004` 做任务级授权，不恢复逐步审批门。
 
 ### 1.4 Loop：Observe → Reason → Act → Re-observe
 
@@ -78,7 +79,7 @@ last_modified: "2026-08-02"
 ### 1.5 Constrain：行为边界
 
 - 默认 fail-closed；高风险操作显式开放。
-- 外部提交一次批准、批准作废、禁止绕过。
+- 任务目标范围内的外部提交直接执行并打审计标签；超范围高风险才说明；敏感输入拒绝自动填写。
 - 输入侧、执行侧、输出侧都要有护栏。
 
 ### 1.6 Verify：自动判断对错
@@ -128,7 +129,7 @@ last_modified: "2026-08-02"
 | Harness 壳 | TaskManager / ActionDispatcher / CompletionChecker / 回执 | `design/002`、`task/manager.ts` |
 | 可换执行核 | `control` 默认，`nano` 可拔 | `design/002`、`agent/factory.ts` |
 | 观察帧 | Snapshot Frame、`pageRevision`、stale frame reject | `design/007`、`task/action-frame.ts` |
-| 约束 | 任务内自主执行、外部提交留审计标签、隐私抽检 | `product/021`、`decisions/004`、`services/guardrails` |
+| 约束 | 任务内自主执行（无默认审批门）、外部提交留审计标签、隐私抽检 | `product/021`、`decisions/004`、`services/guardrails` |
 | 验证 | URL / page_text / media_state / tab_state / download_state criteria | `control-policy.ts`、`task/completion.ts` |
 | 纠正 | `no_progress`、`maxFailures`、失败分类、可恢复重试 | `backends/observe-act-loop.ts`、`control-llm.ts` |
 | 产品 UX | 人话步骤、停止、完成证据、反展示泄漏 | `product/014`、`design/005` |
@@ -157,12 +158,12 @@ last_modified: "2026-08-02"
 | Context | 观察摘要 + criteria | 无状态栏、无压缩、无确定性 prompt 版本 | W2 上下文工程 |
 | Tools | 约 20 个 action schema | ACI 描述弱、无示例、无成本/边界说明 | W2 工具 ACI |
 | Loop | observe-act-loop 已落地 | 失败恢复映射不完整 | W2 错误分类表 |
-| Constrain | 外部提交审批 + guardrails | 无特性开关、无消融 | W2 特性开关 |
+| Constrain | 任务级自主 + external_commit 审计标签 + guardrails | 消融开关持续完善 | W2 特性开关 |
 | Verify | CompletionChecker + 页面证据 | 无统一 eval verifier 层 | W1 eval harness |
 | Correct | no_progress + maxFailures | 无错误到恢复策略映射表 | W2 retry taxonomy |
 | Evaluation | 013/015/016/017/018 文档 | 无自动化 runner、无统计报告 | W1 eval harness |
 | Observability | logger + PostHog | 无 trace span、无回放 | W1 observability |
-| Evolution | 006 draft | 无实际外环闭环 | W5 外环学习 |
+| Evolution | 006 current；outer-loop 已跑 | Skill 候选需筛选与真站扩跑 | W5 外环学习 |
 
 ## 4. 新建设顺序
 

@@ -26,5 +26,6 @@ Personal **long-horizon task agent**: mission/plan-based web tasks in daily Chro
 - Brand: **持节 / Chijie** (not Nanobrowser, not 奕枢).
 - Design tokens live under `pages/side-panel/src/design/chijie-*.css`.
 - North star: `docs/product/021-long-horizon-task-agent.md` (scion repo root).
-- **Interaction source of truth:** `docs/design/003-chijie-ui-interaction.md`
+- Autonomy: `docs/decisions/004-task-scoped-autonomy.md` (no default step-approval UX).
+- **UI design notes:** `docs/design/003` is historical IA; do not reintroduce approval-as-main-flow from old mockups.
 - **Mockups:** `docs/design/ui/chijie-sidepanel-task-main.png`, `docs/design/ui/chijie-options-overview.png`

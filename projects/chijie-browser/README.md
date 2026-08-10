@@ -1,13 +1,14 @@
 # 持节 (Chijie) · Chrome extension
 
-可验证的 **浏览器行动 Agent**（Chrome MV3 侧栏）。
+运行在用户 Chrome 中的 **长程任务 Agent**（Chrome MV3 侧栏）。
 
-本包基于 [nanobrowser/nanobrowser](https://github.com/nanobrowser/nanobrowser) 的个人嫁接，产品名为 **持节**。  
+本包基于 [nanobrowser/nanobrowser](https://github.com/nanobrowser/nanobrowser) 的个人嫁接，产品名为 **持节**。
 实验室 monorepo：[yishu-ziyu/scion](https://github.com/yishu-ziyu/scion)。
 
 | 层 | 值 |
 |----|-----|
 | 产品 | 持节 / Chijie |
+| 形态 | Long-horizon task Agent（Mission/Plan、任务级自主、可验证交付） |
 | 包名 | `chijie-browser` |
 | 版本 | 见 `package.json` |
 | Load unpacked | `pnpm build` 后加载 `./dist` |
@@ -15,23 +16,15 @@
 
 ## 产品要点（当前）
 
-- **任务侧栏**：目标、活动步骤、提交前审批、完成回执与证据；对话区不被任务卡压扁。
-- **Feature-first UI**：先用户目标与路径，再映射现有 `chijie-*` 组件（见 lab `docs/design/006`）。
+- **任务侧栏**：目标、计划阶段、活动步骤、完成回执与证据；对话区不被任务卡压扁。
+- **任务级自主**：用户给出目标即授权范围内行动；**不做**逐步“提交前审批”主流程（见 lab `docs/decisions/004`）。
 - **完成必须可核对**：仅有 URL 形态不够；**404 /「页面不可用」不会标绿完成**。
-- **确定性捷径（fixture / 常见句）**：表单填+批提交（O1）、列表抽 CSV（R1 tracer）、媒体播停、理解类问答等。
+- **长程能力**：Mission/Plan、上下文压缩、长程评估迷你集（`021-LH-*`）；正式分绑定 MiniMax-M3。
 
-### Claw 30 记分（lab）
+### 历史评测资产（非北极星）
 
-权威表：`../../docs/product/018-claw-30-live-scorecard.md`  
-证据目录：`../../reports/nanobrowser/claw-30/`
-
-| 状态（约） | 含义 |
-|------------|------|
-| O1 **pass** | 本地表单：填 → 提交前停 → 批 1 次 → 完成 |
-| R1 **partial** | 本地商品列表抽出 CSV（非 Amazon 真机） |
-| 其余 | 多为 `not_run`；个性化工作不得抢在全表之前 |
-
-随机真机问题以你的反馈为准；日常扩展会话日志默认**不会**自动进仓库。
+Claw 30（`docs/product/016`–`018`）与旧 parity 矩阵是 **历史评测 / 参考集**，不是当前产品方向。
+当前北极星：`../../docs/product/021-long-horizon-task-agent.md`。
 
 ## 环境
 
@@ -53,7 +46,7 @@ pnpm zip                   # build + zip → dist-zip/
 ### 端到端（需 Chrome for Testing / 配置的 CHROME_PATH）
 
 ```bash
-# 表单审批 + skill 重跑 + 媒体播停 + 隐私检查
+# fixture 表单 + skill 重跑 + 媒体播停 + 隐私检查
 pnpm e2e:action-agent
 # 或
 pnpm -F chrome-extension e2e:action-agent
@@ -64,7 +57,7 @@ pnpm e2e:r1-extract
 pnpm -F chrome-extension e2e:r1-extract
 ```
 
-Agent 命令细节：[AGENTS.md](./AGENTS.md)。  
+Agent 命令细节：[AGENTS.md](./AGENTS.md)。
 实验室卫生条：[../../ENGINEERING.md](../../ENGINEERING.md)。
 
 ## 目录
@@ -99,12 +92,12 @@ cp chrome-extension/src/personal/secrets.local.example.ts \
 
 | 文档 | 用途 |
 |------|------|
+| `../../AGENTS.md` | 事实源优先级（硬规则） |
 | `../../CONTEXT.md` | 词汇：Task、receipt、external_commit… |
+| `../../docs/product/021-long-horizon-task-agent.md` | **当前北极星** |
+| `../../docs/decisions/004-task-scoped-autonomy.md` | 任务级自主 |
+| `../../docs/product/020-eval-master.md` | 评估契约 |
 | `../../docs/DOCS_INDEX.md` | 编号文档索引 |
-| `../../docs/product/018-claw-30-live-scorecard.md` | Claw 30 真机记分 |
-| `../../docs/design/004-chijie-calm-task-console.md` | 侧栏视觉/三态 |
-| `../../docs/design/005-chijie-task-ux-from-claw.md` | 任务 UX 契约 |
-| `../../docs/design/006-feature-first-sidepanel-flows.md` | 功能→流→原子映射 |
 | `../../docs/upstream/nanobrowser/` | 上游营销归档 |
 
 ## License
