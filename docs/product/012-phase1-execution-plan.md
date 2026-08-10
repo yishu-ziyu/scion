@@ -3,13 +3,18 @@ title: "Phase 1 执行计划：持续推进与关键人机验收"
 description: "Browser Agent Parity 的可执行计划：切片、自动验收、仅在关键节点请 Owner 真机体验。"
 category: "product"
 number: "012"
-status: current
+status: historical
 services: ["projects/chijie-browser"]
 related: ["product/021", "product/011", "product/003"]
-last_modified: "2026-07-23"
+last_modified: "2026-08-11"
 ---
 
 # 012 — Phase 1 执行计划
+
+> **Historical (2026-08-11).**
+> 本文服务于旧 Browser Agent Parity / 011 阶段计划。
+> 当前北极星是 `product/021`，执行状态见 `run_state.yaml`（`current_milestone: long_horizon_v1`）。
+> 不得把本文重新抬成现行执行计划。
 
 ## 协作契约（本对话默认）
 
@@ -19,7 +24,7 @@ last_modified: "2026-07-23"
 | **Owner** | **只在关键节点**真机体验；产品取舍；是否放行下一阶段 |
 | **禁止** | 每一步都等人；把 Memory/平台终局塞进 Phase 1 |
 
-阶段纪律见 `product/011`。  
+阶段纪律见 `product/011`。
 当前只做 **v0.1 → v0.2（Parity / Reliable）**。
 
 ## 北极指标
@@ -30,8 +35,8 @@ last_modified: "2026-07-23"
 TSR = verified_pass / attempts
 ```
 
-- verified = 页面可观察结果，不是模型口头 done  
-- 同步记录：平均耗时、失败分类（错页 / 看不懂 / 点错 / 卡住 / 超时）  
+- verified = 页面可观察结果，不是模型口头 done
+- 同步记录：平均耗时、失败分类（错页 / 看不懂 / 点错 / 卡住 / 超时）
 - **固定任务集与换核对打协议：`product/013-quality-first-tsr-bakeoff.md`（出身归零）**
 
 ## 里程碑与人机闸门
@@ -98,20 +103,20 @@ pnpm build                      # 需要时
 
 ## 下一动作（Agent）
 
-1. ~~完成 S1 实现 + 单测~~  
-2. ~~自动验收绿~~  
-3. **等 H1**（你点侧栏；反馈错页/对页）  
-4. H1 通过后进 S2（observe quality），不回头堆 Memory  
+1. ~~完成 S1 实现 + 单测~~
+2. ~~自动验收绿~~
+3. **等 H1**（你点侧栏；反馈错页/对页）
+4. H1 通过后进 S2（observe quality），不回头堆 Memory
 
 ## H1 体验卡（关键节点 · 约 2 分钟）
 
 前置：`pnpm build` 后 Chrome Load unpacked `projects/chijie-browser/dist`，侧栏打开持节。
 
-1. 打开 **B 站某个视频页**，保持该标签为当前标签。  
-2. 看侧栏输入框上方 **「正在读」** 是否显示 bilibili + 视频标题。  
-3. 发送：`识别当前页面在放什么`（或「用一句话总结当前页」）。  
+1. 打开 **B 站某个视频页**，保持该标签为当前标签。
+2. 看侧栏输入框上方 **「正在读」** 是否显示 bilibili + 视频标题。
+3. 发送：`识别当前页面在放什么`（或「用一句话总结当前页」）。
 
-**Pass：** 绑定条对准该视频；回答是该页内容，不是别的标签（如 ChatGPT）。  
-**Fail：** 绑定条错页，或回答明显不是当前视频。  
+**Pass：** 绑定条对准该视频；回答是该页内容，不是别的标签（如 ChatGPT）。
+**Fail：** 绑定条错页，或回答明显不是当前视频。
 
-体验后回一句：`H1 pass` 或 `H1 fail: <现象>`。  
+体验后回一句：`H1 pass` 或 `H1 fail: <现象>`。
