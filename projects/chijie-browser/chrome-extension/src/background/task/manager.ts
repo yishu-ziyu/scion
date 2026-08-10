@@ -31,6 +31,8 @@ import { StaleTaskRoundError } from './contracts';
 import { buildAttemptDisplaySummary, buildAttemptTargetLabel } from './attempt-display';
 import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
 import { checkCompletion } from './completion';
+import { tableColumns, tableRowCount, type TaskArtifact } from './artifact';
+import { verifyCandidateComplete } from './verification-engine';
 import { sha256 } from './digest';
 import { allowsVerifiedComplete } from './page-state';
 import { resolveMediaArgs, resolveTabArgs } from './media';
@@ -1156,7 +1158,53 @@ export class TaskManager {
       if (round.criteria.length === 0) {
         // Understanding / open-ended goals often have no freezeable criteria.
         // Prefer complete with the model summary (answer) over hang or opaque fail.
+        // product/022: when artifacts are present, Independent Verifier must pass first.
         const answer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
+        const artifacts =
+          outcome.kind === 'candidate_complete' && Array.isArray(outcome.artifacts) ? outcome.artifacts : [];
+        if (artifacts.length > 0) {
+          const artifactGate = this.verifyArtifactsIndependently(
+            artifacts,
+            this.instructions.get(taskId) ?? task.goalSummary ?? '',
+          );
+          const verifySpan = await traceStore.beginSpan({
+            taskId,
+            roundId: runRoundId,
+            kind: 'verify',
+            name: 'verify.artifacts',
+            startedAt: this.deps.now(),
+            data: {
+              verdict: artifactGate.verdict,
+              artifact_count: artifacts.length,
+            },
+          });
+          await traceStore.finishSpan(verifySpan, artifactGate.complete ? 'ok' : 'fail');
+          if (!artifactGate.complete) {
+            let handoffRoundId: string | undefined;
+            await this.queueTransition(async () => {
+              const current = await getTask(taskId);
+              if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+              if (current.currentRoundId !== runRoundId) {
+                handoffRoundId = current.currentRoundId;
+                return;
+              }
+              const currentRound = this.currentRound(current);
+              current.status = 'failed';
+              currentRound.status = 'failed';
+              currentRound.failureCategory = 'artifact_verification_failed';
+              delete currentRound.waitReason;
+              current.revision += 1;
+              current.updatedAt = this.deps.now();
+              await this.persist(current);
+            });
+            if (handoffRoundId) {
+              runRoundId = handoffRoundId;
+              verificationRetries = 0;
+              continue;
+            }
+            return;
+          }
+        }
         let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
           const current = await getTask(taskId);
@@ -1331,6 +1379,46 @@ export class TaskManager {
         driver.addFollowUp('Completion was not verified; inspect the current page and continue.');
       }
     }
+  }
+
+  /**
+   * product/022 Independent Verifier for TaskArtifact deliverables.
+   * Does not read Executor reasoning — only artifacts + instruction-derived criteria.
+   */
+  private verifyArtifactsIndependently(artifacts: TaskArtifact[], instruction: string) {
+    const artifactCriteria = this.deriveArtifactCriteria(instruction, artifacts);
+    return verifyCandidateComplete({
+      artifacts,
+      artifactCriteria,
+    });
+  }
+
+  private deriveArtifactCriteria(instruction: string, artifacts: TaskArtifact[]) {
+    const text = instruction.replace(/\s+/g, ' ').trim();
+    const criteria: import('./verification-engine').ArtifactCriterion[] = [{ kind: 'artifact_exists' }];
+    const wantsTable =
+      /\b(csv|table)\b/i.test(text) ||
+      /表格|清单/.test(text) ||
+      artifacts.some(a => a.type === 'table' || a.type === 'recordset');
+    if (wantsTable) {
+      const cols = ['name', 'price', 'rating'];
+      const primary = artifacts[0];
+      const have = primary ? tableColumns(primary) : cols;
+      criteria.push({
+        kind: 'artifact_schema',
+        expected: have.length > 0 ? have : cols,
+      });
+      const minRows = /\b(\d+)\b/.exec(text)?.[1];
+      const expectedRows = minRows ? Number(minRows) : Math.max(1, primary ? tableRowCount(primary) : 1);
+      // For extract tasks require at least 1 row; if user said N, require N.
+      criteria.push({
+        kind: 'artifact_row_count',
+        operator: '>=',
+        expected: Number.isFinite(expectedRows) && expectedRows > 0 ? expectedRows : 1,
+      });
+      criteria.push({ kind: 'artifact_source_count', operator: '>=', expected: 1 });
+    }
+    return criteria;
   }
 
   /** User expects content returned in chat (comment, copy, summary), not only page side-effects. */

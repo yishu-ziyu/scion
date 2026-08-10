@@ -5,6 +5,7 @@
 
 | Category | # | Status | Name | Description | Last Modified | Path |
 |----------|---|--------|------|-------------|---------------|------|
+| product | 022 | proposed | Adaptive Browser Harness v1 | Browser Kernel + Skill Runtime + Observation Diff + Independent Verifier；网站知识迁出 Core。 | 2026-08-10 | [022](docs/product/022-adaptive-browser-harness-v1.md) |
 | decisions | 004 | current | 任务内自主执行，不用强制审批打断用户 | 用户给出任务即是授权；外部提交不再作为默认阻塞点。 | 2026-08-02 | [004](docs/decisions/004-task-scoped-autonomy.md) |
 | product | 021 | current | 长程任务 Agent 北极星 | 一次委托、计划、长上下文、自主执行、可验证交付；取代旧浏览器操作演示叙事。 | 2026-08-02 | [021](docs/product/021-long-horizon-task-agent.md) |
 | design | 007 | current | ego-lite 启发：Snapshot Frame | index 只在当前观察帧有效；driver 自动绑定 revision；页面漂移先拒绝再观察。 | 2026-07-30 | [007](docs/design/007-ego-lite-snapshot-frame.md) |

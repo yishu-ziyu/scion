@@ -17,7 +17,11 @@ export type TraceSpanKind =
   | 'act'
   | 'reobserve'
   | 'verify'
-  | 'llm';
+  | 'llm'
+  | 'kernel'
+  | 'skill'
+  | 'artifact'
+  | 'diff';
 
 export interface TraceSpan {
   id: string;

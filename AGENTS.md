@@ -10,7 +10,7 @@ Global `~/.grok/AGENTS.md` still applies for communication and safety.
 **Phase discipline (parity first):** [docs/product/011-browser-agent-parity-first.md](./docs/product/011-browser-agent-parity-first.md)
 **Read for runtime continuity (CDP / inject / E2E):** [HANDOVER.md](./HANDOVER.md)
 **Product vocabulary:** [CONTEXT.md](./CONTEXT.md)
-**Docs drive development:** [docs/README.md](./docs/README.md) → [021](./docs/product/021-long-horizon-task-agent.md) → [004](./docs/product/004-docs-driven-dev.md)
+**Docs drive development:** [docs/README.md](./docs/README.md) → [021](./docs/product/021-long-horizon-task-agent.md) → [022](./docs/product/022-adaptive-browser-harness-v1.md) (proposed) → [004](./docs/product/004-docs-driven-dev.md)
 **Doc index:** [docs/DOCS_INDEX.md](./docs/DOCS_INDEX.md)
 
 ### Docs-driven rule (hard)
