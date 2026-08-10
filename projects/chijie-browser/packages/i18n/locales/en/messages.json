@@ -1,11 +1,11 @@
 {
   "app_metadata_description": {
     "description": "Extension description",
-    "message": "在日常 Chrome 里用自然语言完成多步网页任务：关键处审批、页面证据才算完成。"
+    "message": "Long-horizon tasks in your daily Chrome: one handoff, autonomous multi-page work, verified delivery. Stop or correct anytime."
   },
   "app_metadata_name": {
     "description": "Extension name",
-    "message": "持节 Chijie"
+    "message": "Chijie: long-horizon task agent for Chrome"
   },
   "errors_unknown": {
     "message": "发生未知错误"

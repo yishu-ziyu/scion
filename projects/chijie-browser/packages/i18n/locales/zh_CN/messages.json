@@ -1,11 +1,11 @@
 {
   "app_metadata_description": {
     "description": "Extension description",
-    "message": "在日常 Chrome 里用自然语言完成多步网页任务：关键处审批、页面证据才算完成。"
+    "message": "在日常 Chrome 里完成长程任务：一次委托、自主跨页执行、可验证交付；可随时停止或修正。"
   },
   "app_metadata_name": {
     "description": "Extension name",
-    "message": "持节：可验证浏览器行动 Agent"
+    "message": "持节：Chrome 长程任务 Agent"
   },
   "errors_unknown": {
     "message": "发生未知错误"

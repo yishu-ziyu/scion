@@ -13,16 +13,78 @@ related:
   - "decisions/002"
   - "design/002"
   - "design/007"
-last_modified: "2026-08-10"
+last_modified: "2026-08-11"
 ---
 
 # 022 · Adaptive Browser Harness v1
 
-**状态：Proposed**  
-**Owner：yishu-ziyu**  
-**日期：2026-08-10**  
-**产品：持节 / Chijie**  
+**Owner：yishu-ziyu**
+**产品：持节 / Chijie**
 **依赖：019 / 020 / 021**
+**落地 commit：`139a0a2`（2026-08-10）**
+
+## 0. 状态（禁止混为一谈）
+
+本文件区分两个概念，**不得**用其中一个冒充另一个：
+
+| 概念 | 本文件取值 | 含义 |
+| --- | --- | --- |
+| **product_status** | `proposed` | 整包 022 尚未通过 §19 Release Gate 全表；**不是**“代码不存在” |
+| **implementation_status** | 见下表 | 代码与默认 feature flags 的真实程度 |
+
+### 0.1 Feature flags（`DEFAULT_EVAL_SETTINGS`）
+
+来源：`projects/chijie-browser/packages/storage/lib/settings/evalSettings.ts`
+消费主路径：`control-llm.ts`（Kernel / Diff / Skill）、`task/manager.ts`（Artifact Verifier）。
+
+| Flag | Default | 默认生产路径？ | implementation_status | 证据 |
+| --- | --- | --- | --- | --- |
+| `enableBrowserKernelV1` | **true** | **是**（`!== false` → `kernel.observe()`） | **default_enabled** | `control-llm.ts` observeFrame；单测 `browser-kernel.test.ts` |
+| `enableSkillRuntime` | **true** | **是**（decide 前 `skillRuntime.tryDecide`） | **default_enabled** | 5 builtin + 2 site skills；`runtime.test.ts` |
+| `enableArtifactVerification` | **true** | **是**（有 artifact 时 `verifyArtifactsIndependently`） | **default_enabled** | `verification-engine.ts` + manager；注：flag 字段存在，但 manager **未读 flag 做 opt-out**，行为等同常开 |
+| `enableObservationDiff` | **false** | **否**（仅 `=== true` 才把 diff 喂给模型） | **landed + experimental** | Diff 计算已实现；默认关；**不是** continuous shadow（关时不算 diff）；**未**证明 payload -30% |
+| `enableLearnedSkills` | **false** | **否** | **partial** | `skills/learned/plan.ts` 可 validate/run；**未**挂入 `createDefaultSkillRegistry` / discover；无晋升证据 |
+
+### 0.2 四层能力 realization
+
+| 能力 | implementation_status | 说明 |
+| --- | --- | --- |
+| Browser Kernel | **default_enabled** | 默认 control 路径经 Kernel observe/act 接口 |
+| Skill Runtime（builtin/site） | **default_enabled** | 默认先 Skill 再 LLM；网站特判迁出 control-llm 目标由 core-purity 测约束 |
+| Observation Diff | **landed / experimental** | 代码完整；默认关闭；Release Gate「payload 中位数 ≥30%」**NOT_RUN** |
+| Independent Verifier（Artifact） | **default_enabled** | Executor 只出 `candidate_complete`；有 artifact 时独立校验 |
+| Learned Skills 晋升 | **partial** | 计划 runner 有；运行时接入与 promotion evidence 无 |
+
+### 0.3 Release Gate 矩阵（§19；2026-08-11 审计）
+
+| Gate | 状态 | 说明 |
+| --- | --- | --- |
+| Regression vs Phase 0 baseline | **NOT_RUN** | 无固定 Phase 0 TSR 对照报告绑定 022 |
+| False Complete = 0 | **PARTIAL** | 单元 + 长程 formal batch 有 `false_complete=0` 证据；非 022 专用 release run |
+| Wrong Tab = 0 | **PARTIAL** | 既有 wrong-tab 约束仍在；无 022 专用矩阵 |
+| Core purity | **PASS** | `control-llm-core-purity.test.ts`：禁止 `browser/sites/*` import |
+| Side effects via dispatchAction | **PARTIAL** | Skill Runtime 设计经 Kernel/hooks；缺全量侧效审计报告 |
+| Observation Diff ≥30% | **NOT_RUN** | flag 默认 false；无中位数证据 |
+| Skill fallback | **PARTIAL** | 单测覆盖失败回退；缺真机长任务统计 |
+| Verification independent | **PARTIAL** | Verifier 代码 + manager 接线；缺 022-VERIFY/ARTIFACT 正式矩阵 |
+| Trace Skill/Diff/Artifact/Verify | **PARTIAL** | trace span 种类已扩；缺统一 release 回放验收 |
+| Privacy | **PARTIAL** | 沿用既有 privacy 审计；非 022 重跑 |
+
+**结论：** product_status 保持 **proposed**（整包未 ship）。
+**同时必须承认：** Kernel / Skill Runtime / Artifact Verifier 已在 **main 默认开启**。
+禁止再写「022 未开工 / 不得走默认路径」——那与 `DEFAULT_EVAL_SETTINGS` 和 `control-llm` 冲突。
+
+### 0.4 `139a0a2` 测试含义
+
+Commit 声称：52 files / **421** cases 全绿；type-check 12 packages 通过。
+
+| 能证明 | 不能单独证明 |
+| --- | --- |
+| 结构落地、单元契约、core purity 静态约束 | 默认开启后的真机 TSR 不回归 |
+| Verifier / Kernel / Skill 的局部正确性 | Release Gate 全表 |
+| Feature flag 接线存在 | ObservationDiff/LearnedSkills 已生产可用 |
+
+---
 
 ## 1. 目标
 

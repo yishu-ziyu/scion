@@ -1,11 +1,11 @@
 {
   "app_metadata_description": {
     "description": "Descrição da extensão",
-    "message": "Automatize tarefas da web com IA! NanoBrowser é uma extensão de código aberto para o navegador que permite extrair dados, preencher formulários e muito mais."
+    "message": "Tarefas de longo horizonte no Chrome: uma delegação, execução autônoma entre páginas, entrega verificável. Pare ou corrija a qualquer momento."
   },
   "app_metadata_name": {
     "description": "Nome da extensão",
-    "message": "Chijie: verifiable browser action agent"
+    "message": "Chijie: agente de tarefas de longo horizonte no Chrome"
   },
   "errors_unknown": {
     "message": "Ocorreu um erro desconhecido"
