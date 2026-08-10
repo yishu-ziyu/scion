@@ -14,7 +14,7 @@
 | product | 019 | current | AI Agent Book 驱动的持节建设规划 | Harness / Eval / Observability / Outer Loop 建设路线；服务 021，不是旧 M3 北极星。 | 2026-08-11 | [019](docs/product/019-ai-agent-book-build-plan.md) |
 | product | 015 | historical | 贾维斯验收句（冻结） | 旧方向历史验收句，已被 product/021 取代。 | 2026-07-23 | [015](docs/product/015-jarvis-acceptance-sentences.md) |
 | product | 013 | historical | 质量优先 TSR Bake-off（出身归零） | 旧方向历史评估任务集。 | 2026-07-23 | [013](docs/product/013-quality-first-tsr-bakeoff.md) |
-| product | 012 | current | Phase 1 执行计划与人机闸门 | 持续推进切片；仅 H1–H4 请 Owner 真机体验。 | 2026-07-23 | [012](docs/product/012-phase1-execution-plan.md) |
+| product | 012 | historical | Phase 1 执行计划与人机闸门 | 旧 Parity 阶段计划；已被 021 + run_state long_horizon_v1 取代。 | 2026-08-11 | [012](docs/product/012-phase1-execution-plan.md) |
 | product | 018 | historical | Claw 30 例真机记分板 | 历史评测资产/参考集；非当前北极星（见 021）。 | 2026-08-11 | [018](docs/product/018-claw-30-live-scorecard.md) |
 | product | 017 | historical | Claw 对标目标与验收门 | 旧方向历史验收门。 | 2026-07-23 | [017](docs/product/017-claw-parity-goals-and-acceptance.md) |
 | product | 016 | historical | Sider Claw 30 例 → 持节验收矩阵 | 旧方向历史验收矩阵。 | 2026-07-23 | [016](docs/product/016-sider-claw-parity-matrix.md) |
