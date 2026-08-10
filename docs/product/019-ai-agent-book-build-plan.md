@@ -135,9 +135,12 @@ last_modified: "2026-08-11"
 | 产品 UX | 人话步骤、停止、完成证据、反展示泄漏 | `product/014`、`design/005` |
 | 评估文档 | 013 固定任务集、015 冻结验收句、016/017/018 Claw 30 | `product/013/015/016/017/018` |
 
-### 2.2 当前证据缺口
+### 2.2 Historical baseline before Wave 1–2 implementation
 
-| 缺口 | 现状 | 问题 |
+> **时代边界：** 下表描述 **019 刚提出、Wave 1–2 尚未落地时** 的缺口快照。
+> **禁止**当作 2026-08-11 的 Current gaps。已落地项见文首 Wave 表与 §2.3。
+
+| 缺口（历史） | 当时现状 | 当时问题 |
 |---|---|---|
 | 自动化评估环境 | 只有手动 CSV + e2e 片段 | 无法重复 reset、批量跑分、前后对比 |
 | 模型替换实验 | 只有 MiniMax-M3 部分矩阵 | 无法区分模型瓶颈和 Harness 瓶颈 |
@@ -150,20 +153,32 @@ last_modified: "2026-08-11"
 | 持续进化闭环 | `product/006` 只是 draft | 没有轨迹回流、Skill 候选、回归 |
 | Claw 30 证据 | 1 pass / 1 partial / 28 not_run | 不能宣称对标完成 |
 
-## 3. 差距对照表
+### 2.3 Current gaps（仅写仍然真实的问题）
 
-| 书本要求 | 持节现有 | 持节缺什么 | 本规划动作 |
+| 缺口 | 现状 | 为何仍算缺口 |
+|---|---|---|
+| 语义上下文压缩 | 确定性 archive / 轨迹窗口已落地 | 非 LLM 语义摘要；长任务语义腐化仍在 |
+| 中断恢复协议 | plan 持久化有；体验未封顶 | 跨重启完整恢复协议偏薄 |
+| 长程真站稳健性 | fixture / 公网迷你集有证据 | 飞书/B 站等 Owner 登录真站长尾未封 |
+| Learned Skill 晋升 | outer-loop candidates 已生成；`learned/plan` 代码 partial | `enableLearnedSkills=false`；未进默认 registry；缺换输入晋升证据 |
+| Observation Diff 生产化 | 代码 landed；`enableObservationDiff=false` | payload 降本 ≥30% Release Gate **NOT_RUN** |
+| 022 整包 Release Gate | Kernel/Skill/Artifact **default_enabled** | product_status 仍 proposed；Regression/Diff/正式矩阵多项 NOT_RUN 或 PARTIAL（见 `product/022` §0.3） |
+| Claw 30 全表 | 历史评测资产 | 非北极星；多数行仍 not_run 时不得宣称 Claw 对标完成 |
+
+## 3. 差距对照表（Current）
+
+| 书本要求 | 持节现有（2026-08） | 仍缺什么 | 动作归属 |
 |---|---|---|---|
-| Model | MiniMax-M3 正式模型 | 无同 Harness model swap | W1 模型替换实验 |
-| Context | 观察摘要 + criteria | 无状态栏、无压缩、无确定性 prompt 版本 | W2 上下文工程 |
-| Tools | 约 20 个 action schema | ACI 描述弱、无示例、无成本/边界说明 | W2 工具 ACI |
-| Loop | observe-act-loop 已落地 | 失败恢复映射不完整 | W2 错误分类表 |
-| Constrain | 任务级自主 + external_commit 审计标签 + guardrails | 消融开关持续完善 | W2 特性开关 |
-| Verify | CompletionChecker + 页面证据 | 无统一 eval verifier 层 | W1 eval harness |
-| Correct | no_progress + maxFailures | 无错误到恢复策略映射表 | W2 retry taxonomy |
-| Evaluation | 013/015/016/017/018 文档 | 无自动化 runner、无统计报告 | W1 eval harness |
-| Observability | logger + PostHog | 无 trace span、无回放 | W1 observability |
-| Evolution | 006 current；outer-loop 已跑 | Skill 候选需筛选与真站扩跑 | W5 外环学习 |
+| Model | MiniMax-M3 正式分 + model-swap 脚本 | 更系统的 swap 矩阵与噪声纪律 | 019 W1 已落；继续按 020 跑 |
+| Context | 状态栏 + 确定性压缩 + plan memory | 语义压缩 | 021 / W2 加深 |
+| Tools | ACI + prompt 版本 `chijie-control-v0.3.0` | 描述持续打磨 | W2 维护 |
+| Loop | observe-act + Skill Runtime 默认开 | 真站长尾失败簇 | 021 + 022 |
+| Constrain | 任务级自主 + flags | 消融实验纪律 | flags 已存在 |
+| Verify | CompletionChecker + Artifact Verifier 默认路径 | 022 VERIFY/ARTIFACT 正式矩阵 | 022 Release Gate |
+| Correct | no_progress / retry taxonomy | 映射表与真机统计 | 持续 |
+| Evaluation | `eval-matrix` / traces / 020 注册表 | 真站与 022 baseline | 020 |
+| Observability | task trace spans | 统一 release 回放验收 | W1 加深 |
+| Evolution | outer-loop candidates_generated | 筛选晋升与 learned 接入 | 006 / 022 LearnedSkills |
 
 ## 4. 新建设顺序
 

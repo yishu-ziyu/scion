@@ -38,7 +38,7 @@ Owner 当轮明确纠正
 6. design/002 + design/007                    ← 默认 control 核；Snapshot Frame
 7. product/004-docs-driven-dev.md             ← 文档如何驱动开发
 8. product/006-outer-loop-rl-min-plan.md      ← 外环学习（已有 runner + 候选）
-9. product/022-adaptive-browser-harness-v1.md ← proposed 下一层 Harness
+9. product/022-adaptive-browser-harness-v1.md ← product_status=proposed；Kernel/Skill/Artifact 已 default_enabled（见 022 §0）
 --- historical only (do not treat as north star) ---
 10. product/003 / 011 / 016 / 017 / 018
 11. design/001 / 003 / 004 / 005 / 006（旧侧栏与审批叙事）
@@ -56,7 +56,10 @@ Owner 当轮明确纠正
 | 旧 M3（飞书+B 站黄金旅程） | 历史阻塞 / Owner 登录 | 不再作为当前产品北极星 |
 | **long_horizon_v1** | **进行中（核心部件已落）** | Mission/Plan、任务级自主、长上下文压缩、长程评估迷你集 |
 | Outer-loop Skill candidates | **已跑** | `reports/nanobrowser/outer-rl/skills/candidates/` |
+| **022 Harness** | product **proposed**；实现 **部分 default_enabled** | Kernel/Skill/Artifact 默认开；Diff/Learned 关；Release Gate 未全过 |
 
 **下一会话默认：** 见 `run_state.yaml` 的 `next_default`（harden 长程 eval + 继续外环候选质量，不恢复 Claw-30 北极星叙事）。
 
-> `product/022` 为 proposed：未过 Owner 确认与 Release Gate 前不作为默认实现路线。
+> `product/022`：**product_status=proposed**（整包未过 Release Gate）。
+> **implementation：** `enableBrowserKernelV1` / `enableSkillRuntime` / `enableArtifactVerification` 默认 **true** 且进入 control 生产路径；`enableObservationDiff` / `enableLearnedSkills` 默认 **false**。
+> 禁止写「022 尚未进入默认路径」——与 `DEFAULT_EVAL_SETTINGS` 冲突。详情见 `022` §0。

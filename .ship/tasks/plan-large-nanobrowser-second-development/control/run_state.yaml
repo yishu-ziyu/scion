@@ -3,7 +3,7 @@ active: true
 current_phase: implementation
 status: running
 workflow: product-lifecycle-v2
-updated_at: "2026-08-11T12:00:00Z"
+updated_at: "2026-08-11T18:00:00Z"
 
 # Product truth (must match AGENTS.md chain; historical docs never override)
 north_star: docs/product/021-long-horizon-task-agent.md
@@ -12,6 +12,23 @@ eval_master: docs/product/020-eval-master.md
 plan_019: docs/product/019-ai-agent-book-build-plan.md
 docs_driven: docs/product/004-docs-driven-dev.md
 historical_north_star_003: docs/product/003-north-star.md  # historical only
+
+# product/022 — dual status (do not collapse into one word)
+product_022: docs/product/022-adaptive-browser-harness-v1.md
+product_022_product_status: proposed
+product_022_landed_commit: "139a0a2"
+product_022_feature_flags_default:
+  enableBrowserKernelV1: true
+  enableSkillRuntime: true
+  enableArtifactVerification: true
+  enableObservationDiff: false
+  enableLearnedSkills: false
+product_022_implementation_status:
+  browser_kernel: default_enabled
+  skill_runtime: default_enabled
+  artifact_verification: default_enabled
+  observation_diff: experimental_disabled
+  learned_skills: partial_disabled
 
 # Live milestone (aligned with 021 + 2026-08-06 evidence)
 current_milestone: long_horizon_v1
