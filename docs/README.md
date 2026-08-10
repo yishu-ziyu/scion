@@ -2,63 +2,61 @@
 
 所有 **持节** 长程任务 Agent 的实现、验收、架构决策，**以本目录文档为准**。聊天记忆与临时方案不得覆盖本文。
 
-工程卫生与 monorepo 入口：仓库根 [ENGINEERING.md](../ENGINEERING.md)、[README.md](../README.md)。  
+工程卫生与 monorepo 入口：仓库根 [ENGINEERING.md](../ENGINEERING.md)、[README.md](../README.md)、[AGENTS.md](../AGENTS.md)。
 上游 Nanobrowser 营销文归档： [upstream/nanobrowser/](upstream/nanobrowser/)。
+
+## 事实源优先级（冲突时谁赢）
+
+```text
+Owner 当轮明确纠正
+  → product/021 北极星（长程任务 Agent）
+  → decisions/004 任务级自主（无默认审批门）
+  → product/020 评估协议与 task_id 注册表
+  → product/019 Harness / Eval / Observability / Outer Loop 路线
+  → run_state.yaml（只记真实执行状态，不得与上冲突）
+  → design/*（实现方案）
+  → 代码现状
+```
+
+**历史文档永不覆盖 current 文档。**
+`product/003`、`011`、`016`、`017`、`018` 及旧审批 UX 描述仅作历史/评测资产。
+
+> 旧文档中仍出现 `waiting_approval` / 审批卡 / 外部提交批准等字样的段落，全部是 2026-08-02 之前的历史记录，不代表当前实现；当前实现是任务范围授权 + 停止/修正，不是逐步审批。
+
+代码与文档冲突时：**先改代码对齐 current 文档，或先改文档并写决策**；禁止 silently 按旧代码扩 scope。
+
+索引表：`DOCS_INDEX.md`。
 
 ## 阅读顺序（新人 / 新会话）
 
 ```text
-1. product/021-long-horizon-task-agent.md ← 当前北极星：长程复杂任务 Agent
-2. decisions/004-task-scoped-autonomy.md  ← 任务内自主执行，不再强制审批
-3. product/011-browser-agent-parity-first.md ← 历史阶段纪律（旧方向）
-4. product/003-north-star.md     ← 历史质量标尺（旧方向）
-5. product/009-tabbit-gap-ledger.md ← Tabbit 历史差距台账
-6. product/001-nanobrowser-prd.md ← 历史 PRD
-7. decisions/001 + 002           ← 最终插件载体；质量优先可换核
-8. product/002-agent-core-bakeoff.md ← 执行核对比（无 P0，主 P1）
-9. design/001 + 002              ← 运行时 / 可换核（默认 control）
-10. design/003 + 004              ← 侧栏 IA 源图 / 历史三态控制台
-11. product/004-docs-driven-dev.md ← 如何用文档驱动开发
-12. product/006-outer-loop-rl-min-plan.md ← 可选后续：外环 RL（draft，默认不执行）
-13. product/020-eval-master.md ← 统一评估任务注册表与矩阵列
-14. product/019-ai-agent-book-build-plan.md ← AI Agent Book 建设规划（current，默认路线）
-15. product/022-adaptive-browser-harness-v1.md ← 下一层 Harness：Kernel / Skill / Diff / Verifier（proposed）
+1. product/021-long-horizon-task-agent.md     ← 当前北极星
+2. decisions/004-task-scoped-autonomy.md      ← 任务内自主
+3. product/020-eval-master.md                 ← 评估契约 / task_id
+4. product/019-ai-agent-book-build-plan.md    ← 建设路线（Harness 等）
+5. decisions/001 + 002                        ← 插件载体；质量优先可换核
+6. design/002 + design/007                    ← 默认 control 核；Snapshot Frame
+7. product/004-docs-driven-dev.md             ← 文档如何驱动开发
+8. product/006-outer-loop-rl-min-plan.md      ← 外环学习（已有 runner + 候选）
+9. product/022-adaptive-browser-harness-v1.md ← proposed 下一层 Harness
+--- historical only (do not treat as north star) ---
+10. product/003 / 011 / 016 / 017 / 018
+11. design/001 / 003 / 004 / 005 / 006（旧侧栏与审批叙事）
 ```
-
-> `product/003`、`product/011` 保留为旧方向历史文档；产品目标以 `product/021` 为准。
-
-> 旧文档中仍出现 `waiting_approval` / 审批卡 / 外部提交批准等字样的段落，全部是 2026-08-02 之前的历史记录，不代表当前实现；当前实现只保留任务范围审计，不保留用户审批门。
-
-索引表：`DOCS_INDEX.md`。
-
-## 优先级（冲突时）
-
-```text
-Owner 当轮明确口头/文字纠正
-  → product/021 北极星（长程任务 Agent）
-  → product/001 PRD（范围与验收条目）
-  → decisions/*（架构边界）
-  → design/*（怎么实现）
-  → .ship/tasks/*/plan/*（切片计划）
-  → 代码现状
-```
-
-代码与文档冲突时：**先改代码对齐文档，或先改文档并写决策**；禁止 silently 按旧代码扩 scope。
 
 ## 当前里程碑
 
 以 `product/021` 与
-`.ship/tasks/plan-large-nanobrowser-second-development/control/run_state.yaml`  
-中的 `current_milestone` 为准。
+`.ship/tasks/plan-large-nanobrowser-second-development/control/run_state.yaml`
+中的 `current_milestone` 为准（必须一致）。
 
 | 里程碑 | 状态 | 说明 |
 |---|---|---|
 | 旧 M1/M2 | 完成 | 浏览器行动基础；历史证据保留 |
-| 旧 M3 | 历史阻塞 | 飞书+B 站不再作为当前北极星 |
-| **L1 长程任务** | **进行中** | Mission/Plan、长上下文、自主执行、可验证交付 |
+| 旧 M3（飞书+B 站黄金旅程） | 历史阻塞 / Owner 登录 | 不再作为当前产品北极星 |
+| **long_horizon_v1** | **进行中（核心部件已落）** | Mission/Plan、任务级自主、长上下文压缩、长程评估迷你集 |
+| Outer-loop Skill candidates | **已跑** | `reports/nanobrowser/outer-rl/skills/candidates/` |
 
-**下一会话默认：** 实现长程上下文压缩与中断恢复，再接长程任务评估集。
+**下一会话默认：** 见 `run_state.yaml` 的 `next_default`（harden 长程 eval + 继续外环候选质量，不恢复 Claw-30 北极星叙事）。
 
-> `product/019` 已验收为 current：下一会话默认改为 Wave 1（评估与可观测性地基）；`product/020` 是其任务输入契约。
-
-> `product/022` 为 proposed：在 019/020/021 地基上把执行核升级为 Adaptive Browser Harness（Kernel + Skill Runtime + Observation Diff + Independent Verifier）；**未过 Release Gate 前不作为默认实现路线**，需 Owner 确认后才从 Phase 0 baseline 开工。
+> `product/022` 为 proposed：未过 Owner 确认与 Release Gate 前不作为默认实现路线。

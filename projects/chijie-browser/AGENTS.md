@@ -1,16 +1,22 @@
 # 持节 (chijie-browser) — agent rules
 
-Chrome MV3 long-horizon task agent (pnpm + Turbo monorepo). Product name: **持节 / Chijie**.
+Chrome MV3 **long-horizon task agent** (pnpm + Turbo monorepo). Product name: **持节 / Chijie**.
 Upstream rootstock: https://github.com/nanobrowser/nanobrowser · package version in `package.json`.
 
 Lab parent: `../../AGENTS.md` · hygiene: `../../ENGINEERING.md` · ops: `../../HANDOVER.md` · product terms: `../../CONTEXT.md` · brand: `PRODUCT.md`
 
-**Product docs (drive work):** `../../docs/README.md` → `../../docs/product/021-long-horizon-task-agent.md` + `004-docs-driven-dev.md`.
+**Product truth (do not invent a second one):**
 
-This file is **ops for the extension monorepo**. MiniMax / CDP detail lives in HANDOVER — open it for runtime continuity, not as chat filler.
+```text
+021 north star → decision 004 autonomy → 020 eval → 019 roadmap → run_state
+```
+
+Historical docs (003, 011, 016–018, old approval UX) never override that chain.
+Open `../../docs/product/021-long-horizon-task-agent.md` before coding product behavior.
+
+This file is **ops for the extension monorepo**. MiniMax / CDP detail lives in HANDOVER.
 **Single tree:** this directory is the only copy; `~/projects/chijie-browser` is a symlink here.
 
-When implementing product behavior, prefer the current long-horizon task spec over historical Nano upstream patterns.
 User-facing brand strings: **持节**, not Nanobrowser / 奕枢 / OpenClaw.
 
 ---
@@ -58,6 +64,7 @@ Only use scripts defined in `package.json`. Do not invent commands.
 
 Prefer fast, deterministic unit tests; mock network/browser APIs.
 Verified completion needs **browser evidence**, not model `done`.
+Do **not** reintroduce default external-commit approval gates (decision 004).
 
 ---
 
@@ -65,10 +72,10 @@ Verified completion needs **browser evidence**, not model `done`.
 
 ```text
 chrome-extension/          # MV3 background + agent + browser control
-  src/background/agent/    # Navigator / Planner / Validator + executor
+  src/background/agent/    # control / nano drivers + executor
   src/background/browser/  # DOM / tab automation
   src/personal/            # scion personal bootstrap (MiniMax, secrets)
-pages/side-panel/          # main chat UI (React + Tailwind)
+pages/side-panel/          # main task UI (React + Tailwind)
 pages/options/             # settings UI
 pages/content/             # content script
 packages/                  # shared, storage, ui, i18n, schema-utils, …
@@ -88,8 +95,8 @@ i18n: edit `packages/i18n/locales/**` only — never hand-edit `packages/i18n/li
 - Reuse `packages/ui` and `packages/tailwind-config` — do not reimplement
 - Vite aliases: extension `@root` `@src` `@assets`; pages `@src` via `withPageConfig`
 
-i18n keys: `component_category_action_state`  
-Prefixes: `bg_` `exec_` `act_` `errors_` `options_` `chat_` `nav_` `permissions_`  
+i18n keys: `component_category_action_state`
+Prefixes: `bg_` `exec_` `act_` `errors_` `options_` `chat_` `nav_` `permissions_`
 Suffixes: `_start` `_ok` `_fail` `_cancel` `_pause`
 
 ```typescript
@@ -117,6 +124,7 @@ t('act_click_ok', ['5', 'Submit Button']);
 | Always | Keep secrets out of git and logs (`secrets.local.ts`, full API keys) |
 | Always | Preserve think-tag strip + manual JSON parse for MiniMax/custom_openai mid models |
 | Always | Prefer main Chrome login state; do not invent a blank test profile |
+| Always | Follow lab truth chain (021 / 004 / 020 / 019); no second Task/Agent loop |
 | Ask first | New production dependencies |
 | Ask first | File renames/moves/deletes across workspaces |
 | Ask first | Edit `turbo.json`, `pnpm-workspace.yaml`, root/workspace `tsconfig*`, global permissions |
@@ -124,9 +132,10 @@ t('act_click_ok', ['5', 'Submit Button']);
 | Never | Edit generated: `dist/**`, `build/**`, `packages/i18n/lib/**` |
 | Never | Commit `secrets.local.ts` or print full keys |
 | Never | Use `eval` / dynamic code that breaks MV3 CSP |
+| Never | Treat model `done` as verified completion without page evidence |
 
-Secrets inject order (do not reorder casually):  
-`~/.config/ai-providers/env.local` → `~/.config/ai-providers/.env` → repo `.env.local` → process env.  
+Secrets inject order (do not reorder casually):
+`~/.config/ai-providers/env.local` → `~/.config/ai-providers/.env` → repo `.env.local` → process env.
 Details: `HANDOVER.md` §5.
 
 ---
@@ -137,8 +146,8 @@ Details: `HANDOVER.md` §5.
 
 | Goal | Tree |
 |------|------|
-| Ship code to GitHub scion | Edit/sync → commit in **scion** |
-| Build/load into Chrome today | **`~/projects/chijie-browser`** |
+| Ship code to GitHub scion | Edit → commit in **scion** root |
+| Build/load into Chrome today | **`~/projects/chijie-browser`** (same files) |
 | E2E notes / product docs | **scion** `reports/` `docs/` `CONTEXT.md` |
 
 ### Personal provider layer
@@ -155,6 +164,7 @@ Details: `HANDOVER.md` §5.
 |--------|--------|
 | Chrome extension in daily browser | **Yes** (ADR 001) |
 | Fork Chromium / cloud browser | **No** — plugin is the final product form |
+| Default execution core | **`control`** (design 002); `nano` demotable |
 
 ---
 
@@ -166,8 +176,9 @@ chrome-extension/src/personal/
 chrome-extension/scripts/inject-personal-secrets.mjs
 ```
 
-Key reliability files:  
+Key reliability files:
 `agent/agents/base.ts` · `messages/utils.ts` · `actions/schemas.ts` · `executor.ts` · `agents/planner.ts`
+Task shell: `task/manager.ts` · `task/action-dispatcher.ts` · `task/completion.ts`
 
 Full change list + CDP commands: **`../../HANDOVER.md`**.
 
@@ -179,17 +190,18 @@ Full change list + CDP commands: **`../../HANDOVER.md`**.
 |------|------|
 | Dual tree, CDP, E2E status | `../../HANDOVER.md` |
 | Product vocabulary | `../../CONTEXT.md` |
+| North star | `../../docs/product/021-long-horizon-task-agent.md` |
+| Autonomy | `../../docs/decisions/004-task-scoped-autonomy.md` |
+| Eval contract | `../../docs/product/020-eval-master.md` |
+| Harness roadmap | `../../docs/product/019-ai-agent-book-build-plan.md` |
 | Why Chrome extension | `../../docs/decisions/001-keep-chrome-extension.md` |
-| Task runtime (L4 shell; partially-outdated) | `../../docs/design/001-browser-action-task-runtime.md` |
 | Production core swap (default `control`) | `../../docs/design/002-production-core-swap.md` |
-| Long-horizon task Agent spec | `../../docs/product/021-long-horizon-task-agent.md` |
-| Calm task console (visual/three-state) | `../../docs/design/004-chijie-calm-task-console.md` |
+| Task runtime shell (partially outdated) | `../../docs/design/001-browser-action-task-runtime.md` |
 | E2E evidence index | `../../reports/nanobrowser/` |
-| Upstream-style long style essay (backup) | `AGENTS.md.bak-20260714` |
 
 ---
 
 ## Lessons
 
-- 2026-07-23: Sider Claw 30 demos are mandatory live scorecard work (`docs/product/018`), not optional research. Do not substitute a small tracer set for the full 30; do not push personalization ahead of 018; do not claim parity while rows stay `not_run`. Update 018 after every case run.
-- 2026-07-24: URL completion must not pass on 404 / soft-404 shells (e.g. YouTube `playlist?list=FL` + "This page isn't available"). Use `pageLooksUnavailable` in URL probes; empty observation value fails starts_with/equals.
+- 2026-07-24: URL completion must not pass on 404 / soft-404 shells. Use `pageLooksUnavailable` in URL probes; empty observation value fails starts_with/equals.
+- 2026-08-11: Claw 30 / 018 is a **historical eval asset**, not mandatory product north-star work. Do not block long-horizon work to “finish the 30.” Do not re-teach step approval as default UX.
