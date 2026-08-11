@@ -92,6 +92,26 @@ const CONTENT_RESULT_ACTIONS = new Set([
 
 const CONTROL_LLM_TIMEOUT_MS = 90_000;
 
+const RESEARCH_DECISION_REASON_CODES = [
+  'exactly_three_capabilities_required',
+  'capability_titles_must_be_unique',
+  'deferred_items_required',
+  'seven_answers_required',
+  'two_user_sources_required',
+  'product_evidence_required',
+  'repository_evidence_required',
+  'evidence_space_missing',
+] as const;
+
+/** Preserve only fixed validator codes, never raw capability text or action values. */
+export function researchDecisionFailureFeedback(error: string): string {
+  const codes = RESEARCH_DECISION_REASON_CODES.filter(code => error.includes(code));
+  if (codes.length > 0) {
+    return `record_research_decision was rejected. Correct only these validation failures: ${codes.join(', ')}. Do not inspect, browse, wait, or finish; retry record_research_decision now.`;
+  }
+  return 'record_research_decision failed before acceptance. Use exactly 3 capabilities with the exact documented keys, top-level deferred and contradictions, and only IDs from decision_evidence_shortlist. Do not inspect, browse, wait, or finish; retry the action now.';
+}
+
 export function shouldKeepActionResultInContext(actionName: string): boolean {
   return CONTENT_RESULT_ACTIONS.has(actionName);
 }
@@ -917,7 +937,11 @@ export async function createLlmControlDriver(
                   };
                 })();
 
-            await traceStore.finishSpan(actSpan, result.error ? 'fail' : 'ok');
+            const decisionFailureFeedback =
+              result.error && name === 'record_research_decision'
+                ? researchDecisionFailureFeedback(result.error)
+                : '';
+            await traceStore.finishSpan(actSpan, result.error ? 'fail' : 'ok', decisionFailureFeedback || undefined);
             if (enableContextCompression) {
               trajectorySteps.push({
                 step: trajectorySteps.length + 1,
@@ -928,6 +952,8 @@ export async function createLlmControlDriver(
             }
             if (!result.error && result.summary && shouldKeepActionResultInContext(name)) {
               lastActionMemory = compactStateText(result.summary, 24_000);
+            } else if (decisionFailureFeedback) {
+              lastActionMemory = decisionFailureFeedback;
             }
             return {
               error: result.error ?? null,
