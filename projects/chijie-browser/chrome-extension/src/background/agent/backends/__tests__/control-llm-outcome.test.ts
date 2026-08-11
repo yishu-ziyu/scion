@@ -5,6 +5,7 @@ import {
   invokeWithTimeout,
   mapLoopOutcomeToExecutor,
   researchDecisionFailureFeedback,
+  researchGateGuidance,
   shouldKeepActionResultInContext,
   shouldRedirectSearchResultEvidenceAttempt,
   shouldRetryUnrecordedResearchSource,
@@ -67,6 +68,20 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
     expect(feedback).toContain('product_evidence_required');
     expect(feedback).not.toContain('Secret capability title');
     expect(researchDecisionFailureFeedback('Invalid input containing private values')).not.toContain('private values');
+  });
+
+  it('moves research guidance from decision into delivery after acceptance', () => {
+    const decision = researchGateGuidance({ decisionReady: false, deliveryReady: false }).join('\n');
+    expect(decision).toContain('record_research_decision');
+    expect(decision).not.toContain('record_research_delivery');
+
+    const delivery = researchGateGuidance({ decisionReady: true, deliveryReady: false }).join('\n');
+    expect(delivery).toContain('Do not call record_research_decision again');
+    expect(delivery).toContain('record_research_delivery');
+
+    const complete = researchGateGuidance({ decisionReady: true, deliveryReady: true }).join('\n');
+    expect(complete).toContain('both Feishu readback receipts are complete');
+    expect(complete).toContain('Finish the task');
   });
 
   it('reminds once per source, then allows navigation away from irrelevant research pages', () => {
