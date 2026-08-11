@@ -65,7 +65,7 @@
     "message": "我能帮你做什么？"
   },
   "chat_empty_hint": {
-    "message": "发一条任务开始。过程在上方卡片，结果会落在这里。"
+    "message": "把一个任务交给我"
   },
   "chat_task_mode_badge": {
     "message": "任务：代理任务"
@@ -1021,7 +1021,7 @@
     "message": "完成时间"
   },
   "chat_task_header_idle": {
-    "message": "就绪"
+    "message": "空闲"
   },
   "chat_task_action_open": {
     "message": "打开页面"

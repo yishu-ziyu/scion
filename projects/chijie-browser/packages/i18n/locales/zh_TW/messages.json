@@ -65,7 +65,7 @@
     "message": "有什麼需要協助的嗎？"
   },
   "chat_empty_hint": {
-    "message": "送出一條任務開始。過程在上方卡片，結果會落在這裡。"
+    "message": "把一個任務交給我"
   },
   "chat_task_mode_badge": {
     "message": "任務：代理任務"
@@ -1021,7 +1021,7 @@
     "message": "完成時間"
   },
   "chat_task_header_idle": {
-    "message": "就緒"
+    "message": "空閒"
   },
   "chat_task_action_open": {
     "message": "開啟頁面"
