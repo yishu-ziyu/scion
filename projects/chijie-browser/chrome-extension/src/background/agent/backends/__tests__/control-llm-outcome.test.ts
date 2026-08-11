@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CONTROL_MAX_NO_PROGRESS,
   createResearchEvidenceRetryBudget,
+  inferResearchDeliveryReadbackAction,
   invokeWithTimeout,
   mapLoopOutcomeToExecutor,
   researchDecisionFailureFeedback,
@@ -82,6 +83,47 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
     const complete = researchGateGuidance({ decisionReady: true, deliveryReady: true }).join('\n');
     expect(complete).toContain('both Feishu readback receipts are complete');
     expect(complete).toContain('Finish the task');
+  });
+
+  it('infers only fully visible Feishu delivery readbacks', () => {
+    const table = inferResearchDeliveryReadbackAction({
+      url: 'https://workspace.feishu.cn/wiki/table',
+      visibleText: '证据 来源 用户问题 观察 推断 置信度 相关产品 对应 Living Reader 能力 优先级',
+      evidenceCount: 182,
+      tableRecorded: false,
+      documentRecorded: false,
+      decisionTitles: ['A', 'B', 'C'],
+    });
+    expect(table).toMatchObject({
+      kind: 'action',
+      name: 'record_research_delivery',
+      args: { kind: 'research_table', row_count: 182 },
+    });
+
+    const document = inferResearchDeliveryReadbackAction({
+      url: 'https://workspace.feishu.cn/docx/decision',
+      visibleText: '下一步做什么 为什么 暂时不做 A B C',
+      evidenceCount: 182,
+      tableRecorded: true,
+      documentRecorded: false,
+      decisionTitles: ['A', 'B', 'C'],
+    });
+    expect(document).toMatchObject({
+      kind: 'action',
+      name: 'record_research_delivery',
+      args: { kind: 'decision_document' },
+    });
+
+    expect(
+      inferResearchDeliveryReadbackAction({
+        url: 'https://example.com/table',
+        visibleText: '证据 来源 用户问题 观察 推断 置信度 相关产品 对应 Living Reader 能力 优先级',
+        evidenceCount: 182,
+        tableRecorded: false,
+        documentRecorded: false,
+        decisionTitles: ['A', 'B', 'C'],
+      }),
+    ).toBeNull();
   });
 
   it('reminds once per source, then allows navigation away from irrelevant research pages', () => {
