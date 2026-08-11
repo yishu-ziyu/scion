@@ -33,7 +33,15 @@ import {
   pickActiveContentTab,
   type BoundContentTab,
 } from './presentation/active-tab-bind';
-import { isActiveTaskStatus, shouldShowMainTaskSurface } from './presentation/task-loop-ui';
+import {
+  isActiveTaskStatus,
+  shouldAutoRestoreTaskSession,
+  shouldShowMainTaskSurface,
+} from './presentation/task-loop-ui';
+import {
+  completionChatDelivery,
+  hasCompletionChatDelivery,
+} from './presentation/completion-chat-delivery';
 import './SidePanel.css';
 
 // Declare chrome API types
@@ -108,6 +116,7 @@ const SidePanel = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const setInputTextRef = useRef<((text: string) => void) | null>(null);
   const pendingTaskIdRef = useRef<string | null>(null);
+  const deliveredCompletionReceiptsRef = useRef(new Set<string>());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<number | null>(null);
@@ -243,7 +252,16 @@ const SidePanel = () => {
 
   useEffect(() => {
     const chatSessionId = taskSnapshot?.chatSessionId;
-    if (!chatSessionId || chatSessionId === sessionIdRef.current) return;
+    if (
+      !chatSessionId ||
+      !shouldAutoRestoreTaskSession({
+        status: taskSnapshot?.status,
+        taskChatSessionId: chatSessionId,
+        currentSessionId: sessionIdRef.current,
+      })
+    ) {
+      return;
+    }
     void chatHistoryStore.getSession(chatSessionId).then(session => {
       if (!session) return;
       setCurrentSessionId(session.id);
@@ -252,6 +270,33 @@ const SidePanel = () => {
       setIsHistoricalSession(false);
     });
   }, [taskSnapshot]);
+
+  useEffect(() => {
+    const delivery = completionChatDelivery({
+      snapshot: taskSnapshot,
+      currentSessionId,
+      messages,
+    });
+    if (!delivery || deliveredCompletionReceiptsRef.current.has(delivery.receiptId)) return;
+
+    deliveredCompletionReceiptsRef.current.add(delivery.receiptId);
+    void chatHistoryStore
+      .getSession(delivery.sessionId)
+      .then(session => {
+        if (!session || hasCompletionChatDelivery(session.messages, delivery)) return;
+        return appendMessage(
+          {
+            actor: Actors.SYSTEM,
+            content: delivery.content,
+            timestamp: delivery.timestamp,
+          },
+          delivery.sessionId,
+        );
+      })
+      .catch(() => {
+        deliveredCompletionReceiptsRef.current.delete(delivery.receiptId);
+      });
+  }, [appendMessage, currentSessionId, messages, taskSnapshot]);
 
   const handleTaskState = useCallback(
     (event: AgentEvent) => {

@@ -42,6 +42,12 @@ export function decideEffect(input: {
     return { kind: 'block', reason: 'Sensitive inputs require direct user entry' };
   }
   if (actionName === 'click_element') {
+    // A plain anchor only navigates. Page text can contain words such as
+    // "save" or "submit" and must not turn a search-result link into a
+    // recoverable external commit.
+    if (tag === 'a' && !target.inForm) {
+      return { kind: 'allow', effect: 'reversible' };
+    }
     // Commit intent is an external-commit label, not a user-approval gate.
     if (signalsCommit) {
       return { kind: 'allow', effect: 'external_commit' };
@@ -61,7 +67,21 @@ export function decideEffect(input: {
     // Enter can submit forms; label it external_commit for audit/recovery. (PageDown etc. never hit this branch.)
     return { kind: 'allow', effect: 'external_commit' };
   }
-  if (['done', 'cache_content', 'get_dropdown_options', 'wait', 'save_screenshot'].includes(actionName)) {
+  if (
+    [
+      'done',
+      'cache_content',
+      'record_evidence',
+      'inspect_evidence_space',
+      'record_research_decision',
+      'record_research_delivery',
+      'read_page_text',
+      'inspect_open_tabs',
+      'get_dropdown_options',
+      'wait',
+      'save_screenshot',
+    ].includes(actionName)
+  ) {
     return { kind: 'allow', effect: 'read' };
   }
   return { kind: 'allow', effect: 'reversible' };
@@ -303,6 +323,10 @@ export class ActionDispatcher {
 
   private requiresIndexTargetBinding(parsedArgs: unknown, observation: TargetObservation): boolean {
     if (!parsedArgs || typeof parsedArgs !== 'object' || Array.isArray(parsedArgs)) return false;
+    // Page.clickElementNode independently re-resolves anchors and requires the
+    // live href to equal the observed href. A second whole-element digest check
+    // is both redundant and unstable on dynamic search-result pages.
+    if (observation.effectTarget.tag?.toLowerCase() === 'a' && !observation.effectTarget.inForm) return false;
     return typeof (parsedArgs as Record<string, unknown>).index === 'number' && observation.target?.kind === 'element';
   }
 }

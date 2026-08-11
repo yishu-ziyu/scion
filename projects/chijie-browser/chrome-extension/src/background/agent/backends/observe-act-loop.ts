@@ -16,6 +16,8 @@ export type LoopFailureCategory =
   | 'on_plan_failed'
   | 'max_steps'
   | 'no_progress'
+  | 'evidence_required'
+  | 'source_required'
   | 'cancelled';
 
 export type LoopDecision =
@@ -55,7 +57,7 @@ export interface ObserveActLoopOptions {
   act: (action: {
     name: string;
     args: Record<string, unknown>;
-  }) => Promise<{ error?: string | null; isDone?: boolean; summary?: string | null }>;
+  }) => Promise<{ error?: string | null; isDone?: boolean; summary?: string | null; progressKey?: string | null }>;
   /** Optional re-observe after successful act (browser-use style). */
   reobserve?: () => Promise<string>;
   onPhase?: (event: LoopPhaseEvent) => void;
@@ -81,6 +83,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
   // Successful reobserve feeds the next decide; avoids a redundant observe.
   let carriedState: string | undefined;
   let noProgressStreak = 0;
+  const seenProgressKeys = new Set<string>();
   /** When reobserve is absent, compare the next full observe to this fingerprint. */
   let pendingNoProgressBefore: string | undefined;
 
@@ -149,6 +152,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
     // action
     const stateBeforeAct = stateText.trim();
     onPhase?.({ phase: 'act', step, detail: decision.name });
+    let semanticProgress = false;
     try {
       const result = await act({ name: decision.name, args: decision.args });
       if (result.error) {
@@ -161,6 +165,10 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
         continue;
       }
       failures = 0;
+      if (result.progressKey && !seenProgressKeys.has(result.progressKey)) {
+        seenProgressKeys.add(result.progressKey);
+        semanticProgress = true;
+      }
       if (result.isDone) {
         return {
           kind: 'candidate_complete',
@@ -179,7 +187,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
         onPhase?.({ phase: 'reobserve', step, detail: 'after_act' });
         carriedState = await reobserve();
         if (noProgressEnabled) {
-          if ((carriedState ?? '').trim() === stateBeforeAct) {
+          if ((carriedState ?? '').trim() === stateBeforeAct && !semanticProgress) {
             noProgressStreak += 1;
             if (noProgressStreak >= maxNoProgress) {
               return { kind: 'failed', category: 'no_progress' };

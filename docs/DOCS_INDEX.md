@@ -6,6 +6,7 @@
 
 | Category | # | Status | Name | Description | Last Modified | Path |
 |----------|---|--------|------|-------------|---------------|------|
+| product | 023 | current | Living Reader 长程研究决策验收 | 用真实仓库、80 条用户讨论、30 个产品与飞书交付，验收持节能否独立完成可追溯产品决策。 | 2026-08-11 | [023](docs/product/023-living-reader-research-decision-benchmark.md) |
 | product | 022 | proposed | Adaptive Browser Harness v1 | product proposed；Kernel/Skill/Artifact default_enabled；Diff/Learned 关；见 §0 状态表。 | 2026-08-11 | [022](docs/product/022-adaptive-browser-harness-v1.md) |
 | decisions | 004 | current | 任务内自主执行，不用强制审批打断用户 | 用户给出任务即是授权；外部提交不再作为默认阻塞点。 | 2026-08-02 | [004](docs/decisions/004-task-scoped-autonomy.md) |
 | product | 021 | current | 长程任务 Agent 北极星 | 一次委托、计划、长上下文、自主执行、可验证交付；取代旧浏览器操作演示叙事。 | 2026-08-11 | [021](docs/product/021-long-horizon-task-agent.md) |

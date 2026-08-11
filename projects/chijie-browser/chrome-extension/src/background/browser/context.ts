@@ -15,6 +15,7 @@ const logger = createLogger('BrowserContext');
 export default class BrowserContext {
   private _config: BrowserContextConfig;
   private _currentTabId: number | null = null;
+  private _boundWindowId: number | null = null;
   private _attachedPages: Map<number, Page> = new Map();
 
   constructor(config: Partial<BrowserContextConfig>) {
@@ -133,6 +134,7 @@ export default class BrowserContext {
     }
     this._attachedPages.clear();
     this._currentTabId = null;
+    this._boundWindowId = null;
   }
 
   public async detachPage(tabId: number): Promise<void> {
@@ -149,9 +151,11 @@ export default class BrowserContext {
     // 1. If _currentTabId not set, query the active tab and attach it
     if (!this._currentTabId) {
       let activeTab: chrome.tabs.Tab;
-      let tab: chrome.tabs.Tab | undefined = (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+      const windowQuery =
+        this._boundWindowId === null ? { currentWindow: true as const } : { windowId: this._boundWindowId };
+      let tab: chrome.tabs.Tab | undefined = (await chrome.tabs.query({ active: true, ...windowQuery }))[0];
       if (!this._getAllowedTabUrl(tab)) {
-        const tabs = await chrome.tabs.query({ currentWindow: true });
+        const tabs = await chrome.tabs.query(windowQuery);
         // ponytail: first allowed tab is the fallback; track last allowed activation if multi-tab precision matters.
         tab = tabs.find(candidate => this._getAllowedTabUrl(candidate));
       }
@@ -187,7 +191,9 @@ export default class BrowserContext {
    * @returns A set of tab IDs.
    */
   public async getAllTabIds(): Promise<Set<number>> {
-    const tabs = await chrome.tabs.query({ currentWindow: true });
+    const tabs = await chrome.tabs.query(
+      this._boundWindowId === null ? { currentWindow: true } : { windowId: this._boundWindowId },
+    );
     return new Set(tabs.map(tab => tab.id).filter(id => id !== undefined));
   }
 
@@ -280,11 +286,27 @@ export default class BrowserContext {
     if (!this._getAllowedTabUrl(tab)) {
       throw new URLNotAllowedError(`Switch tab failed. URL: ${tab.url || ''} is not allowed`);
     }
+    if (
+      this._boundWindowId !== null &&
+      Number.isInteger(tab.windowId) &&
+      tab.windowId !== this._boundWindowId
+    ) {
+      throw new Error(`Switch tab failed. Tab ${tabId} is outside the task window`);
+    }
 
     await chrome.tabs.update(tabId, { active: true });
     await this.waitForTabEvents(tabId, { waitForUpdate: false });
 
     return await this._attachAllowedPage(tabId);
+  }
+
+  public async bindToTab(tabId: number): Promise<Page> {
+    const tab = await chrome.tabs.get(tabId);
+    if (!this._getAllowedTabUrl(tab)) {
+      throw new URLNotAllowedError(`Bind tab failed. URL: ${tab.url || ''} is not allowed`);
+    }
+    if (Number.isInteger(tab.windowId)) this._boundWindowId = tab.windowId;
+    return this.switchTab(tabId);
   }
 
   public async navigateTo(url: string): Promise<void> {
@@ -321,7 +343,11 @@ export default class BrowserContext {
     }
 
     // Create the new tab
-    const tab = await chrome.tabs.create({ url, active: true });
+    const tab = await chrome.tabs.create({
+      url,
+      active: true,
+      ...(this._boundWindowId === null ? {} : { windowId: this._boundWindowId }),
+    });
     if (!tab.id) {
       throw new Error('No tab ID available');
     }
@@ -353,7 +379,7 @@ export default class BrowserContext {
   }
 
   public async getTabInfos(): Promise<TabInfo[]> {
-    const tabs = await chrome.tabs.query({});
+    const tabs = await chrome.tabs.query(this._boundWindowId === null ? {} : { windowId: this._boundWindowId });
     const tabInfos: TabInfo[] = [];
 
     for (const tab of tabs) {

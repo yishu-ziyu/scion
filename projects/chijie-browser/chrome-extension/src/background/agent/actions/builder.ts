@@ -13,6 +13,12 @@ import {
   sendKeysActionSchema,
   scrollToTextActionSchema,
   cacheContentActionSchema,
+  recordEvidenceActionSchema,
+  inspectEvidenceSpaceActionSchema,
+  recordResearchDecisionActionSchema,
+  recordResearchDeliveryActionSchema,
+  readPageTextActionSchema,
+  inspectOpenTabsActionSchema,
   selectDropdownOptionActionSchema,
   getDropdownOptionsActionSchema,
   closeTabActionSchema,
@@ -25,6 +31,18 @@ import {
   controlMediaActionSchema,
   saveScreenshotActionSchema,
 } from './schemas';
+import {
+  addEvidenceRecords,
+  evidenceSpaceProgress,
+  evidenceBasisAppearsInPage,
+  getEvidenceSpace,
+  isSearchResultsEvidenceSource,
+  isPrivateDashboardEvidenceSource,
+  isDiscussionOnlyProductSource,
+  recordResearchDecision,
+  recordResearchDelivery,
+  type EvidenceRecordDraft,
+} from '@extension/storage/lib/task/evidence-space';
 import { z } from 'zod';
 import { createLogger } from '@src/background/log';
 import { ExecutionState, Actors } from '../event/types';
@@ -33,6 +51,140 @@ import { wrapUntrustedContent } from '../messages/utils';
 import { downloadJpegToDownloads, sanitizeScreenshotFilename } from './save-screenshot';
 
 const logger = createLogger('Action');
+
+type EvidenceRecordActionInput = {
+  record_type: EvidenceRecordDraft['recordType'];
+  source: string;
+  source_title: string;
+  user_problem?: string;
+  raw_basis: string;
+  observation: string;
+  inference: string;
+  confidence: EvidenceRecordDraft['confidence'];
+  related_product?: string;
+  living_reader_capability?: string;
+  priority: EvidenceRecordDraft['priority'];
+  stance: EvidenceRecordDraft['stance'];
+  dedupe_key: string;
+};
+
+type ResearchDecisionActionInput = {
+  capabilities: Array<{
+    title: string;
+    user_moment: string;
+    behavior_change: string;
+    why_now: string;
+    why_others_later: string;
+    implementation_distance: string;
+    mvp: string;
+    success_metric: string;
+    user_evidence_ids: string[];
+    product_evidence_ids: string[];
+    repository_evidence_ids: string[];
+  }>;
+  deferred: string[];
+  contradictions: string[];
+};
+
+export function resolveEvidenceProductIdentity(params: {
+  pageUrl: string;
+  pageTitle: string;
+  proposed?: string;
+}): string | undefined {
+  const proposed = params.proposed?.trim();
+  const proposedIsLivingReader = /\bLiving\s+Reader\b|鲜活阅读器/i.test(proposed ?? '');
+  if (proposed && !proposedIsLivingReader) return proposed;
+  if (/living-reader/i.test(params.pageUrl)) return proposed || 'Living Reader';
+
+  const titleIdentity = params.pageTitle
+    .split(/\s+(?:\||—|–|-)\s+/)[0]
+    ?.trim();
+  if (titleIdentity && titleIdentity.length <= 80 && !/^(?:home|homepage|welcome|sign in|log in)$/i.test(titleIdentity)) {
+    return titleIdentity;
+  }
+
+  try {
+    const label = new URL(params.pageUrl).hostname.replace(/^www\./, '').split('.')[0];
+    if (label) return label.charAt(0).toUpperCase() + label.slice(1);
+  } catch {
+    // Leave identity unresolved; the record will be rejected below.
+  }
+  return undefined;
+}
+
+function evidenceWords(value: string): Set<string> {
+  const stop = new Set(['this', 'that', 'with', 'from', 'into', 'using', 'user', 'users', 'product', 'research']);
+  const words = value.toLowerCase().match(/[a-z0-9]{3,}|[\u3400-\u9fff]{2,}/g) ?? [];
+  return new Set(
+    words
+      .map(word => (word.length > 4 ? word.replace(/(?:es|s)$/i, '') : word))
+      .filter(word => !stop.has(word)),
+  );
+}
+
+export function resolveProductEvidenceBasis(params: {
+  rawBasis: string;
+  observation: string;
+  pageText: string;
+  pageTitle?: string;
+}): string | null {
+  if (evidenceBasisAppearsInPage(params.rawBasis, params.pageText)) return params.rawBasis;
+  const queryWords = evidenceWords(`${params.rawBasis} ${params.observation}`);
+  if (queryWords.size < 3) return null;
+  let best: { text: string; score: number } | null = null;
+  for (const rawLine of params.pageText.split(/\n+/)) {
+    const line = rawLine.replace(/\s+/g, ' ').trim();
+    if (line.length < 20 || line.length > 500) continue;
+    const lineWords = evidenceWords(line);
+    const common = [...queryWords].filter(word => lineWords.has(word)).length;
+    if (common < 3) continue;
+    const queryCoverage = common / queryWords.size;
+    const lineCoverage = common / Math.max(1, lineWords.size);
+    if (queryCoverage < 0.18 || lineCoverage < 0.18) continue;
+    const score = queryCoverage + lineCoverage;
+    if (!best || score > best.score) best = { text: line, score };
+  }
+  if (best) return best.text;
+
+  // Cross-language product audits commonly describe an English landing page
+  // in Chinese. Preserve an exact source sentence by matching the public page
+  // title to its body; do not apply this fallback to user discussions.
+  const titleWords = evidenceWords(params.pageTitle ?? '');
+  if (titleWords.size < 2) return null;
+  for (const rawLine of params.pageText.split(/\n+/)) {
+    const line = rawLine.replace(/\s+/g, ' ').trim();
+    if (line.length < 20 || line.length > 300) continue;
+    const lineWords = evidenceWords(line);
+    const common = [...titleWords].filter(word => lineWords.has(word)).length;
+    if (common >= 2) return line;
+  }
+  return null;
+}
+
+export function resolveUserDiscussionEvidenceBasis(params: {
+  rawBasis: string;
+  observation: string;
+  userProblem?: string;
+  pageText: string;
+}): string | null {
+  if (evidenceBasisAppearsInPage(params.rawBasis, params.pageText)) return params.rawBasis;
+  const queryWords = evidenceWords(`${params.rawBasis} ${params.observation} ${params.userProblem ?? ''}`);
+  if (queryWords.size < 4) return null;
+  let best: { text: string; score: number } | null = null;
+  for (const rawLine of params.pageText.split(/\n+/)) {
+    const line = rawLine.replace(/\s+/g, ' ').trim();
+    if (line.length < 24 || line.length > 700) continue;
+    const lineWords = evidenceWords(line);
+    const common = [...queryWords].filter(word => lineWords.has(word)).length;
+    if (common < 4) continue;
+    const queryCoverage = common / queryWords.size;
+    const lineCoverage = common / Math.max(1, lineWords.size);
+    if (queryCoverage < 0.25 || lineCoverage < 0.25) continue;
+    const score = queryCoverage + lineCoverage;
+    if (!best || score > best.score) best = { text: line, score };
+  }
+  return best?.text ?? null;
+}
 
 export class InvalidInputError extends Error {
   constructor(message: string) {
@@ -55,6 +207,7 @@ export class Action {
 
   parse(input: unknown): unknown {
     const schema = this.schema.schema;
+    const normalizedInput = this.schema.normalizeInput ? this.schema.normalizeInput(input) : input;
 
     // check if the schema is schema: z.object({}), if so, ignore the input
     const isEmptySchema =
@@ -65,7 +218,7 @@ export class Action {
       return {};
     }
 
-    const parsedArgs = this.schema.schema.safeParse(input);
+    const parsedArgs = this.schema.schema.safeParse(normalizedInput);
     if (!parsedArgs.success) {
       const errorMessage = parsedArgs.error.message;
       throw new InvalidInputError(errorMessage);
@@ -405,6 +558,231 @@ export class ActionBuilder {
       return new ActionResult({ extractedContent: msg, includeInMemory: true });
     }, cacheContentActionSchema);
     actions.push(cacheContent);
+
+    const recordEvidence = new Action(async (input: z.infer<typeof recordEvidenceActionSchema.schema>) => {
+      const page = await this.context.browserContext.getCurrentPage();
+      if (isSearchResultsEvidenceSource(page.url())) {
+        const summary = 'Evidence records rejected: current page is search results; open the actual source first.';
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, summary);
+        return new ActionResult({ extractedContent: summary, includeInMemory: true });
+      }
+      if (isPrivateDashboardEvidenceSource(page.url())) {
+        const summary = 'Evidence records rejected: current page is a private dashboard; use public product material.';
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, summary);
+        return new ActionResult({ extractedContent: summary, includeInMemory: true });
+      }
+      const pageContent = (await page.evaluate(() => ({
+        text: document.body?.innerText || '',
+        title: document.title || '',
+      }))) as { text?: unknown; title?: unknown };
+      const pageText = typeof pageContent?.text === 'string' ? pageContent.text : '';
+      const pageTitle = typeof pageContent?.title === 'string' ? pageContent.title : '';
+      const inputRecords = input.records as EvidenceRecordActionInput[];
+      const records = inputRecords
+        .filter(record => record.record_type !== 'product' || !isDiscussionOnlyProductSource(page.url()))
+        .map(record => {
+          if (evidenceBasisAppearsInPage(record.raw_basis, pageText)) return record;
+          const rawBasis =
+            record.record_type === 'product'
+              ? resolveProductEvidenceBasis({
+                  rawBasis: record.raw_basis,
+                  observation: record.observation,
+                  pageText,
+                  pageTitle,
+                })
+              : record.record_type === 'user_discussion'
+                ? resolveUserDiscussionEvidenceBasis({
+                    rawBasis: record.raw_basis,
+                    observation: record.observation,
+                    userProblem: record.user_problem,
+                    pageText,
+                  })
+                : null;
+          return rawBasis ? { ...record, raw_basis: rawBasis } : null;
+        })
+        .filter((record): record is EvidenceRecordActionInput => Boolean(record))
+        .map(record => {
+          if (record.record_type !== 'product') return record;
+          return {
+            ...record,
+            related_product: resolveEvidenceProductIdentity({
+              pageUrl: page.url(),
+              pageTitle,
+              proposed: record.related_product,
+            }),
+          };
+        })
+        .filter(record => record.record_type !== 'product' || Boolean(record.related_product)) as EvidenceRecordActionInput[];
+      const basisMismatchCount = inputRecords.length - records.length;
+      const drafts: EvidenceRecordDraft[] = records.map(record => ({
+        recordType: record.record_type,
+        // The browser observation is authoritative. Model-proposed URL variants
+        // (home page, redirect, tracking URL) must not break source binding.
+        source: page.url(),
+        sourceTitle: record.source_title,
+        userProblem: record.user_problem,
+        rawBasis: record.raw_basis,
+        observation: record.observation,
+        inference: record.inference,
+        confidence: record.confidence,
+        relatedProduct: record.related_product,
+        livingReaderCapability: record.living_reader_capability,
+        priority: record.priority,
+        stance: record.stance,
+        dedupeKey: record.dedupe_key,
+      }));
+      const result = await addEvidenceRecords({
+        taskId: this.context.taskId,
+        observedSource: page.url(),
+        drafts,
+      });
+      const progress = evidenceSpaceProgress(result.space);
+      const rejectedByReason = (reason: (typeof result.rejected)[number]['reason']) =>
+        result.rejected.filter(item => item.reason === reason).length;
+      const summary = [
+        `Evidence records: added=${result.added.length}`,
+        `duplicates=${result.duplicateKeys.length}`,
+        `rejected=${result.rejected.length + basisMismatchCount}`,
+        `basis_not_visible=${basisMismatchCount}`,
+        `invalid_record=${rejectedByReason('invalid_record')}`,
+        `invalid_source=${rejectedByReason('invalid_source')}`,
+        `source_not_observed=${rejectedByReason('source_not_observed')}`,
+        `user_discussions=${progress.userDiscussions}/80`,
+        `products=${progress.products}/30`,
+      ].join('; ');
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, summary);
+      return new ActionResult({ extractedContent: summary, includeInMemory: true });
+    }, recordEvidenceActionSchema);
+    actions.push(recordEvidence);
+
+    const inspectEvidenceSpace = new Action(
+      async (input: z.infer<typeof inspectEvidenceSpaceActionSchema.schema>) => {
+      const space = await getEvidenceSpace(this.context.taskId);
+      const progress = evidenceSpaceProgress(space);
+      const query = String(input.query ?? '').trim().toLowerCase();
+      const filtered = (space?.records ?? []).filter(record => {
+        if (input.record_type && record.recordType !== input.record_type) return false;
+        if (!query) return true;
+        return [
+          record.sourceTitle,
+          record.userProblem,
+          record.observation,
+          record.inference,
+          record.relatedProduct,
+          record.livingReaderCapability,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(query);
+      });
+      const offset = Number(input.offset) || 0;
+      const limit = Number(input.limit) || 20;
+      const page = filtered.slice(offset, offset + limit).map(record => ({
+        id: record.id,
+        type: record.recordType,
+        source: record.source,
+        title: record.sourceTitle,
+        observation: record.observation,
+        inference: record.inference,
+        stance: record.stance,
+        relatedProduct: record.relatedProduct,
+        livingReaderCapability: record.livingReaderCapability,
+      }));
+      const summary = [
+        `Evidence progress: total=${progress.total}`,
+        `user_discussions=${progress.userDiscussions}/80`,
+        `products=${progress.products}/30`,
+        `repository=${progress.repository}`,
+        `browser_context=${progress.browserContext}`,
+        `matches=${filtered.length}`,
+        `offset=${offset}`,
+        `next_offset=${offset + page.length < filtered.length ? offset + page.length : 'none'}`,
+        `records=${JSON.stringify(page)}`,
+      ].join('; ');
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, summary);
+      return new ActionResult({ extractedContent: summary, includeInMemory: true });
+      },
+      inspectEvidenceSpaceActionSchema,
+    );
+    actions.push(inspectEvidenceSpace);
+
+    const recordDecision = new Action(
+      async (input: ResearchDecisionActionInput) => {
+        const result = await recordResearchDecision({
+          taskId: this.context.taskId,
+          draft: {
+            capabilities: input.capabilities.map(capability => ({
+              title: capability.title,
+              userMoment: capability.user_moment,
+              behaviorChange: capability.behavior_change,
+              whyNow: capability.why_now,
+              whyOthersLater: capability.why_others_later,
+              implementationDistance: capability.implementation_distance,
+              mvp: capability.mvp,
+              successMetric: capability.success_metric,
+              userEvidenceIds: capability.user_evidence_ids,
+              productEvidenceIds: capability.product_evidence_ids,
+              repositoryEvidenceIds: capability.repository_evidence_ids,
+            })),
+            deferred: input.deferred,
+            contradictions: input.contradictions,
+          },
+        });
+        const summary = result.accepted
+          ? 'Research decision accepted: exactly 3 capabilities with complete 2+1+1 evidence coverage.'
+          : `Research decision rejected: ${result.reasons.join(' | ')}`;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, summary);
+        return new ActionResult({ extractedContent: summary, includeInMemory: true });
+      },
+      recordResearchDecisionActionSchema,
+    );
+    actions.push(recordDecision);
+
+    const recordDelivery = new Action(
+      async (input: { kind: 'research_table' | 'decision_document'; row_count?: number }) => {
+        const page = await this.context.browserContext.getCurrentPage();
+        const observedText = await page.evaluate(() => document.body?.innerText || '');
+        const result = await recordResearchDelivery({
+          taskId: this.context.taskId,
+          kind: input.kind,
+          url: page.url(),
+          title: await page.title(),
+          observedText: typeof observedText === 'string' ? observedText : '',
+          rowCount: input.row_count,
+        });
+        const summary = result.accepted
+          ? `Research delivery verified: ${input.kind} at ${page.url()}`
+          : `Research delivery rejected: ${result.reasons.join(' | ')}`;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, summary);
+        return new ActionResult({ extractedContent: summary, includeInMemory: true });
+      },
+      recordResearchDeliveryActionSchema,
+    );
+    actions.push(recordDelivery);
+
+    const readPageText = new Action(async (input: z.infer<typeof readPageTextActionSchema.schema>) => {
+      const page = await this.context.browserContext.getCurrentPage();
+      const maxChars = Number(input.max_chars) || 20_000;
+      const bodyText = await page.evaluate(() => document.body?.innerText || '');
+      const text = typeof bodyText === 'string' ? bodyText.replace(/\s+\n/g, '\n').trim().slice(0, maxChars) : '';
+      const summary = wrapUntrustedContent(
+        [`URL: ${page.url()}`, `Title: ${await page.title()}`, `Visible page text:\n${text || '[empty]'}`].join('\n'),
+      );
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Read ${text.length} page characters`);
+      return new ActionResult({ extractedContent: summary, includeInMemory: true });
+    }, readPageTextActionSchema);
+    actions.push(readPageText);
+
+    const inspectOpenTabs = new Action(async () => {
+      const tabs = (await this.context.browserContext.getTabInfos()).slice(0, 30);
+      const summary = tabs.length
+        ? tabs.map(tab => `tab_id=${tab.id}; title=${tab.title.slice(0, 160)}; url=${tab.url}`).join('\n')
+        : 'No allowed browser tabs found.';
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Inspected ${tabs.length} open tabs`);
+      return new ActionResult({ extractedContent: summary, includeInMemory: true });
+    }, inspectOpenTabsActionSchema);
+    actions.push(inspectOpenTabs);
 
     // Scroll to percent
     const scrollToPercent = new Action(async (input: z.infer<typeof scrollToPercentActionSchema.schema>) => {

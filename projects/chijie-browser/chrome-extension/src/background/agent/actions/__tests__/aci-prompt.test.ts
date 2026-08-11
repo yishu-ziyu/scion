@@ -4,6 +4,7 @@ import { ActionResult } from '../../types';
 import {
   ALL_ACTION_SCHEMAS,
   clickElementActionSchema,
+  recordEvidenceActionSchema,
   searchGoogleActionSchema,
   switchTabActionSchema,
   waitActionSchema,
@@ -45,5 +46,25 @@ describe('action ACI prompt', () => {
       expect(schema.returns, `${schema.name}.returns`).toBeTruthy();
       expect(schema.costHint, `${schema.name}.costHint`).toBeTruthy();
     }
+  });
+
+  it('normalizes single-record model variants before strict evidence validation', () => {
+    const action = new Action(async () => new ActionResult({ extractedContent: 'ok' }), recordEvidenceActionSchema);
+    const record = {
+      record_type: 'product',
+      source: 'https://example.com/',
+      source_title: 'Example Domain',
+      raw_basis: 'Example Domain is illustrative content used in documentation examples.',
+      observation: 'The page is a minimal example product surface.',
+      inference: 'It can exercise durable evidence recording.',
+      confidence: 'high',
+      priority: 'low',
+      stance: 'neutral',
+      dedupe_key: 'product:example-domain',
+    };
+
+    expect(action.parse(record)).toEqual({ records: [record] });
+    expect(action.parse({ record })).toEqual({ records: [record] });
+    expect(action.parse({ evidence: [record] })).toEqual({ records: [record] });
   });
 });

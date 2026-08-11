@@ -3,6 +3,7 @@
  * Tolerant of MiniMax free text + <think> (stripped upstream via extractJsonFromModelOutput).
  */
 import type { CompletionCriterionDraft } from '../../task/contracts';
+import type { ObservationFrame } from '../../browser/kernel';
 
 export interface ControlPolicyDecision {
   observation: string;
@@ -13,7 +14,7 @@ export interface ControlPolicyDecision {
   waitingUser: 'login_required' | 'captcha_required' | null;
 }
 
-export const CONTROL_PROMPT_VERSION = 'chijie-control-v0.3.0';
+export const CONTROL_PROMPT_VERSION = 'chijie-control-v0.3.2';
 
 export interface AgentStatusBarInput {
   url?: string;
@@ -49,6 +50,45 @@ export interface ControlSystemPromptOptions {
   statusBar?: string;
 }
 
+/**
+ * Manual intervention is a runtime fact, not a model judgment. Only accept a
+ * wait when the current page frame contains a high-confidence blocker signal.
+ */
+export function observationSupportsWaitingUser(
+  frame: ObservationFrame | null,
+  reason: NonNullable<ControlPolicyDecision['waitingUser']>,
+): boolean {
+  if (!frame) return false;
+
+  const elementText = frame.interactiveElements
+    .map(element => [element.text, element.role, element.type, element.name, element.id].filter(Boolean).join(' '))
+    .join('\n');
+  const pageText = [frame.tab.title, frame.tab.url, frame.text, elementText].join('\n');
+
+  if (reason === 'captcha_required') {
+    return /\b(?:captcha|recaptcha|hcaptcha|cf-turnstile)\b|verify (?:that )?you are human|人机验证|验证码/i.test(
+      pageText,
+    );
+  }
+
+  if (frame.interactiveElements.some(element => element.type?.toLowerCase() === 'password')) return true;
+
+  const hasBlockingCopy =
+    /(?:please|must|need to) (?:sign|log) in to (?:continue|proceed|access)|authentication required|请先登录|登录后(?:继续|查看|访问)|需要登录/i.test(
+      pageText,
+    );
+  if (hasBlockingCopy) return true;
+
+  let pathSignalsLogin = false;
+  try {
+    pathSignalsLogin = /\/(?:login|log-in|signin|sign-in|auth|sso)(?:\/|$)/i.test(new URL(frame.tab.url).pathname);
+  } catch {
+    pathSignalsLogin = false;
+  }
+  const hasLoginControl = /\b(?:sign|log)\s*in\b|登录|登入/i.test(elementText);
+  return pathSignalsLogin && hasLoginControl;
+}
+
 export function renderControlSystemPrompt(options: ControlSystemPromptOptions = {}): string {
   const statusBlock = options.statusBar ? `\n\n<agent_status>\n${options.statusBar}\n</agent_status>` : '';
   return `${CONTROL_SYSTEM_PROMPT_BODY}\n\nPrompt version: ${CONTROL_PROMPT_VERSION}.${statusBlock}`;
@@ -75,6 +115,12 @@ const ALLOWED_ACTIONS = new Set([
   'get_dropdown_options',
   'select_dropdown_option',
   'cache_content',
+  'record_evidence',
+  'inspect_evidence_space',
+  'record_research_decision',
+  'record_research_delivery',
+  'read_page_text',
+  'inspect_open_tabs',
   'search_google',
   'previous_page',
   'next_page',
@@ -284,6 +330,14 @@ Rules:
     - Read <agent_status> and any plan memory / trajectory summary in the message; stay on the active phase.
     - Finish current-phase evidence before advancing to the next phase.
     - Never invent done without observable page/tab/download evidence that matches the criteria.
+13. For read / summarize / extract-current-page tasks, return the substantive answer in "observation" and set "done": true. Never return an acknowledgement or future promise. If the user requested read-only behavior, do not click or modify the page.
+14. For long research tasks, use record_evidence only after opening and reading the actual source page. Never count search snippets or unopened links. Every useful source MUST be recorded before leaving its URL; never plan to reconstruct records later from memory. Repository files/pages use record_type "repository", user discussions use "user_discussion", and product pages use "product". Use inspect_evidence_space after recovery and before claiming a source quota is met.
+15. When substantive source text is missing from the interactive snapshot, use read_page_text before recording evidence. When the user asks to include already-open browser context, use inspect_open_tabs and switch only to clearly relevant tabs.
+16. For record_evidence, action_args MUST be {"records":[{"record_type":"user_discussion"|"product"|"repository"|"browser_context"|"product_principle","source":"the exact current page URL","source_title":"...","user_problem":"optional","raw_basis":"at least 20 characters copied from the page","observation":"at least 8 characters","inference":"...","confidence":"high"|"medium"|"low","related_product":"optional","living_reader_capability":"optional","priority":"high"|"medium"|"low","stance":"support"|"oppose"|"mixed"|"neutral","dedupe_key":"stable source-local key"}]}. Use these English field names and enum values exactly. Product records MUST set related_product to the actual product shown on the current source, never to Living Reader as a placeholder. For evidence-recording tasks, do not propose a URL criterion that was already true at baseline; verify progress with inspect_evidence_space instead.
+17. On an unavailable/404/error page during research, do not record evidence, wait, or finish. Use go_back to return to the last valid source, then choose a real alternative link.
+18. When research quotas are met, inspect filtered evidence pages, then use record_research_decision to persist exactly three capabilities. Each requires seven substantive decision answers plus IDs for 2 independent user sources, 1 product, and 1 repository source. Candidate completion is invalid until this action is accepted.
+19. After writing the Feishu research table and decision document, reopen each final page and call record_research_delivery. The table readback must show every required field and cover all evidence rows; the document readback must show 下一步做什么, 为什么, 暂时不做, and all three accepted capability titles.
+20. Never inspect or record unrelated private items from signed-in dashboards. For product research, use only generic product UI, public examples, official documentation, or demos; leave a private dashboard when those cannot be isolated.
 `;
 
 export const CONTROL_SYSTEM_PROMPT = renderControlSystemPrompt();

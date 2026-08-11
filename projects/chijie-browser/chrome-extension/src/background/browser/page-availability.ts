@@ -22,6 +22,7 @@ export function pageLooksUnavailable(snapshot: PageAvailabilitySnapshot): boolea
 
   // Title-level 404 / not found (common tab titles and YouTube shells).
   if (/^\s*404(\s|$|[-–—:|])/i.test(title) || /\b404\s*not\s*found\b/i.test(title)) return true;
+  if (/^file\s+not\s+found$/i.test(title)) return true;
   if (/\b(page\s+not\s+found|not\s+found)\b/i.test(title) && /404|error|youtube|google/i.test(title + url)) {
     return true;
   }
@@ -29,8 +30,21 @@ export function pageLooksUnavailable(snapshot: PageAvailabilitySnapshot): boolea
 
   // YouTube / Google soft-404 body copy (screenshot: monkey + "This page isn't available").
   if (/this page isn['’]t available/i.test(haystack)) return true;
+  if (/does not contain the path/i.test(haystack)) return true;
+  if (
+    /(just a moment|请稍候)/i.test(title) &&
+    /(security verification|verify(?:ing)? you are human|cloudflare|安全验证|不是自动程序)/i.test(haystack)
+  ) {
+    return true;
+  }
   if (/sorry about that/i.test(haystack) && /try searching for something else/i.test(haystack)) return true;
   if (/该页面不存在|此页面不可用|找不到该网页/.test(haystack)) return true;
+  if (
+    /forsale\.godaddy\.com\/forsale\//i.test(url) ||
+    /\b(?:this\s+)?domain\s+is\s+for\s+sale\b|\bbuy\s+this\s+domain\b|对该域名感兴趣|域名出售/i.test(haystack)
+  ) {
+    return true;
+  }
 
   // Generic HTTP error pages still on a "success-looking" host.
   if (/\b404\b/.test(title) && /not\s*found|error|错误|不存在/i.test(haystack)) return true;

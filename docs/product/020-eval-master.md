@@ -16,7 +16,8 @@ related:
   - "product/018"
   - "product/019"
   - "product/021"
-last_modified: "2026-08-06"
+  - "product/023"
+last_modified: "2026-08-11"
 ---
 
 # 020 — 持节评估主表与运行协议
@@ -69,6 +70,7 @@ last_modified: "2026-08-06"
 | 022-VERIFY-01 | product/022 | unit verifier | 错误 candidate_complete 必须被 Verifier 拒绝 | n/a unit | ≥1 unit | 否 |
 | 022-ARTIFACT-01 | product/022 | unit artifact | schema / row / source 真校验，非 summary | n/a unit | ≥1 unit | 否 |
 | 022-LEARN-01 | product/022 | learned plan | Candidate 换输入 3 次晋升（当前 enableLearnedSkills=false 可 BLOCKED） | MiniMax-M3 | ≥3 | 否 |
+| 023-LR-01 | product/023 | GitHub + 真实互联网 + 当前 Chrome + 飞书 | G23-1..8 全部通过，研究表与决策文档回读验证 | MiniMax-M3 | ≥1 | 是 |
 
 Phase 0 / Regression task set id（runner `TASK_SET=phase0_022`）:
 
