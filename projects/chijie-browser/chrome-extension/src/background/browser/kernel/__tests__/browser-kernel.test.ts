@@ -7,25 +7,28 @@ import { ActionResult } from '../../../agent/types';
 describe('BrowserKernel', () => {
   it('act routes through dispatchAction with bound page_revision', async () => {
     const dispatchAction = vi.fn(
-      async (_roundId: string, _action: Action, _rawArgs: unknown): Promise<DispatchResult> => ({
-        actionResult: new ActionResult({
-          error: undefined,
-          isDone: false,
-          extractedContent: 'ok',
-          includeInMemory: true,
-        }),
-        attempt: {
-          id: 'a1',
-          roundId: 'round-1',
-          actionName: 'click_element',
-          effect: 'reversible',
-          argsDigest: 'x',
-          state: 'observed',
-          proposedAt: 1,
-        },
-        evidence: [],
-        pageRevision: 'rev-1',
-      }),
+      async (...args: [string, Action, unknown]): Promise<DispatchResult> => {
+        void args;
+        return {
+          actionResult: new ActionResult({
+            error: undefined,
+            isDone: false,
+            extractedContent: 'ok',
+            includeInMemory: true,
+          }),
+          attempt: {
+            id: 'a1',
+            roundId: 'round-1',
+            actionName: 'click_element',
+            effect: 'reversible',
+            argsDigest: 'x',
+            state: 'observed',
+            proposedAt: 1,
+          },
+          evidence: [],
+          pageRevision: 'rev-1',
+        };
+      },
     );
     const action = {
       name: () => 'click_element',

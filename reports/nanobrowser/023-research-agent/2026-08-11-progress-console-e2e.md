@@ -11,6 +11,12 @@
 
 本报告只验收进度控制台和 `023-LR-01` 的展示映射，不代表 Living Reader 正式任务已经完成。
 
+## 目标收敛后的解释复核
+
+在 Owner 明确产品目标以前，执行中曾作出两个暂时性判断：第一，把当前优先级理解为尽快继续并完成 Living Reader 调研；第二，把“可视化”理解为对已有任务状态与日志的展示改良。Owner 随后明确，真正优先级是先建立 Chrome 侧栏中的可信任务控制台，并在关键阶段快速外化 Agent 的 Mission、里程碑、事实、健康度、下一步与控制结构。
+
+按最终目标回查此前工作：长程技能隔离、拒绝完成后的重试保护、证据空间与恢复检查点仍直接服务于“自主执行 + 真实进度 + 可恢复”，没有引入逐动作审批，也没有把聊天重新提升为任务主界面。进度控制台的设计与实现发生在目标确认之后。未通过项也不被掩盖：Living Reader 最终研究交付尚未完成；生产 i18n 当前固定为简体中文，因此英文真实侧栏路径仍未通过。
+
 ## 事实口径
 
 - 稳定 Mission：`Living Reader 下一阶段能力决策`。
@@ -89,14 +95,36 @@
 | G21-V8 真实侧栏 | PARTIAL | 中文 430px、320px、200% 真实 Chrome 通过；英文真实 Chrome 主路径本次未运行 |
 | G23-9 可视化运行 | PASS（控制台切片） | Mission、阶段、证据、计数口径、健康、下一步和控制入口一致可见 |
 
+## 最终需求到检查的逐项映射
+
+| 明确要求 / 公共输出 | 检查路径 | 实际观察 | 结论 |
+|---|---|---|---|
+| 稳定 Mission，follow-up 不覆盖 | presentation 测试读取原始 instruction；真实侧栏读取标题；方向调整点击后复读 | 始终为“Living Reader 下一阶段能力决策”；草稿与状态变化未改写标题 | PASS |
+| 方向调整是独立、带时间的事件 | TaskManager 集成测试提交 `changeType=direction_change`；presentation 测试投影事件 | 新 round 保存 `changeType`、`createdAt`；侧栏存在独立“方向已调整”区域 | PASS |
+| 合格数来自持久证据并解释原始数 | evidence-space + presentation 测试；真实侧栏读取 | `76/80`、原始 `91`、未计入 `15` 同时出现，下一步为补足 4 条 | PASS |
+| 无可信总量不伪造百分比 | generic presentation 测试 | 无 criteria 的通用阶段输出空 Gate，不产生虚构 `x/y` | PASS |
+| 里程碑由 Gate/产物而非动作数推进 | presentation 决策矩阵与交付回读测试；真实侧栏比较 5 阶段与 546 条审计 | 三个能力但证据矩阵不完整时决策阶段仍不通过；动作记录只在折叠审计层 | PASS |
+| 运行状态视觉互斥 | 状态矩阵测试覆盖 waiting、inputs-required、failed、cancelled、completed；暂停/中断、运行另有测试；真实中断侧栏复验 | 所有非运行状态均无 `currentActivity`；中断侧栏无“正在运行”、读页面或计时器 | PASS |
+| 当前动作包含目的，且当前页面不冒充活动 | running presentation 测试；真实中断侧栏读取 composer kicker | 运行投影为“打开 Zotero 官网 · 推进产品研究”；中断只显示 composer“当前页面” | PASS |
+| 健康度可判断推进、换路、放缓、需要用户、暂停、失败、完成 | presentation 健康矩阵、blocked attempt 与 8 分钟陈旧阈值测试 | 分别投影 advancing、recovering、slow、needs_user、paused、failed、complete；陈旧任务不假装正常 | PASS |
+| 成果与产物可检查 | presentation 测试注入最新证据和飞书回读产物；组件链接输出；真实侧栏观察成果区 | 最新两条成果可见；已回读产物映射为 verified 链接；当前 Living Reader 尚无正式飞书产物 | PASS（能力成立，任务产物未完成） |
+| 暂停/继续/调整/追问/停止连续控制，无逐动作审批 | TaskManager pause/follow-up/direction tests；UI acceptance；真实侧栏调整点击 | 三个中断态按钮可见；调整只聚焦 composer、不隐式恢复；源码与 UI 无“批准一次” | PASS（未对真实任务点击继续/停止） |
+| 430px、320px、200% zoom、中文长文案、40px 目标 | 真实 Chrome 尺寸与 DOM 测量；CSS reduced-motion 与 focus 测试 | 三种视口均无横向滚动；按钮高度 44px；reduced-motion 关闭滚动动效 | PASS |
+| 英文真实 Chrome 主路径 | 检查生产 i18n 入口和真实产品路径 | `i18n-prod.ts` 明确固定 `zh_CN`，当前没有可进入英文产品路径 | **BLOCKED / 未通过** |
+| 中断后保存并可恢复 | 真实扩展 reload 前后读取同一任务；TaskManager interrupted follow-up 集成测试 | Mission、`76/80`、`26/30`、检查点在 reload 后保持；未发送继续命令 | PASS（保存）；恢复执行待 Owner 授权 |
+| 最终完成必须有浏览器证据 | completion receipt 测试与当前真实任务状态 | 当前仍诚实显示 interrupted，没有因模型文本或部分配额显示完成 | PASS（诚实未完成） |
+
+真实 Chrome 的最终构建检查发生在首个功能提交前；随后完整验收发现并修复 lint gate，最终 production build 再次通过。后续改动仅为静态 type import、等价 decision draft 构造、测试 lint 修复与状态矩阵测试，没有改动侧栏 DOM、CSS、交互或持久状态。任务空间 18 按保留策略交还用户，后续不能在未获明确授权时夺回控制；因此没有再次点击真实任务的继续或停止来规避这一安全边界。
+
 ## 回归验证
 
 最终实现已执行：
 
-- side-panel：`13` 个测试文件、`119` 个测试全部通过。
+- side-panel：`13` 个测试文件、`125` 个测试全部通过，其中状态矩阵显式覆盖 waiting、inputs-required、failed、cancelled、completed、paused、interrupted、running、recovering 与 slow。
 - chrome-extension：`62` 个测试文件、`525` 个测试全部通过。
 - workspace `pnpm type-check`：`12/12` 个任务通过。
-- workspace `pnpm build`：最终构建链全部通过，side-panel、options、chrome-extension 均生成生产产物。
+- workspace `pnpm lint`：`12/12` 个任务通过；仅保留依赖数据陈旧和 Tailwind 配置模块类型等非阻塞警告。
+- workspace `pnpm build`：ready `8/8`、生产 build `5/5` 通过，side-panel、options、chrome-extension 均生成 `dist/` 产物。
 
 独立 P4 评审最初指出三个缺口：方向调整缺少可持久审计事件、决策 Gate 只检查三个能力的数量、无运行尝试时健康状态可能长期显示推进中。实现补齐了方向调整的类型与时间戳及可视事件、改用完整 `researchDecisionReady` 矩阵校验，并为无最近尝试的运行任务加入陈旧阈值。聚焦复审结果为 **PASS**。
 

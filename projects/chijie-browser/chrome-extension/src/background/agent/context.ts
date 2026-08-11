@@ -60,7 +60,7 @@ const RECENT_FIELD_MAX = 2_000;
  * Used for trajectory archive fields so secrets never re-enter the prompt.
  */
 export function sanitizeTrajectoryField(text: string, maxChars = DEFAULT_FIELD_MAX): string {
-  let s = text
+  const s = text
     .replace(/(password|passwd|pwd)\s*[:=]\s*\S+/gi, '$1=[REDACTED]')
     .replace(/\b(password|passwd|pwd)\b[^\n]{0,60}/gi, 'password=[REDACTED]')
     // input_text / form value payloads: key=value or "text":"..."

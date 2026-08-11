@@ -460,7 +460,11 @@ export async function recordResearchDecision(input: {
 
 export function researchDecisionReady(space: EvidenceSpace | null | undefined): boolean {
   if (!space?.researchDecision) return false;
-  const { createdAt: _createdAt, ...draft } = space.researchDecision;
+  const draft: Omit<ResearchDecision, 'createdAt'> = {
+    capabilities: space.researchDecision.capabilities,
+    deferred: space.researchDecision.deferred,
+    contradictions: space.researchDecision.contradictions,
+  };
   return validateResearchDecision(space, draft).length === 0;
 }
 
