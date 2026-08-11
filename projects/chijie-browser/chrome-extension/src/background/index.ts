@@ -22,7 +22,7 @@ const taskManager = new TaskManager({
   createExecutor: (input, hooks) =>
     createExecutorDriver(input, hooks, event => sidePanelPorts.broadcast(port => port.postMessage(event))),
   switchTab: async tabId => {
-    await browserContext.switchTab(tabId);
+    await browserContext.bindToTab(tabId);
   },
   observeCriteria: async criteria => {
     const page = await browserContext.getCurrentPage();

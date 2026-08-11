@@ -75,6 +75,19 @@ export function isActiveTaskStatus(status: TaskStatus | string | null | undefine
   return (ACTIVE_TASK_STATUSES as readonly string[]).includes(status);
 }
 
+/** Terminal snapshots belong to history and must never reclaim an explicit fresh chat. */
+export function shouldAutoRestoreTaskSession(input: {
+  status: TaskStatus | string | null | undefined;
+  taskChatSessionId: string | null | undefined;
+  currentSessionId: string | null | undefined;
+}): boolean {
+  return (
+    isActiveTaskStatus(input.status) &&
+    Boolean(input.taskChatSessionId) &&
+    input.taskChatSessionId !== input.currentSessionId
+  );
+}
+
 /**
  * Main workspace shows task card + live chat only for an active task,
  * or when the user explicitly opened a historical session.

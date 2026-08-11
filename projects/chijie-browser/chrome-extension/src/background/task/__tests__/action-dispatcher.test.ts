@@ -41,6 +41,12 @@ describe('EffectPolicy', () => {
     ['open_tab', {}, 'allow'],
     ['close_tab', {}, 'allow'],
     ['cache_content', {}, 'allow'],
+    ['record_evidence', {}, 'allow'],
+    ['inspect_evidence_space', {}, 'allow'],
+    ['record_research_decision', {}, 'allow'],
+    ['record_research_delivery', {}, 'allow'],
+    ['read_page_text', {}, 'allow'],
+    ['inspect_open_tabs', {}, 'allow'],
     ['scroll_to_percent', {}, 'allow'],
     ['scroll_to_top', {}, 'allow'],
     ['scroll_to_bottom', {}, 'allow'],
@@ -53,6 +59,21 @@ describe('EffectPolicy', () => {
     ['control_media', {}, 'allow'],
   ] as const)('%s resolves to %s', (actionName, target, expected) => {
     expect(decideEffect({ actionName, target, skillPolicy: 'default' }).kind).toBe(expected);
+  });
+
+  it('keeps a plain search-result anchor reversible when page semantics falsely signal a commit', () => {
+    expect(
+      decideEffect({
+        actionName: 'click_element',
+        target: {
+          tag: 'a',
+          inForm: false,
+          semanticCommit: true,
+          intent: 'open NotebookLM official page',
+        },
+        skillPolicy: 'default',
+      }),
+    ).toEqual({ kind: 'allow', effect: 'reversible' });
   });
 });
 
@@ -172,6 +193,42 @@ describe('ActionDispatcher', () => {
     expect(execute).not.toHaveBeenCalled();
     expect(observe).toHaveBeenCalledTimes(2);
     expect(persistedStates).toEqual(['proposed', 'blocked']);
+  });
+
+  it('lets a plain anchor use the page-level href revalidation on dynamic result pages', async () => {
+    const execute = vi.fn(async () => new ActionResult({ success: true }));
+    const action = new Action(execute, clickElementActionSchema, true);
+    let observation = 0;
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      persistAttempt: vi.fn(async () => undefined),
+      observe: vi.fn(async (_request, _args, phase) => {
+        observation += 1;
+        return {
+          target: {
+            id: `target-${observation}`,
+            kind: phase === 'after' ? ('page' as const) : ('element' as const),
+            tabId: 7,
+            frameId: 0 as const,
+            urlOrigin: 'https://www.google.test',
+            digest: `digest-${observation}`,
+          },
+          effectTarget: { tag: 'a', inForm: false, semanticNavigation: true },
+          evidence: [],
+        };
+      }),
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action,
+      rawArgs: { intent: 'open result', index: 4 },
+    });
+
+    expect(result.attempt.state).toBe('observed');
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(observation).toBe(2);
   });
 
   it('executes an unclaimed index once when the target remains bound', async () => {
@@ -401,5 +458,4 @@ describe('ActionDispatcher', () => {
     expect(result.attempt.state).toBe('uncertain');
     expect(persistedStates).toEqual(['proposed', 'authorized', 'executing', 'uncertain']);
   });
-
 });

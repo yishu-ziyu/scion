@@ -304,6 +304,14 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).toContain('wait-retry');
     expect(taskStatusCardSource).toContain("type: 'resume'");
     expect(taskStatusCardSource).toContain('criterion-confirm');
+    expect(taskStatusCardSource).not.toContain('proof-deadend-escape');
+    expect(taskStatusCardSource).not.toContain('task-cancel-deadend');
+  });
+
+  it('persists a verified text deliverable into chat with receipt-level deduplication', () => {
+    expect(sidePanelSource).toContain('completionChatDelivery');
+    expect(sidePanelSource).toContain('hasCompletionChatDelivery');
+    expect(sidePanelSource).toContain('deliveredCompletionReceiptsRef');
   });
 });
 

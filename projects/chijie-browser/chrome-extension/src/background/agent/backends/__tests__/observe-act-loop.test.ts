@@ -258,4 +258,45 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
     });
     expect(outcome).toEqual({ kind: 'failed', category: 'max_steps' });
   });
+
+  it('counts new local evidence results as semantic progress on an unchanged page', async () => {
+    let acts = 0;
+    const summaries = ['added=1; duplicates=0', 'added=0; duplicates=1', 'products=1'];
+    const outcome = await runObserveActLoop({
+      maxSteps: 5,
+      maxFailures: 3,
+      maxNoProgress: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'url=https://example.com',
+      decide: async (_state, step): Promise<LoopDecision> =>
+        step < summaries.length
+          ? { kind: 'action', name: 'record_evidence', args: {} }
+          : { kind: 'done', summary: 'evidence verified' },
+      act: async () => {
+        const summary = summaries[acts++];
+        return { error: null, summary, progressKey: `record_evidence:${summary}` };
+      },
+      reobserve: async () => 'url=https://example.com',
+    });
+
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'evidence verified' });
+    expect(acts).toBe(3);
+  });
+
+  it('does not let a repeated local result bypass no_progress', async () => {
+    const outcome = await runObserveActLoop({
+      maxSteps: 10,
+      maxFailures: 3,
+      maxNoProgress: 2,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'url=https://example.com',
+      decide: async () => ({ kind: 'action', name: 'inspect_evidence_space', args: {} }),
+      act: async () => ({ error: null, progressKey: 'inspect_evidence_space:products=1' }),
+      reobserve: async () => 'url=https://example.com',
+    });
+
+    expect(outcome).toEqual({ kind: 'failed', category: 'no_progress' });
+  });
 });

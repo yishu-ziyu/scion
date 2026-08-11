@@ -51,6 +51,8 @@ export function wantsContentDeliverable(goal: string): boolean {
     /发给我|发我|告诉我|回复我|贴给我/.test(g) ||
     /第一条评论|评论内容|热评/.test(g) ||
     /摘录|摘要|总结/.test(g) ||
+    /(?:用|以).{0,16}(?:说明|描述|概括)/.test(g) ||
+    /(?:说明|描述|概括).{0,24}(?:页面|内容|展示|是什么)/.test(g) ||
     /把.{1,40}给(我|你)/.test(g) ||
     /\b(copy|tell me|send me|first comment)\b/i.test(g)
   );
@@ -61,6 +63,9 @@ export function isStatusOnlyAnswer(answer: string | undefined): boolean {
   const s = answer?.replace(/\s+/g, ' ').trim() ?? '';
   if (!s) return true;
   if (/^(done|完成|ok|已完成|success|好了|opened|playing|paused)[.!。！]*$/i.test(s)) return true;
+  if (/^(?:好的|好[，,]|可以[，,]|收到|明白).{0,48}(?:我来|将|正在|马上|会)/.test(s)) return true;
+  if (/^(?:sure|okay|ok)[,.! ]{0,3}(?:i(?:'ll| will)|let me)/i.test(s)) return true;
+  if (/^Control loop candidate complete$/i.test(s)) return true;
   if (/User instruction/i.test(s)) return true;
   if (/^(视频|媒体).{0,12}(播放|暂停|核对)/.test(s)) return true;
   if (/^(目标)?标签已关闭/.test(s)) return true;

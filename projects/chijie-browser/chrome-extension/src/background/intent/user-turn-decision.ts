@@ -1,7 +1,4 @@
-/**
- * LLM-only user-turn decision: reply / clarify / execute / stop.
- * No keyword routing — the model chooses; code only parses and invokes.
- */
+/** LLM-first user-turn decision: reply / clarify / execute / stop. */
 
 import { HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
 import { AgentNameEnum, agentModelStore, llmProviderStore } from '@extension/storage';
@@ -89,6 +86,28 @@ export interface HistoryTurn {
   content: string;
 }
 
+/**
+ * Reading the bound page requires browser observation even when the classifier
+ * mistakenly writes a conversational acknowledgement.
+ */
+export function enforcePageObservationInvariant(
+  latestUserText: string,
+  decision: UserTurnDecision,
+): UserTurnDecision {
+  if (decision.kind === 'execute' || decision.kind === 'stop') return decision;
+
+  const text = latestUserText.replace(/\s+/g, ' ').trim();
+  const referencesPage =
+    /(?:当前|这个|本)(?:[^。！？!?]{0,20})?(?:页面|网页|网站|标签页)|(?:页面|网页)(?:上|中|展示|内容)/.test(
+      text,
+    ) || /\b(?:this|the|current)\s+(?:page|webpage|site|tab)\b/i.test(text);
+  const requestsReading =
+    /说明|描述|总结|摘要|概括|读取|读一下|提取|摘录|列出|展示的内容|是什么|有哪些/.test(text) ||
+    /\b(?:summari[sz]e|describe|read|extract|quote|list|tell me|what(?:'s| is)|what are)\b/i.test(text);
+
+  return referencesPage && requestsReading ? { kind: 'execute', userVisibleText: '' } : decision;
+}
+
 function contentFromLlmResponse(response: unknown): string {
   if (!response || typeof response !== 'object') return '';
   const r = response as { content?: unknown };
@@ -163,5 +182,5 @@ export async function decideUserTurn(input: {
     logger.warning('parse failed', parsed.error, raw.slice(0, 200));
     throw new Error('模型返回无法解析，请再说一遍你想做什么。');
   }
-  return parsed.decision;
+  return enforcePageObservationInvariant(latest, parsed.decision);
 }

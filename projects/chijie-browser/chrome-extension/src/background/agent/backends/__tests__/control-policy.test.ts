@@ -1,10 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAgentStatusBar,
+  observationSupportsWaitingUser,
   parseControlPolicyDecision,
   renderControlSystemPrompt,
   CONTROL_PROMPT_VERSION,
 } from '../control-policy';
+import type { ObservationFrame } from '../../../browser/kernel';
+
+function frame(overrides: Partial<ObservationFrame> = {}): ObservationFrame {
+  return {
+    frameId: 'frame-1',
+    observedAt: 1,
+    tab: { id: 7, url: 'https://www.aicss.dev/components/task-list', title: 'To-do List · AICSS' },
+    pageRevision: 'rev-1',
+    targetCount: 1,
+    interactiveElements: [{ index: 1, tagName: 'button', text: 'Sign in' }],
+    text: 'Current tab: AICSS\nInteractive elements:\nSign in\nTo-dos 5/5',
+    signals: [],
+    ...overrides,
+  };
+}
 
 describe('parseControlPolicyDecision', () => {
   it('parses action_name shape', () => {
@@ -113,6 +129,32 @@ describe('parseControlPolicyDecision', () => {
       args: { filename: 'sspai-home.jpg', intent: 'save page shot' },
     });
   });
+
+  it('allows durable evidence-space actions', () => {
+    const record = parseControlPolicyDecision({
+      observation: 'read the actual discussion page',
+      done: false,
+      action_name: 'record_evidence',
+      action_args: { records: [] },
+    });
+    expect(record.action).toEqual({ name: 'record_evidence', args: { records: [] } });
+
+    const inspect = parseControlPolicyDecision({
+      observation: 'check progress after recovery',
+      done: false,
+      action_name: 'inspect_evidence_space',
+      action_args: {},
+    });
+    expect(inspect.action).toEqual({ name: 'inspect_evidence_space', args: {} });
+
+    const read = parseControlPolicyDecision({
+      observation: 'article body is not in the interactive snapshot',
+      done: false,
+      action_name: 'read_page_text',
+      action_args: { max_chars: 20000 },
+    });
+    expect(read.action).toEqual({ name: 'read_page_text', args: { max_chars: 20000 } });
+  });
 });
 
 describe('agent status bar / prompt versioning', () => {
@@ -134,12 +176,58 @@ describe('agent status bar / prompt versioning', () => {
 
   it('includes prompt version and optional status block', () => {
     const prompt = renderControlSystemPrompt({ statusBar: 'url: https://example.com' });
-    expect(CONTROL_PROMPT_VERSION).toBe('chijie-control-v0.3.0');
+    expect(CONTROL_PROMPT_VERSION).toBe('chijie-control-v0.3.2');
     expect(prompt).toContain(CONTROL_PROMPT_VERSION);
     expect(prompt).toContain('<agent_status>');
     expect(prompt).toContain('url: https://example.com');
     expect(prompt).toContain('Long-horizon');
     expect(prompt).toContain('plan memory');
     expect(prompt).toContain('Never invent done without observable');
+    expect(prompt).toContain('Never return an acknowledgement or future promise');
+    expect(prompt).toContain('do not click or modify the page');
+    expect(prompt).toContain('record_evidence');
+    expect(prompt).toContain('search snippets');
+    expect(prompt).toContain('MUST be recorded before leaving');
+    expect(prompt).toContain('action_args MUST be {"records"');
+    expect(prompt).toContain('do not propose a URL criterion that was already true at baseline');
+    expect(prompt).toContain('inspect_open_tabs');
+  });
+});
+
+describe('observationSupportsWaitingUser', () => {
+  it.each(['login_required', 'captcha_required'] as const)(
+    'rejects model-reported %s on an unblocked public page',
+    reason => {
+      expect(observationSupportsWaitingUser(frame(), reason)).toBe(false);
+    },
+  );
+
+  it('accepts a real login wall with a password input', () => {
+    expect(
+      observationSupportsWaitingUser(
+        frame({
+          tab: { id: 7, url: 'https://app.example.test/login', title: 'Sign in' },
+          interactiveElements: [
+            { index: 1, tagName: 'input', type: 'password', name: 'password' },
+            { index: 2, tagName: 'button', text: 'Sign in' },
+          ],
+          text: 'Interactive elements:\nPassword\nSign in',
+        }),
+        'login_required',
+      ),
+    ).toBe(true);
+  });
+
+  it('accepts a visible CAPTCHA challenge', () => {
+    expect(
+      observationSupportsWaitingUser(
+        frame({
+          tab: { id: 7, url: 'https://app.example.test/challenge', title: 'Security check' },
+          interactiveElements: [],
+          text: 'Verify you are human with hCaptcha to continue',
+        }),
+        'captcha_required',
+      ),
+    ).toBe(true);
   });
 });

@@ -87,6 +87,20 @@ const blankTab = {
   title: 'New Tab',
 } as chrome.tabs.Tab;
 
+const boundWindowTab = {
+  ...contentTab,
+  id: 8,
+  active: true,
+  windowId: 10,
+} as chrome.tabs.Tab;
+
+const otherWindowTab = {
+  ...contentTab,
+  id: 9,
+  active: true,
+  windowId: 11,
+} as chrome.tabs.Tab;
+
 const currentTabBecomesMixed = {
   ...pendingContentFromExtensionTab,
   id: contentTab.id,
@@ -109,6 +123,18 @@ describe('BrowserContext tab selection', () => {
 
     expect(page.tabId).toBe(contentTab.id);
     expect(tabsApi.create).not.toHaveBeenCalled();
+  });
+
+  it('binds tab discovery and switching to the task window', async () => {
+    tabsApi.get.mockImplementation(async id => (id === boundWindowTab.id ? boundWindowTab : otherWindowTab));
+    tabsApi.query.mockResolvedValue([boundWindowTab]);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const context = new BrowserContext({});
+
+    await context.bindToTab(boundWindowTab.id!);
+    await expect(context.getAllTabIds()).resolves.toEqual(new Set([boundWindowTab.id]));
+    expect(tabsApi.query).toHaveBeenCalledWith({ windowId: boundWindowTab.windowId });
+    await expect(context.switchTab(otherWindowTab.id!)).rejects.toThrow('outside the task window');
   });
 
   it('omits extension pages from the tab inventory exposed to agents', async () => {

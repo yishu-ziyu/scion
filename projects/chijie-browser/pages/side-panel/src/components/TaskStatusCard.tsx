@@ -158,6 +158,7 @@ function failureNextStep(snapshot: TaskSnapshot): string {
   const waitReason = round?.waitReason === 'proof_required' && !hasConfirmable ? undefined : round?.waitReason;
   const hint = waitReasonHint(waitReason);
   if (hint) return hint;
+  if (snapshot.status === 'waiting_user') return t('chat_task_fail_no_action');
   if (snapshot.status === 'failed') {
     const category = round?.failureCategory;
     if (category) {
@@ -908,41 +909,6 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
                 {t('chat_task_confirm_done')}
               </button>
             ))}
-
-          {snapshot.status === 'waiting_user' &&
-            round?.waitReason === 'proof_required' &&
-            confirmations.length === 0 && (
-              <div className="chijie-task-actions mt-2 flex flex-col gap-2" data-testid="proof-deadend-escape">
-                <button
-                  type="button"
-                  data-testid="wait-continue"
-                  className={primaryButtonClassName}
-                  onClick={() =>
-                    send({
-                      type: 'resume',
-                      commandId: crypto.randomUUID(),
-                      taskId: snapshot.id,
-                      expectedRevision: snapshot.revision,
-                    })
-                  }>
-                  {t('chat_task_wait_continue')}
-                </button>
-                <button
-                  type="button"
-                  data-testid="task-cancel-deadend"
-                  className={secondaryButtonClassName}
-                  onClick={() =>
-                    send({
-                      type: 'cancel',
-                      commandId: crypto.randomUUID(),
-                      taskId: snapshot.id,
-                      expectedRevision: snapshot.revision,
-                    })
-                  }>
-                  {t('chat_task_cancel')}
-                </button>
-              </div>
-            )}
 
           {waitAction === 'wait-continue' && (
             <button

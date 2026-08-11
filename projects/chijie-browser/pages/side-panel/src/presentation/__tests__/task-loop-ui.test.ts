@@ -7,6 +7,7 @@ import {
   observedAttemptCount,
   ratingStorageKey,
   shouldShowExecutionSteps,
+  shouldAutoRestoreTaskSession,
   shouldShowMainTaskSurface,
   shouldShowOutcomeRating,
   shouldShowVerifiedDone,
@@ -115,6 +116,36 @@ describe('Feature: Tabbit-class task loop UI (ticket 01, seam S1)', () => {
     expect(shouldShowMainTaskSurface({ status: 'running', isHistoricalSession: false })).toBe(true);
     expect(shouldShowMainTaskSurface({ status: 'completed', isHistoricalSession: true })).toBe(true);
     expect(shouldShowMainTaskSurface({ status: null, isHistoricalSession: false })).toBe(false);
+  });
+
+  it.each(['completed', 'failed', 'cancelled'] as const)(
+    'does not let a %s snapshot reclaim an explicit fresh chat',
+    status => {
+      expect(
+        shouldAutoRestoreTaskSession({
+          status,
+          taskChatSessionId: 'old-session',
+          currentSessionId: null,
+        }),
+      ).toBe(false);
+    },
+  );
+
+  it.each(['running', 'waiting_user'] as const)('restores the session for a live %s task', status => {
+    expect(
+      shouldAutoRestoreTaskSession({
+        status,
+        taskChatSessionId: 'live-session',
+        currentSessionId: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoRestoreTaskSession({
+        status,
+        taskChatSessionId: 'live-session',
+        currentSessionId: 'live-session',
+      }),
+    ).toBe(false);
   });
 
   it('rejects machine tokens as primary user copy', () => {

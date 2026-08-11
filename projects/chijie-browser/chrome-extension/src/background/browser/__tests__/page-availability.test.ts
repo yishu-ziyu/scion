@@ -42,4 +42,34 @@ describe('pageLooksUnavailable', () => {
       }),
     ).toBe(true);
   });
+
+  it('flags GitHub missing-file pages', () => {
+    expect(
+      pageLooksUnavailable({
+        url: 'https://github.com/yishu-ziyu/living-reader/blob/main/product-brief.md',
+        title: 'File not found',
+        bodyText: 'The main branch of living-reader does not contain the path product-brief.md.',
+      }),
+    ).toBe(true);
+  });
+
+  it('flags Cloudflare verification shells as unavailable content', () => {
+    expect(
+      pageLooksUnavailable({
+        url: 'https://www.producthunt.com/products/chatpdf',
+        title: '请稍候…',
+        bodyText: '正在进行安全验证。本网站使用安全服务防护恶意自动程序。由 Cloudflare 提供服务。',
+      }),
+    ).toBe(true);
+  });
+
+  it('flags parked and for-sale domains as unavailable product sources', () => {
+    expect(
+      pageLooksUnavailable({
+        url: 'https://forsale.godaddy.com/forsale/liquidtext.com',
+        title: 'liquidtext.com',
+        bodyText: 'This domain is for sale. Buy this domain.',
+      }),
+    ).toBe(true);
+  });
 });
