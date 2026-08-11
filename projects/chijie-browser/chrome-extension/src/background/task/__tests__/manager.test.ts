@@ -744,6 +744,69 @@ describe('TaskManager lifecycle', () => {
     });
   });
 
+  it('rehydrates prior research quotas when the user resumes an interrupted correction round', async () => {
+    const researchInstruction = '至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最后交付结论。';
+    const latestCorrection = '停止浏览，直接调用 record_research_decision 完成剩余调研决策。';
+    store.sessions.set('task-resume-research-correction', {
+      id: 'task-resume-research-correction',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-resume-research-correction',
+      instructionMessageId: 'message-latest-correction',
+      status: 'interrupted',
+      revision: 5,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionMessageId: 'message-latest-correction',
+          instructionSummary: 'User instruction',
+          status: 'interrupted',
+          commandAcks: {},
+          criteria: [],
+          attempts: [],
+          evidence: [],
+        },
+      ],
+    });
+    store.chatSessions.set('chat-resume-research-correction', {
+      messages: [
+        { id: 'message-original-research', actor: 'user', content: researchInstruction },
+        { id: 'message-latest-correction', actor: 'user', content: latestCorrection },
+      ],
+    });
+    let resumedInstruction = '';
+    const createExecutor = vi.fn(async (input: ExecutorInput) => {
+      resumedInstruction = input.instruction;
+      return fakeDriver();
+    });
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'resume',
+      commandId: 'resume-research-correction',
+      taskId: 'task-resume-research-correction',
+      expectedRevision: 5,
+    });
+
+    await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
+    expect(resumedInstruction).toContain(researchInstruction);
+    expect(resumedInstruction).toContain(latestCorrection);
+    await expect(manager.snapshot('task-resume-research-correction')).resolves.toMatchObject({
+      status: 'running',
+      rounds: [{ status: 'running' }],
+    });
+  });
+
   it('reopens a quota research task that failed on a recoverable source-path error', async () => {
     const instruction = '至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最后交付结论。';
     store.sessions.set('task-recover-failed-research', {
