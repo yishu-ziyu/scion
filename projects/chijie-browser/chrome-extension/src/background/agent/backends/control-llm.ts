@@ -44,6 +44,8 @@ import {
   getEvidenceSpace,
   isPrivateDashboardEvidenceSource,
   isSearchResultsEvidenceSource,
+  researchDecisionReady,
+  researchDeliveryReady,
 } from '@extension/storage/lib/task/evidence-space';
 import {
   extractResearchQuotas,
@@ -110,6 +112,28 @@ export function researchDecisionFailureFeedback(error: string): string {
     return `record_research_decision was rejected. Correct only these validation failures: ${codes.join(', ')}. Do not inspect, browse, wait, or finish; retry record_research_decision now.`;
   }
   return 'record_research_decision failed before acceptance. Use exactly 3 capabilities with the exact documented keys, top-level deferred and contradictions, and only IDs from decision_evidence_shortlist. Do not inspect, browse, wait, or finish; retry the action now.';
+}
+
+export function researchGateGuidance(input: {
+  decisionReady: boolean;
+  deliveryReady: boolean;
+}): string[] {
+  if (!input.decisionReady) {
+    return [
+      'The collection gates are complete. Stop browsing and do not record the current page.',
+      'Use inspect_evidence_space only to obtain valid durable IDs, then call record_research_decision with exactly three complete capabilities.',
+    ];
+  }
+  if (!input.deliveryReady) {
+    return [
+      'The structured decision is already accepted. Do not call record_research_decision again.',
+      'Complete the Feishu research table and decision document, reopen each final page for readback, then call record_research_delivery once for research_table and once for decision_document.',
+    ];
+  }
+  return [
+    'The structured decision and both Feishu readback receipts are complete. Do not call either research recording action again.',
+    'Finish the task with a concise delivery summary.',
+  ];
 }
 
 export function shouldKeepActionResultInContext(actionName: string): boolean {
@@ -459,12 +483,20 @@ export async function createLlmControlDriver(
           let currentSourceRecorded = false;
           let researchProgress: ReturnType<typeof evidenceSpaceProgress> | null = null;
           let researchCollectionComplete = false;
+          let researchDecisionComplete = false;
+          let researchDeliveryComplete = false;
           if (researchQuotas) {
             const evidenceSpace = await getEvidenceSpace(input.taskId);
             const progress = evidenceSpaceProgress(evidenceSpace);
             researchProgress = progress;
             researchCollectionComplete = researchQuotasMet(researchQuotas, progress);
-            if (researchCollectionComplete && requiresStructuredResearchDecision(instruction)) {
+            researchDecisionComplete = researchDecisionReady(evidenceSpace);
+            researchDeliveryComplete = researchDeliveryReady(evidenceSpace);
+            if (
+              researchCollectionComplete &&
+              requiresStructuredResearchDecision(instruction) &&
+              !researchDecisionComplete
+            ) {
               researchDecisionEvidenceShortlist = renderResearchDecisionEvidenceShortlist(evidenceSpace);
             }
             const canonicalPage = canonicalizeEvidenceSource(pageUrl);
@@ -507,10 +539,10 @@ export async function createLlmControlDriver(
               `recorded_products: ${recordedProducts.length > 0 ? recordedProducts.join(' | ') : 'none'}`,
               `user_discussion_hosts: ${discussionHosts.length > 0 ? discussionHosts.join(' | ') : 'none'}`,
               ...(researchCollectionComplete && requiresStructuredResearchDecision(instruction)
-                ? [
-                    'The collection gates are complete. Stop browsing and do not record the current page.',
-                    'Use inspect_evidence_space only to obtain valid durable IDs, then call record_research_decision with exactly three complete capabilities.',
-                  ]
+                ? researchGateGuidance({
+                    decisionReady: researchDecisionComplete,
+                    deliveryReady: researchDeliveryComplete,
+                  })
                 : [
                     'If the current page is a useful source and current_source_recorded is false, record it before any navigation.',
                     'Do not revisit a recorded source merely to gather more evidence. Open an unread source, and prioritize any user_discussions or products quota still at zero.',
