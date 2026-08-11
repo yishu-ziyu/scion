@@ -1170,6 +1170,12 @@
   "chat_task_resume": {
     "message": "繼續"
   },
+  "chat_task_adjust_direction": {
+    "message": "調整方向"
+  },
+  "chat_task_adjust_prompt": {
+    "message": "我想調整："
+  },
   "chat_task_stop": {
     "message": "停止任務"
   },
@@ -1310,7 +1316,7 @@
     "message": "截圖並儲存"
   },
   "chat_task_bind_kicker": {
-    "message": "正在讀"
+    "message": "目前頁面"
   },
   "chat_task_bind_missing": {
     "message": "沒有可用的網頁分頁。請先開啟目標網站，再傳送。"

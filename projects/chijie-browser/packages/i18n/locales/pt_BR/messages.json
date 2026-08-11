@@ -1170,6 +1170,12 @@
   "chat_task_resume": {
     "message": "Continuar"
   },
+  "chat_task_adjust_direction": {
+    "message": "Ajustar direção"
+  },
+  "chat_task_adjust_prompt": {
+    "message": "Quero ajustar: "
+  },
   "chat_task_stop": {
     "message": "Parar tarefa"
   },
@@ -1310,7 +1316,7 @@
     "message": "Salvar captura"
   },
   "chat_task_bind_kicker": {
-    "message": "Lendo página"
+    "message": "Página atual"
   },
   "chat_task_bind_missing": {
     "message": "Nenhuma aba de página utilizável. Abra um site e tente de novo."

@@ -52,7 +52,6 @@ import {
   applyPassedCriteriaToMissionPlan,
   attachCriteriaToActivePhase,
   markRemainingPhasesDone,
-  maybeAdvancePhaseByAttemptHeuristic,
   refineMissionPlanFromInstruction,
 } from './mission-plan';
 import { ActionResult } from '../agent/types';
@@ -507,7 +506,7 @@ export class TaskManager {
   private async followUp(task: TaskSession, command: Extract<TaskCommand, { type: 'follow_up' }>): Promise<CommandAck> {
     const round = this.currentRound(task);
     if (
-      !['running', 'paused', 'waiting_user', 'completed'].includes(task.status) ||
+      !['running', 'paused', 'interrupted', 'waiting_user', 'completed'].includes(task.status) ||
       !command.instruction.trim() ||
       (task.status === 'waiting_user' && round.waitReason === 'commit_outcome_uncertain')
     ) {
@@ -515,6 +514,7 @@ export class TaskManager {
     }
     const previousStatus = task.status;
     const roundId = crypto.randomUUID();
+    const now = this.deps.now();
     task.status = 'running';
     task.currentRoundId = roundId;
     task.chatSessionId = command.chatSessionId;
@@ -522,7 +522,9 @@ export class TaskManager {
     task.rounds.push({
       id: roundId,
       instructionMessageId: command.instructionMessageId,
-      instructionSummary: 'User instruction',
+      instructionSummary: command.changeType === 'direction_change' ? 'Direction changed' : 'User instruction',
+      changeType: command.changeType ?? 'follow_up',
+      createdAt: now,
       status: 'running',
       commandAcks: {},
       criteria: [],
@@ -536,7 +538,7 @@ export class TaskManager {
     if (!driver) void this.runCurrentRound(task.id);
     else {
       driver.addFollowUp(command.instruction);
-      if (previousStatus === 'paused') driver.resume();
+      if (previousStatus === 'paused' || previousStatus === 'interrupted') driver.resume();
       if (['waiting_user', 'completed'].includes(previousStatus)) {
         void this.runDriver(task.id, driver, roundId, command.instruction);
       }
@@ -853,7 +855,7 @@ export class TaskManager {
       if (!current || current.status !== 'running' || current.currentRoundId !== roundId) return;
       const currentRound = this.currentRound(current);
       currentRound.evidence.push(...checked.evidence);
-      this.syncMissionPlanFromEvidence(current, currentRound, checked.evidence);
+      this.syncMissionPlanFromEvidence(current, checked.evidence);
       await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
     });
     await this.stopTaskRuntime(taskId);
@@ -954,17 +956,6 @@ export class TaskManager {
         round.status = 'waiting_user';
         round.waitReason = 'commit_outcome_uncertain';
         stopDriver = true;
-      }
-      // Multi-phase without phase criteria: successful acts advance the active phase.
-      if (
-        attempt.state === 'observed' &&
-        isCurrentRound &&
-        task.plan &&
-        task.plan.phases.length > 1 &&
-        !TERMINAL_STATUSES.includes(task.status)
-      ) {
-        const successCount = round.attempts.filter(item => item.state === 'observed').length;
-        task.plan = maybeAdvancePhaseByAttemptHeuristic(task.plan, successCount, this.deps.now());
       }
       task.revision += 1;
       await this.persist(task);
@@ -1517,7 +1508,7 @@ export class TaskManager {
           }
           const currentRound = this.currentRound(current);
           currentRound.evidence.push(...automaticEvidence);
-          this.syncMissionPlanFromEvidence(current, currentRound, automaticEvidence);
+          this.syncMissionPlanFromEvidence(current, automaticEvidence);
           await this.persistWaitingUser(current, currentRound, 'proof_required');
         });
         if (handoffRoundId) {
@@ -1561,7 +1552,7 @@ export class TaskManager {
         }
         const currentRound = this.currentRound(current);
         currentRound.evidence.push(...checked.evidence);
-        this.syncMissionPlanFromEvidence(current, currentRound, checked.evidence);
+        this.syncMissionPlanFromEvidence(current, checked.evidence);
         // Optional-only criteria must not mint a verified receipt (sticky false complete).
         if (
           allowsVerifiedComplete({
@@ -2377,7 +2368,7 @@ export class TaskManager {
     );
     if (!confirmedEvidence) return this.reject(task, command.commandId, 'invalid_transition');
     round.evidence.push(confirmedEvidence);
-    this.syncMissionPlanFromEvidence(task, round, checked.evidence);
+    this.syncMissionPlanFromEvidence(task, checked.evidence);
     const ack = this.accept(task, command.commandId);
     if (checked.passed) await this.persistVerifiedReceipt(task, round, checked.evidence, false);
     else await this.persist(task);
@@ -2404,21 +2395,16 @@ export class TaskManager {
 
   /**
    * Apply passed criterion evidence to the mission plan and advance phases when
-   * the active phase's criteria are fully satisfied. Also runs the multi-phase
-   * attempt heuristic when the active phase has no bound criteria.
+   * the active phase's criteria are fully satisfied. Action counts never advance
+   * user-visible phases because browser operations are not outcome progress.
    */
-  private syncMissionPlanFromEvidence(task: TaskSession, round: TaskRound, evidence: CompletionEvidence[]): void {
+  private syncMissionPlanFromEvidence(task: TaskSession, evidence: CompletionEvidence[]): void {
     if (!task.plan) return;
     const now = this.deps.now();
     const passedIds = evidence.filter(item => item.passed).map(item => item.criterionId);
     let plan = task.plan;
     if (passedIds.length > 0) {
       plan = applyPassedCriteriaToMissionPlan(plan, passedIds, now);
-    }
-    const active = plan.phases.find(phase => phase.status === 'active');
-    if (active && active.criteriaIds.length === 0 && plan.phases.length > 1) {
-      const successCount = round.attempts.filter(item => item.state === 'observed').length;
-      plan = maybeAdvancePhaseByAttemptHeuristic(plan, successCount, now);
     }
     task.plan = plan;
   }

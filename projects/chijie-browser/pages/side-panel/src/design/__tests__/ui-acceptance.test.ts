@@ -42,6 +42,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const tokensCss = readFileSync(resolve(here, '../chijie-tokens.css'), 'utf8');
 const componentsCss = readFileSync(resolve(here, '../chijie-components.css'), 'utf8');
 const taskStatusCardSource = readFileSync(resolve(here, '../../components/TaskStatusCard.tsx'), 'utf8');
+const taskProgressOverviewSource = readFileSync(resolve(here, '../../components/TaskProgressOverview.tsx'), 'utf8');
 const sidePanelSource = readFileSync(resolve(here, '../../SidePanel.tsx'), 'utf8');
 const sidePanelCss = readFileSync(resolve(here, '../../SidePanel.css'), 'utf8');
 const indexCss = readFileSync(resolve(here, '../../index.css'), 'utf8');
@@ -250,9 +251,9 @@ describe('Feature: Side panel uses 持节 design system', () => {
 });
 
 describe('Feature: design/003 task main blocks', () => {
-  it('TaskStatusCard source includes goal/rounds/completion testids', () => {
-    expect(taskStatusCardSource).toContain('task-goal-block');
-    expect(taskStatusCardSource).toContain('mission-plan');
+  it('progress console and TaskStatusCard include mission, audit, and completion testids', () => {
+    expect(taskProgressOverviewSource).toContain('task-goal-block');
+    expect(taskProgressOverviewSource).toContain('mission-plan');
     expect(taskStatusCardSource).toContain('task-round-timeline');
     expect(taskStatusCardSource).toContain('completion-receipt');
     expect(taskStatusCardSource).toContain('completion-receipt-meta');
@@ -363,12 +364,11 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toMatch(/shouldShowVerifiedDone\(snapshot,\s*round\?\.receipt\)/);
   });
 
-  it('feature-first hierarchy: status → goal → primary organism → steps; chat keeps height', () => {
+  it('progress-console hierarchy: status → durable progress → collapsed audit; composer remains usable', () => {
     const returnIdx = taskStatusCardSource.lastIndexOf('return (');
     const tree = taskStatusCardSource.slice(returnIdx);
-    // Goal stays on the card while work runs (not buried under steps).
-    expect(tree.indexOf('task-goal-block')).toBeLessThan(tree.indexOf('task-activity-panel'));
-    // Primary organism attribute drives density / max-height CSS.
+    // Stable mission and durable progress stay above raw browser operations.
+    expect(tree.indexOf('TaskProgressOverview')).toBeLessThan(tree.indexOf('task-activity-panel'));
     expect(taskStatusCardSource).toContain('data-primary-organism={primaryOrganism}');
     expect(taskStatusCardSource).toContain('taskPrimaryOrganism');
     const liveSlice = taskStatusCardSource.slice(
@@ -376,20 +376,30 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
       taskStatusCardSource.indexOf('const showActivityPanel'),
     );
     expect(liveSlice).toContain("status === 'running'");
-    // Completion honesty before secondary step history when verified/partial.
+    // Completion honesty remains above the secondary audit history.
     expect(tree.indexOf("primaryOrganism === 'completion' && completionBlock")).toBeLessThan(
       tree.indexOf("primaryOrganism !== 'activity' && showActivityPanel"),
     );
-    // Running: activity panel is the primary organism block.
+    // Running uses semantic Now in TaskProgressOverview; operations stay secondary and collapsed.
     expect(tree).toContain("primaryOrganism === 'activity' && showActivityPanel");
-    expect(tree).toContain('data-primary="true"');
-    // Shell: chat min-height + card max-height so composer stays usable.
+    expect(tree).toContain('data-secondary="true"');
+    expect(tree).toContain("{snapshot.status === 'running' && activityHeader}");
+    expect(tree).toContain("{snapshot.status === 'running' && liveActivityRow}");
+    expect(tree).not.toContain("showLiveActivity || primaryOrganism === 'recovery'");
+    expect(tree).toContain('{stepsHistory}');
+    // The progress workspace gets meaningful height while chat and the fixed composer remain usable.
     expect(componentsCss).toMatch(/\.chijie-chat-log[\s\S]{0,120}min-height:\s*8\.5rem/);
-    expect(componentsCss).toMatch(/\.chijie-paper-card[\s\S]{0,200}max-height:\s*min\(36vh,\s*320px\)/);
+    expect(componentsCss).toMatch(/\.chijie-paper-card[\s\S]{0,200}max-height:\s*min\(58vh,\s*560px\)/);
     expect(componentsCss).toMatch(/flex:\s*0\s+0\s+auto/);
     expect(sidePanelSource).toContain('chijie-workspace');
     expect(sidePanelSource).toContain('chijie-chat-log');
     expect(sidePanelSource).toContain('chijie-composer');
+    expect(sidePanelSource).toMatch(/onAdjustDirection=\{\(\) => \{[\s\S]{0,600}setInputEnabled\(true\)/);
+    expect(sidePanelSource).toContain("setInputTextRef.current?.(t('chat_task_adjust_prompt'))");
+    expect(sidePanelSource).toContain("changeType: isDirectionChange ? 'direction_change' : 'follow_up'");
+    expect(taskProgressOverviewSource).toContain('data-testid="task-direction-change"');
+    expect(t('chat_task_adjust_prompt')).toBe('我想调整：');
+    expect(t('chat_task_bind_kicker')).toBe('当前页面');
   });
 
   it('keeps Skill form input until the save command is acknowledged', () => {

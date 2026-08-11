@@ -5,6 +5,7 @@ import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
 import {
   type ChatMessage,
+  type EvidenceSpace,
   type Message,
   type TaskCommand,
   type TaskSnapshot,
@@ -14,6 +15,7 @@ import {
   chatHistoryStore,
   agentModelStore,
   llmProviderStore,
+  getEvidenceSpace,
 } from '@extension/storage';
 import favoritesStorage, { type FavoriteItem, type FavoriteSkill } from '@extension/storage/lib/prompt/favorites';
 import { t } from '@extension/i18n';
@@ -104,6 +106,7 @@ const SidePanel = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
   const [taskSnapshot, setTaskSnapshot] = useState<TaskSnapshot | null>(null);
+  const [evidenceSpace, setEvidenceSpace] = useState<EvidenceSpace | null>(null);
   const [taskSnapshotLoaded, setTaskSnapshotLoaded] = useState(false);
   /** Live preview of the content tab that will receive the next task (Phase 1 S1). */
   const [bindPreview, setBindPreview] = useState<BoundContentTab | null>(null);
@@ -115,6 +118,7 @@ const SidePanel = () => {
   const isMountedRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const setInputTextRef = useRef<((text: string) => void) | null>(null);
+  const pendingDirectionChangeRef = useRef(false);
   const pendingTaskIdRef = useRef<string | null>(null);
   const deliveredCompletionReceiptsRef = useRef(new Set<string>());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -249,6 +253,25 @@ const SidePanel = () => {
     const followable = isActiveTaskStatus(taskSnapshot.status);
     setIsFollowUpMode(followable && Boolean(taskSnapshot.chatSessionId));
   }, [taskSnapshot]);
+
+  useEffect(() => {
+    const taskId = taskSnapshot?.id;
+    if (!taskId) {
+      setEvidenceSpace(null);
+      return;
+    }
+    let disposed = false;
+    const refresh = async () => {
+      const next = await getEvidenceSpace(taskId);
+      if (!disposed) setEvidenceSpace(next);
+    };
+    void refresh();
+    const interval = taskSnapshot.status === 'running' ? window.setInterval(() => void refresh(), 2_000) : null;
+    return () => {
+      disposed = true;
+      if (interval !== null) window.clearInterval(interval);
+    };
+  }, [taskSnapshot?.id, taskSnapshot?.revision, taskSnapshot?.status]);
 
   useEffect(() => {
     const chatSessionId = taskSnapshot?.chatSessionId;
@@ -664,6 +687,8 @@ const SidePanel = () => {
     const trimmedText = text.trim();
 
     if (!trimmedText) return;
+    const isDirectionChange = pendingDirectionChangeRef.current;
+    pendingDirectionChangeRef.current = false;
 
     // Check if the input is a command (starts with /)
     if (trimmedText.startsWith('/')) {
@@ -791,6 +816,7 @@ const SidePanel = () => {
           instruction: text,
           chatSessionId: sessionIdRef.current,
           instructionMessageId: storedMessage.id,
+          changeType: isDirectionChange ? 'direction_change' : 'follow_up',
         });
       } else {
         sendTaskCommand({
@@ -1359,16 +1385,48 @@ const SidePanel = () => {
                   chat log is the flexible reading surface, composer stays fixed.
                 */}
                 <div className="chijie-workspace" data-testid="sidepanel-workspace">
-                  {showActiveTaskCard && taskSnapshot && (
-                    <TaskStatusCard
-                      snapshot={taskSnapshot}
-                      send={sendTaskCommand}
-                      isDarkMode={false}
-                      defaultInstruction={
-                        [...messages].reverse().find(message => message.actor === Actors.USER)?.content ?? ''
-                      }
-                    />
-                  )}
+                  {showActiveTaskCard && taskSnapshot && (() => {
+                    const latestInstruction =
+                      [...messages].reverse().find(message => message.actor === Actors.USER)?.content ?? '';
+                    const originalInstruction =
+                      messages.find(
+                        message =>
+                          message.actor === Actors.USER &&
+                          'id' in message &&
+                          message.id === taskSnapshot.instructionMessageId,
+                      )?.content ||
+                      taskSnapshot.plan?.goal ||
+                      taskSnapshot.goalSummary ||
+                      messages.find(message => message.actor === Actors.USER)?.content ||
+                      latestInstruction;
+                    return (
+                      <TaskStatusCard
+                        snapshot={taskSnapshot}
+                        send={sendTaskCommand}
+                        isDarkMode={false}
+                        defaultInstruction={latestInstruction}
+                        missionInstruction={originalInstruction}
+                        evidenceSpace={evidenceSpace}
+                        onAdjustDirection={() => {
+                          pendingDirectionChangeRef.current = true;
+                          const existingComposer = document.querySelector(
+                            '.chijie-composer textarea',
+                          ) as HTMLTextAreaElement | null;
+                          if (!existingComposer?.value.trim()) {
+                            setInputTextRef.current?.(t('chat_task_adjust_prompt'));
+                          }
+                          setInputEnabled(true);
+                          window.requestAnimationFrame(() => {
+                            const composer = document.querySelector(
+                              '.chijie-composer textarea',
+                            ) as HTMLTextAreaElement | null;
+                            composer?.focus();
+                            composer?.scrollIntoView({ block: 'nearest' });
+                          });
+                        }}
+                      />
+                    );
+                  })()}
                   <div
                     className="chijie-chat-log scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3"
                     data-testid="sidepanel-chat-log"
@@ -1376,7 +1434,11 @@ const SidePanel = () => {
                     {showLiveMessages ? (
                       <>
                         <MessageList
-                          messages={messages}
+                          messages={
+                            taskSnapshot?.status === 'running'
+                              ? messages
+                              : messages.filter(message => message.content !== progressMessage)
+                          }
                           isDarkMode={false}
                           onRetry={() => {
                             const lastUser = [...messages].reverse().find(m => m.actor === Actors.USER);

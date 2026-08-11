@@ -367,7 +367,7 @@ describe('TaskManager lifecycle', () => {
     expect(snap?.plan?.phases[1]?.criteriaIds).toEqual([]);
   });
 
-  it('advances multi-phase plan on successful attempts when no criteria bound', async () => {
+  it('does not advance multi-phase plan from successful action counts without criteria evidence', async () => {
     let hooks!: ExecutorHooks;
     const manager = new TaskManager({
       createExecutor: async (_input, nextHooks) => {
@@ -381,29 +381,30 @@ describe('TaskManager lifecycle', () => {
     });
     await manager.dispatch({
       type: 'start',
-      commandId: 'start-plan-heuristic',
-      taskId: 'task-plan-heuristic',
+      commandId: 'start-plan-no-heuristic',
+      taskId: 'task-plan-no-heuristic',
       instruction: '调研竞品；输出表格；写结论',
-      chatSessionId: 'chat-plan-heuristic',
-      instructionMessageId: 'message-plan-heuristic',
+      chatSessionId: 'chat-plan-no-heuristic',
+      instructionMessageId: 'message-plan-no-heuristic',
       tabId: 7,
     });
     await vi.waitFor(() => expect(hooks).toBeDefined());
-    const roundId = await taskRoundId(manager, 'task-plan-heuristic');
-    // No freeze → active phase keeps empty criteriaIds; attempt heuristic applies.
+    const roundId = await taskRoundId(manager, 'task-plan-no-heuristic');
+    // Browser operations are activity, not outcome evidence. Empty-criteria phases
+    // remain stable until criteria or a verified terminal receipt proves progress.
     await hooks.dispatchAction(roundId, new Action(async () => new ActionResult({ success: true }), waitActionSchema), {
       seconds: 1,
       intent: 'wait',
     });
-    let snap = await manager.snapshot('task-plan-heuristic');
-    expect(snap?.plan?.phases.map(p => p.status)).toEqual(['done', 'active', 'planned']);
+    let snap = await manager.snapshot('task-plan-no-heuristic');
+    expect(snap?.plan?.phases.map(p => p.status)).toEqual(['active', 'planned', 'planned']);
 
     await hooks.dispatchAction(roundId, new Action(async () => new ActionResult({ success: true }), waitActionSchema), {
       seconds: 1,
       intent: 'wait again',
     });
-    snap = await manager.snapshot('task-plan-heuristic');
-    expect(snap?.plan?.phases.map(p => p.status)).toEqual(['done', 'done', 'active']);
+    snap = await manager.snapshot('task-plan-no-heuristic');
+    expect(snap?.plan?.phases.map(p => p.status)).toEqual(['active', 'planned', 'planned']);
   });
 
   it('marks remaining mission phases done on verified complete', async () => {
@@ -904,6 +905,64 @@ describe('TaskManager lifecycle', () => {
 
     pendingCreates.shift()?.(secondDriver);
     await vi.waitFor(() => expect(secondDriver.run).toHaveBeenCalledTimes(1));
+  });
+
+  it('persists a direction-change round and resumes from interrupted state', async () => {
+    const driver = fakeDriver();
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-direction',
+      taskId: 'task-direction',
+      instruction: 'research the current page',
+      chatSessionId: 'chat-direction',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(1));
+
+    const interrupted = structuredClone(store.sessions.get('task-direction')) as {
+      status: string;
+      revision: number;
+      currentRoundId: string;
+      rounds: Array<{ id: string; status: string }>;
+    };
+    interrupted.status = 'interrupted';
+    interrupted.rounds.find(round => round.id === interrupted.currentRoundId)!.status = 'interrupted';
+    store.sessions.set('task-direction', interrupted);
+
+    const ack = await manager.dispatch({
+      type: 'follow_up',
+      commandId: 'adjust-direction',
+      taskId: 'task-direction',
+      expectedRevision: interrupted.revision,
+      instruction: 'focus only on official product documentation',
+      chatSessionId: 'chat-direction',
+      instructionMessageId: 'message-2',
+      changeType: 'direction_change',
+    });
+
+    expect(ack.accepted).toBe(true);
+    expect(driver.addFollowUp).toHaveBeenCalledWith('focus only on official product documentation');
+    expect(driver.resume).toHaveBeenCalledOnce();
+    await expect(manager.snapshot('task-direction')).resolves.toMatchObject({
+      status: 'running',
+      rounds: [
+        {},
+        {
+          instructionSummary: 'Direction changed',
+          changeType: 'direction_change',
+          createdAt: 100,
+          status: 'running',
+        },
+      ],
+    });
   });
 
   it('does not apply an old running driver outcome to a follow-up round', async () => {
