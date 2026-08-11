@@ -43,7 +43,7 @@ import { buildAttemptDisplaySummary, buildAttemptTargetLabel } from './attempt-d
 import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
 import { checkCompletion } from './completion';
 import { tableColumns, tableRowCount, type TaskArtifact } from './artifact';
-import { verifyCandidateComplete } from './verification-engine';
+import { verifyCandidateComplete, type ArtifactCriterion } from './verification-engine';
 import { sha256 } from './digest';
 import { allowsVerifiedComplete } from './page-state';
 import { resolveMediaArgs, resolveTabArgs } from './media';
@@ -1638,7 +1638,7 @@ export class TaskManager {
 
   private deriveArtifactCriteria(instruction: string, artifacts: TaskArtifact[]) {
     const text = instruction.replace(/\s+/g, ' ').trim();
-    const criteria: import('./verification-engine').ArtifactCriterion[] = [{ kind: 'artifact_exists' }];
+    const criteria: ArtifactCriterion[] = [{ kind: 'artifact_exists' }];
     const wantsTable =
       /\b(csv|table)\b/i.test(text) ||
       /表格|清单/.test(text) ||

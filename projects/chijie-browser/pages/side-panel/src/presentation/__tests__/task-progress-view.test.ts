@@ -253,6 +253,41 @@ describe('deriveTaskProgressView', () => {
     });
   });
 
+  it.each([
+    ['waiting_user', 'needs_user', 'needs_user'],
+    ['inputs_required', 'needs_user', 'needs_user'],
+    ['failed', 'failed', 'failed'],
+    ['cancelled', 'failed', 'failed'],
+    ['completed', 'completed', 'complete'],
+  ] as const)('maps %s to one non-running public state', (taskStatus, viewStatus, healthState) => {
+    const view = deriveTaskProgressView({
+      snapshot: snapshot(taskStatus),
+      missionInstruction: originalInstruction,
+      evidenceSpace: space(76, 26),
+      now: 12_000,
+    });
+
+    expect(view.status).toBe(viewStatus);
+    expect(view.health.state).toBe(healthState);
+    expect(view.currentActivity).toBeUndefined();
+  });
+
+  it('reports recovery from a blocked live attempt instead of pretending normal progress', () => {
+    const task = snapshot('running');
+    task.rounds[0]!.attempts[0]!.state = 'blocked';
+    const view = deriveTaskProgressView({
+      snapshot: task,
+      missionInstruction: originalInstruction,
+      evidenceSpace: space(91, 26),
+      now: 12_000,
+    });
+
+    expect(view.health).toMatchObject({
+      state: 'recovering',
+      summary: '这一步未确认成功，正在换一种方式',
+    });
+  });
+
   it('projects a durable direction-change round separately from the stable mission', () => {
     const task = snapshot('running');
     task.rounds[0] = {
@@ -339,5 +374,6 @@ describe('deriveTaskProgressView', () => {
 
     expect(view.kind).toBe('generic');
     expect(view.mission.title).toBe('调研十家浏览器产品并输出一张对比表');
+    expect(view.milestones.every(milestone => milestone.gates.length === 0)).toBe(true);
   });
 });
