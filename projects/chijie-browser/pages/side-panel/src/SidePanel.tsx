@@ -72,6 +72,7 @@ export function commandRejectionMessage(error: CommandRejection): string {
 export async function resolveActiveContentTab(): Promise<BoundContentTab | null> {
   const queries: chrome.tabs.QueryInfo[] = [
     { active: true, currentWindow: true },
+    { currentWindow: true },
     { active: true, lastFocusedWindow: true },
   ];
   for (const query of queries) {
@@ -83,12 +84,7 @@ export async function resolveActiveContentTab(): Promise<BoundContentTab | null>
       /* try next query */
     }
   }
-  try {
-    const tabs = await chrome.tabs.query({ currentWindow: true });
-    return pickActiveContentTab(tabs);
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 const SidePanel = () => {
