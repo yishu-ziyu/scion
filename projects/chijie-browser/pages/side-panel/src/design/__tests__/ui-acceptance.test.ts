@@ -61,12 +61,12 @@ describe('Feature: Side panel uses 持节 design system', () => {
       for (const name of YISHU_TOKEN_NAMES) {
         expect(tokensCss, `missing token ${name}`).toContain(`${name}:`);
       }
-      expect(tokensCss).toMatch(/--chijie-background:\s*#f5f7f5/i);
+      expect(tokensCss).toMatch(/--chijie-background:\s*#fbfaf7/i);
       expect(tokensCss).toMatch(/--chijie-paper:\s*#ffffff/i);
-      expect(tokensCss).toMatch(/--chijie-accent:\s*#176c52/i);
+      expect(tokensCss).toMatch(/--chijie-accent:\s*#166f4e/i);
       expect(tokensCss).toMatch(/--chijie-surface:\s*#ffffff/i);
-      expect(tokensCss).toMatch(/--chijie-foreground:\s*#16231f/i);
-      expect(tokensCss).toMatch(/--chijie-warning:\s*#93641a/i);
+      expect(tokensCss).toMatch(/--chijie-foreground:\s*#1f2d2a/i);
+      expect(tokensCss).toMatch(/--chijie-warning:\s*#e6a11a/i);
     });
 
     it('exposes paper-card and pill-button class contracts', () => {
@@ -159,14 +159,14 @@ describe('Feature: Side panel uses 持节 design system', () => {
     });
   });
 
-  describe('Scenario: Welcome empty state uses 持节 paper card (not sky chrome)', () => {
-    it('binds welcome block to yishu classes and drops sky utilities', () => {
-      expect(sidePanelSource).toContain(welcomeClassName);
-      expect(sidePanelSource).toContain(welcomeCardClassName);
-      expect(sidePanelSource).toContain(primaryButtonClassName);
-      expect(componentsCss).toContain('.chijie-welcome-card');
-      expect(componentsCss).toMatch(/\.chijie-welcome-card[\s\S]*?border-radius:\s*var\(--chijie-radius-xl\)/);
-      // welcome region must not use stock sky chrome
+  describe('Scenario: First-run setup uses 持节 calm form (not sky chrome)', () => {
+    it('binds first-run setup without multi-page onboarding or sky utilities', () => {
+      expect(sidePanelSource).toContain('FirstRunSetup');
+      expect(sidePanelSource).toContain('hasConfiguredModels === false');
+      expect(componentsCss).toContain('.chijie-first-setup');
+      expect(componentsCss).toContain(primaryButtonClassName);
+      expect(componentsCss).toContain(welcomeClassName);
+      // first-run region must not use stock sky chrome
       const welcomeSlice = sidePanelSource.slice(
         sidePanelSource.indexOf('hasConfiguredModels === false'),
         sidePanelSource.indexOf('hasConfiguredModels === true'),
@@ -175,6 +175,8 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(welcomeSlice).not.toMatch(/text-sky-/);
       expect(welcomeSlice).not.toMatch(/bg-sky-/);
       expect(welcomeSlice).not.toMatch(/border-sky-/);
+      expect(welcomeSlice).not.toMatch(/openOptionsPage/);
+      void welcomeCardClassName;
     });
   });
 
@@ -270,7 +272,8 @@ describe('Feature: design/003 task main blocks', () => {
   it('header brand uses scion logo asset', () => {
     expect(sidePanelSource).toContain('logo-header.png');
     expect(sidePanelSource).toContain('data-testid="header-logo"');
-    expect(sidePanelSource).toContain('logo-mark.png');
+    const firstRun = readFileSync(resolve(here, '../../components/FirstRunSetup.tsx'), 'utf8');
+    expect(firstRun).toContain('logo-mark.png');
   });
 
   it('Options overview implements design/003 cards', () => {

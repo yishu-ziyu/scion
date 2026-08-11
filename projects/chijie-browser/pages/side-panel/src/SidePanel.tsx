@@ -9,8 +9,11 @@ import {
   type TaskCommand,
   type TaskSnapshot,
   Actors,
+  AgentNameEnum,
+  ProviderTypeEnum,
   chatHistoryStore,
   agentModelStore,
+  llmProviderStore,
 } from '@extension/storage';
 import favoritesStorage, { type FavoriteItem, type FavoriteSkill } from '@extension/storage/lib/prompt/favorites';
 import { t } from '@extension/i18n';
@@ -19,6 +22,7 @@ import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import { TaskStatusCard } from './components/TaskStatusCard';
+import FirstRunSetup from './components/FirstRunSetup';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import { shouldPersistExecutionEvent } from './event-persistence';
 import { mergeTaskSnapshot } from './task-snapshot';
@@ -127,14 +131,31 @@ const SidePanel = () => {
     };
   }, [refreshBindPreview]);
 
-  // Check if models are configured
+  // Executable model config: agent assignment + provider credentials (or Ollama).
   const checkModelConfiguration = useCallback(async () => {
     try {
       const configuredAgents = await agentModelStore.getConfiguredAgents();
-
-      // Check if at least one agent (preferably Navigator) is configured
-      const hasAtLeastOneModel = configuredAgents.length > 0;
-      setHasConfiguredModels(hasAtLeastOneModel);
+      if (configuredAgents.length === 0) {
+        setHasConfiguredModels(false);
+        return;
+      }
+      const all = await agentModelStore.getAllAgentModels();
+      const primary = all[AgentNameEnum.Navigator] || all[AgentNameEnum.Planner];
+      if (!primary?.provider || !primary?.modelName) {
+        setHasConfiguredModels(false);
+        return;
+      }
+      const provider = await llmProviderStore.getProvider(primary.provider);
+      if (!provider) {
+        setHasConfiguredModels(false);
+        return;
+      }
+      const needsKey = provider.type !== ProviderTypeEnum.Ollama;
+      if (needsKey && !(provider.apiKey || '').trim()) {
+        setHasConfiguredModels(false);
+        return;
+      }
+      setHasConfiguredModels(true);
     } catch (error) {
       console.error('Error checking model configuration:', error);
       setHasConfiguredModels(false);
@@ -1128,23 +1149,14 @@ const SidePanel = () => {
               </div>
             )}
 
-            {/* Show setup message when no models are configured */}
+            {/* First-run: connect one model, then idle (no multi-page onboarding) */}
             {hasConfiguredModels === false && (
-              <div className="chijie-welcome">
-                <div className="chijie-welcome-card">
-                  <img
-                    src={chrome.runtime.getURL('logo-mark.png')}
-                    alt="scion"
-                    className="mx-auto mb-4 size-12"
-                    data-testid="welcome-logo"
-                  />
-                  <h3>{t('welcome_title')}</h3>
-                  <p className="mb-4">{t('welcome_instruction')}</p>
-                  <button type="button" onClick={() => chrome.runtime.openOptionsPage()} className="chijie-btn-primary">
-                    {t('welcome_openSettings')}
-                  </button>
-                </div>
-              </div>
+              <FirstRunSetup
+                onConnected={() => {
+                  setHasConfiguredModels(true);
+                  void checkModelConfiguration();
+                }}
+              />
             )}
 
             {/* Show normal chat interface when models are configured */}

@@ -6,22 +6,23 @@
 @import url('https://fonts.googleapis.com/css2?family=Gochi+Hand&family=Noto+Sans+SC:wght@400;500&family=Noto+Serif+SC:wght@400;600&family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap');
 
 :root {
-  --chijie-background: #f5f7f5;
-  --chijie-foreground: #16231f;
-  --chijie-muted: #6b7772;
-  --chijie-accent: #176c52;
+  /* Warm paper + scion green (first-run setup + console) */
+  --chijie-background: #fbfaf7;
+  --chijie-foreground: #1f2d2a;
+  --chijie-muted: #687280;
+  --chijie-accent: #166f4e;
   --chijie-accent-signal: #125842;
-  --chijie-accent-subtle: #e6f2ed;
+  --chijie-accent-subtle: #eaf4ef;
   --chijie-surface: #ffffff;
-  --chijie-surface-raised: #f2f5f1;
-  --chijie-border: #dbe1dc;
+  --chijie-surface-raised: #f7f5f0;
+  --chijie-border: #dde4e0;
   --chijie-border-strong: #b8c3bc;
   --chijie-paper: #ffffff;
-  --chijie-paper-ink: #16231f;
-  --chijie-paper-muted: #dbe1dc;
-  --chijie-warning: #93641a;
+  --chijie-paper-ink: #1f2d2a;
+  --chijie-paper-muted: #dde4e0;
+  --chijie-warning: #e6a11a;
   --chijie-warning-subtle: #fff6e5;
-  --chijie-danger: #b63f38;
+  --chijie-danger: #d94a4a;
   --chijie-danger-subtle: #fbecea;
   --chijie-space-unit: 8px;
   --chijie-radius-sm: 4px;
