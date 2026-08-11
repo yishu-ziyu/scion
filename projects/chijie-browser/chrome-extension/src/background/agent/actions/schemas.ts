@@ -317,9 +317,17 @@ function normalizeResearchCapabilityDecision(input: unknown): unknown {
   return {
     ...value,
     title: firstDefined(content, ['title', 'name', 'capability']),
-    user_moment: firstDefined(content, ['user_moment', 'userMoment', 'user_scenario', 'userScenario', 'moment']),
+    user_moment: firstDefined(content, [
+      'user_moment',
+      'userMoment',
+      'user_scenario',
+      'userScenario',
+      'user_pain',
+      'userPain',
+      'moment',
+    ]),
     behavior_change: firstDefined(content, ['behavior_change', 'behaviorChange', 'behavior', 'change']),
-    why_now: firstDefined(content, ['why_now', 'whyNow', 'priority_reason', 'priorityReason']),
+    why_now: firstDefined(content, ['why_now', 'whyNow', 'priority_reason', 'priorityReason', 'why']),
     why_others_later: firstDefined(content, [
       'why_others_later',
       'whyOthersLater',
@@ -338,31 +346,92 @@ function normalizeResearchCapabilityDecision(input: unknown): unknown {
       'technicalDistance',
       'distance',
     ]),
-    mvp: firstDefined(content, ['mvp', 'mvp_scope', 'mvpScope', 'minimum_viable_product', 'minimumViableProduct']),
+    mvp: firstDefined(content, [
+      'mvp',
+      'mvp_scope',
+      'mvpScope',
+      'minimum_viable_product',
+      'minimumViableProduct',
+      'next_step',
+      'nextStep',
+    ]),
     success_metric: firstDefined(content, [
       'success_metric',
       'successMetric',
       'metric',
       'success_measure',
       'successMeasure',
+      'validation',
     ]),
     user_evidence_ids: normalizeStringList(
-      firstDefined(content, ['user_evidence_ids', 'userEvidenceIds', 'user_evidence', 'userEvidence']) ??
-        firstDefined(evidence, ['user_evidence_ids', 'userEvidenceIds', 'users', 'user']),
+      firstDefined(content, [
+        'user_evidence_ids',
+        'userEvidenceIds',
+        'user_evidence_id',
+        'userEvidenceId',
+        'user_source_ids',
+        'userSourceIds',
+        'user_source_id',
+        'userSourceId',
+        'user_evidence',
+        'userEvidence',
+      ]) ??
+        firstDefined(evidence, [
+          'user_evidence_ids',
+          'userEvidenceIds',
+          'user_source_ids',
+          'userSourceIds',
+          'users',
+          'user',
+        ]),
     ),
     product_evidence_ids: normalizeStringList(
-      firstDefined(content, ['product_evidence_ids', 'productEvidenceIds', 'product_evidence', 'productEvidence']) ??
-        firstDefined(evidence, ['product_evidence_ids', 'productEvidenceIds', 'products', 'product']),
+      firstDefined(content, [
+        'product_evidence_ids',
+        'productEvidenceIds',
+        'product_evidence_id',
+        'productEvidenceId',
+        'product_source_ids',
+        'productSourceIds',
+        'product_source_id',
+        'productSourceId',
+        'product_evidence',
+        'productEvidence',
+      ]) ??
+        firstDefined(evidence, [
+          'product_evidence_ids',
+          'productEvidenceIds',
+          'product_source_ids',
+          'productSourceIds',
+          'products',
+          'product',
+        ]),
     ),
     repository_evidence_ids: normalizeStringList(
       firstDefined(content, [
         'repository_evidence_ids',
         'repositoryEvidenceIds',
+        'repository_evidence_id',
+        'repositoryEvidenceId',
+        'repository_source_ids',
+        'repositorySourceIds',
+        'repository_source_id',
+        'repositorySourceId',
         'repository_evidence',
         'repositoryEvidence',
         'repo_evidence_ids',
         'repoEvidenceIds',
-      ]) ?? firstDefined(evidence, ['repository_evidence_ids', 'repositoryEvidenceIds', 'repository', 'repo']),
+        'repo_evidence_id',
+        'repoEvidenceId',
+      ]) ??
+        firstDefined(evidence, [
+          'repository_evidence_ids',
+          'repositoryEvidenceIds',
+          'repository_source_ids',
+          'repositorySourceIds',
+          'repository',
+          'repo',
+        ]),
     ),
   };
 }
@@ -425,17 +494,49 @@ function normalizeResearchDecisionInput(input: unknown): unknown {
 }
 
 const researchCapabilityDecisionSchema = z.object({
-  title: z.string().min(2).max(240),
-  user_moment: z.string().min(8).max(1000),
-  behavior_change: z.string().min(8).max(1000),
-  why_now: z.string().min(8).max(1000),
-  why_others_later: z.string().min(8).max(1000),
-  implementation_distance: z.string().min(8).max(1000),
-  mvp: z.string().min(8).max(1000),
-  success_metric: z.string().min(8).max(1000),
-  user_evidence_ids: z.array(z.string()).min(2).max(20),
-  product_evidence_ids: z.array(z.string()).min(1).max(20),
-  repository_evidence_ids: z.array(z.string()).min(1).max(20),
+  title: z.string().min(2).max(240).describe('Exact key title: concise capability name.'),
+  user_moment: z
+    .string()
+    .min(8)
+    .max(1000)
+    .describe('Exact key user_moment: concrete user context and pain where this capability matters.'),
+  behavior_change: z
+    .string()
+    .min(8)
+    .max(1000)
+    .describe('Exact key behavior_change: observable before/after change in what the user does.'),
+  why_now: z.string().min(8).max(1000).describe('Exact key why_now: why evidence makes this a priority now.'),
+  why_others_later: z
+    .string()
+    .min(8)
+    .max(1000)
+    .describe('Exact key why_others_later: why competing capabilities should wait.'),
+  implementation_distance: z
+    .string()
+    .min(8)
+    .max(1000)
+    .describe('Exact key implementation_distance: gap from current repository primitives to a shippable slice.'),
+  mvp: z.string().min(8).max(1000).describe('Exact key mvp: smallest end-to-end implementation to ship first.'),
+  success_metric: z
+    .string()
+    .min(8)
+    .max(1000)
+    .describe('Exact key success_metric: observable quantitative or pass/fail outcome proving value.'),
+  user_evidence_ids: z
+    .array(z.string())
+    .min(2)
+    .max(20)
+    .describe('Exact key user_evidence_ids: IDs of at least two independent durable user-discussion records.'),
+  product_evidence_ids: z
+    .array(z.string())
+    .min(1)
+    .max(20)
+    .describe('Exact key product_evidence_ids: IDs of at least one durable product record.'),
+  repository_evidence_ids: z
+    .array(z.string())
+    .min(1)
+    .max(20)
+    .describe('Exact key repository_evidence_ids: IDs of at least one durable repository record.'),
 });
 
 export const recordResearchDecisionActionSchema: ActionSchema = {
@@ -444,7 +545,7 @@ export const recordResearchDecisionActionSchema: ActionSchema = {
   whenToUse:
     'Only after the durable user-discussion and product quotas are met, evidence has been inspected, contradictions are retained, and exactly three next capabilities remain.',
   whenNotToUse:
-    'Do not use for tentative ideas, before inspecting evidence IDs, with search-result evidence, or as a substitute for writing and rereading the final delivery.',
+    'Do not use for tentative ideas, before inspecting evidence IDs, with search-result evidence, or as a substitute for writing and rereading the final delivery. Use every exact required key; product-card fields such as definition, target_user, core_mechanism, interaction_model, differentiator, tradeoff, next_step, or validation are not a complete substitute for the seven required answers.',
   examples: [
     'record_research_decision { capabilities: [{ title: "Source-grounded explanation", user_moment: "...", behavior_change: "...", why_now: "...", why_others_later: "...", implementation_distance: "...", mvp: "...", success_metric: "...", user_evidence_ids: ["id-1", "id-2"], product_evidence_ids: ["id-3"], repository_evidence_ids: ["id-4"] }, { ... }, { ... }], deferred: ["Generic PDF chat"], contradictions: ["Some readers prefer external notes"] }',
   ],
@@ -453,8 +554,16 @@ export const recordResearchDecisionActionSchema: ActionSchema = {
   normalizeInput: normalizeResearchDecisionInput,
   schema: z.object({
     capabilities: z.array(researchCapabilityDecisionSchema).length(3),
-    deferred: z.array(z.string().min(2).max(500)).min(1).max(30),
-    contradictions: z.array(z.string().min(2).max(1000)).max(30).default([]),
+    deferred: z
+      .array(z.string().min(2).max(500))
+      .min(1)
+      .max(30)
+      .describe('Exact key deferred: at least one capability explicitly postponed from the final three.'),
+    contradictions: z
+      .array(z.string().min(2).max(1000))
+      .max(30)
+      .default([])
+      .describe('Exact key contradictions: retained counter-evidence or risks, or an empty array when none exist.'),
   }),
 };
 
