@@ -5,6 +5,11 @@ import type {
   ResearchCapabilityDecisionDraft,
   TaskSnapshot,
 } from '@extension/storage';
+import {
+  putResearchDecisionInSpace,
+  putResearchDeliveryInSpace,
+  researchDeliveryReady,
+} from '@extension/storage/lib/task';
 import { deriveTaskProgressView } from '../task-progress-view';
 
 function snapshot(status: TaskSnapshot['status'] = 'paused'): TaskSnapshot {
@@ -362,6 +367,69 @@ describe('deriveTaskProgressView', () => {
     expect(view.milestones[4]?.gates[0]).toMatchObject({ current: 1, target: 2, status: 'active' });
     expect(view.artifacts).toHaveLength(1);
     expect(view.nextStep).toContain('飞书研究表与决策文档');
+  });
+
+  it('projects a fully verified 80/30 decision and dual-readback state through the public task surface', () => {
+    const evidenceSpace = space(80, 30);
+    const decision = putResearchDecisionInSpace({
+      space: evidenceSpace,
+      draft: {
+        capabilities: [capability('能力一'), capability('能力二'), capability('能力三')],
+        deferred: ['暂缓证据不足的社交推荐能力'],
+        contradictions: ['部分用户仍偏好在独立笔记工具中整理材料'],
+      },
+      now: 9_000,
+    });
+    expect(decision.accepted).toBe(true);
+
+    const table = putResearchDeliveryInSpace({
+      space: decision.space,
+      kind: 'research_table',
+      url: 'https://example.feishu.cn/base/living-reader-research',
+      title: 'Living Reader 研究表',
+      observedText:
+        '证据 来源 用户问题 观察 推断 置信度 相关产品 对应 Living Reader 能力 优先级，共 111 行',
+      rowCount: 111,
+      now: 10_000,
+    });
+    expect(table.accepted).toBe(true);
+
+    const document = putResearchDeliveryInSpace({
+      space: table.space,
+      kind: 'decision_document',
+      url: 'https://example.feishu.cn/docx/living-reader-decision',
+      title: 'Living Reader 最终决策',
+      observedText: '下一步做什么：能力一、能力二、能力三。为什么：证据矩阵已通过。暂时不做：社交推荐。',
+      now: 11_000,
+    });
+    expect(document.accepted).toBe(true);
+    expect(researchDeliveryReady(document.space)).toBe(true);
+
+    const view = deriveTaskProgressView({
+      snapshot: snapshot('completed'),
+      missionInstruction: originalInstruction,
+      evidenceSpace: document.space,
+      now: 12_000,
+    });
+
+    expect(view.status).toBe('completed');
+    expect(view.health).toMatchObject({ state: 'complete', summary: '全部要求已经过页面证据验证' });
+    expect(view.currentActivity).toBeUndefined();
+    expect(view.milestones.map(item => item.status)).toEqual(['done', 'done', 'done', 'done', 'done']);
+    expect(view.milestones.flatMap(item => item.gates).every(gate => gate.status === 'passed')).toBe(true);
+    expect(view.milestones[1]?.gates[0]).toMatchObject({ current: 80, target: 80 });
+    expect(view.milestones[2]?.gates[0]).toMatchObject({ current: 30, target: 30 });
+    expect(view.milestones[3]?.gates[0]).toMatchObject({ current: 3, target: 3 });
+    expect(view.milestones[4]?.gates[0]).toMatchObject({ current: 2, target: 2 });
+    expect(view.artifacts).toEqual([
+      expect.objectContaining({ id: 'research-table', status: 'verified', url: table.space.researchDelivery?.research_table?.url }),
+      expect.objectContaining({
+        id: 'decision-document',
+        status: 'verified',
+        url: document.space.researchDelivery?.decision_document?.url,
+      }),
+    ]);
+    expect(view.nextStep).toBe('核对全部验收门并生成最终回执');
   });
 
   it('uses the original instruction as the stable generic mission', () => {
