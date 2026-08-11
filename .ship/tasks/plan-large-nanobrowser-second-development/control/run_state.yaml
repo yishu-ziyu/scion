@@ -32,9 +32,9 @@ product_022_implementation_status:
 
 # Live milestone (aligned with 021 + 2026-08-06 evidence)
 current_milestone: long_horizon_v1
-current_milestone_goal: "Mission/Plan + long-horizon context memory + autonomous task-scoped execution + verified long_horizon eval"
+current_milestone_goal: "Mission/Plan + long-horizon context memory + autonomous task-scoped execution + legible side-panel progress + verified long_horizon eval"
 plan_019_status: current
-next_default: long_horizon_eval_harden_and_outer_loop
+next_default: long_horizon_progress_console_and_eval_harden
 accuracy_reference: "MiniMax-M3 official scores; Tabbit public numbers are quality reference only, not product north star"
 parity_target: "historical Claw/Tabbit parity sets are eval assets only; do not treat as current_milestone"
 
