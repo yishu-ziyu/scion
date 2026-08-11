@@ -272,7 +272,22 @@ summary:focus-visible,
   border-top: 1px solid var(--chijie-border);
 }
 
+.chijie-mission-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
 .chijie-mission-plan-label {
+  flex: 1;
   color: var(--chijie-muted);
   font-family: var(--chijie-font-mono);
   font-size: 10px;
@@ -280,10 +295,16 @@ summary:focus-visible,
   text-transform: uppercase;
 }
 
+.chijie-mission-plan-count {
+  color: var(--chijie-muted);
+  font-family: var(--chijie-font-mono);
+  font-size: 11px;
+}
+
 .chijie-mission-phases {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 4px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -291,13 +312,40 @@ summary:focus-visible,
 
 .chijie-mission-phases li {
   display: flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid var(--chijie-border);
-  border-radius: 999px;
-  padding: 3px 8px;
+  align-items: flex-start;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  padding: 4px 2px;
   color: var(--chijie-foreground);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.chijie-mission-phases li[data-status='done'] {
+  color: var(--chijie-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--chijie-border);
+}
+
+.chijie-mission-phases li[data-status='active'] {
+  color: var(--chijie-accent);
+  font-weight: 500;
+}
+
+.chijie-mission-phases li[data-status='blocked'] {
+  color: var(--chijie-error, #d94a4a);
+}
+
+.chijie-mission-phase-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: inherit;
 }
 
 .chijie-mission-phase-dot {
@@ -305,6 +353,11 @@ summary:focus-visible,
   height: 6px;
   border-radius: 50%;
   background: var(--chijie-muted);
+}
+
+.chijie-mission-phase-title {
+  min-width: 0;
+  word-break: break-word;
 }
 
 .chijie-mission-phases li[data-status='active'] .chijie-mission-phase-dot {

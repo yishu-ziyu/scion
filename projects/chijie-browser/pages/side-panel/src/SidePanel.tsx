@@ -111,6 +111,15 @@ const SidePanel = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<number | null>(null);
+  const pendingUserTurnRef = useRef(
+    new Map<
+      string,
+      {
+        resolve: (d: { kind: string; userVisibleText: string }) => void;
+        reject: (e: Error) => void;
+      }
+    >(),
+  );
 
   const refreshBindPreview = useCallback(async () => {
     const bound = await resolveActiveContentTab();
@@ -409,6 +418,28 @@ const SidePanel = () => {
           setIsProcessingSpeech(false);
         } else if (message && message.type === 'heartbeat_ack') {
           console.log('Heartbeat acknowledged');
+        } else if (message && message.type === 'user_turn_decision_result') {
+          const requestId = typeof message.requestId === 'string' ? message.requestId : '';
+          const pending = pendingUserTurnRef.current.get(requestId);
+          if (!pending) return;
+          pendingUserTurnRef.current.delete(requestId);
+          if (message.error) {
+            pending.reject(new Error(String(message.error)));
+            return;
+          }
+          const decision = message.decision;
+          if (
+            !decision ||
+            typeof decision.kind !== 'string' ||
+            typeof decision.userVisibleText !== 'string'
+          ) {
+            pending.reject(new Error(t('errors_unknown')));
+            return;
+          }
+          pending.resolve({
+            kind: decision.kind,
+            userVisibleText: decision.userVisibleText,
+          });
         }
       });
 
@@ -540,6 +571,49 @@ const SidePanel = () => {
     }
   };
 
+  const requestUserTurnDecision = useCallback(
+    (latestText: string, history: Array<{ role: 'user' | 'assistant'; content: string }>) => {
+      return new Promise<{ kind: string; userVisibleText: string }>((resolve, reject) => {
+        if (!portRef.current) {
+          setupConnection();
+        }
+        const port = portRef.current;
+        if (!port) {
+          reject(new Error(t('errors_conn_serviceWorker')));
+          return;
+        }
+        const requestId = crypto.randomUUID();
+        const timer = window.setTimeout(() => {
+          pendingUserTurnRef.current.delete(requestId);
+          reject(new Error('判断超时，请再试一次。'));
+        }, 90000);
+        pendingUserTurnRef.current.set(requestId, {
+          resolve: d => {
+            window.clearTimeout(timer);
+            resolve(d);
+          },
+          reject: e => {
+            window.clearTimeout(timer);
+            reject(e);
+          },
+        });
+        try {
+          port.postMessage({
+            type: 'user_turn_decision',
+            requestId,
+            text: latestText,
+            history,
+          });
+        } catch (error) {
+          window.clearTimeout(timer);
+          pendingUserTurnRef.current.delete(requestId);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
+    },
+    [setupConnection],
+  );
+
   const handleSendMessage = async (text: string, displayText?: string) => {
     // Trim the input text first
     const trimmedText = text.trim();
@@ -560,27 +634,14 @@ const SidePanel = () => {
     }
 
     try {
-      const bound = await resolveActiveContentTab();
-      setBindPreview(bound);
-      if (!bound) {
-        throw new Error(t('chat_task_bind_missing'));
-      }
-      const tabId = bound.tabId;
-
       setInputEnabled(false);
-      setShowStopButton(true);
-
       // Create a chat session when this is a fresh start, or when follow-up has no session yet
-      // (e.g. reopened panel after a skill-only task left a completed snapshot without chatSessionId).
       if (!isFollowUpMode || !sessionIdRef.current) {
-        // Use display text for session title if available, otherwise use full text
         const titleText = displayText || text;
         const newSession = await chatHistoryStore.createSession(
           titleText.substring(0, 50) + (titleText.length > 50 ? '...' : ''),
         );
         console.log('newSession', newSession);
-
-        // Store the session ID in both state and ref
         const sessionId = newSession.id;
         setCurrentSessionId(sessionId);
         sessionIdRef.current = sessionId;
@@ -592,13 +653,84 @@ const SidePanel = () => {
         timestamp: Date.now(),
       };
 
-      const storedMessage = await appendMessage(userMessage, sessionIdRef.current, text);
-      if (!storedMessage || !sessionIdRef.current) throw new Error('Failed to persist task instruction');
+      const historyForModel = messages
+        .filter(m => typeof m.content === 'string' && m.content.trim())
+        .slice(-12)
+        .map(m => ({
+          role: (m.actor === Actors.USER ? 'user' : 'assistant') as 'user' | 'assistant',
+          content: m.content,
+        }));
 
-      // Setup connection if not exists
+      const storedMessage = await appendMessage(userMessage, sessionIdRef.current, text);
+      if (!storedMessage || !sessionIdRef.current) throw new Error('Failed to persist message');
+
       if (!portRef.current) {
         setupConnection();
       }
+
+      // LLM decides: reply / clarify / execute / stop (no keyword router)
+      const decision = await requestUserTurnDecision(trimmedText, historyForModel);
+
+      if (decision.kind === 'reply' || decision.kind === 'clarify') {
+        await appendMessage({
+          actor: Actors.SYSTEM,
+          content: decision.userVisibleText,
+          timestamp: Date.now(),
+        });
+        setInputEnabled(true);
+        setShowStopButton(false);
+        return;
+      }
+
+      if (decision.kind === 'stop') {
+        if (taskSnapshot && isActiveTaskStatus(taskSnapshot.status)) {
+          sendTaskCommand({
+            type: 'cancel',
+            commandId: crypto.randomUUID(),
+            taskId: taskSnapshot.id,
+            expectedRevision: taskSnapshot.revision,
+          });
+        }
+        if (decision.userVisibleText) {
+          await appendMessage({
+            actor: Actors.SYSTEM,
+            content: decision.userVisibleText,
+            timestamp: Date.now(),
+          });
+        }
+        setInputEnabled(true);
+        setShowStopButton(false);
+        return;
+      }
+
+      // execute (or unknown kind treated as execute only if model said execute)
+      if (decision.kind !== 'execute') {
+        await appendMessage({
+          actor: Actors.SYSTEM,
+          content: decision.userVisibleText || '我没太理解，请再说一遍你想在页面上做什么。',
+          timestamp: Date.now(),
+        });
+        setInputEnabled(true);
+        setShowStopButton(false);
+        return;
+      }
+
+      if (decision.userVisibleText) {
+        await appendMessage({
+          actor: Actors.SYSTEM,
+          content: decision.userVisibleText,
+          timestamp: Date.now(),
+        });
+      }
+
+      const bound = await resolveActiveContentTab();
+      setBindPreview(bound);
+      if (!bound) {
+        throw new Error(t('chat_task_bind_missing'));
+      }
+      const tabId = bound.tabId;
+
+      setShowStopButton(true);
 
       const canFollowUp =
         Boolean(taskSnapshot?.chatSessionId) &&
@@ -636,7 +768,6 @@ const SidePanel = () => {
       });
       setInputEnabled(true);
       setShowStopButton(false);
-      stopConnection();
     }
   };
 
@@ -1068,7 +1199,8 @@ const SidePanel = () => {
     Boolean(taskSnapshot) &&
     isActiveTaskStatus(taskSnapshot?.status) &&
     (currentSessionId === taskSnapshot?.chatSessionId || taskSnapshot?.sourceSkillId !== undefined);
-  const showLiveMessages = showMainTaskSurface && messages.length > 0;
+  // Idle home still shows this session's chat (replies/clarifications); only task card needs active status.
+  const showLiveMessages = messages.length > 0;
   const showIdleHint = !showLiveMessages && favoritePrompts.length === 0;
 
   return (
