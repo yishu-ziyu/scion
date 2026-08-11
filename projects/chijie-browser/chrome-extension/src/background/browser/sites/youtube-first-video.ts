@@ -8,7 +8,8 @@ export const YOUTUBE_EMPTY_HOME_SEARCH_QUERY = 'AI';
 
 export function isYouTubeFirstVideoInstruction(instruction: string): boolean {
   const text = instruction.replace(/\s+/g, ' ').trim();
-  return /第一|首页|first/i.test(text) && /打开|open/i.test(text);
+  const requestsFirstVideo = /第\s*一(?:个|条)?\s*(?:视频|video)|first\s+(?:youtube\s+)?video/i.test(text);
+  return requestsFirstVideo && /打开|open/i.test(text);
 }
 
 export function extractFirstYouTubeVideoUrlFromHtml(html: string, baseUrl: string): string | null {

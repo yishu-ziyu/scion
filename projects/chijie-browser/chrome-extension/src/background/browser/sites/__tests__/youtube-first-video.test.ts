@@ -10,6 +10,14 @@ describe('youtube first video shortcut', () => {
     expect(isYouTubeFirstVideoInstruction('打开首页上第一个视频')).toBe(true);
   });
 
+  it('does not hijack a multi-step research task that only mentions YouTube as a source', () => {
+    expect(
+      isYouTubeFirstVideoInstruction(
+        '第一步，理解项目。对每个产品实际打开页面观察，来源覆盖 YouTube 评论区。',
+      ),
+    ).toBe(false);
+  });
+
   it('extracts the first watch href from a YouTube-style homepage', () => {
     const html = `
       <a href="/watch?v=AAAA1111zzz">First</a>
