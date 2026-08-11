@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { EvidenceRecord } from '@extension/storage/lib/task';
 import {
   extractResearchQuotas,
   isRecoverableResearchDecisionFailure,
@@ -6,6 +7,7 @@ import {
   isRecoverableResearchFailure,
   maxResearchWorkCycles,
   researchContinuationQuery,
+  renderResearchDecisionEvidenceShortlist,
   renderResearchCheckpoint,
   researchQuotaMissing,
   researchQuotasMet,
@@ -83,6 +85,50 @@ describe('research checkpoint', () => {
         hasSubstantiveText: true,
       }),
     ).toBe(false);
+  });
+
+  it('renders a compact valid evidence shortlist for the structured decision gate', () => {
+    const record = (
+      id: string,
+      recordType: 'user_discussion' | 'product' | 'repository',
+      source: string,
+      overrides: Partial<EvidenceRecord> = {},
+    ): EvidenceRecord => ({
+      id,
+      taskId: 'task-1',
+      recordType,
+      source,
+      canonicalSource: source,
+      sourceTitle: `${recordType} ${id}`,
+      rawBasis: 'A sufficiently long verbatim basis from the observed source page.',
+      observation: `Observed evidence for ${id}`,
+      inference: `Inference for ${id}`,
+      confidence: 'high' as const,
+      priority: 'high' as const,
+      stance: 'support' as const,
+      dedupeKey: id,
+      capturedAt: 1,
+      ...overrides,
+    });
+    const shortlist = renderResearchDecisionEvidenceShortlist({
+      taskId: 'task-1',
+      workCycles: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      records: [
+        record('user-a', 'user_discussion', 'https://forum.example/a'),
+        record('user-a-duplicate', 'user_discussion', 'https://forum.example/a'),
+        record('user-b', 'user_discussion', 'https://forum.example/b'),
+        record('product-a', 'product', 'https://product.example/', { relatedProduct: 'Product A' }),
+        record('repo-a', 'repository', 'https://github.com/example/living-reader'),
+      ],
+    });
+    expect(shortlist).toContain('id=user-a');
+    expect(shortlist).not.toContain('id=user-a-duplicate');
+    expect(shortlist).toContain('id=user-b');
+    expect(shortlist).toContain('id=product-a');
+    expect(shortlist).toContain('id=repo-a');
+    expect(shortlist).toContain('Stop inspecting');
   });
 
   it('allows leaving search results and unavailable pages without recording them', () => {

@@ -1,4 +1,10 @@
-import { isSearchResultsEvidenceSource, type EvidenceSpaceProgress } from '@extension/storage/lib/task';
+import {
+  isDiscussionOnlyProductSource,
+  isSearchResultsEvidenceSource,
+  type EvidenceRecord,
+  type EvidenceSpace,
+  type EvidenceSpaceProgress,
+} from '@extension/storage/lib/task';
 
 export interface ResearchQuotas {
   userDiscussions: number;
@@ -151,6 +157,86 @@ export function renderResearchCheckpoint(quotas: ResearchQuotas, progress: Evide
     );
   }
   return parts.join('; ');
+}
+
+function compactDecisionEvidence(value: string | undefined, max = 180): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+function evidenceRank(record: EvidenceRecord): number {
+  const priority = record.priority === 'high' ? 6 : record.priority === 'medium' ? 3 : 0;
+  const confidence = record.confidence === 'high' ? 2 : record.confidence === 'medium' ? 1 : 0;
+  const capability = record.livingReaderCapability?.trim() ? 1 : 0;
+  return priority + confidence + capability;
+}
+
+function distinctEvidence(
+  records: EvidenceRecord[],
+  limit: number,
+  identity: (record: EvidenceRecord) => string,
+): EvidenceRecord[] {
+  const seen = new Set<string>();
+  return [...records]
+    .sort((left, right) => evidenceRank(right) - evidenceRank(left) || left.capturedAt - right.capturedAt)
+    .filter(record => {
+      const key = identity(record).trim().toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit);
+}
+
+function renderDecisionEvidenceRecord(record: EvidenceRecord): string {
+  const context =
+    record.recordType === 'product'
+      ? record.relatedProduct
+      : record.userProblem || record.livingReaderCapability || record.observation;
+  return [
+    `id=${record.id}`,
+    `title=${compactDecisionEvidence(record.sourceTitle, 120)}`,
+    `context=${compactDecisionEvidence(context)}`,
+    `observation=${compactDecisionEvidence(record.observation)}`,
+  ].join('; ');
+}
+
+/** Give the decision loop enough valid durable IDs without forcing it to page through the entire evidence space. */
+export function renderResearchDecisionEvidenceShortlist(space: EvidenceSpace | null | undefined): string {
+  if (!space) return '';
+  const users = distinctEvidence(
+    space.records.filter(
+      record => record.recordType === 'user_discussion' && !isSearchResultsEvidenceSource(record.canonicalSource),
+    ),
+    9,
+    record => record.canonicalSource,
+  );
+  const products = distinctEvidence(
+    space.records.filter(
+      record =>
+        record.recordType === 'product' &&
+        !isSearchResultsEvidenceSource(record.canonicalSource) &&
+        !isDiscussionOnlyProductSource(record.canonicalSource),
+    ),
+    6,
+    record => record.relatedProduct || record.canonicalSource,
+  );
+  const repository = distinctEvidence(
+    space.records.filter(record => record.recordType === 'repository'),
+    3,
+    record => record.canonicalSource,
+  );
+  if (users.length < 2 || products.length < 1 || repository.length < 1) return '';
+  return [
+    '<decision_evidence_shortlist>',
+    'These are valid durable evidence IDs. Stop inspecting. Call record_research_decision now; IDs may be reused across capabilities when they genuinely support each claim.',
+    'user_discussion:',
+    ...users.map(renderDecisionEvidenceRecord),
+    'product:',
+    ...products.map(renderDecisionEvidenceRecord),
+    'repository:',
+    ...repository.map(renderDecisionEvidenceRecord),
+    '</decision_evidence_shortlist>',
+  ].join('\n');
 }
 
 export function isSearchResultsUrl(value: string): boolean {
