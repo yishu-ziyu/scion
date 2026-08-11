@@ -1,0 +1,86 @@
+{
+  "5e9c1852-2b0f-43b2-a058-c467ab243f6a": {
+    "createdAt": 1786421042456,
+    "spans": [
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 1,
+          "roundCount": 1
+        },
+        "id": "8d8d5145-39a0-4837-890c-5d0f9fea12ea",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786421042456,
+        "status": "ok",
+        "taskId": "5e9c1852-2b0f-43b2-a058-c467ab243f6a"
+      },
+      {
+        "data": {
+          "frame_id": "frame-mso4yqmp-1",
+          "full_chars": 1629,
+          "material_change": true,
+          "page_revision": "1154993779|http://127.0.0.1:64975|599e3a0d8c8eb6dafc2e2768cf113f4461f6b3864d030fc4582995a5caa345ac",
+          "rendered_chars": 1629
+        },
+        "endedAt": 1786421043026,
+        "id": "5fef7ab9-5c0b-41f4-85d8-ffaeb3e2b396",
+        "kind": "observe",
+        "name": "kernel.observe",
+        "roundId": "be94e431-179e-417d-98e0-ffff80fb2f6b",
+        "startedAt": 1786421043026,
+        "status": "ok",
+        "taskId": "5e9c1852-2b0f-43b2-a058-c467ab243f6a"
+      },
+      {
+        "data": {
+          "step": 0
+        },
+        "endedAt": 1786421043033,
+        "id": "afc825da-b9c0-4b3f-8279-8e8a063e88ef",
+        "kind": "skill",
+        "name": "skill.discover",
+        "roundId": "be94e431-179e-417d-98e0-ffff80fb2f6b",
+        "startedAt": 1786421043027,
+        "status": "ok",
+        "taskId": "5e9c1852-2b0f-43b2-a058-c467ab243f6a"
+      },
+      {
+        "data": {
+          "model": "MiniMax-M3",
+          "step": 0
+        },
+        "endedAt": 1786421052365,
+        "id": "3c401f7b-ca38-4069-a707-6599bf88b34a",
+        "kind": "llm",
+        "name": "control_llm_invoke",
+        "roundId": "be94e431-179e-417d-98e0-ffff80fb2f6b",
+        "startedAt": 1786421043034,
+        "status": "ok",
+        "taskId": "5e9c1852-2b0f-43b2-a058-c467ab243f6a"
+      },
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 1,
+          "revision": 2,
+          "roundCount": 1
+        },
+        "id": "cf1672ec-e13e-427d-9313-47e9d881d79a",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786421052375,
+        "status": "ok",
+        "taskId": "5e9c1852-2b0f-43b2-a058-c467ab243f6a"
+      }
+    ],
+    "taskId": "5e9c1852-2b0f-43b2-a058-c467ab243f6a",
+    "terminalStatus": "completed",
+    "updatedAt": 1786421052375
+  }
+}

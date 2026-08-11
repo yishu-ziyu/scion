@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Delayed Search Console</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; }
+      .ok { color: #064; }
+      .err { color: #900; }
+    </style>
+  </head>
+  <body>
+    <h1>Delayed Search Console</h1>
+    <p>Simple search is broken. After enough failed attempts, use Advanced search.</p>
+    <input id="q" data-testid="search-input" placeholder="query" />
+    <button id="simple" data-testid="simple-search">Simple search</button>
+    <button id="advanced" data-testid="advanced-search" style="display:none">Advanced search</button>
+    <div id="status" data-testid="search-status" class="err">No results. Try again.</div>
+    <div id="result" data-testid="search-result" style="display:none" class="ok"></div>
+    <script>
+      let fails = 0;
+      function unlockAdvanced(reason) {
+        document.getElementById('advanced').style.display = 'inline-block';
+        const status = document.getElementById('status');
+        status.textContent = `${status.textContent} — Advanced search unlocked (${reason})`;
+      }
+      // After brief delay, advanced appears even without simple-fail (recovery still requires using it).
+      setTimeout(() => unlockAdvanced('timer'), 2500);
+      document.getElementById('simple').addEventListener('click', () => {
+        fails += 1;
+        const status = document.getElementById('status');
+        status.className = 'err';
+        status.textContent = `Transient failure #${fails}: simple search unavailable`;
+        unlockAdvanced('simple-fail');
+      });
+      document.getElementById('advanced').addEventListener('click', () => {
+        const q = (document.getElementById('q').value || '').trim().toLowerCase();
+        const status = document.getElementById('status');
+        const result = document.getElementById('result');
+        if (!q.includes('hidden') && !q.includes('report')) {
+          status.className = 'err';
+          status.textContent = 'Advanced search needs query containing "hidden report"';
+          return;
+        }
+        status.className = 'ok';
+        status.textContent = 'Advanced search OK';
+        result.style.display = 'block';
+        result.innerHTML = '<p data-testid="hidden-report">Hidden Report 77 — recovery_token=RT-77-OK</p>';
+      });
+    </script>
+  </body>
+</html>

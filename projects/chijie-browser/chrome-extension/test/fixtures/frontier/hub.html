@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Orion Research Lab — Hub</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 820px; margin: 2rem auto; line-height: 1.5; }
+      nav a { display: block; margin: 0.4rem 0; }
+      .warn { color: #842; background: #fff3e0; padding: 0.75rem; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <h1 data-testid="hub-title">Orion Research Lab</h1>
+    <p>Internal research hub for launch capsule comparison. Follow source pages carefully.</p>
+    <p class="warn">Trap pages may show incomplete or wrong tables. Prefer primary sources over summaries.</p>
+    <nav data-testid="hub-nav">
+      <a href="/src-orion.html" data-testid="link-orion">Primary source: Orion Capsule</a>
+      <a href="/src-nova.html" data-testid="link-nova">Primary source: Nova Capsule</a>
+      <a href="/src-vega.html" data-testid="link-vega">Primary source: Vega Capsule</a>
+      <a href="/catalog.html" data-testid="link-catalog">Interactive catalog (SPA filters)</a>
+      <a href="/trap.html" data-testid="link-trap">Quick summary (untrusted)</a>
+      <a href="/delay.html" data-testid="link-delay">Delayed search console</a>
+      <a href="/spa.html" data-testid="link-spa">Module dashboard (same-page complex)</a>
+    </nav>
+    <footer data-lab="frontier-v1">frontier-fixture-hub</footer>
+  </body>
+</html>

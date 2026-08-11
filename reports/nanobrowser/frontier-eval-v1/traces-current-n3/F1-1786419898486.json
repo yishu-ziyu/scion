@@ -1,0 +1,161 @@
+{
+  "11e00db6-f84a-40ea-bfbb-77ce1ed89777": {
+    "createdAt": 1786419878288,
+    "spans": [
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 1,
+          "roundCount": 1
+        },
+        "id": "77b62c65-67f0-4910-af42-01630984451b",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786419878288,
+        "status": "ok",
+        "taskId": "11e00db6-f84a-40ea-bfbb-77ce1ed89777"
+      },
+      {
+        "data": {
+          "frame_id": "frame-mso49sbq-1",
+          "full_chars": 1625,
+          "material_change": true,
+          "page_revision": "16455851|http://127.0.0.1:62653|6fd8a0fc11c82cb7f094cb5dece37cdc260be0d1ce3e4945f7979dd1479f8df0",
+          "rendered_chars": 1625
+        },
+        "endedAt": 1786419878822,
+        "id": "344afd65-0666-43a0-9301-ea526e1df310",
+        "kind": "observe",
+        "name": "kernel.observe",
+        "roundId": "98f0f226-9b2f-45b1-b0d8-bb5e50afba8f",
+        "startedAt": 1786419878822,
+        "status": "ok",
+        "taskId": "11e00db6-f84a-40ea-bfbb-77ce1ed89777"
+      },
+      {
+        "data": {
+          "step": 0
+        },
+        "endedAt": 1786419878826,
+        "id": "1e6a47e7-c454-4735-9ac9-1d34be008c18",
+        "kind": "skill",
+        "name": "skill.discover",
+        "roundId": "98f0f226-9b2f-45b1-b0d8-bb5e50afba8f",
+        "startedAt": 1786419878823,
+        "status": "ok",
+        "taskId": "11e00db6-f84a-40ea-bfbb-77ce1ed89777"
+      },
+      {
+        "data": {
+          "model": "MiniMax-M3",
+          "step": 0
+        },
+        "endedAt": 1786419888277,
+        "id": "f3d94d7f-0869-47c0-97e2-8867da748d8b",
+        "kind": "llm",
+        "name": "control_llm_invoke",
+        "roundId": "98f0f226-9b2f-45b1-b0d8-bb5e50afba8f",
+        "startedAt": 1786419878827,
+        "status": "ok",
+        "taskId": "11e00db6-f84a-40ea-bfbb-77ce1ed89777"
+      },
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 6,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 2,
+          "roundCount": 1
+        },
+        "id": "a1cefa9e-0b4f-4292-b849-3b966ceeae9a",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786419888812,
+        "status": "ok",
+        "taskId": "11e00db6-f84a-40ea-bfbb-77ce1ed89777"
+      },
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 6,
+          "evidenceCount": 6,
+          "receiptCount": 0,
+          "revision": 3,
+          "roundCount": 1
+        },
+        "id": "f199136e-4606-4f45-b75e-2e912d31a92e",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786419889344,
+        "status": "ok",
+        "taskId": "11e00db6-f84a-40ea-bfbb-77ce1ed89777"
+      },
+      {
+        "data": {
+          "frame_id": "frame-mso4a0uu-2",
+          "full_chars": 1625,
+          "material_change": true,
+          "page_revision": "16455851|http://127.0.0.1:62653|6fd8a0fc11c82cb7f094cb5dece37cdc260be0d1ce3e4945f7979dd1479f8df0",
+          "rendered_chars": 1625
+        },
+        "endedAt": 1786419889879,
+        "id": "1dba93eb-c249-44d3-9c76-574b02a62cc5",
+        "kind": "observe",
+        "name": "kernel.observe",
+        "roundId": "98f0f226-9b2f-45b1-b0d8-bb5e50afba8f",
+        "startedAt": 1786419889878,
+        "status": "ok",
+        "taskId": "11e00db6-f84a-40ea-bfbb-77ce1ed89777"
+      },
+      {
+        "data": {
+          "step": 0
+        },
+        "endedAt": 1786419889882,
+        "id": "1eb26488-7d5e-47b9-9ea7-0f313a43f8f2",
+        "kind": "skill",
+        "name": "skill.discover",
+        "roundId": "98f0f226-9b2f-45b1-b0d8-bb5e50afba8f",
+        "startedAt": 1786419889879,
+        "status": "ok",
+        "taskId": "11e00db6-f84a-40ea-bfbb-77ce1ed89777"
+      },
+      {
+        "data": {
+          "model": "MiniMax-M3",
+          "step": 0
+        },
+        "endedAt": 1786419897215,
+        "id": "37533d12-9202-48cb-8491-1cd9ad26fb45",
+        "kind": "llm",
+        "name": "control_llm_invoke",
+        "roundId": "98f0f226-9b2f-45b1-b0d8-bb5e50afba8f",
+        "startedAt": 1786419889882,
+        "status": "ok",
+        "taskId": "11e00db6-f84a-40ea-bfbb-77ce1ed89777"
+      },
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 6,
+          "evidenceCount": 12,
+          "receiptCount": 0,
+          "revision": 4,
+          "roundCount": 1
+        },
+        "id": "2f81cbbd-8663-45af-a124-499e60e8f919",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786419897743,
+        "status": "ok",
+        "taskId": "11e00db6-f84a-40ea-bfbb-77ce1ed89777"
+      }
+    ],
+    "taskId": "11e00db6-f84a-40ea-bfbb-77ce1ed89777",
+    "updatedAt": 1786419897743
+  }
+}

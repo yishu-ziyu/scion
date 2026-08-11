@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Module Dashboard SPA</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 1rem; }
+      .item { border: 1px solid #ccc; margin: 0.5rem 0; padding: 0.5rem; }
+      .tall { height: 900px; background: linear-gradient(#eef, #fff); }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>Module Dashboard (same-page)</h1>
+    <div class="tall" data-testid="spacer-top">Scroll past this spacer.</div>
+    <label>
+      Category filter
+      <select id="cat" data-testid="spa-category">
+        <option value="all">all</option>
+        <option value="dock">dock</option>
+        <option value="power">power</option>
+      </select>
+    </label>
+    <button id="go" data-testid="spa-apply">Apply</button>
+    <div id="list" data-testid="spa-list"></div>
+    <div class="tall" data-testid="spacer-bottom">Bottom spacer</div>
+    <script>
+      const items = [
+        { name: 'Dock Ring A', cat: 'dock', rating: 4.0, serial: 'Z-MOD-0040' },
+        { name: 'Dock Ring B', cat: 'dock', rating: 4.6, serial: 'Z-MOD-0042' },
+        { name: 'Dock Ring C', cat: 'dock', rating: 3.9, serial: 'Z-MOD-0043' },
+        { name: 'Power Cell 1', cat: 'power', rating: 4.2, serial: 'PWR-1' },
+        { name: 'Power Cell 2', cat: 'power', rating: 4.8, serial: 'PWR-2' },
+      ];
+      function render() {
+        const cat = document.getElementById('cat').value;
+        const list = document.getElementById('list');
+        list.innerHTML = '';
+        items.filter(i => cat === 'all' || i.cat === cat)
+          .sort((a, b) => b.rating - a.rating)
+          .forEach((i, idx) => {
+            const div = document.createElement('div');
+            div.className = 'item';
+            div.dataset.testid = `spa-item-${idx}`;
+            div.innerHTML = `<strong>${i.name}</strong> rating=${i.rating}
+              <button type="button" class="expand" data-serial="${i.serial}" data-testid="spa-expand-${i.serial}">Expand details</button>
+              <div class="detail hidden"></div>`;
+            list.appendChild(div);
+          });
+      }
+      document.getElementById('go').addEventListener('click', render);
+      document.getElementById('list').addEventListener('click', e => {
+        const btn = e.target.closest('.expand');
+        if (!btn) return;
+        const detail = btn.parentElement.querySelector('.detail');
+        detail.classList.remove('hidden');
+        detail.innerHTML = `<span data-testid="spa-serial">serial=${btn.dataset.serial}</span>`;
+      });
+      render();
+    </script>
+  </body>
+</html>

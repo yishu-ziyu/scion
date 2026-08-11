@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Interactive Catalog</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 1.5rem; }
+      .hidden { display: none; }
+      tr.detail td { background: #f4f7fb; font-size: 0.9rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Interactive Catalog</h1>
+    <label>
+      Category
+      <select id="category" data-testid="filter-category">
+        <option value="all">all</option>
+        <option value="capsule">capsule</option>
+        <option value="module">module</option>
+        <option value="part">part</option>
+      </select>
+    </label>
+    <label>
+      Sort
+      <select id="sort" data-testid="filter-sort">
+        <option value="name">name</option>
+        <option value="rating">rating</option>
+        <option value="price">price</option>
+      </select>
+    </label>
+    <button id="apply" data-testid="apply-filters">Apply filters</button>
+    <table id="grid" data-testid="catalog-table">
+      <thead>
+        <tr><th>name</th><th>category</th><th>price</th><th>rating</th><th></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div id="expanded" data-testid="expanded-panel" class="hidden"></div>
+    <script>
+      const rows = [
+        { name: 'Orion Capsule', category: 'capsule', price: 2100000, rating: 4.7, serial: 'CAP-OR-01', source: 'SRC-ORION-01' },
+        { name: 'Nova Capsule', category: 'capsule', price: 1800000, rating: 4.3, serial: 'CAP-NV-02', source: 'SRC-NOVA-02' },
+        { name: 'Vega Capsule', category: 'capsule', price: 2900000, rating: 4.9, serial: 'CAP-VG-03', source: 'SRC-VEGA-03' },
+        { name: 'Alpha Dock Module', category: 'module', price: 420000, rating: 4.1, serial: 'Z-MOD-0041', source: 'SRC-MOD-A' },
+        { name: 'Beta Dock Module', category: 'module', price: 510000, rating: 4.6, serial: 'Z-MOD-0042', source: 'SRC-MOD-B' },
+        { name: 'Gamma Dock Module', category: 'module', price: 390000, rating: 3.8, serial: 'Z-MOD-0043', source: 'SRC-MOD-C' },
+        { name: 'Seal Kit 9', category: 'part', price: 1200, rating: 4.0, serial: 'PART-09', source: 'SRC-PART-9' },
+        { name: 'Seal Kit 11', category: 'part', price: 1500, rating: 4.4, serial: 'PART-11', source: 'SRC-PART-11' },
+      ];
+      function render() {
+        const cat = document.getElementById('category').value;
+        const sort = document.getElementById('sort').value;
+        let list = rows.filter(r => cat === 'all' || r.category === cat);
+        list = list.slice().sort((a, b) => {
+          if (sort === 'rating') return b.rating - a.rating;
+          if (sort === 'price') return a.price - b.price;
+          return a.name.localeCompare(b.name);
+        });
+        const tbody = document.querySelector('#grid tbody');
+        tbody.innerHTML = '';
+        for (const r of list) {
+          const tr = document.createElement('tr');
+          tr.dataset.name = r.name;
+          tr.innerHTML = `<td>${r.name}</td><td>${r.category}</td><td>${r.price}</td><td>${r.rating}</td>
+            <td><button type="button" data-serial="${r.serial}" data-source="${r.source}" class="expand" data-testid="expand-${r.serial}">Expand</button></td>`;
+          tbody.appendChild(tr);
+        }
+      }
+      document.getElementById('apply').addEventListener('click', render);
+      document.querySelector('#grid tbody').addEventListener('click', e => {
+        const btn = e.target.closest('.expand');
+        if (!btn) return;
+        const panel = document.getElementById('expanded');
+        panel.classList.remove('hidden');
+        panel.innerHTML = `<p>serial: <strong data-testid="serial-value">${btn.dataset.serial}</strong></p>
+          <p>source_ref: <span data-testid="source-ref">${btn.dataset.source}</span></p>`;
+      });
+      render();
+    </script>
+  </body>
+</html>

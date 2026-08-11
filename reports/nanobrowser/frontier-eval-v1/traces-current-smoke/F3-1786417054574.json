@@ -1,0 +1,202 @@
+{
+  "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d": {
+    "createdAt": 1786416693278,
+    "spans": [
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 1,
+          "roundCount": 1
+        },
+        "id": "50f22f55-dbab-488c-9b29-c5c8e22d6ded",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786416693278,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "frame_id": "frame-mso2dire-1",
+          "full_chars": 1524,
+          "material_change": true,
+          "page_revision": "1277742378|http://127.0.0.1:54712|452541cec4eceff3e660068266d890290d39aadbfe4b2a5dafe53901123e7cd8",
+          "rendered_chars": 1524
+        },
+        "endedAt": 1786416693819,
+        "id": "a281e5bc-1696-43ac-bc94-70aa26e30bec",
+        "kind": "observe",
+        "name": "kernel.observe",
+        "roundId": "bf8bbc5a-3e08-4c53-a66d-11a32df4dcb9",
+        "startedAt": 1786416693818,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "step": 0
+        },
+        "endedAt": 1786416693821,
+        "id": "f967ddab-9c36-4c81-8142-8923484eb3af",
+        "kind": "skill",
+        "name": "skill.discover",
+        "roundId": "bf8bbc5a-3e08-4c53-a66d-11a32df4dcb9",
+        "startedAt": 1786416693820,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "model": "MiniMax-M3",
+          "step": 0
+        },
+        "endedAt": 1786416699071,
+        "id": "ac9470d4-8b14-4092-9dc0-c2c08bb98d29",
+        "kind": "llm",
+        "name": "control_llm_invoke",
+        "roundId": "bf8bbc5a-3e08-4c53-a66d-11a32df4dcb9",
+        "startedAt": 1786416693823,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "action": "click_element"
+        },
+        "endedAt": 1786416700202,
+        "id": "5886a83e-b522-42d1-bf4b-a370c624e6cf",
+        "kind": "act",
+        "name": "kernel.act_click_element",
+        "roundId": "bf8bbc5a-3e08-4c53-a66d-11a32df4dcb9",
+        "startedAt": 1786416699076,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 2,
+          "roundCount": 1
+        },
+        "id": "8fff4872-50db-4d02-aa82-eca6df009d76",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786416699612,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 3,
+          "roundCount": 1
+        },
+        "id": "e32c262f-b4a3-4927-be06-bab0c6ee686a",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786416700141,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 4,
+          "roundCount": 1
+        },
+        "id": "70f171d9-0d39-4904-a952-7211cd18b675",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786416700198,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 5,
+          "roundCount": 1
+        },
+        "id": "1296e56b-c5c8-42ec-8774-f9db44cd46a6",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786416700201,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "step": 1
+        },
+        "endedAt": 1786416700730,
+        "id": "60205e2c-894e-48ba-8778-47c2190c8e3f",
+        "kind": "skill",
+        "name": "skill.discover",
+        "roundId": "bf8bbc5a-3e08-4c53-a66d-11a32df4dcb9",
+        "startedAt": 1786416700729,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "model": "MiniMax-M3",
+          "step": 1
+        },
+        "endedAt": 1786416713324,
+        "id": "585af492-56cb-4ccb-8a5f-c1a3227652a3",
+        "kind": "llm",
+        "name": "control_llm_invoke",
+        "roundId": "bf8bbc5a-3e08-4c53-a66d-11a32df4dcb9",
+        "startedAt": 1786416700731,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "attemptCount": 1,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 6,
+          "roundCount": 1
+        },
+        "id": "0850bb82-da21-48f8-a56b-88db2add18a2",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786416702733,
+        "status": "ok",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      },
+      {
+        "data": {
+          "action": "click_element"
+        },
+        "endedAt": 1786416713327,
+        "id": "75d8a4f4-3334-45a1-b9c1-d3698046844c",
+        "kind": "act",
+        "name": "kernel.act_click_element",
+        "roundId": "bf8bbc5a-3e08-4c53-a66d-11a32df4dcb9",
+        "startedAt": 1786416713326,
+        "status": "fail",
+        "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d"
+      }
+    ],
+    "taskId": "a42541b8-b6d9-45b6-9e8b-07c7393a0a7d",
+    "updatedAt": 1786416713327
+  }
+}
