@@ -508,6 +508,44 @@ export class TaskManager {
     return ack;
   }
 
+  private async rehydrateInstruction(
+    task: TaskSession,
+    round: TaskRound,
+    options: { forceResearchContext?: boolean } = {},
+  ): Promise<string | undefined> {
+    let current = this.instructions.get(task.id);
+    let priorResearch: string | undefined;
+    if (task.chatSessionId) {
+      const { chatHistoryStore } = await import('@extension/storage/lib/chat');
+      const session = await chatHistoryStore.getSession(task.chatSessionId);
+      current =
+        current ??
+        (round.instructionMessageId
+          ? session?.messages.find(message => message.id === round.instructionMessageId)?.content
+          : undefined);
+      priorResearch = [...(session?.messages ?? [])]
+        .reverse()
+        .find(
+          message =>
+            (message.actor === 'user' || message.actor === undefined) && Boolean(extractResearchQuotas(message.content)),
+        )?.content;
+    }
+    if (current && extractResearchQuotas(current)) return current;
+    const shouldCarryResearchContext =
+      options.forceResearchContext ||
+      Boolean(
+        current &&
+          (requiresStructuredResearchDecision(current) ||
+            /record_research_decision|decision_evidence_shortlist|剩余调研|研究收集门/i.test(current)),
+      );
+    if (priorResearch && shouldCarryResearchContext) {
+      return current && current !== priorResearch
+        ? `${priorResearch}\n\nLatest user correction (follow this while preserving the durable research gates):\n${current}`
+        : priorResearch;
+    }
+    return current ?? priorResearch;
+  }
+
   private async retryResearch(
     task: TaskSession,
     command: Extract<TaskCommand, { type: 'retry_research' }>,
@@ -517,24 +555,7 @@ export class TaskManager {
       return this.reject(task, command.commandId, 'invalid_transition');
     }
 
-    let instruction = this.instructions.get(task.id);
-    if ((!instruction || !extractResearchQuotas(instruction)) && task.chatSessionId) {
-      const { chatHistoryStore } = await import('@extension/storage/lib/chat');
-      const session = await chatHistoryStore.getSession(task.chatSessionId);
-      const roundInstruction = round.instructionMessageId
-        ? session?.messages.find(message => message.id === round.instructionMessageId)?.content
-        : undefined;
-      instruction =
-        roundInstruction && extractResearchQuotas(roundInstruction)
-          ? roundInstruction
-          : [...(session?.messages ?? [])]
-              .reverse()
-              .find(
-                message =>
-                  (message.actor === 'user' || message.actor === undefined) &&
-                  Boolean(extractResearchQuotas(message.content)),
-              )?.content;
-    }
+    const instruction = await this.rehydrateInstruction(task, round, { forceResearchContext: true });
     if (!instruction || !extractResearchQuotas(instruction)) {
       return this.reject(task, command.commandId, 'invalid_transition');
     }
@@ -1081,17 +1102,17 @@ export class TaskManager {
       if (!task || task.status !== 'running' || this.launches.get(taskId) !== launch) return;
       let round = this.currentRound(task);
       let instruction = this.instructions.get(taskId);
-      if (!instruction && task.chatSessionId && round.instructionMessageId) {
-        const { chatHistoryStore } = await import('@extension/storage/lib/chat');
-        const session = await chatHistoryStore.getSession(task.chatSessionId);
-        instruction = session?.messages.find(message => message.id === round.instructionMessageId)?.content;
-
+      const shouldRehydrate =
+        !instruction ||
+        (!extractResearchQuotas(instruction) &&
+          (requiresStructuredResearchDecision(instruction) ||
+            /record_research_decision|decision_evidence_shortlist|剩余调研|研究收集门/i.test(instruction)));
+      if (shouldRehydrate) {
+        instruction = await this.rehydrateInstruction(task, round);
         task = await getTask(taskId);
         if (!task || task.status !== 'running' || this.launches.get(taskId) !== launch) return;
         round = this.currentRound(task);
-        instruction =
-          this.instructions.get(taskId) ??
-          session?.messages.find(message => message.id === round.instructionMessageId)?.content;
+        instruction = this.instructions.get(taskId) ?? instruction;
       }
       if (!instruction) {
         // Dead-end if we wait for "proof" with no criteria UI. Fail honestly.
