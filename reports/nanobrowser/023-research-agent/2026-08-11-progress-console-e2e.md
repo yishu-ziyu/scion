@@ -133,3 +133,11 @@
 可信进度控制台的中文真实侧栏主路径已经建立。它把长程任务从“聊天和 546 条操作日志”提升为稳定 Mission、证据驱动里程碑、互斥运行状态和可控恢复入口。
 
 这不等于 `023-LR-01` 完成。正式任务仍缺：合格用户讨论 `4` 条、合格产品 `4` 个、恰好三个能力的完整 `2+1+1` 证据矩阵，以及飞书研究表和决策文档的双回读。任务继续保持 `interrupted`，待 Owner 决定是否恢复。
+
+## 后续公共接口闭环：终态结果持续可见
+
+在本报告初次收口后，使用打包扩展运行官方 MiniMax-M3 `TASK_SET=long_horizon` 暴露了一个真实集成缺口：任务实际完成后，side panel 会隐藏 terminal task card，导致用户和 evaluator 都无法继续检查最终状态。首次完整运行因此为 `0/3`，三个失败均为 terminal status 不可观察导致的超时，而不是页面任务未执行。
+
+修复后，当前会话中的 `completed`、`failed`、`cancelled` 结果继续保留；这些状态不会被视为 active，也不会自动恢复。显式新建会话仍会清空当前快照。聚焦 LH-01、LH-02、LH-03 均通过，最终完整 MiniMax-M3 矩阵为 `3/3 verified_pass`，`false_complete=0`、`wrong_tab=0`、`unapproved_commit=0`。
+
+完整证据与逐项 021 映射见：`2026-08-11-long-horizon-product-acceptance.md`。最终矩阵见：`../eval/2026-08-11-175507-eval-summary.md`。

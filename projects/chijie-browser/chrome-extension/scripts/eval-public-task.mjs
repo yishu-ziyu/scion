@@ -442,5 +442,7 @@ try {
   } else {
     browser?.disconnect();
   }
-  await new Promise(resolve => fixtureServer?.close?.(resolve));
+  if (fixtureServer) {
+    await new Promise(resolve => fixtureServer.close(resolve));
+  }
 }

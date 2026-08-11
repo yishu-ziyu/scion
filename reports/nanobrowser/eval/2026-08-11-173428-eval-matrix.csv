@@ -1,0 +1,4 @@
+date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
+2026-08-11-173428,2026-08-11-021-final-acceptance,021-LH-01,1,5853e8f,MiniMax-M3,user_chrome,chijie-control-v0.3.0,baseline,fail,0,0,0,0,other,,timeout status=undefined
+2026-08-11-173428,2026-08-11-021-final-acceptance,021-LH-02,1,5853e8f,MiniMax-M3,user_chrome,chijie-control-v0.3.0,baseline,fail,0,0,0,0,other,,timeout status=undefined
+2026-08-11-173428,2026-08-11-021-final-acceptance,021-LH-03,1,5853e8f,MiniMax-M3,user_chrome,chijie-control-v0.3.0,baseline,fail,0,0,0,0,other,,timeout status=undefined

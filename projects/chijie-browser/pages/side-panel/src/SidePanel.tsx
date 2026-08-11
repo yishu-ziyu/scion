@@ -1266,9 +1266,8 @@ const SidePanel = () => {
     status: taskSnapshot?.status,
     isHistoricalSession,
   });
-  const showActiveTaskCard =
+  const showTaskCard =
     Boolean(taskSnapshot) &&
-    isActiveTaskStatus(taskSnapshot?.status) &&
     (currentSessionId === taskSnapshot?.chatSessionId || taskSnapshot?.sourceSkillId !== undefined);
   // Idle home still shows this session's chat (replies/clarifications); only task card needs active status.
   const showLiveMessages = messages.length > 0;
@@ -1300,7 +1299,7 @@ const SidePanel = () => {
                   data-testid="header-task-status"
                   aria-live="polite"
                   aria-atomic="true">
-                  {taskSnapshot && isActiveTaskStatus(taskSnapshot.status)
+                  {taskSnapshot && showTaskCard
                     ? t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
                     : t('chat_task_header_idle')}
                 </span>
@@ -1385,7 +1384,7 @@ const SidePanel = () => {
                   chat log is the flexible reading surface, composer stays fixed.
                 */}
                 <div className="chijie-workspace" data-testid="sidepanel-workspace">
-                  {showActiveTaskCard && taskSnapshot && (() => {
+                  {showTaskCard && taskSnapshot && (() => {
                     const latestInstruction =
                       [...messages].reverse().find(message => message.actor === Actors.USER)?.content ?? '';
                     const originalInstruction =

@@ -100,7 +100,7 @@ describe('Feature: Tabbit-class task loop UI (ticket 01, seam S1)', () => {
     expect(taskPrimaryOrganism({ status: 'paused' })).toBe('idle');
   });
 
-  it('treats only live statuses as active task (completed snapshot stays persisted, not home)', () => {
+  it('distinguishes live execution from a terminal task surface that remains inspectable', () => {
     expect(isActiveTaskStatus('running')).toBe(true);
     expect(isActiveTaskStatus('paused')).toBe(true);
     expect(isActiveTaskStatus('waiting_user')).toBe(true);
@@ -112,7 +112,9 @@ describe('Feature: Tabbit-class task loop UI (ticket 01, seam S1)', () => {
     expect(isActiveTaskStatus(null)).toBe(false);
     expect(isActiveTaskStatus(undefined)).toBe(false);
 
-    expect(shouldShowMainTaskSurface({ status: 'completed', isHistoricalSession: false })).toBe(false);
+    expect(shouldShowMainTaskSurface({ status: 'completed', isHistoricalSession: false })).toBe(true);
+    expect(shouldShowMainTaskSurface({ status: 'failed', isHistoricalSession: false })).toBe(true);
+    expect(shouldShowMainTaskSurface({ status: 'cancelled', isHistoricalSession: false })).toBe(true);
     expect(shouldShowMainTaskSurface({ status: 'running', isHistoricalSession: false })).toBe(true);
     expect(shouldShowMainTaskSurface({ status: 'completed', isHistoricalSession: true })).toBe(true);
     expect(shouldShowMainTaskSurface({ status: null, isHistoricalSession: false })).toBe(false);
