@@ -71,8 +71,8 @@ export function commandRejectionMessage(error: CommandRejection): string {
 /** Resolve the content tab the user is looking at (not chrome:// / extension pages). */
 export async function resolveActiveContentTab(): Promise<BoundContentTab | null> {
   const queries: chrome.tabs.QueryInfo[] = [
-    { active: true, lastFocusedWindow: true },
     { active: true, currentWindow: true },
+    { active: true, lastFocusedWindow: true },
   ];
   for (const query of queries) {
     try {
