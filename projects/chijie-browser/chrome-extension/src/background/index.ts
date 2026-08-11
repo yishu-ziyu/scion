@@ -168,6 +168,15 @@ chrome.runtime.onConnect.addListener(port => {
           case 'get_active_task':
             return port.postMessage({ type: 'task_snapshot', snapshot: await taskManager.activeSnapshot() });
 
+          case 'get_task': {
+            const taskId = typeof message.taskId === 'string' ? message.taskId : '';
+            return port.postMessage({
+              type: 'task_snapshot',
+              requestedTaskId: taskId,
+              snapshot: taskId ? await taskManager.snapshot(taskId) : null,
+            });
+          }
+
           case 'screenshot': {
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
             const page = await browserContext.switchTab(message.tabId);

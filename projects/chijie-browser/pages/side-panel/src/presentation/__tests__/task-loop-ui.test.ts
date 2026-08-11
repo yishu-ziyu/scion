@@ -14,6 +14,7 @@ import {
   taskPrimaryOrganism,
   visibleAttemptWindow,
 } from '../task-loop-ui';
+import { mergeTaskSnapshot } from '../../task-snapshot';
 
 const receipt: CompletionReceipt = {
   id: 'rcpt_demo_1',
@@ -176,5 +177,12 @@ describe('Feature: Tabbit-class task loop UI (ticket 01, seam S1)', () => {
     const attempts = Array.from({ length: 5 }, (_, index) => ({ ...attempt, id: `a${index + 1}` }));
     expect(visibleAttemptWindow(attempts, 'running').map(item => item.id)).toEqual(['a3', 'a4', 'a5']);
     expect(visibleAttemptWindow(attempts, 'completed')).toHaveLength(5);
+  });
+
+  it('replaces the latest task snapshot when history requests its exact session task', () => {
+    const latest = { ...completedSnapshot, id: 'latest-task', chatSessionId: 'latest-task', revision: 9 };
+    const historical = { ...completedSnapshot, id: 'old-session', chatSessionId: 'old-session', revision: 3 };
+    expect(mergeTaskSnapshot(latest, historical, undefined, 'old-session')).toEqual(historical);
+    expect(mergeTaskSnapshot(latest, historical, undefined, 'different-session')).toEqual(latest);
   });
 });

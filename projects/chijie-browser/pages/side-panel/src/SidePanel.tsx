@@ -444,7 +444,14 @@ const SidePanel = () => {
         if (message && message.type === EventType.EXECUTION) {
           handleTaskState(message);
         } else if (message && message.type === 'task_snapshot') {
-          setTaskSnapshot(current => mergeTaskSnapshot(current, message.snapshot, undefined, pendingTaskIdRef.current));
+          const requestedTaskId =
+            typeof message.requestedTaskId === 'string' ? message.requestedTaskId : pendingTaskIdRef.current;
+          if (message.snapshot) {
+            setTaskSnapshot(current => mergeTaskSnapshot(current, message.snapshot, undefined, requestedTaskId));
+          } else if (requestedTaskId) {
+            setTaskSnapshot(current => (current?.id === requestedTaskId ? current : null));
+          }
+          if (requestedTaskId && pendingTaskIdRef.current === requestedTaskId) pendingTaskIdRef.current = null;
           setTaskSnapshotLoaded(true);
         } else if (message && message.type === 'task_event') {
           setTaskSnapshot(current =>
@@ -934,6 +941,9 @@ const SidePanel = () => {
         setMessages(fullSession.messages);
         setIsFollowUpMode(false);
         setIsHistoricalSession(true); // Mark this as a historical session
+        pendingTaskIdRef.current = fullSession.id;
+        setTaskSnapshot(null);
+        portRef.current?.postMessage({ type: 'get_task', taskId: fullSession.id });
         console.log('history session selected', sessionId);
       }
       setShowHistory(false);
