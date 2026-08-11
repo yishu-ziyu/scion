@@ -136,6 +136,59 @@ export function researchGateGuidance(input: {
   ];
 }
 
+const RESEARCH_TABLE_READBACK_FIELDS = [
+  '证据',
+  '来源',
+  '用户问题',
+  '观察',
+  '推断',
+  '置信度',
+  '相关产品',
+  '对应 Living Reader 能力',
+  '优先级',
+] as const;
+
+export function inferResearchDeliveryReadbackAction(input: {
+  url: string;
+  visibleText: string;
+  evidenceCount: number;
+  tableRecorded: boolean;
+  documentRecorded: boolean;
+  decisionTitles: string[];
+}): Extract<LoopDecision, { kind: 'action' }> | null {
+  let host = '';
+  try {
+    host = new URL(input.url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!(host === 'feishu.cn' || host.endsWith('.feishu.cn') || host === 'larksuite.com' || host.endsWith('.larksuite.com'))) {
+    return null;
+  }
+  if (!input.tableRecorded && RESEARCH_TABLE_READBACK_FIELDS.every(field => input.visibleText.includes(field))) {
+    return {
+      kind: 'action',
+      name: 'record_research_delivery',
+      args: { kind: 'research_table', row_count: input.evidenceCount },
+      observation: 'The completed Feishu research table exposes every required field for durable readback.',
+    };
+  }
+  if (
+    input.tableRecorded &&
+    !input.documentRecorded &&
+    ['下一步做什么', '为什么', '暂时不做'].every(heading => input.visibleText.includes(heading)) &&
+    input.decisionTitles.every(title => input.visibleText.includes(title))
+  ) {
+    return {
+      kind: 'action',
+      name: 'record_research_delivery',
+      args: { kind: 'decision_document' },
+      observation: 'The completed Feishu decision document exposes every required heading and capability title.',
+    };
+  }
+  return null;
+}
+
 export function shouldKeepActionResultInContext(actionName: string): boolean {
   return CONTENT_RESULT_ACTIONS.has(actionName);
 }
@@ -485,6 +538,9 @@ export async function createLlmControlDriver(
           let researchCollectionComplete = false;
           let researchDecisionComplete = false;
           let researchDeliveryComplete = false;
+          let researchTableRecorded = false;
+          let researchDocumentRecorded = false;
+          let researchDecisionTitles: string[] = [];
           if (researchQuotas) {
             const evidenceSpace = await getEvidenceSpace(input.taskId);
             const progress = evidenceSpaceProgress(evidenceSpace);
@@ -492,6 +548,9 @@ export async function createLlmControlDriver(
             researchCollectionComplete = researchQuotasMet(researchQuotas, progress);
             researchDecisionComplete = researchDecisionReady(evidenceSpace);
             researchDeliveryComplete = researchDeliveryReady(evidenceSpace);
+            researchTableRecorded = Boolean(evidenceSpace?.researchDelivery?.research_table);
+            researchDocumentRecorded = Boolean(evidenceSpace?.researchDelivery?.decision_document);
+            researchDecisionTitles = (evidenceSpace?.researchDecision?.capabilities ?? []).map(capability => capability.title);
             if (
               researchCollectionComplete &&
               requiresStructuredResearchDecision(instruction) &&
@@ -558,6 +617,18 @@ export async function createLlmControlDriver(
               'Rotate discussion platforms. Once one host has supplied three sources, choose another available host before returning to it.',
               '</research_status>',
             ].join('\n');
+          }
+
+          if (researchCollectionComplete && researchDecisionComplete && !researchDeliveryComplete && researchProgress) {
+            const readbackAction = inferResearchDeliveryReadbackAction({
+              url: pageUrl,
+              visibleText: `${currentFrame?.tab.title ?? ''}\n${currentFrame?.text ?? ''}`,
+              evidenceCount: researchProgress.total,
+              tableRecorded: researchTableRecorded,
+              documentRecorded: researchDocumentRecorded,
+              decisionTitles: researchDecisionTitles,
+            });
+            if (readbackAction) return readbackAction;
           }
 
           // Skill Runtime first — site/task knowledge never inlined in this file.
