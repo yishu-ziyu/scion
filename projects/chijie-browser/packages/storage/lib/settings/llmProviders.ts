@@ -276,7 +276,12 @@ export const llmProviderStore: LLMProviderStorage = {
           }),
     };
 
-    console.log(`[llmProviderStore.setProvider] Saving config for ${providerId}:`, JSON.stringify(completeConfig));
+    console.info('[llmProviderStore.setProvider] Saving provider metadata', {
+      providerId,
+      type: completeConfig.type,
+      hasApiKey: Boolean(completeConfig.apiKey),
+      modelCount: completeConfig.modelNames?.length ?? completeConfig.azureDeploymentNames?.length ?? 0,
+    });
 
     const current = (await storage.get()) || { providers: {} };
     await storage.set({
