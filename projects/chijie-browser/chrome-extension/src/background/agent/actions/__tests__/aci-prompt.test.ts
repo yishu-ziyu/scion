@@ -5,6 +5,7 @@ import {
   ALL_ACTION_SCHEMAS,
   clickElementActionSchema,
   recordEvidenceActionSchema,
+  recordResearchDecisionActionSchema,
   searchGoogleActionSchema,
   switchTabActionSchema,
   waitActionSchema,
@@ -66,5 +67,22 @@ describe('action ACI prompt', () => {
     expect(action.parse(record)).toEqual({ records: [record] });
     expect(action.parse({ record })).toEqual({ records: [record] });
     expect(action.parse({ evidence: [record] })).toEqual({ records: [record] });
+  });
+
+  it('reports invalid action structure without echoing field values', () => {
+    const action = new Action(
+      async () => new ActionResult({ extractedContent: 'ok' }),
+      recordResearchDecisionActionSchema,
+    );
+
+    try {
+      action.parse({ capabilities: [{ title: 'Incomplete', answers: { userMoment: 'sensitive-value' } }] });
+      throw new Error('expected parse to fail');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toContain('Input shape:');
+      expect(message).toContain('answers');
+      expect(message).not.toContain('sensitive-value');
+    }
   });
 });
