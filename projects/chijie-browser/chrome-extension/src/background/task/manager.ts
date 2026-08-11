@@ -518,10 +518,22 @@ export class TaskManager {
     }
 
     let instruction = this.instructions.get(task.id);
-    if (!instruction && task.chatSessionId && round.instructionMessageId) {
+    if ((!instruction || !extractResearchQuotas(instruction)) && task.chatSessionId) {
       const { chatHistoryStore } = await import('@extension/storage/lib/chat');
       const session = await chatHistoryStore.getSession(task.chatSessionId);
-      instruction = session?.messages.find(message => message.id === round.instructionMessageId)?.content;
+      const roundInstruction = round.instructionMessageId
+        ? session?.messages.find(message => message.id === round.instructionMessageId)?.content
+        : undefined;
+      instruction =
+        roundInstruction && extractResearchQuotas(roundInstruction)
+          ? roundInstruction
+          : [...(session?.messages ?? [])]
+              .reverse()
+              .find(
+                message =>
+                  (message.actor === 'user' || message.actor === undefined) &&
+                  Boolean(extractResearchQuotas(message.content)),
+              )?.content;
     }
     if (!instruction || !extractResearchQuotas(instruction)) {
       return this.reject(task, command.commandId, 'invalid_transition');
