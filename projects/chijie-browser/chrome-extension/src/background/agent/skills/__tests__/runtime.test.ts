@@ -7,6 +7,7 @@ import { repeatingListExtractSkill } from '../builtin/repeating-list-extract';
 import { youtubeOpenFirstVideoSkill } from '../sites/youtube/open-first-video';
 import { bilibiliOpenFirstVideoSkill } from '../sites/bilibili/open-first-video';
 import { defaultSkills } from '../index';
+import { isAtomicSkillInstruction } from '../instruction-scope';
 import { validateSkillPlan, canPromoteSkill, runSkillPlan } from '../learned/plan';
 import type { BrowserKernel, ObservationFrame } from '../../../browser/kernel';
 import type { BrowserSkill } from '../types';
@@ -75,6 +76,40 @@ describe('Skill discovery + runtime', () => {
     });
     expect(found).toHaveLength(1);
     expect(found[0].skill.manifest.id).toBe('builtin.form-fill-submit');
+  });
+
+  it('keeps a concise single-quota workflow eligible for skills', () => {
+    expect(isAtomicSkillInstruction('Extract at least 20 product rows into a table.')).toBe(true);
+  });
+
+  it('does not let deterministic skills preempt a long-horizon instruction', () => {
+    const registry = createSkillRegistry([youtubeOpenFirstVideoSkill, bilibiliOpenFirstVideoSkill]);
+    const instruction = `
+      第一阶段，阅读项目材料并建立能力地图。
+      第二阶段，至少研究 80 个真实用户讨论和 30 个产品。
+      第三阶段，实际打开第一个 YouTube 视频来源，并继续完成交叉验证和最终交付。
+    `;
+
+    expect(
+      discoverSkills({
+        registry,
+        instruction,
+        url: 'https://www.youtube.com/',
+        flags: { enableDeterministicYouTube: true, enableDeterministicBilibili: true },
+      }),
+    ).toEqual([]);
+  });
+
+  it('falls back to the generic loop for chained multi-action instructions', () => {
+    const registry = createSkillRegistry([youtubeOpenFirstVideoSkill]);
+    expect(
+      discoverSkills({
+        registry,
+        instruction: '打开第一个 YouTube 视频，然后搜索用户评论并整理结论。',
+        url: 'https://www.youtube.com/',
+        flags: { enableDeterministicYouTube: true },
+      }),
+    ).toEqual([]);
   });
 
   it('runs form fill skill to input_text then submit', async () => {

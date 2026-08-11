@@ -1,4 +1,15 @@
-import { getActiveTask, getSkillSaveMeta, getTask, putSkillSaveMeta, saveTask } from '@extension/storage/lib/task';
+import {
+  advanceEvidenceWorkCycle,
+  evidenceSpaceProgress,
+  getActiveTask,
+  getEvidenceSpace,
+  getSkillSaveMeta,
+  getTask,
+  putSkillSaveMeta,
+  researchDecisionReady,
+  researchDeliveryReady,
+  saveTask,
+} from '@extension/storage/lib/task';
 import favoritesStorage, {
   assertExactSkillInputs,
   compileSkillTemplate,
@@ -45,6 +56,14 @@ import {
   refineMissionPlanFromInstruction,
 } from './mission-plan';
 import { ActionResult } from '../agent/types';
+import {
+  extractResearchQuotas,
+  isRecoverableResearchFailure,
+  maxResearchWorkCycles,
+  renderResearchCheckpoint,
+  researchQuotasMet,
+  requiresStructuredResearchDecision,
+} from './research-checkpoint';
 
 export type { ExecutorDriver } from './contracts';
 
@@ -116,6 +135,7 @@ export class TaskManager {
   }
 
   async recover(): Promise<void> {
+    let autoResumeTaskId: string | null = null;
     await this.queueTransition(async () => {
       const task = await getActiveTask();
       if (task && (task.status as string) === 'waiting_approval') {
@@ -125,12 +145,34 @@ export class TaskManager {
         await this.persist(task);
         return;
       }
-      if (!task || !['running', 'paused'].includes(task.status)) return;
-      const round = this.currentRound(task);
+      // A user pause is authoritative across service-worker or extension reloads.
+      // Research recovery may resume interrupted/running work, but must never turn
+      // an explicit pause back into autonomous execution.
+      if (task?.status === 'paused') return;
+      const round = task ? this.currentRound(task) : null;
+      const legacyUncertainWait = task?.status === 'waiting_user' && round?.waitReason === 'commit_outcome_uncertain';
+      const recoverableResearchFailure =
+        task?.status === 'failed' && isRecoverableResearchFailure(round?.failureCategory);
+      const interruptedResearch = task?.status === 'interrupted';
+      if (
+        !task ||
+        !round ||
+        (!['running', 'paused'].includes(task.status) &&
+          !legacyUncertainWait &&
+          !recoverableResearchFailure &&
+          !interruptedResearch)
+      ) {
+        return;
+      }
       let hasUncertainCommit = false;
       for (const taskRound of task.rounds) {
         taskRound.attempts = taskRound.attempts.map(attempt => {
-          if (attempt.state === 'executing') hasUncertainCommit = true;
+          if (
+            attempt.effect === 'external_commit' &&
+            (attempt.state === 'executing' || attempt.state === 'uncertain')
+          ) {
+            hasUncertainCommit = true;
+          }
           const recovered = recoverAttempt(attempt);
           return recovered;
         });
@@ -144,12 +186,28 @@ export class TaskManager {
         round.status = 'inputs_required';
         round.waitReason = 'skill_inputs_required';
       } else {
-        task.status = 'interrupted';
-        round.status = 'interrupted';
+        let instruction = this.instructions.get(task.id);
+        if (!instruction && task.chatSessionId && round.instructionMessageId) {
+          const { chatHistoryStore } = await import('@extension/storage/lib/chat');
+          const session = await chatHistoryStore.getSession(task.chatSessionId);
+          instruction = session?.messages.find(message => message.id === round.instructionMessageId)?.content;
+        }
+        if (instruction && extractResearchQuotas(instruction)) {
+          this.instructions.set(task.id, instruction);
+          task.status = 'running';
+          round.status = 'running';
+          delete round.waitReason;
+          delete round.failureCategory;
+          autoResumeTaskId = task.id;
+        } else {
+          task.status = 'interrupted';
+          round.status = 'interrupted';
+        }
       }
       task.revision += 1;
       await this.persist(task);
     });
+    if (autoResumeTaskId) void this.runCurrentRound(autoResumeTaskId);
   }
 
   private async dispatchNow(command: TaskCommand): Promise<CommandAck> {
@@ -479,7 +537,9 @@ export class TaskManager {
     else {
       driver.addFollowUp(command.instruction);
       if (previousStatus === 'paused') driver.resume();
-      if (['waiting_user', 'completed'].includes(previousStatus)) void this.runDriver(task.id, driver, roundId);
+      if (['waiting_user', 'completed'].includes(previousStatus)) {
+        void this.runDriver(task.id, driver, roundId, command.instruction);
+      }
     }
     return ack;
   }
@@ -1055,7 +1115,7 @@ export class TaskManager {
 
       this.drivers.set(taskId, driver);
       this.launches.delete(taskId);
-      await this.runDriver(taskId, driver, roundId);
+      await this.runDriver(taskId, driver, roundId, instruction);
     } catch (error) {
       // Surface start failures (missing model, createExecutor throw) on the round for UI.
       const category =
@@ -1077,7 +1137,12 @@ export class TaskManager {
     }
   }
 
-  private async runDriver(taskId: string, driver: ExecutorDriver, initialRoundId: string): Promise<void> {
+  private async runDriver(
+    taskId: string,
+    driver: ExecutorDriver,
+    initialRoundId: string,
+    instruction: string,
+  ): Promise<void> {
     let runRoundId = initialRoundId;
     let verificationRetries = 0;
     for (;;) {
@@ -1089,7 +1154,29 @@ export class TaskManager {
         verificationRetries = 0;
         continue;
       }
+      const researchQuotas = extractResearchQuotas(instruction);
+      const researchWorkCycleLimit = researchQuotas ? maxResearchWorkCycles(researchQuotas) : 0;
       if (outcome.kind !== 'candidate_complete') {
+        if (
+          outcome.kind === 'failed' &&
+          researchQuotas &&
+          isRecoverableResearchFailure(outcome.category)
+        ) {
+            const evidenceSpace = await getEvidenceSpace(taskId);
+            const progress = evidenceSpaceProgress(evidenceSpace);
+            const workCycles = evidenceSpace?.workCycles ?? 0;
+            if (!researchQuotasMet(researchQuotas, progress) && workCycles < researchWorkCycleLimit - 1) {
+              await advanceEvidenceWorkCycle(taskId, this.deps.now());
+              driver.addFollowUp(
+                outcome.category === 'evidence_required'
+                  ? `${renderResearchCheckpoint(researchQuotas, progress)} The current page is substantive and unrecorded. Stay on it and call record_evidence again. raw_basis must be copied verbatim from visible page text; do not navigate or finish.`
+                  : outcome.category === 'source_required'
+                    ? `${renderResearchCheckpoint(researchQuotas, progress)} The current page is only search results or a community index. Do not call record_evidence and do not repeat the same search. Open one concrete unread result from this page.`
+                  : `${renderResearchCheckpoint(researchQuotas, progress)} Previous cycle ended with ${outcome.category}; abandon the failing source or tactic and use an alternative.`,
+              );
+              continue;
+            }
+        }
         let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
           const current = await getTask(taskId);
@@ -1106,6 +1193,78 @@ export class TaskManager {
           continue;
         }
         return;
+      }
+
+      if (researchQuotas) {
+        const evidenceSpace = await getEvidenceSpace(taskId);
+        const progress = evidenceSpaceProgress(evidenceSpace);
+        const workCycles = evidenceSpace?.workCycles ?? 0;
+        if (!researchQuotasMet(researchQuotas, progress)) {
+          if (workCycles < researchWorkCycleLimit - 1) {
+            await advanceEvidenceWorkCycle(taskId, this.deps.now());
+            driver.addFollowUp(
+              `${renderResearchCheckpoint(researchQuotas, progress)} Candidate completion rejected because the durable research quotas are not met. Continue researching.`,
+            );
+            continue;
+          }
+          await this.queueTransition(async () => {
+            const current = await getTask(taskId);
+            if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+            const currentRound = this.currentRound(current);
+            current.status = 'failed';
+            currentRound.status = 'failed';
+            currentRound.failureCategory = 'research_quota_unmet';
+            delete currentRound.waitReason;
+            current.revision += 1;
+            current.updatedAt = this.deps.now();
+            await this.persist(current);
+          });
+          return;
+        }
+        if (requiresStructuredResearchDecision(instruction) && !researchDecisionReady(evidenceSpace)) {
+          if (workCycles < researchWorkCycleLimit - 1) {
+            await advanceEvidenceWorkCycle(taskId, this.deps.now());
+            driver.addFollowUp(
+              'Research quotas are met, but the structured decision gate is not. Inspect the durable evidence space in filtered pages, then use record_research_decision with exactly 3 capabilities, seven answers each, and valid 2 user + 1 product + 1 repository evidence IDs per capability.',
+            );
+            continue;
+          }
+          await this.queueTransition(async () => {
+            const current = await getTask(taskId);
+            if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+            const currentRound = this.currentRound(current);
+            current.status = 'failed';
+            currentRound.status = 'failed';
+            currentRound.failureCategory = 'research_decision_unmet';
+            delete currentRound.waitReason;
+            current.revision += 1;
+            current.updatedAt = this.deps.now();
+            await this.persist(current);
+          });
+          return;
+        }
+        if (requiresStructuredResearchDecision(instruction) && !researchDeliveryReady(evidenceSpace)) {
+          if (workCycles < researchWorkCycleLimit - 1) {
+            await advanceEvidenceWorkCycle(taskId, this.deps.now());
+            driver.addFollowUp(
+              'The structured decision is accepted, but Feishu delivery readback is incomplete. Write the full evidence table and final decision document, reopen each final Feishu page, and call record_research_delivery for research_table and decision_document.',
+            );
+            continue;
+          }
+          await this.queueTransition(async () => {
+            const current = await getTask(taskId);
+            if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+            const currentRound = this.currentRound(current);
+            current.status = 'failed';
+            currentRound.status = 'failed';
+            currentRound.failureCategory = 'research_delivery_unmet';
+            delete currentRound.waitReason;
+            current.revision += 1;
+            current.updatedAt = this.deps.now();
+            await this.persist(current);
+          });
+          return;
+        }
       }
 
       let round = task.rounds.find(item => item.id === runRoundId);
@@ -1160,6 +1319,16 @@ export class TaskManager {
         // Prefer complete with the model summary (answer) over hang or opaque fail.
         // product/022: when artifacts are present, Independent Verifier must pass first.
         const answer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
+        const instructionForRound =
+          this.instructions.get(taskId) ||
+          task.goalSummary ||
+          (round.instructionSummary && round.instructionSummary !== 'User instruction'
+            ? round.instructionSummary
+            : '') ||
+          '';
+        const needsDeliverable = this.instructionRequestsUserDeliverable(instructionForRound);
+        const deliverableOk =
+          answer.length > 0 && (!needsDeliverable || this.hasSubstantiveDeliverableAnswer(answer, instructionForRound));
         const artifacts =
           outcome.kind === 'candidate_complete' && Array.isArray(outcome.artifacts) ? outcome.artifacts : [];
         if (artifacts.length > 0) {
@@ -1214,6 +1383,7 @@ export class TaskManager {
             return;
           }
         }
+        let retry = false;
         let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
           const current = await getTask(taskId);
@@ -1223,7 +1393,7 @@ export class TaskManager {
             return;
           }
           const currentRound = this.currentRound(current);
-          if (answer.length > 0) {
+          if (deliverableOk) {
             // Surface the answer on the round for UI; keep goalSummary generic.
             currentRound.instructionSummary = answer.slice(0, 2000);
             delete currentRound.waitReason;
@@ -1231,10 +1401,16 @@ export class TaskManager {
             await this.persistVerifiedReceipt(current, currentRound, []);
             return;
           }
-          // No answer either — fail honestly (never proof_required with 0 buttons).
+          if (verificationRetries < 1) {
+            current.revision += 1;
+            await this.persist(current);
+            retry = true;
+            return;
+          }
+          // No deliverable after a bounded retry — fail honestly, never ask for confirmation.
           current.status = 'failed';
           currentRound.status = 'failed';
-          currentRound.failureCategory = 'no_completion_criteria';
+          currentRound.failureCategory = needsDeliverable ? 'no_action' : 'no_completion_criteria';
           delete currentRound.waitReason;
           current.revision += 1;
           current.updatedAt = this.deps.now();
@@ -1243,6 +1419,73 @@ export class TaskManager {
         if (handoffRoundId) {
           runRoundId = handoffRoundId;
           verificationRetries = 0;
+          continue;
+        }
+        if (retry) {
+          verificationRetries += 1;
+          driver.addFollowUp(
+            needsDeliverable
+              ? 'Return the requested page content as a substantive text answer before finishing. Do not ask the user to confirm.'
+              : 'No verifiable answer was returned. Inspect the current page and reply with the result before finishing.',
+          );
+          continue;
+        }
+        return;
+      }
+      const instructionForCandidate =
+        this.instructions.get(taskId) ||
+        task.goalSummary ||
+        (round.instructionSummary && round.instructionSummary !== 'User instruction' ? round.instructionSummary : '') ||
+        '';
+      const candidateArtifacts =
+        outcome.kind === 'candidate_complete' && Array.isArray(outcome.artifacts) ? outcome.artifacts : [];
+      if (candidateArtifacts.length === 0 && this.instructionRequestsReadOnlyPageDeliverable(instructionForCandidate)) {
+        const answer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
+        const deliverableOk = this.hasSubstantiveDeliverableAnswer(answer, instructionForCandidate);
+        let retry = false;
+        let handoffRoundId: string | undefined;
+        await this.queueTransition(async () => {
+          const current = await getTask(taskId);
+          if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+          if (current.currentRoundId !== runRoundId) {
+            handoffRoundId = current.currentRoundId;
+            return;
+          }
+          const currentRound = this.currentRound(current);
+          if (deliverableOk) {
+            // Model-proposed page-state criteria are not proof of an answer-only deliverable.
+            currentRound.criteria = [];
+            currentRound.evidence = [];
+            currentRound.instructionSummary = answer.slice(0, 2000);
+            delete currentRound.waitReason;
+            delete currentRound.failureCategory;
+            await this.persistVerifiedReceipt(current, currentRound, []);
+            return;
+          }
+          if (verificationRetries < 1) {
+            current.revision += 1;
+            await this.persist(current);
+            retry = true;
+            return;
+          }
+          current.status = 'failed';
+          currentRound.status = 'failed';
+          currentRound.failureCategory = 'no_action';
+          delete currentRound.waitReason;
+          current.revision += 1;
+          current.updatedAt = this.deps.now();
+          await this.persist(current);
+        });
+        if (handoffRoundId) {
+          runRoundId = handoffRoundId;
+          verificationRetries = 0;
+          continue;
+        }
+        if (retry) {
+          verificationRetries += 1;
+          driver.addFollowUp(
+            'Return a substantive summary of the current page now. Do not acknowledge, click, modify the page, or ask the user to confirm.',
+          );
           continue;
         }
         return;
@@ -1348,8 +1591,8 @@ export class TaskManager {
           return;
         }
         if (verificationRetries >= 1) {
-          if (needsDeliverable && !deliverableOk && checked.passed) {
-            // Do not hang on proof_required with no button — fail with a clear product category.
+          if (needsDeliverable && !deliverableOk) {
+            // Missing requested text is not something the user can prove for us.
             current.status = 'failed';
             currentRound.status = 'failed';
             currentRound.failureCategory = 'no_action';
@@ -1439,6 +1682,8 @@ export class TaskManager {
       /发给我|发我|告诉我|回复我|贴给我/.test(text) ||
       /第一条评论|评论内容|热评/.test(text) ||
       /摘录|摘要|总结/.test(text) ||
+      /(?:用|以).{0,16}说明/.test(text) ||
+      /说明.{0,24}(?:页面|内容|展示|是什么)/.test(text) ||
       /把.{1,40}给(我|你)/.test(text) ||
       /\b(copy|tell me|send me|first comment)\b/i.test(text) ||
       // R1-class: table/CSV extract must land as chat deliverable, not page-only done.
@@ -1448,9 +1693,24 @@ export class TaskManager {
     );
   }
 
+  private instructionRequestsReadOnlyPageDeliverable(instruction: string): boolean {
+    const text = instruction.replace(/\s+/g, ' ').trim();
+    if (!text) return false;
+    const referencesCurrentPage =
+      /(?:当前|这个|本)(?:[^。！？!?]{0,20})?(?:页面|网页|网站|标签页)|(?:页面|网页)(?:上|中|展示|内容)/.test(text) ||
+      /\b(?:this|the|current)\s+(?:page|webpage|site|tab)\b/i.test(text);
+    const requestsReading =
+      /说明|描述|总结|摘要|概括|读取|读一下|提取|摘录|展示的内容|是什么|有哪些/.test(text) ||
+      /\b(?:summari[sz]e|describe|read|extract|quote|tell me|what(?:'s| is)|what are)\b/i.test(text);
+    return referencesCurrentPage && requestsReading;
+  }
+
   private hasSubstantiveDeliverableAnswer(summary: string, goalText = ''): boolean {
     const s = summary.replace(/\s+/g, ' ').trim();
     if (s.length < 8) return false;
+    if (/^(?:好的|好[，,]|可以[，,]|收到|明白).{0,48}(?:我来|将|正在|马上|会)/.test(s)) return false;
+    if (/^(?:sure|okay|ok)[,.! ]{0,3}(?:i(?:'ll| will)|let me)/i.test(s)) return false;
+    if (/^Control loop candidate complete$/i.test(s)) return false;
     if (/^(done|完成|ok|已完成|success|好了|opened|playing|paused)[.!。！]*$/i.test(s)) return false;
     // Media/page status is evidence, not the comment/copy the user asked for.
     if (/^(视频|媒体).{0,12}(播放|暂停|核对)/.test(s)) return false;
@@ -2147,11 +2407,7 @@ export class TaskManager {
    * the active phase's criteria are fully satisfied. Also runs the multi-phase
    * attempt heuristic when the active phase has no bound criteria.
    */
-  private syncMissionPlanFromEvidence(
-    task: TaskSession,
-    round: TaskRound,
-    evidence: CompletionEvidence[],
-  ): void {
+  private syncMissionPlanFromEvidence(task: TaskSession, round: TaskRound, evidence: CompletionEvidence[]): void {
     if (!task.plan) return;
     const now = this.deps.now();
     const passedIds = evidence.filter(item => item.passed).map(item => item.criterionId);

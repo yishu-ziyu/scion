@@ -13,6 +13,8 @@ import { sha256 } from '../digest';
 
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
+  chatSessions: new Map<string, unknown>(),
+  evidenceSpaces: new Map<string, { taskId: string; records: Array<{ recordType: string }>; workCycles: number }>(),
   saveTask: vi.fn(async (task: { id: string }) => {
     store.sessions.set(task.id, structuredClone(task));
   }),
@@ -33,12 +35,35 @@ const store = vi.hoisted(() => ({
   observeMedia: vi.fn(),
 }));
 
+vi.mock('@extension/storage/lib/chat', () => ({
+  chatHistoryStore: {
+    getSession: async (id: string) => structuredClone(store.chatSessions.get(id) ?? null),
+  },
+}));
+
 vi.mock('@extension/storage/lib/task', () => {
   const skillSave = new Map<string, { templates: unknown[]; unsafe: boolean }>();
   return {
     getTask: async (id: string) => store.sessions.get(id) ?? null,
     getActiveTask: async () => [...store.sessions.values()].at(-1) ?? null,
     saveTask: store.saveTask,
+    getEvidenceSpace: async (taskId: string) => structuredClone(store.evidenceSpaces.get(taskId) ?? null),
+    evidenceSpaceProgress: (space: { records?: Array<{ recordType: string }> } | null) => ({
+      total: space?.records?.length ?? 0,
+      userDiscussions: space?.records?.filter(record => record.recordType === 'user_discussion').length ?? 0,
+      products: space?.records?.filter(record => record.recordType === 'product').length ?? 0,
+      repository: space?.records?.filter(record => record.recordType === 'repository').length ?? 0,
+      browserContext: space?.records?.filter(record => record.recordType === 'browser_context').length ?? 0,
+      productPrinciples: space?.records?.filter(record => record.recordType === 'product_principle').length ?? 0,
+    }),
+    researchDecisionReady: (space: { researchDecision?: unknown } | null) => Boolean(space?.researchDecision),
+    researchDeliveryReady: (space: { researchDelivery?: unknown } | null) => Boolean(space?.researchDelivery),
+    advanceEvidenceWorkCycle: async (taskId: string) => {
+      const current = store.evidenceSpaces.get(taskId) ?? { taskId, records: [], workCycles: 0 };
+      const next = { ...current, workCycles: current.workCycles + 1 };
+      store.evidenceSpaces.set(taskId, next);
+      return structuredClone(next);
+    },
     putSkillSaveMeta: async (taskId: string, roundId: string, meta: { templates: unknown[]; unsafe: boolean }) => {
       skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
     },
@@ -83,6 +108,8 @@ async function taskRoundId(manager: TaskManager, taskId: string): Promise<string
 describe('TaskManager lifecycle', () => {
   beforeEach(() => {
     store.sessions.clear();
+    store.chatSessions.clear();
+    store.evidenceSpaces.clear();
     store.saveTask.mockClear();
     store.observeActionTarget.mockReset();
     store.observeActionTarget.mockResolvedValue(store.targetObservation);
@@ -145,6 +172,116 @@ describe('TaskManager lifecycle', () => {
     expect(snap?.plan?.phases[2]?.title).toBe('总结');
     expect(snap?.plan?.goal).toBe('User task');
     expect(JSON.stringify(snap)).not.toContain('竞品');
+  });
+
+  it('continues an explicit quota research task after max_steps from durable evidence progress', async () => {
+    const driver = fakeDriver();
+    driver.run = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'failed', category: 'max_steps' })
+      .mockResolvedValueOnce({ kind: 'failed', category: 'stopped_after_checkpoint' });
+    store.evidenceSpaces.set('task-research-cycle', {
+      taskId: 'task-research-cycle',
+      records: [
+        ...Array.from({ length: 12 }, () => ({ recordType: 'user_discussion' })),
+        ...Array.from({ length: 4 }, () => ({ recordType: 'product' })),
+      ],
+      workCycles: 0,
+    });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-research-cycle',
+      taskId: 'task-research-cycle',
+      instruction: '至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最后交付结论。',
+      chatSessionId: 'chat-research-cycle',
+      instructionMessageId: 'message-research-cycle',
+      tabId: 7,
+    });
+
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(2));
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('user_discussions=12/80'));
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('products=4/30'));
+    expect(store.evidenceSpaces.get('task-research-cycle')?.workCycles).toBe(1);
+    await vi.waitFor(async () => expect((await manager.snapshot('task-research-cycle'))?.status).toBe('failed'));
+  });
+
+  it('rejects premature research completion until durable quotas are met', async () => {
+    const driver = fakeDriver();
+    driver.run = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'candidate_complete', summary: 'Research complete.' })
+      .mockResolvedValueOnce({ kind: 'failed', category: 'stopped_after_checkpoint' });
+    store.evidenceSpaces.set('task-research-premature', {
+      taskId: 'task-research-premature',
+      records: [
+        ...Array.from({ length: 12 }, () => ({ recordType: 'user_discussion' })),
+        ...Array.from({ length: 4 }, () => ({ recordType: 'product' })),
+      ],
+      workCycles: 0,
+    });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-research-premature',
+      taskId: 'task-research-premature',
+      instruction: '至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最后交付结论。',
+      chatSessionId: 'chat-research-premature',
+      instructionMessageId: 'message-research-premature',
+      tabId: 7,
+    });
+
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(2));
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('Candidate completion rejected'));
+    expect(store.evidenceSpaces.get('task-research-premature')?.workCycles).toBe(1);
+    await vi.waitFor(async () => expect((await manager.snapshot('task-research-premature'))?.status).toBe('failed'));
+  });
+
+  it('recovers a quota research task from a single-source action failure', async () => {
+    const driver = fakeDriver();
+    driver.run = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'failed', category: 'action_failed' })
+      .mockResolvedValueOnce({ kind: 'failed', category: 'stopped_after_checkpoint' });
+    store.evidenceSpaces.set('task-research-source-failure', {
+      taskId: 'task-research-source-failure',
+      records: [],
+      workCycles: 0,
+    });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-research-source-failure',
+      taskId: 'task-research-source-failure',
+      instruction: '至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最后交付结论。',
+      chatSessionId: 'chat-research-source-failure',
+      instructionMessageId: 'message-research-source-failure',
+      tabId: 7,
+    });
+
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(2));
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('abandon the failing source'));
   });
 
   it('preserves mission plan across pause and resume', async () => {
@@ -219,9 +356,7 @@ describe('TaskManager lifecycle', () => {
     });
     await vi.waitFor(() => expect(hooks).toBeDefined());
     const roundId = await taskRoundId(manager, 'task-plan-attach');
-    await hooks.onPlan(roundId, [
-      { kind: 'page_text', operator: 'present', expected: '对比表', required: true },
-    ]);
+    await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: '对比表', required: true }]);
     const snap = await manager.snapshot('task-plan-attach');
     const criterionId = snap?.rounds[0]?.criteria[0]?.id;
     expect(criterionId).toBeTruthy();
@@ -256,19 +391,17 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(() => expect(hooks).toBeDefined());
     const roundId = await taskRoundId(manager, 'task-plan-heuristic');
     // No freeze → active phase keeps empty criteriaIds; attempt heuristic applies.
-    await hooks.dispatchAction(
-      roundId,
-      new Action(async () => new ActionResult({ success: true }), waitActionSchema),
-      { seconds: 1, intent: 'wait' },
-    );
+    await hooks.dispatchAction(roundId, new Action(async () => new ActionResult({ success: true }), waitActionSchema), {
+      seconds: 1,
+      intent: 'wait',
+    });
     let snap = await manager.snapshot('task-plan-heuristic');
     expect(snap?.plan?.phases.map(p => p.status)).toEqual(['done', 'active', 'planned']);
 
-    await hooks.dispatchAction(
-      roundId,
-      new Action(async () => new ActionResult({ success: true }), waitActionSchema),
-      { seconds: 1, intent: 'wait again' },
-    );
+    await hooks.dispatchAction(roundId, new Action(async () => new ActionResult({ success: true }), waitActionSchema), {
+      seconds: 1,
+      intent: 'wait again',
+    });
     snap = await manager.snapshot('task-plan-heuristic');
     expect(snap?.plan?.phases.map(p => p.status)).toEqual(['done', 'done', 'active']);
   });
@@ -310,9 +443,7 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(() => expect(hooks).toBeDefined());
     const roundId = await taskRoundId(manager, 'task-plan-done');
     // Freeze while baseline is false so post-complete observations can pass.
-    await hooks.onPlan(roundId, [
-      { kind: 'page_text', operator: 'present', expected: 'done marker', required: true },
-    ]);
+    await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: 'done marker', required: true }]);
 
     // Intermediate progress already marked phase-1 done.
     const mid = await manager.snapshot('task-plan-done');
@@ -402,6 +533,211 @@ describe('TaskManager lifecycle', () => {
     });
     await manager.recover();
     await expect(manager.snapshot('task-1')).resolves.toMatchObject({ status: 'interrupted' });
+  });
+
+  it('automatically resumes an explicit quota research task after service-worker recovery', async () => {
+    const instruction = '至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最后交付结论。';
+    store.sessions.set('task-recover-research', {
+      id: 'task-recover-research',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-recover-research',
+      instructionMessageId: 'message-recover-research',
+      status: 'running',
+      revision: 4,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionMessageId: 'message-recover-research',
+          instructionSummary: 'User instruction',
+          status: 'running',
+          commandAcks: {},
+          criteria: [],
+          attempts: [
+            {
+              id: 'attempt-read',
+              roundId: 'round-1',
+              actionName: 'record_evidence',
+              effect: 'read',
+              argsDigest: 'digest',
+              state: 'executing',
+              proposedAt: 1,
+            },
+          ],
+          evidence: [],
+        },
+      ],
+    });
+    store.chatSessions.set('chat-recover-research', {
+      messages: [{ id: 'message-recover-research', content: instruction }],
+    });
+    const driver = fakeDriver();
+    const createExecutor = vi.fn(async () => driver);
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.recover();
+
+    await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
+    await expect(manager.snapshot('task-recover-research')).resolves.toMatchObject({
+      status: 'running',
+      rounds: [{ status: 'running', attempts: [{ state: 'uncertain', effect: 'read' }] }],
+    });
+  });
+
+  it('keeps an explicitly paused quota research task paused after extension reload', async () => {
+    const instruction = '至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最后交付结论。';
+    store.sessions.set('task-paused-research', {
+      id: 'task-paused-research',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-paused-research',
+      instructionMessageId: 'message-paused-research',
+      status: 'paused',
+      revision: 4,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionMessageId: 'message-paused-research',
+          instructionSummary: 'User instruction',
+          status: 'paused',
+          commandAcks: {},
+          criteria: [],
+          attempts: [],
+          evidence: [],
+        },
+      ],
+    });
+    store.chatSessions.set('chat-paused-research', {
+      messages: [{ id: 'message-paused-research', content: instruction }],
+    });
+    const createExecutor = vi.fn(async () => fakeDriver());
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.recover();
+
+    expect(createExecutor).not.toHaveBeenCalled();
+    await expect(manager.snapshot('task-paused-research')).resolves.toMatchObject({
+      status: 'paused',
+      rounds: [{ status: 'paused' }],
+    });
+  });
+
+  it('automatically resumes an interrupted explicit quota research task after extension reload', async () => {
+    const instruction = '至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最后交付结论。';
+    store.sessions.set('task-recover-interrupted-research', {
+      id: 'task-recover-interrupted-research',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-recover-interrupted-research',
+      instructionMessageId: 'message-recover-interrupted-research',
+      status: 'interrupted',
+      revision: 5,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionMessageId: 'message-recover-interrupted-research',
+          instructionSummary: 'User instruction',
+          status: 'interrupted',
+          commandAcks: {},
+          criteria: [],
+          attempts: [],
+          evidence: [],
+        },
+      ],
+    });
+    store.chatSessions.set('chat-recover-interrupted-research', {
+      messages: [{ id: 'message-recover-interrupted-research', content: instruction }],
+    });
+    const createExecutor = vi.fn(async () => fakeDriver());
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.recover();
+
+    await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
+    await expect(manager.snapshot('task-recover-interrupted-research')).resolves.toMatchObject({
+      status: 'running',
+      rounds: [{ status: 'running' }],
+    });
+  });
+
+  it('reopens a quota research task that failed on a recoverable source-path error', async () => {
+    const instruction = '至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最后交付结论。';
+    store.sessions.set('task-recover-failed-research', {
+      id: 'task-recover-failed-research',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-recover-failed-research',
+      instructionMessageId: 'message-recover-failed-research',
+      status: 'failed',
+      revision: 4,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionMessageId: 'message-recover-failed-research',
+          instructionSummary: 'User instruction',
+          status: 'failed',
+          failureCategory: 'no_action',
+          commandAcks: {},
+          criteria: [],
+          attempts: [],
+          evidence: [],
+        },
+      ],
+    });
+    store.chatSessions.set('chat-recover-failed-research', {
+      messages: [{ id: 'message-recover-failed-research', content: instruction }],
+    });
+    const createExecutor = vi.fn(async () => fakeDriver());
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.recover();
+
+    await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
+    await expect(manager.snapshot('task-recover-failed-research')).resolves.toMatchObject({
+      status: 'running',
+      rounds: [{ status: 'running' }],
+    });
+    expect((await manager.snapshot('task-recover-failed-research'))?.rounds[0]?.failureCategory).toBeUndefined();
   });
 
   it('migrates a legacy waiting_approval task to interrupted on recover', async () => {
@@ -977,9 +1313,7 @@ describe('TaskManager lifecycle', () => {
     });
     await vi.waitFor(() => expect(hooks).toBeDefined());
     const roundId = await taskRoundId(manager, 'task-play-copy');
-    await hooks.onPlan(roundId, [
-      { kind: 'media_state', operator: 'equals', expected: 'playing', required: true },
-    ]);
+    await hooks.onPlan(roundId, [{ kind: 'media_state', operator: 'equals', expected: 'playing', required: true }]);
     await hooks.dispatchAction(
       roundId,
       new Action(async () => new ActionResult({ success: true }), controlMediaActionSchema),
@@ -1169,10 +1503,14 @@ describe('TaskManager lifecycle', () => {
     });
     await vi.waitFor(() => expect(hooks).toBeDefined());
     const roundId = await taskRoundId(manager, 'task-approval-replay');
-    const result = await hooks.dispatchAction(roundId, new Action(executeExternalCommit, clickElementActionSchema, true), {
-      intent: 'submit form',
-      index: 4,
-    });
+    const result = await hooks.dispatchAction(
+      roundId,
+      new Action(executeExternalCommit, clickElementActionSchema, true),
+      {
+        intent: 'submit form',
+        index: 4,
+      },
+    );
     expect(executeExternalCommit).toHaveBeenCalledTimes(1);
     expect(result.attempt.state).toBe('observed');
   });
@@ -1565,9 +1903,7 @@ describe('TaskManager lifecycle', () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     let hooks!: ExecutorHooks;
     const driver = fakeDriver();
-    driver.run = vi
-      .fn()
-      .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    driver.run = vi.fn().mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
     const manager = new TaskManager({
       createExecutor: vi.fn(async (_input, nextHooks) => {
         hooks = nextHooks;
@@ -1610,13 +1946,211 @@ describe('TaskManager lifecycle', () => {
     expect(snap?.rounds[0]?.failureCategory).toBeUndefined();
   });
 
+  it('retries an acknowledgement and completes only with the requested page summary', async () => {
+    const driver = fakeDriver();
+    driver.run = vi
+      .fn()
+      .mockResolvedValueOnce({
+        kind: 'candidate_complete',
+        summary: '好的，我来读取当前 AICSS 页面的内容并用一句话说明。',
+      })
+      .mockResolvedValueOnce({
+        kind: 'candidate_complete',
+        summary: '当前 AICSS 页面展示了一个已完成五项任务的 To-do List 组件及其 React 示例代码。',
+      });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-aicss-summary',
+      taskId: 'task-aicss-summary',
+      instruction: '用一句话说明当前 AICSS 页面展示的内容。不要点击或修改页面。',
+      chatSessionId: 'chat-aicss-summary',
+      instructionMessageId: 'message-aicss-summary',
+      tabId: 7,
+    });
+
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-aicss-summary')).toMatchObject({
+        status: 'completed',
+        rounds: [
+          {
+            status: 'completed',
+            instructionSummary: '当前 AICSS 页面展示了一个已完成五项任务的 To-do List 组件及其 React 示例代码。',
+          },
+        ],
+      });
+    });
+    expect(driver.run).toHaveBeenCalledTimes(2);
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('substantive text answer'));
+    expect((await manager.snapshot('task-aicss-summary'))?.rounds[0]?.waitReason).toBeUndefined();
+  });
+
+  it('fails a summary task after one retry without a deliverable instead of waiting for confirmation', async () => {
+    const driver = fakeDriver();
+    driver.run = vi.fn().mockResolvedValue({
+      kind: 'candidate_complete',
+      summary: '好的，我来读取当前页面并用一句话说明。',
+    });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-summary-missing',
+      taskId: 'task-summary-missing',
+      instruction: '用一句话说明当前页面展示的内容。',
+      chatSessionId: 'chat-summary-missing',
+      instructionMessageId: 'message-summary-missing',
+      tabId: 7,
+    });
+
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-summary-missing')).toMatchObject({
+        status: 'failed',
+        rounds: [{ status: 'failed', failureCategory: 'no_action' }],
+      });
+    });
+    expect(driver.run).toHaveBeenCalledTimes(2);
+    expect((await manager.snapshot('task-summary-missing'))?.rounds[0]?.waitReason).toBeUndefined();
+  });
+
+  it('completes a read-only page summary with a substantive answer instead of proof_required', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    let hooks!: ExecutorHooks;
+    const driver = fakeDriver();
+    driver.run = vi.fn().mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(criterion => ({
+          criterionId: criterion.id,
+          roundId: criterion.roundId,
+          targetRefId: criterion.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: false,
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-summary-with-criterion',
+      taskId: 'task-summary-with-criterion',
+      instruction: '用一句话说明当前 AICSS 页面展示的内容。不要点击或修改页面。',
+      chatSessionId: 'chat-summary-with-criterion',
+      instructionMessageId: 'message-summary-with-criterion',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-summary-with-criterion');
+    await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: 'To-dos 5/5', required: true }]);
+    finish({
+      kind: 'candidate_complete',
+      summary: 'The AICSS page presents a completed five-item To-do List component alongside its React example code.',
+    });
+
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-summary-with-criterion')).toMatchObject({
+        status: 'completed',
+        rounds: [
+          {
+            status: 'completed',
+            instructionSummary:
+              'The AICSS page presents a completed five-item To-do List component alongside its React example code.',
+            criteria: [],
+            receipt: { criterionIds: [] },
+          },
+        ],
+      });
+    });
+    expect((await manager.snapshot('task-summary-with-criterion'))?.rounds[0]?.waitReason).toBeUndefined();
+  });
+
+  it('fails a criterion-bearing read-only summary without text instead of proof_required', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    let hooks!: ExecutorHooks;
+    const driver = fakeDriver();
+    driver.run = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)))
+      .mockResolvedValueOnce({
+        kind: 'candidate_complete',
+        summary: '好的，我来读取当前页面并用一句话说明。',
+      });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(criterion => ({
+          criterionId: criterion.id,
+          roundId: criterion.roundId,
+          targetRefId: criterion.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: false,
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-summary-proof-regression',
+      taskId: 'task-summary-proof-regression',
+      instruction: '用一句话说明当前 AICSS 页面展示的内容。不要点击或修改页面。',
+      chatSessionId: 'chat-summary-proof-regression',
+      instructionMessageId: 'message-summary-proof-regression',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-summary-proof-regression');
+    await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: 'To-dos 5/5', required: true }]);
+    finish({
+      kind: 'candidate_complete',
+      summary: '好的，我来读取当前页面并用一句话说明。',
+    });
+
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-summary-proof-regression')).toMatchObject({
+        status: 'failed',
+        rounds: [{ status: 'failed', failureCategory: 'no_action' }],
+      });
+    });
+    expect(driver.run).toHaveBeenCalledTimes(2);
+    expect((await manager.snapshot('task-summary-proof-regression'))?.rounds[0]?.waitReason).toBeUndefined();
+  });
+
   it('fails open-ended goals with empty criteria and empty summary', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     let hooks!: ExecutorHooks;
     const driver = fakeDriver();
     driver.run = vi
       .fn()
-      .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+      .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)))
+      .mockResolvedValueOnce({ kind: 'candidate_complete', summary: '   ' });
     const manager = new TaskManager({
       createExecutor: vi.fn(async (_input, nextHooks) => {
         hooks = nextHooks;
@@ -1646,6 +2180,7 @@ describe('TaskManager lifecycle', () => {
         rounds: [{ status: 'failed', failureCategory: 'no_completion_criteria' }],
       });
     });
+    expect(driver.run).toHaveBeenCalledTimes(2);
   });
 
   it('settles completed with a receipt right after external_commit when automatic criteria pass', async () => {
