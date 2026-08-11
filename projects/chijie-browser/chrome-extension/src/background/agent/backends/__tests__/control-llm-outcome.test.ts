@@ -1,10 +1,65 @@
 import { describe, expect, it } from 'vitest';
-import { CONTROL_MAX_NO_PROGRESS, mapLoopOutcomeToExecutor } from '../control-llm';
+import {
+  CONTROL_MAX_NO_PROGRESS,
+  createResearchEvidenceRetryBudget,
+  invokeWithTimeout,
+  mapLoopOutcomeToExecutor,
+  shouldKeepActionResultInContext,
+  shouldRedirectSearchResultEvidenceAttempt,
+  shouldRetryUnrecordedResearchSource,
+} from '../control-llm';
 import type { LoopOutcome } from '../observe-act-loop';
 
 describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
+  it('bounds a hung model invocation', async () => {
+    await expect(invokeWithTimeout(() => new Promise(() => undefined), 5)).rejects.toThrow('llm_timeout');
+  });
+
   it('exposes explicit no-progress budget', () => {
     expect(CONTROL_MAX_NO_PROGRESS).toBe(3);
+  });
+
+  it('keeps substantive read results in the next model turn', () => {
+    expect(shouldKeepActionResultInContext('record_evidence')).toBe(true);
+    expect(shouldKeepActionResultInContext('read_page_text')).toBe(true);
+    expect(shouldKeepActionResultInContext('inspect_github_repository')).toBe(true);
+    expect(shouldKeepActionResultInContext('click_element')).toBe(false);
+  });
+
+  it('retries evidence capture on a substantive unrecorded source, but not on search or private pages', () => {
+    const base = {
+      hasResearchQuotas: true,
+      currentSourceRecorded: false,
+      pageUnavailable: false,
+      textLength: 1_000,
+    };
+    expect(shouldRetryUnrecordedResearchSource({ ...base, pageUrl: 'https://updf.com/' })).toBe(true);
+    expect(
+      shouldRetryUnrecordedResearchSource({ ...base, pageUrl: 'https://www.google.com/search?q=updf' }),
+    ).toBe(false);
+    expect(shouldRetryUnrecordedResearchSource({ ...base, pageUrl: 'https://notebook.google.com/' })).toBe(false);
+  });
+
+  it('redirects evidence attempts made on search and community index pages', () => {
+    expect(
+      shouldRedirectSearchResultEvidenceAttempt({
+        pageUrl: 'https://www.reddit.com/r/notebooklm/',
+        actionName: 'record_evidence',
+      }),
+    ).toBe(true);
+    expect(
+      shouldRedirectSearchResultEvidenceAttempt({
+        pageUrl: 'https://www.reddit.com/r/notebooklm/comments/abc/concrete_post',
+        actionName: 'record_evidence',
+      }),
+    ).toBe(false);
+  });
+
+  it('reminds once per source, then allows navigation away from irrelevant research pages', () => {
+    const budget = createResearchEvidenceRetryBudget();
+    expect(budget.consume('https://www.youtube.com/watch?v=abc&utm_source=test')).toBe(true);
+    expect(budget.consume('https://www.youtube.com/watch?v=abc')).toBe(false);
+    expect(budget.consume('https://example.com/another-source')).toBe(true);
   });
 
   it.each(['no_progress', 'max_steps'] as const)(

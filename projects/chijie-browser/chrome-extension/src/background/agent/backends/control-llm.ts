@@ -24,7 +24,12 @@ import MessageManager from '../messages/service';
 import { EventManager } from '../event/manager';
 import { extractJsonFromModelOutput, wrapUntrustedContent } from '../messages/utils';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome } from '../../task/contracts';
-import { buildAgentStatusBar, parseControlPolicyDecision, renderControlSystemPrompt } from './control-policy';
+import {
+  buildAgentStatusBar,
+  observationSupportsWaitingUser,
+  parseControlPolicyDecision,
+  renderControlSystemPrompt,
+} from './control-policy';
 import type { Action } from '../actions/builder';
 import { isForbiddenTaskContentUrl, runObserveActLoop, type LoopDecision, type LoopOutcome } from './observe-act-loop';
 import { markSetupError } from '../../task/executor-start-error';
@@ -33,6 +38,21 @@ import { createDefaultSkillRegistry, createSkillRuntime } from '../skills';
 import type { TaskArtifact } from '../../task/artifact';
 import { traceStore } from '../../task/trace';
 import { classifyRetry } from '../retry-policy';
+import {
+  canonicalizeEvidenceSource,
+  evidenceSpaceProgress,
+  getEvidenceSpace,
+  isPrivateDashboardEvidenceSource,
+  isSearchResultsEvidenceSource,
+} from '@extension/storage/lib/task/evidence-space';
+import {
+  extractResearchQuotas,
+  researchContinuationQuery,
+  shouldGoBackFromUnavailableResearchPage,
+  shouldLeavePrivateResearchDashboard,
+  shouldRequireEvidenceBeforeNavigation,
+} from '../../task/research-checkpoint';
+import { pageLooksUnavailable } from '../../browser/page-availability';
 import {
   buildLongHorizonContext,
   buildPlanMemory,
@@ -45,6 +65,102 @@ const logger = createLogger('ControlLlmBackend');
 
 /** Default no-progress budget for control path (contracts 010/011). */
 export const CONTROL_MAX_NO_PROGRESS = 3;
+
+const SEMANTIC_PROGRESS_ACTIONS = new Set([
+  'cache_content',
+  'record_evidence',
+  'inspect_evidence_space',
+  'read_page_text',
+  'inspect_open_tabs',
+  'record_research_decision',
+  'record_research_delivery',
+  'save_screenshot',
+]);
+
+const CONTENT_RESULT_ACTIONS = new Set([
+  'record_evidence',
+  'read_page_text',
+  'inspect_open_tabs',
+  'inspect_evidence_space',
+  'inspect_github_repository',
+  'record_research_decision',
+  'record_research_delivery',
+]);
+
+const CONTROL_LLM_TIMEOUT_MS = 90_000;
+
+export function shouldKeepActionResultInContext(actionName: string): boolean {
+  return CONTENT_RESULT_ACTIONS.has(actionName);
+}
+
+export function shouldRetryUnrecordedResearchSource(input: {
+  hasResearchQuotas: boolean;
+  currentSourceRecorded: boolean;
+  pageUrl: string;
+  pageUnavailable: boolean;
+  textLength: number;
+}): boolean {
+  return (
+    input.hasResearchQuotas &&
+    !input.currentSourceRecorded &&
+    !input.pageUnavailable &&
+    input.textLength >= 300 &&
+    !isSearchResultsEvidenceSource(input.pageUrl) &&
+    !isPrivateDashboardEvidenceSource(input.pageUrl)
+  );
+}
+
+export function shouldRedirectSearchResultEvidenceAttempt(input: {
+  pageUrl: string;
+  actionName?: string;
+}): boolean {
+  return input.actionName === 'record_evidence' && isSearchResultsEvidenceSource(input.pageUrl);
+}
+
+export interface ResearchEvidenceRetryBudget {
+  consume: (source: string) => boolean;
+}
+
+/** Allow one evidence reminder per source, then let the agent leave an irrelevant page. */
+export function createResearchEvidenceRetryBudget(maxRetriesPerSource = 1): ResearchEvidenceRetryBudget {
+  const retries = new Map<string, number>();
+  return {
+    consume(source: string): boolean {
+      const key = canonicalizeEvidenceSource(source) || source || 'unknown-source';
+      const used = retries.get(key) ?? 0;
+      if (used >= maxRetriesPerSource) return false;
+      retries.set(key, used + 1);
+      return true;
+    },
+  };
+}
+
+export async function invokeWithTimeout<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  timeoutMs = CONTROL_LLM_TIMEOUT_MS,
+  parentSignal?: AbortSignal,
+): Promise<T> {
+  const controller = new AbortController();
+  const abortFromParent = () => controller.abort(parentSignal?.reason);
+  if (parentSignal?.aborted) abortFromParent();
+  else parentSignal?.addEventListener('abort', abortFromParent, { once: true });
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      const error = new Error('llm_timeout');
+      controller.abort(error);
+      reject(error);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([operation(controller.signal), timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    parentSignal?.removeEventListener('abort', abortFromParent);
+  }
+}
 
 /**
  * Map observe-act loop terminal outcome → TaskManager ExecutorOutcome.
@@ -190,6 +306,9 @@ export async function createLlmControlDriver(
   const activePhaseId = input.plan?.phases.find(phase => phase.status === 'active')?.id;
   const skillState = new Map<string, unknown>();
   const artifacts: TaskArtifact[] = [];
+  const researchQuotas = extractResearchQuotas(input.instruction);
+  const evidenceRetryBudget = createResearchEvidenceRetryBudget();
+  let lastActionMemory: string | null = null;
 
   const waitIfPaused = async () => {
     while (paused && !stopped) {
@@ -310,6 +429,65 @@ export async function createLlmControlDriver(
           agentContext.stepInfo = new AgentStepInfo({ stepNumber: step, maxSteps });
 
           const pageUrl = currentFrame?.tab.url ?? '';
+          let researchStatus = '';
+          let currentSourceRecorded = false;
+          let researchProgress: ReturnType<typeof evidenceSpaceProgress> | null = null;
+          if (researchQuotas) {
+            const evidenceSpace = await getEvidenceSpace(input.taskId);
+            const progress = evidenceSpaceProgress(evidenceSpace);
+            researchProgress = progress;
+            const canonicalPage = canonicalizeEvidenceSource(pageUrl);
+            currentSourceRecorded = Boolean(
+              canonicalPage && evidenceSpace?.records.some(record => record.canonicalSource === canonicalPage),
+            );
+            const recordedSources = Array.from(
+              new Set((evidenceSpace?.records ?? []).map(record => record.canonicalSource)),
+            ).slice(-24);
+            const discussionHosts = Array.from(
+              new Set(
+                (evidenceSpace?.records ?? [])
+                  .filter(record => record.recordType === 'user_discussion')
+                  .map(record => {
+                    try {
+                      return new URL(record.canonicalSource).hostname;
+                    } catch {
+                      return '';
+                    }
+                  })
+                  .filter(Boolean),
+              ),
+            );
+            const recordedProducts = Array.from(
+              new Set(
+                (evidenceSpace?.records ?? [])
+                  .filter(record => record.recordType === 'product')
+                  .map(record => record.relatedProduct?.replace(/\s+/g, ' ').trim())
+                  .filter((value): value is string => Boolean(value)),
+              ),
+            );
+            researchStatus = [
+              '<research_status>',
+              `user_discussions: ${progress.userDiscussions}/${researchQuotas.userDiscussions}`,
+              `products: ${progress.products}/${researchQuotas.products}`,
+              `repository_records: ${progress.repository}`,
+              `current_source_recorded: ${currentSourceRecorded}`,
+              `recorded_sources: ${recordedSources.length > 0 ? recordedSources.join(' | ') : 'none'}`,
+              `recorded_products: ${recordedProducts.length > 0 ? recordedProducts.join(' | ') : 'none'}`,
+              `user_discussion_hosts: ${discussionHosts.length > 0 ? discussionHosts.join(' | ') : 'none'}`,
+              'If the current page is a useful source and current_source_recorded is false, record it before any navigation.',
+              'Do not revisit a recorded source merely to gather more evidence. Open an unread source, and prioritize any user_discussions or products quota still at zero.',
+              ...(progress.repository > 0 &&
+              (progress.userDiscussions < researchQuotas.userDiscussions || progress.products < researchQuotas.products)
+                ? [
+                    'The Living Reader repository audit is already recorded. Do not open repository files again until both external quotas are met.',
+                  ]
+                : []),
+              'User-discussion quota progress counts distinct source + raw-basis cases; repeating the same quote under another key does not count. Product quota counts distinct product identities. Batch independent comments from one page in one record_evidence action, then move to a new URL.',
+              'Do not open or record a product identity already listed in recorded_products; choose a different product.',
+              'Rotate discussion platforms. Once one host has supplied three sources, choose another available host before returning to it.',
+              '</research_status>',
+            ].join('\n');
+          }
 
           // Skill Runtime first — site/task knowledge never inlined in this file.
           if (enableSkillRuntime) {
@@ -453,6 +631,8 @@ export async function createLlmControlDriver(
               ? 'Completion criteria already frozen; do not change them.'
               : 'Propose completion_criteria if possible.',
             contextBlock,
+            lastActionMemory ? `<last_action_result>\n${lastActionMemory}\n</last_action_result>` : '',
+            researchStatus,
             statusBar,
           ]
             .filter(Boolean)
@@ -471,10 +651,15 @@ export async function createLlmControlDriver(
             },
           });
           try {
-            const response = await llm.invoke([
-              new SystemMessage(renderControlSystemPrompt()),
-              new HumanMessage(userPrompt),
-            ]);
+            const response = await invokeWithTimeout(
+              signal =>
+                llm.invoke(
+                  [new SystemMessage(renderControlSystemPrompt()), new HumanMessage(userPrompt)],
+                  { signal },
+                ),
+              CONTROL_LLM_TIMEOUT_MS,
+              agentContext.controller.signal,
+            );
             rawText = await contentToString(response.content);
             await traceStore.finishSpan(llmSpan, 'ok');
           } catch (error) {
@@ -489,6 +674,32 @@ export async function createLlmControlDriver(
             decision = parseControlPolicyDecision(parsed);
           } catch (error) {
             logger.error('control JSON parse failed', error);
+            if (
+              shouldRetryUnrecordedResearchSource({
+                hasResearchQuotas: Boolean(researchQuotas),
+                currentSourceRecorded,
+                pageUrl,
+                pageUnavailable: pageLooksUnavailable({
+                  url: pageUrl,
+                  title: currentFrame?.tab.title ?? '',
+                  bodyText: currentFrame?.text ?? '',
+                }),
+                textLength: currentFrame?.text.length ?? 0,
+              }) && evidenceRetryBudget.consume(pageUrl)
+            ) {
+              return { kind: 'recoverable', category: 'evidence_required' };
+            }
+            if (researchQuotas && researchProgress) {
+              const query = researchContinuationQuery(researchQuotas, researchProgress);
+              if (query) {
+                return {
+                  kind: 'action',
+                  name: 'search_google',
+                  args: { query, intent: 'recover malformed model output and continue research quotas' },
+                  observation: 'The model output was malformed while durable research quotas remain; continuing discovery.',
+                };
+              }
+            }
             return { kind: 'recoverable', category: 'json_parse_failed' };
           }
 
@@ -510,17 +721,84 @@ export async function createLlmControlDriver(
           }
 
           if (decision.waitingUser) {
-            const openPublic =
-              /wikipedia\.org|example\.com|localhost|127\.0\.0\.1/i.test(currentFrame?.tab.url ?? '') ||
-              /wikipedia\.org|example\.com|localhost|127\.0\.0\.1/i.test(decision.observation);
-            if (decision.waitingUser === 'login_required' && openPublic) {
-              logger.warning('ignored login_required on open public URL', {
+            if (!observationSupportsWaitingUser(currentFrame, decision.waitingUser)) {
+              logger.warning('ignored waiting_user without page blocker evidence', {
                 url: currentFrame?.tab.url,
+                reason: decision.waitingUser,
                 observation: decision.observation.slice(0, 160),
               });
             } else {
               return { kind: 'waiting_user', reason: decision.waitingUser };
             }
+          }
+
+          const currentPageUnavailable = pageLooksUnavailable({
+            url: pageUrl,
+            title: currentFrame?.tab.title ?? '',
+            bodyText: currentFrame?.text ?? '',
+          });
+          const continuationQuery =
+            researchQuotas && researchProgress
+              ? researchContinuationQuery(researchQuotas, researchProgress)
+              : null;
+          const currentNeedsEvidence = shouldRetryUnrecordedResearchSource({
+            hasResearchQuotas: Boolean(researchQuotas),
+            currentSourceRecorded,
+            pageUrl,
+            pageUnavailable: currentPageUnavailable,
+            textLength: currentFrame?.text.length ?? 0,
+          });
+
+          if (
+            researchQuotas &&
+            shouldRedirectSearchResultEvidenceAttempt({ pageUrl, actionName: decision.action?.name })
+          ) {
+            return { kind: 'recoverable', category: 'source_required' };
+          }
+
+          if (
+            researchQuotas &&
+            shouldGoBackFromUnavailableResearchPage({
+              pageUnavailable: currentPageUnavailable,
+              actionName: decision.action?.name,
+              done: decision.done,
+            })
+          ) {
+            return {
+              kind: 'action',
+              name: 'go_back',
+              args: { intent: 'return to the last valid research source after an unavailable page' },
+              observation: 'The current research source is unavailable; returning to the last valid source.',
+            };
+          }
+
+          if (
+            researchQuotas &&
+            shouldLeavePrivateResearchDashboard({
+              url: pageUrl,
+              bodyText: currentFrame?.text ?? '',
+              actionName: decision.action?.name,
+              done: decision.done,
+            })
+          ) {
+            return {
+              kind: 'action',
+              name: 'go_back',
+              args: { intent: 'leave a private dashboard and use public product documentation instead' },
+              observation: 'The signed-in dashboard contains private user material and is not a research source.',
+            };
+          }
+
+          if (decision.done && continuationQuery) {
+              if (currentNeedsEvidence && evidenceRetryBudget.consume(pageUrl)) {
+                return { kind: 'recoverable', category: 'evidence_required' };
+              }
+              return {
+                kind: 'action',
+                name: 'search_google',
+                args: { query: continuationQuery, intent: 'continue the unmet durable research quotas' },
+                observation: 'The model tried to finish before the durable research quotas were met; continuing research.',
+              };
           }
 
           if (decision.done) {
@@ -531,10 +809,52 @@ export async function createLlmControlDriver(
           }
 
           if (!decision.action) {
+            if (currentNeedsEvidence && evidenceRetryBudget.consume(pageUrl)) {
+              return { kind: 'recoverable', category: 'evidence_required' };
+            }
+            if (continuationQuery) {
+              return {
+                kind: 'action',
+                name: 'search_google',
+                args: { query: continuationQuery, intent: 'recover a missing research action and continue quotas' },
+                observation: 'No usable research action was proposed while durable quotas remain; continuing discovery.',
+              };
+            }
             return { kind: 'recoverable', category: 'no_action' };
           }
 
+          if (
+            researchQuotas &&
+            shouldRequireEvidenceBeforeNavigation({
+              actionName: decision.action.name,
+              currentUrl: pageUrl,
+              sourceRecorded: currentSourceRecorded,
+              pageUnavailable: currentPageUnavailable,
+              hasSubstantiveText: (currentFrame?.text.length ?? 0) >= 300,
+            }) &&
+            evidenceRetryBudget.consume(pageUrl)
+          ) {
+            trajectorySteps.push({
+              step: trajectorySteps.length + 1,
+              action: 'research_checkpoint',
+              result: 'Navigation blocked: record the useful current source in the evidence space first.',
+              url: pageUrl,
+            });
+            return { kind: 'recoverable', category: 'evidence_required' };
+          }
+
           if (!registry.get(decision.action.name)) {
+            if (currentNeedsEvidence && evidenceRetryBudget.consume(pageUrl)) {
+              return { kind: 'recoverable', category: 'evidence_required' };
+            }
+            if (continuationQuery) {
+              return {
+                kind: 'action',
+                name: 'search_google',
+                args: { query: continuationQuery, intent: 'replace an unknown action and continue research quotas' },
+                observation: 'The proposed action is unavailable; continuing research through source discovery.',
+              };
+            }
             logger.error('unknown action', decision.action.name);
             return { kind: 'recoverable', category: 'unknown_action' };
           }
@@ -584,10 +904,17 @@ export async function createLlmControlDriver(
                 url: currentFrame?.tab.url,
               });
             }
+            if (!result.error && result.summary && shouldKeepActionResultInContext(name)) {
+              lastActionMemory = compactStateText(result.summary, 24_000);
+            }
             return {
               error: result.error ?? null,
               isDone: Boolean(result.isDone),
               summary: result.summary ?? null,
+              progressKey:
+                !result.error && result.summary && SEMANTIC_PROGRESS_ACTIONS.has(name)
+                  ? `${name}:${result.summary}`
+                  : null,
             };
           } catch (error) {
             logger.error('dispatchAction failed', error);
