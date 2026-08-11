@@ -4,6 +4,7 @@
  */
 import type { SkillRegistry } from './registry';
 import type { BrowserSkill, SkillCandidate, SkillRuntimeFlags } from './types';
+import { isAtomicSkillInstruction } from './instruction-scope';
 
 export interface DiscoverSkillsInput {
   registry: SkillRegistry;
@@ -46,6 +47,8 @@ function capabilityBoost(skill: BrowserSkill, wanted: string[] | undefined): num
  * Rank and return top skill candidates. Empty → caller falls back to generic loop.
  */
 export function discoverSkills(input: DiscoverSkillsInput): SkillCandidate[] {
+  if (!isAtomicSkillInstruction(input.instruction)) return [];
+
   const topK = input.topK ?? 5;
   const host = hostFromUrl(input.url);
   const candidates: SkillCandidate[] = [];
