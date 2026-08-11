@@ -332,6 +332,9 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).toContain("type: 'retry_research'");
     expect(taskStatusCardSource).toContain('chat_task_retry_research');
     expect(sidePanelSource).toMatch(/command\.type === 'retry_research'[\s\S]{0,500}resolveActiveContentTab/);
+    expect(sidePanelSource.indexOf('{ active: true, currentWindow: true }')).toBeLessThan(
+      sidePanelSource.indexOf('{ active: true, lastFocusedWindow: true }'),
+    );
   });
 
   it('persists a verified text deliverable into chat with receipt-level deduplication', () => {
