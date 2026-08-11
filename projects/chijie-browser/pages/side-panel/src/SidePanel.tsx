@@ -69,12 +69,14 @@ export function commandRejectionMessage(error: CommandRejection): string {
 }
 
 /** Resolve the content tab the user is looking at (not chrome:// / extension pages). */
-export async function resolveActiveContentTab(): Promise<BoundContentTab | null> {
+export async function resolveActiveContentTab(
+  options: { allowLastFocused?: boolean } = {},
+): Promise<BoundContentTab | null> {
   const queries: chrome.tabs.QueryInfo[] = [
     { active: true, currentWindow: true },
     { currentWindow: true },
-    { active: true, lastFocusedWindow: true },
   ];
+  if (options.allowLastFocused !== false) queries.push({ active: true, lastFocusedWindow: true });
   for (const query of queries) {
     try {
       const tabs = await chrome.tabs.query(query);
@@ -594,11 +596,13 @@ const SidePanel = () => {
         sendMessage({ type: 'task_command', command: nextCommand });
       };
       if (command.type === 'retry_research') {
-        void resolveActiveContentTab()
+        void resolveActiveContentTab({ allowLastFocused: false })
           .then(bound => {
-            if (!bound) throw new Error(t('chat_task_bind_missing'));
-            setBindPreview(bound);
-            postCommand({ ...command, tabId: bound.tabId });
+            if (bound) setBindPreview(bound);
+            // A standalone extension page may not share a Chrome window with the
+            // task tab. In that case omit tabId so TaskManager retains the task's
+            // already-bound activeTabId instead of borrowing another window.
+            postCommand(bound ? { ...command, tabId: bound.tabId } : command);
           })
           .catch(error => {
             void appendMessage({
