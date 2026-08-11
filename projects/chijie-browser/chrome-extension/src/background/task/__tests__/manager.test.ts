@@ -816,7 +816,7 @@ describe('TaskManager lifecycle', () => {
       id: 'task-retry-research',
       goalSummary: 'User task',
       chatSessionId: 'chat-retry-research',
-      instructionMessageId: 'message-retry-research',
+      instructionMessageId: 'message-latest-correction',
       status: 'failed',
       revision: 9,
       activeTabId: 7,
@@ -828,7 +828,7 @@ describe('TaskManager lifecycle', () => {
       rounds: [
         {
           id: 'round-1',
-          instructionMessageId: 'message-retry-research',
+          instructionMessageId: 'message-latest-correction',
           instructionSummary: 'User instruction',
           status: 'failed',
           failureCategory: 'executor_start_failed',
@@ -840,7 +840,14 @@ describe('TaskManager lifecycle', () => {
       ],
     });
     store.chatSessions.set('chat-retry-research', {
-      messages: [{ id: 'message-retry-research', content: instruction }],
+      messages: [
+        { id: 'message-retry-research', actor: 'user', content: instruction },
+        {
+          id: 'message-latest-correction',
+          actor: 'user',
+          content: '停止浏览，直接完成剩余决策。',
+        },
+      ],
     });
     const evidenceRecords = [
       ...Array.from({ length: 76 }, () => ({ recordType: 'user_discussion' })),
