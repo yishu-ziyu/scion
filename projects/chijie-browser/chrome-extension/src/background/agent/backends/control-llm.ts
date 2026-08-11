@@ -49,6 +49,7 @@ import {
   extractResearchQuotas,
   researchContinuationQuery,
   researchQuotasMet,
+  renderResearchDecisionEvidenceShortlist,
   requiresStructuredResearchDecision,
   shouldGoBackFromUnavailableResearchPage,
   shouldLeavePrivateResearchDashboard,
@@ -434,6 +435,7 @@ export async function createLlmControlDriver(
 
           const pageUrl = currentFrame?.tab.url ?? '';
           let researchStatus = '';
+          let researchDecisionEvidenceShortlist = '';
           let currentSourceRecorded = false;
           let researchProgress: ReturnType<typeof evidenceSpaceProgress> | null = null;
           let researchCollectionComplete = false;
@@ -442,6 +444,9 @@ export async function createLlmControlDriver(
             const progress = evidenceSpaceProgress(evidenceSpace);
             researchProgress = progress;
             researchCollectionComplete = researchQuotasMet(researchQuotas, progress);
+            if (researchCollectionComplete && requiresStructuredResearchDecision(instruction)) {
+              researchDecisionEvidenceShortlist = renderResearchDecisionEvidenceShortlist(evidenceSpace);
+            }
             const canonicalPage = canonicalizeEvidenceSource(pageUrl);
             currentSourceRecorded = Boolean(
               canonicalPage && evidenceSpace?.records.some(record => record.canonicalSource === canonicalPage),
@@ -647,6 +652,7 @@ export async function createLlmControlDriver(
             contextBlock,
             lastActionMemory ? `<last_action_result>\n${lastActionMemory}\n</last_action_result>` : '',
             researchStatus,
+            researchDecisionEvidenceShortlist,
             statusBar,
           ]
             .filter(Boolean)
