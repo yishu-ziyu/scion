@@ -37,8 +37,9 @@
 
 最终完整复验：
 
-- `../eval/2026-08-11-175507-eval-summary.md`
-- `../eval/2026-08-11-175507-eval-matrix.csv`
+- 工作树修复复验：`../eval/2026-08-11-175507-eval-summary.md`，3/3 verified_pass。
+- 精确提交复验：`../eval/2026-08-11-175940-eval-summary.md` 与 `../eval/2026-08-11-175940-eval-matrix.csv`。
+- 精确提交：`354ee2b`。
 - 结果：**3/3 verified_pass**。
 
 ### evaluator 清理挂起警告
@@ -100,7 +101,7 @@
 - workspace lint：`12/12` 个任务通过。
 - production ready：`8/8` 个任务通过。
 - production build：`5/5` 个任务通过，生成 side-panel、options、content 与 chrome-extension `dist/` 产物。
-- 打包扩展上的 MiniMax-M3 `long_horizon` 完整矩阵：`3/3 verified_pass`。
+- 打包扩展上的 MiniMax-M3 `long_horizon` 完整矩阵：工作树与精确提交 `354ee2b` 均为 `3/3 verified_pass`。
 
 非阻塞警告仅包括过期的 browser/browserslist 数据、Tailwind config 缺少 `type: module` 和 Vite browser compatibility 提示；没有测试、类型、lint 或 build 失败。
 

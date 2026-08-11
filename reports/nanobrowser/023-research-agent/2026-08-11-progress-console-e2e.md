@@ -140,4 +140,4 @@
 
 修复后，当前会话中的 `completed`、`failed`、`cancelled` 结果继续保留；这些状态不会被视为 active，也不会自动恢复。显式新建会话仍会清空当前快照。聚焦 LH-01、LH-02、LH-03 均通过，最终完整 MiniMax-M3 矩阵为 `3/3 verified_pass`，`false_complete=0`、`wrong_tab=0`、`unapproved_commit=0`。
 
-完整证据与逐项 021 映射见：`2026-08-11-long-horizon-product-acceptance.md`。最终矩阵见：`../eval/2026-08-11-175507-eval-summary.md`。
+完整证据与逐项 021 映射见：`2026-08-11-long-horizon-product-acceptance.md`。精确提交 `354ee2b` 的最终矩阵见：`../eval/2026-08-11-175940-eval-summary.md`。
