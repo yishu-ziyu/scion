@@ -1,10 +1,30 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  researchDecisionActionResult,
   resolveEvidenceProductIdentity,
   resolveProductEvidenceBasis,
   resolveUserDiscussionEvidenceBasis,
 } from '../builder';
+
+describe('researchDecisionActionResult', () => {
+  it('returns observable success only for an accepted durable decision', () => {
+    const result = researchDecisionActionResult({ accepted: true, reasons: [] });
+
+    expect(result.success).toBe(true);
+    expect(result.error).toBeNull();
+    expect(result.extractedContent).toContain('Research decision accepted');
+  });
+
+  it('returns an action error with the durable rejection reasons', () => {
+    const result = researchDecisionActionResult({ accepted: false, reasons: ['unknown evidence reference'] });
+
+    expect(result.success).toBe(false);
+    expect(result.extractedContent).toBeNull();
+    expect(result.error).toBe('Research decision rejected: unknown evidence reference');
+    expect(result.includeInMemory).toBe(true);
+  });
+});
 
 describe('resolveEvidenceProductIdentity', () => {
   it('replaces a Living Reader self-reference with the product visible in the page title', () => {
