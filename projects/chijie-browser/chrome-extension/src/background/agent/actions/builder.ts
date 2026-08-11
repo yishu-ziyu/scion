@@ -86,6 +86,15 @@ type ResearchDecisionActionInput = {
   contradictions: string[];
 };
 
+export function researchDecisionActionResult(result: { accepted: boolean; reasons: string[] }): ActionResult {
+  const summary = result.accepted
+    ? 'Research decision accepted: exactly 3 capabilities with complete 2+1+1 evidence coverage.'
+    : `Research decision rejected: ${result.reasons.join(' | ')}`;
+  return result.accepted
+    ? new ActionResult({ extractedContent: summary, includeInMemory: true, success: true })
+    : new ActionResult({ error: summary, includeInMemory: true, success: false });
+}
+
 export function resolveEvidenceProductIdentity(params: {
   pageUrl: string;
   pageTitle: string;
@@ -748,11 +757,13 @@ export class ActionBuilder {
             contradictions: input.contradictions,
           },
         });
-        const summary = result.accepted
-          ? 'Research decision accepted: exactly 3 capabilities with complete 2+1+1 evidence coverage.'
-          : `Research decision rejected: ${result.reasons.join(' | ')}`;
-        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, summary);
-        return new ActionResult({ extractedContent: summary, includeInMemory: true });
+        const actionResult = researchDecisionActionResult(result);
+        this.context.emitEvent(
+          Actors.NAVIGATOR,
+          result.accepted ? ExecutionState.ACT_OK : ExecutionState.ACT_FAIL,
+          actionResult.extractedContent ?? actionResult.error ?? '',
+        );
+        return actionResult;
       },
       recordResearchDecisionActionSchema,
     );
