@@ -1,4 +1,4 @@
-import type { ActionAttempt, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
+import type { ActionAttempt, MissionPlan, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
 import { t } from '@extension/i18n';
 import { useEffect, useState } from 'react';
 import {
@@ -326,6 +326,48 @@ export function displayGoalText(
     if (!isPlaceholder(text)) return text;
   }
   return fromChat || '—';
+}
+
+/** Collapsible Cursor-style checklist for mission plan phases (active task only). */
+function MissionPlanChecklist({ plan, heading }: { plan: MissionPlan; heading: string }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const total = plan.phases.length;
+  const doneCount = plan.phases.filter(p => p.status === 'done').length;
+  return (
+    <div data-testid="mission-plan" className="chijie-mission-plan" data-collapsed={collapsed ? 'true' : 'false'}>
+      <button
+        type="button"
+        className="chijie-mission-plan-head"
+        aria-expanded={!collapsed}
+        onClick={() => setCollapsed(c => !c)}>
+        <span className="chijie-mission-plan-label">{heading}</span>
+        <span className="chijie-mission-plan-count" data-testid="mission-plan-count">
+          {doneCount}/{total}
+        </span>
+        {collapsed ? <FiChevronDown size={14} aria-hidden /> : <FiChevronUp size={14} aria-hidden />}
+      </button>
+      {!collapsed && (
+        <ol className="chijie-mission-phases">
+          {plan.phases.map(phase => (
+            <li key={phase.id} data-status={phase.status} data-testid="mission-plan-phase">
+              <span className="chijie-mission-phase-icon" aria-hidden>
+                {phase.status === 'done' ? (
+                  <FiCheck size={12} />
+                ) : phase.status === 'active' ? (
+                  <FiPlay size={12} />
+                ) : phase.status === 'blocked' ? (
+                  <FiX size={12} />
+                ) : (
+                  <span className="chijie-mission-phase-dot" />
+                )}
+              </span>
+              <span className="chijie-mission-phase-title">{phase.title}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
 }
 
 export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: TaskStatusCardProps) {
@@ -767,17 +809,7 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
       </div>
 
       {plan && plan.phases.length > 0 && (
-        <div data-testid="mission-plan" className="chijie-mission-plan">
-          <div className="chijie-mission-plan-label">{t('chat_task_plan_heading')}</div>
-          <ol className="chijie-mission-phases">
-            {plan.phases.map(phase => (
-              <li key={phase.id} data-status={phase.status}>
-                <span className="chijie-mission-phase-dot" aria-hidden />
-                <span>{phase.title}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
+        <MissionPlanChecklist plan={plan} heading={t('chat_task_plan_heading')} />
       )}
 
       {/* 3b. Running: live activity is the primary organism (icons + displaySummary). */}

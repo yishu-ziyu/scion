@@ -260,12 +260,24 @@ export function classifyAgentEvent(
       }
       return { action: 'append_system', content: details };
     }
-    // TASK_OK etc. - card owns status; skip chat spam
+    if (state === ExecutionState.TASK_OK) {
+      // One human completion line in chat; card still holds verified evidence.
+      if (details && !looksLikeMachineToken(details) && !isProcessNoiseContent(details)) {
+        const text = details.length > 200 ? `${details.slice(0, 200)}…` : details;
+        return { action: 'append_assistant', content: text };
+      }
+      return { action: 'append_assistant', content: '这件事已经做完了。' };
+    }
     return { action: 'suppress' };
   }
 
   if (actor === Actors.PLANNER || actor === Actors.NAVIGATOR || actor === Actors.VALIDATOR) {
     if (state === ExecutionState.STEP_START) {
+      // Prefer a short human progress line when the event carries prose.
+      if (details && !looksLikeMachineToken(details) && !isProcessNoiseContent(details)) {
+        const text = details.length > 160 ? `${details.slice(0, 160)}…` : details;
+        return { action: 'append_assistant', content: text };
+      }
       return { action: 'progress' };
     }
     if (state === ExecutionState.STEP_FAIL) {

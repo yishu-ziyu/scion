@@ -12,6 +12,7 @@ import { TaskManager } from './task/manager';
 import { PortRegistry } from './task/port-registry';
 import { chromeTabsSendMessage, syncPageOperatingBar } from './task/page-operating';
 import { browserContext, createExecutorDriver } from './agent/factory';
+import { decideUserTurn, type HistoryTurn } from './intent/user-turn-decision';
 
 const logger = createLogger('background');
 
@@ -233,6 +234,34 @@ chrome.runtime.onConnect.addListener(port => {
               return port.postMessage({
                 type: 'speech_to_text_error',
                 error: error instanceof Error ? error.message : t('bg_cmd_stt_failed'),
+              });
+            }
+          }
+
+          case 'user_turn_decision': {
+            const requestId = typeof message.requestId === 'string' ? message.requestId : '';
+            try {
+              const latestUserText = typeof message.text === 'string' ? message.text : '';
+              const history = Array.isArray(message.history)
+                ? (message.history as HistoryTurn[]).filter(
+                    (h): h is HistoryTurn =>
+                      !!h &&
+                      (h.role === 'user' || h.role === 'assistant') &&
+                      typeof h.content === 'string',
+                  )
+                : [];
+              const decision = await decideUserTurn({ latestUserText, history });
+              return port.postMessage({
+                type: 'user_turn_decision_result',
+                requestId,
+                decision,
+              });
+            } catch (error) {
+              logger.error('user_turn_decision failed', error);
+              return port.postMessage({
+                type: 'user_turn_decision_result',
+                requestId,
+                error: error instanceof Error ? error.message : t('errors_unknown'),
               });
             }
           }

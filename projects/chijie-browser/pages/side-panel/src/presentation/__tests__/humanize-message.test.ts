@@ -123,6 +123,39 @@ describe('classifyAgentEvent', () => {
       ).toEqual({ action: 'suppress' });
     }
   });
+
+  it('STEP_START with human prose becomes assistant line', () => {
+    const ui = classifyAgentEvent({
+      actor: Actors.NAVIGATOR,
+      state: ExecutionState.STEP_START,
+      details: '正在打开搜索框',
+    });
+    expect(ui.action).toBe('append_assistant');
+    if (ui.action === 'append_assistant') {
+      expect(ui.content).toContain('搜索');
+    }
+  });
+
+  it('TASK_OK posts a human completion line', () => {
+    const withDetails = classifyAgentEvent({
+      actor: Actors.SYSTEM,
+      state: ExecutionState.TASK_OK,
+      details: '已在页面上找到目标结果',
+    });
+    expect(withDetails.action).toBe('append_assistant');
+    if (withDetails.action === 'append_assistant') {
+      expect(withDetails.content).toContain('找到');
+    }
+    const fallback = classifyAgentEvent({
+      actor: Actors.SYSTEM,
+      state: ExecutionState.TASK_OK,
+      details: '',
+    });
+    expect(fallback).toEqual({
+      action: 'append_assistant',
+      content: '这件事已经做完了。',
+    });
+  });
 });
 
 describe('process noise in stored history', () => {
