@@ -189,6 +189,18 @@ export function inferResearchDeliveryReadbackAction(input: {
   return null;
 }
 
+export function inferCompletedResearchOutcome(input: {
+  collectionComplete: boolean;
+  decisionReady: boolean;
+  deliveryReady: boolean;
+}): Extract<LoopDecision, { kind: 'done' }> | null {
+  if (!input.collectionComplete || !input.decisionReady || !input.deliveryReady) return null;
+  return {
+    kind: 'done',
+    summary: 'Research quotas, the three-capability decision, and both Feishu readback receipts are durably verified.',
+  };
+}
+
 export function shouldKeepActionResultInContext(actionName: string): boolean {
   return CONTENT_RESULT_ACTIONS.has(actionName);
 }
@@ -630,6 +642,12 @@ export async function createLlmControlDriver(
             });
             if (readbackAction) return readbackAction;
           }
+          const completedResearch = inferCompletedResearchOutcome({
+            collectionComplete: researchCollectionComplete,
+            decisionReady: researchDecisionComplete,
+            deliveryReady: researchDeliveryComplete,
+          });
+          if (completedResearch) return completedResearch;
 
           // Skill Runtime first — site/task knowledge never inlined in this file.
           if (enableSkillRuntime) {
