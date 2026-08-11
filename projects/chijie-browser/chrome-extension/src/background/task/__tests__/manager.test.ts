@@ -291,6 +291,52 @@ describe('TaskManager lifecycle', () => {
     expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('abandon the failing source'));
   });
 
+  it('bounds structured decision output retries after quotas are met without reopening research', async () => {
+    const driver = fakeDriver();
+    driver.run = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'failed', category: 'no_action' })
+      .mockResolvedValueOnce({ kind: 'failed', category: 'json_parse_failed' })
+      .mockResolvedValueOnce({ kind: 'failed', category: 'action_failed' })
+      .mockResolvedValueOnce({ kind: 'failed', category: 'no_action' });
+    store.evidenceSpaces.set('task-research-decision-retry', {
+      taskId: 'task-research-decision-retry',
+      records: [
+        ...Array.from({ length: 80 }, () => ({ recordType: 'user_discussion' })),
+        ...Array.from({ length: 30 }, () => ({ recordType: 'product' })),
+        { recordType: 'repository' },
+      ],
+      workCycles: 0,
+    });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-research-decision-retry',
+      taskId: 'task-research-decision-retry',
+      instruction:
+        'Living Reader：至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最终恰好 3 个能力并完成飞书回读。',
+      chatSessionId: 'chat-research-decision-retry',
+      instructionMessageId: 'message-research-decision-retry',
+      tabId: 7,
+    });
+
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(4));
+    expect(driver.addFollowUp).toHaveBeenCalledTimes(3);
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('failed with no_action'));
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('failed with json_parse_failed'));
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('failed with action_failed'));
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('use these exact keys'));
+    expect(store.evidenceSpaces.get('task-research-decision-retry')?.workCycles).toBe(0);
+    await vi.waitFor(async () => expect((await manager.snapshot('task-research-decision-retry'))?.status).toBe('failed'));
+  });
+
   it('preserves mission plan across pause and resume', async () => {
     const manager = new TaskManager({
       createExecutor: async () => fakeDriver(),

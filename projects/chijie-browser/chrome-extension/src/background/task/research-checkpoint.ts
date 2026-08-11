@@ -26,6 +26,14 @@ const RECOVERABLE_RESEARCH_FAILURES = new Set([
   'evidence_required',
   'source_required',
 ]);
+const RECOVERABLE_RESEARCH_DECISION_FAILURES = new Set([
+  'max_steps',
+  'no_progress',
+  'no_action',
+  'action_failed',
+  'json_parse_failed',
+  'unknown_action',
+]);
 
 function boundedCount(value: string | undefined): number {
   const count = Number(value);
@@ -120,6 +128,11 @@ export function maxResearchWorkCycles(quotas: ResearchQuotas): number {
 
 export function isRecoverableResearchFailure(category: string | undefined): boolean {
   return Boolean(category && RECOVERABLE_RESEARCH_FAILURES.has(category));
+}
+
+/** Failures worth one bounded correction cycle once collection is complete and only the decision gate remains. */
+export function isRecoverableResearchDecisionFailure(category: string | undefined): boolean {
+  return Boolean(category && RECOVERABLE_RESEARCH_DECISION_FAILURES.has(category));
 }
 
 export function renderResearchCheckpoint(quotas: ResearchQuotas, progress: EvidenceSpaceProgress): string {
