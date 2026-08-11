@@ -1,4 +1,4 @@
-import type { ActionAttempt, MissionPlan, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
+import type { ActionAttempt, EvidenceSpace, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
 import { t } from '@extension/i18n';
 import { useEffect, useState } from 'react';
 import {
@@ -57,6 +57,8 @@ import { requiredCompletionResult } from '../presentation/completion-outcome';
 import { assessGoalCoverage, resolveDeliverableAnswer } from '../presentation/goal-coverage';
 import { productFailureLabel, toProductFailureCode } from '../presentation/failure-taxonomy';
 import { waitUserActionTestId } from '../presentation/wait-affordance';
+import { deriveTaskProgressView } from '../presentation/task-progress-view';
+import { TaskProgressOverview } from './TaskProgressOverview';
 
 const ACTIVITY_ICONS: Record<ActivityIconKey, IconType> = {
   search: FiSearch,
@@ -86,6 +88,11 @@ export interface TaskStatusCardProps {
   send(command: TaskCommand): void;
   /** Last user goal text - used to prefill skill template. */
   defaultInstruction?: string;
+  /** Original task instruction. Follow-ups must not replace the stable mission. */
+  missionInstruction?: string;
+  evidenceSpace?: EvidenceSpace | null;
+  /** Focus the continuous-control composer without changing the stable mission. */
+  onAdjustDirection?: () => void;
   isDarkMode?: boolean;
 }
 
@@ -329,60 +336,23 @@ export function displayGoalText(
   return fromChat || '—';
 }
 
-/** Collapsible Cursor-style checklist for mission plan phases (active task only). */
-function MissionPlanChecklist({ plan, heading }: { plan: MissionPlan; heading: string }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const total = plan.phases.length;
-  const doneCount = plan.phases.filter(p => p.status === 'done').length;
-  return (
-    <div data-testid="mission-plan" className="chijie-mission-plan" data-collapsed={collapsed ? 'true' : 'false'}>
-      <button
-        type="button"
-        className="chijie-mission-plan-head"
-        aria-expanded={!collapsed}
-        onClick={() => setCollapsed(c => !c)}>
-        <span className="chijie-mission-plan-label">{heading}</span>
-        <span className="chijie-mission-plan-count" data-testid="mission-plan-count">
-          {doneCount}/{total}
-        </span>
-        {collapsed ? <FiChevronDown size={14} aria-hidden /> : <FiChevronUp size={14} aria-hidden />}
-      </button>
-      {!collapsed && (
-        <ol className="chijie-mission-phases">
-          {plan.phases.map(phase => (
-            <li key={phase.id} data-status={phase.status} data-testid="mission-plan-phase">
-              <span className="chijie-mission-phase-icon" aria-hidden>
-                {phase.status === 'done' ? (
-                  <FiCheck size={12} />
-                ) : phase.status === 'active' ? (
-                  <FiPlay size={12} />
-                ) : phase.status === 'blocked' ? (
-                  <FiX size={12} />
-                ) : (
-                  <span className="chijie-mission-phase-dot" />
-                )}
-              </span>
-              <span className="chijie-mission-phase-title">{phase.title}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
-  );
-}
-
-export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: TaskStatusCardProps) {
+export function TaskStatusCard({
+  snapshot,
+  send,
+  defaultInstruction = '',
+  missionInstruction = '',
+  evidenceSpace = null,
+  onAdjustDirection,
+}: TaskStatusCardProps) {
   const [showSkillForm, setShowSkillForm] = useState(false);
   const [skillTitle, setSkillTitle] = useState('');
   const [skillTemplate, setSkillTemplate] = useState('');
   const [stepsExpanded, setStepsExpanded] = useState(() => defaultStepsExpanded(snapshot.status));
-  const [goalExpanded, setGoalExpanded] = useState(false);
   const [outcomeRating, setOutcomeRating] = useState<TaskOutcomeRating | null>(null);
   const [skillSavePendingId, setSkillSavePendingId] = useState<string | null>(null);
   const [deliverableCopied, setDeliverableCopied] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
-  const plan = snapshot.plan;
   const attempts = round?.attempts ?? [];
   const skillSaveAck = skillSavePendingId ? round?.commandAcks[skillSavePendingId] : undefined;
   const confirmations =
@@ -404,11 +374,17 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
     snapshot.status === 'interrupted';
 
   const doneSteps = observedAttemptCount(attempts);
-  const goalText = displayGoalText(snapshot, round?.instructionSummary, defaultInstruction);
+  const stableInstruction = missionInstruction || defaultInstruction;
+  const goalText = displayGoalText(snapshot, round?.instructionSummary, stableInstruction);
+  const progressView = deriveTaskProgressView({
+    snapshot,
+    missionInstruction: stableInstruction,
+    evidenceSpace,
+    now: nowTick,
+  });
 
   useEffect(() => {
     setStepsExpanded(defaultStepsExpanded(snapshot.status));
-    setGoalExpanded(false);
   }, [snapshot.id, snapshot.status, round?.id]);
 
   useEffect(() => {
@@ -769,6 +745,59 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
       </div>
     ) : null;
 
+  const taskControls = !isTerminal ? (
+    <div className={`${actionStackClassName} chijie-task-controls`} data-testid="task-continuous-controls">
+      {snapshot.status === 'running' && (
+        <button
+          type="button"
+          className={secondaryButtonClassName}
+          onClick={() =>
+            send({
+              type: 'pause',
+              commandId: crypto.randomUUID(),
+              taskId: snapshot.id,
+              expectedRevision: snapshot.revision,
+            })
+          }>
+          {t('chat_task_pause')}
+        </button>
+      )}
+      {(snapshot.status === 'paused' || snapshot.status === 'interrupted') && (
+        <button
+          type="button"
+          className={primaryButtonClassName}
+          onClick={() =>
+            send({
+              type: 'resume',
+              commandId: crypto.randomUUID(),
+              taskId: snapshot.id,
+              expectedRevision: snapshot.revision,
+            })
+          }>
+          {t('chat_task_resume')}
+        </button>
+      )}
+      {onAdjustDirection && (
+        <button type="button" className={secondaryButtonClassName} onClick={onAdjustDirection}>
+          {t('chat_task_adjust_direction')}
+        </button>
+      )}
+      <button
+        type="button"
+        className={dangerButtonClassName}
+        onClick={() =>
+          send({
+            type: 'cancel',
+            commandId: crypto.randomUUID(),
+            taskId: snapshot.id,
+            expectedRevision: snapshot.revision,
+          })
+        }>
+        {t('chat_task_stop')}
+      </button>
+    </div>
+  ) : null;
+
   return (
     <section
       data-testid="task-status"
@@ -791,36 +820,16 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
         </span>
       </header>
 
-      {/* 2. Goal always visible while the task is on screen */}
-      <div data-testid="task-goal-block" className="chijie-task-goal">
-        <p className="chijie-task-goal-kicker">{t('chat_task_current_goal')}</p>
-        <button
-          type="button"
-          className="chijie-task-goal-toggle"
-          data-testid="task-goal-toggle"
-          aria-expanded={goalExpanded}
-          onClick={() => setGoalExpanded(open => !open)}>
-          <p
-            className="chijie-task-goal-text"
-            data-testid="task-goal-summary"
-            data-expanded={goalExpanded ? 'true' : 'false'}>
-            {goalText}
-          </p>
-        </button>
-      </div>
+      {/* 2. Stable mission + durable gates + health. Follow-ups never replace Mission. */}
+      <TaskProgressOverview view={progressView} now={nowTick} controls={taskControls} />
 
-      {plan && plan.phases.length > 0 && (
-        <MissionPlanChecklist plan={plan} heading={t('chat_task_plan_heading')} />
-      )}
-
-      {/* 3b. Running: live activity is the primary organism (icons + displaySummary). */}
+      {/* 3b. Running activity is already represented semantically in TaskProgressOverview.
+          Keep raw browser operations as a collapsed audit trail. */}
       {primaryOrganism === 'activity' && showActivityPanel && (
         <div
           data-testid="task-activity-panel"
           className="chijie-activity-panel"
-          data-primary="true">
-          {activityHeader}
-          {liveActivityRow}
+          data-secondary="true">
           {stepsHistory}
         </div>
       )}
@@ -834,9 +843,9 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
           data-testid="task-activity-panel"
           className="chijie-activity-panel"
           data-secondary={primaryOrganism === 'completion' ? 'true' : undefined}>
-          {/* Compact history under completion: no competing live header chrome. */}
-          {(showLiveActivity || primaryOrganism === 'recovery') && activityHeader}
-          {liveActivityRow}
+          {/* Runtime activity is mutually exclusive with paused/interrupted/recovery states. */}
+          {snapshot.status === 'running' && activityHeader}
+          {snapshot.status === 'running' && liveActivityRow}
           {stepsHistory}
         </div>
       )}
@@ -1010,53 +1019,6 @@ export function TaskStatusCard({ snapshot, send, defaultInstruction = '' }: Task
         </div>
       )}
 
-      <div className={`${actionStackClassName} chijie-task-controls`}>
-        {snapshot.status === 'running' && (
-          <button
-            type="button"
-            className={secondaryButtonClassName}
-            onClick={() =>
-              send({
-                type: 'pause',
-                commandId: crypto.randomUUID(),
-                taskId: snapshot.id,
-                expectedRevision: snapshot.revision,
-              })
-            }>
-            {t('chat_task_pause')}
-          </button>
-        )}
-        {(snapshot.status === 'paused' || snapshot.status === 'interrupted') && (
-          <button
-            type="button"
-            className={primaryButtonClassName}
-            onClick={() =>
-              send({
-                type: 'resume',
-                commandId: crypto.randomUUID(),
-                taskId: snapshot.id,
-                expectedRevision: snapshot.revision,
-              })
-            }>
-            {t('chat_task_resume')}
-          </button>
-        )}
-        {!isTerminal && (
-          <button
-            type="button"
-            className={dangerButtonClassName}
-            onClick={() =>
-              send({
-                type: 'cancel',
-                commandId: crypto.randomUUID(),
-                taskId: snapshot.id,
-                expectedRevision: snapshot.revision,
-              })
-            }>
-            {t('chat_task_stop')}
-          </button>
-        )}
-      </div>
     </section>
   );
 }

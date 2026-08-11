@@ -1005,6 +1005,12 @@
   "chat_task_resume": {
     "message": "Resume"
   },
+  "chat_task_adjust_direction": {
+    "message": "Adjust direction"
+  },
+  "chat_task_adjust_prompt": {
+    "message": "I want to adjust: "
+  },
   "chat_task_stop": {
     "message": "Stop task"
   },
@@ -1310,7 +1316,7 @@
     "message": "Save screenshot"
   },
   "chat_task_bind_kicker": {
-    "message": "Reading page"
+    "message": "Current page"
   },
   "chat_task_bind_missing": {
     "message": "No usable page tab. Open a website tab and try again."

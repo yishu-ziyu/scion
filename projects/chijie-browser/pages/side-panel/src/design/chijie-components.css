@@ -25,18 +25,14 @@
   line-height: 1.1;
 }
 
-/*
- * Task card is a summary strip, not the whole side panel.
- * Chat must keep a real reading area (design/004: continuous control not crushed).
- * flex-grow/shrink 0: card sizes to content up to max-height; chat flexes below.
- */
+/* Long-horizon task progress is the primary workspace. Keep chat available below,
+ * but give Mission, Gates, Now, Health, and latest findings enough room to be understood. */
 .chijie-paper-card {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
   gap: 8px;
-  /* Hard cap so composer + chat never collapse to a single line. */
-  max-height: min(36vh, 320px);
+  max-height: min(58vh, 560px);
   margin: 8px 10px 0;
   padding: 12px 12px 10px;
   overflow: auto;
@@ -47,15 +43,15 @@
   animation: chijie-surface-enter 180ms ease-out;
 }
 
-/* Running: a bit more for live activity + steps, never more than half the panel. */
+/* Running gets the largest console area while the continuous-control composer stays fixed. */
 .chijie-paper-card[data-status='running'],
 .chijie-paper-card[data-primary-organism='activity'] {
-  max-height: min(40vh, 360px);
+  max-height: min(64vh, 620px);
 }
 
-/* Completion / partial: keep short so follow-up chat stays the reading surface. */
+/* Completion stays inspectable without pushing follow-up chat off screen. */
 .chijie-paper-card[data-primary-organism='completion'] {
-  max-height: min(36vh, 320px);
+  max-height: min(54vh, 520px);
 }
 
 .chijie-workspace {
@@ -261,6 +257,452 @@ summary:focus-visible,
   display: block;
   -webkit-line-clamp: unset;
   overflow: visible;
+}
+
+/* design/008: stable mission + durable gates + health, not a tool-call dashboard */
+.chijie-progress-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chijie-progress-mission {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chijie-progress-kicker,
+.chijie-progress-section-head {
+  color: var(--chijie-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+}
+
+.chijie-progress-kicker {
+  margin: 0;
+}
+
+.chijie-progress-mission h2 {
+  margin: 0;
+  color: var(--chijie-paper-ink);
+  font-size: 15px;
+  font-weight: 680;
+  line-height: 1.3;
+  letter-spacing: -0.012em;
+  overflow-wrap: anywhere;
+}
+
+.chijie-progress-mission > p:last-child {
+  margin: 0;
+  color: var(--chijie-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.chijie-progress-direction-change {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 7px;
+  padding: 7px 9px;
+  border: 1px solid var(--chijie-border);
+  border-radius: 10px;
+  background: var(--chijie-accent-subtle);
+  color: var(--chijie-muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.chijie-progress-direction-change > svg {
+  margin-top: 1px;
+  color: var(--chijie-accent);
+}
+
+.chijie-progress-direction-change > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chijie-progress-direction-change strong {
+  color: var(--chijie-foreground);
+  font-weight: 650;
+}
+
+.chijie-progress-direction-change time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.chijie-progress-plan,
+.chijie-progress-artifacts {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-top: 9px;
+  border-top: 1px solid var(--chijie-border);
+}
+
+.chijie-progress-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chijie-progress-section-head > span:last-child {
+  color: var(--chijie-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.chijie-progress-plan ol,
+.chijie-progress-artifacts ul,
+.chijie-progress-findings ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chijie-progress-plan li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+  padding: 4px 0;
+  color: var(--chijie-muted);
+}
+
+.chijie-progress-plan li[data-status='active'] {
+  margin: 1px -6px;
+  padding: 7px 6px;
+  border-radius: var(--chijie-radius-md);
+  background: var(--chijie-accent-subtle);
+  color: var(--chijie-paper-ink);
+}
+
+.chijie-progress-plan li[data-status='blocked'] {
+  color: var(--chijie-warning);
+}
+
+.chijie-progress-milestone-icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+
+.chijie-progress-milestone-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.chijie-progress-plan li[data-status='done'] .chijie-progress-milestone-icon {
+  color: var(--chijie-accent);
+}
+
+.chijie-progress-plan li[data-status='active'] .chijie-progress-milestone-icon {
+  color: var(--chijie-accent-signal);
+}
+
+.chijie-progress-milestone-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chijie-progress-milestone-title {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.35;
+}
+
+.chijie-progress-plan li[data-status='done'] .chijie-progress-milestone-title {
+  color: var(--chijie-muted);
+}
+
+.chijie-progress-milestone-summary {
+  color: var(--chijie-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.chijie-progress-gates {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.chijie-progress-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chijie-progress-gate-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--chijie-muted);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.chijie-progress-gate-line strong {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+  color: var(--chijie-foreground);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chijie-progress-gate-passed {
+  color: var(--chijie-accent-signal);
+  font-weight: 650;
+}
+
+.chijie-progress-track {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--chijie-radius-pill);
+  background: color-mix(in srgb, var(--chijie-border) 74%, transparent);
+}
+
+.chijie-progress-track > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--chijie-accent);
+  transform-origin: left center;
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.chijie-progress-gate-detail {
+  color: var(--chijie-muted);
+  font-size: 9px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.chijie-progress-health {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 9px 10px;
+  border: 1px solid var(--chijie-border);
+  border-radius: var(--chijie-radius-lg);
+  background: var(--chijie-surface-raised);
+}
+
+.chijie-progress-health[data-state='advancing'],
+.chijie-progress-health[data-state='complete'] {
+  border-color: #c9ded5;
+  background: var(--chijie-accent-subtle);
+}
+
+.chijie-progress-health[data-state='recovering'],
+.chijie-progress-health[data-state='slow'],
+.chijie-progress-health[data-state='needs_user'] {
+  border-color: #e8c98f;
+  background: var(--chijie-warning-subtle);
+}
+
+.chijie-progress-health[data-state='failed'] {
+  border-color: #e5b9b6;
+  background: var(--chijie-danger-subtle);
+}
+
+.chijie-progress-health-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--chijie-border);
+  border-radius: 8px;
+  background: var(--chijie-surface);
+  color: var(--chijie-muted);
+}
+
+.chijie-progress-health[data-state='advancing'] .chijie-progress-health-icon,
+.chijie-progress-health[data-state='complete'] .chijie-progress-health-icon {
+  color: var(--chijie-accent-signal);
+}
+
+.chijie-progress-health[data-state='recovering'] .chijie-progress-health-icon,
+.chijie-progress-health[data-state='slow'] .chijie-progress-health-icon,
+.chijie-progress-health[data-state='needs_user'] .chijie-progress-health-icon {
+  color: var(--chijie-warning);
+}
+
+.chijie-progress-health[data-state='failed'] .chijie-progress-health-icon {
+  color: var(--chijie-danger);
+}
+
+.chijie-progress-health-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--chijie-muted);
+}
+
+.chijie-progress-health-copy strong {
+  color: var(--chijie-foreground);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.chijie-progress-now {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border-left: 2px solid var(--chijie-accent);
+  background: color-mix(in srgb, var(--chijie-accent-subtle) 58%, transparent);
+}
+
+.chijie-progress-now strong {
+  overflow: hidden;
+  color: var(--chijie-foreground);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chijie-progress-now > span:last-child {
+  grid-column: 2;
+  color: var(--chijie-muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.chijie-progress-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-top: 8px;
+  border-top: 1px solid var(--chijie-border);
+}
+
+.chijie-progress-findings ul {
+  margin-top: 7px;
+}
+
+.chijie-progress-findings li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  border-top: 1px solid color-mix(in srgb, var(--chijie-border) 64%, transparent);
+}
+
+.chijie-progress-findings li strong {
+  color: var(--chijie-foreground);
+  font-size: 10px;
+}
+
+.chijie-progress-findings li span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--chijie-muted);
+  font-size: 10px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.chijie-progress-artifacts li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  min-height: 30px;
+  color: var(--chijie-muted);
+}
+
+.chijie-progress-artifacts a {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--chijie-accent-signal);
+  font-size: 11px;
+  font-weight: 620;
+  text-decoration: none;
+}
+
+.chijie-progress-artifacts a span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chijie-progress-artifacts small {
+  color: var(--chijie-muted);
+  font-size: 9px;
+}
+
+.chijie-progress-blocked {
+  border-radius: var(--chijie-radius-md);
+  padding: 8px 10px;
+  background: var(--chijie-warning-subtle);
+  color: var(--chijie-warning);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+@media (max-width: 360px) {
+  .chijie-progress-mission h2 {
+    font-size: 14px;
+  }
+
+  .chijie-progress-health {
+    grid-template-columns: 24px minmax(0, 1fr);
+    padding: 8px;
+  }
+
+  .chijie-progress-health-icon {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+@media (max-width: 260px) {
+  .chijie-task-controls .chijie-btn-primary,
+  .chijie-task-controls .chijie-btn-secondary,
+  .chijie-task-controls .chijie-btn-danger {
+    min-width: 0;
+    padding: 7px 4px;
+    font-size: 10px;
+    line-height: 1.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chijie-progress-track > span {
+    transition: none;
+  }
 }
 
 .chijie-mission-plan {

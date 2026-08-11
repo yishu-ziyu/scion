@@ -1170,6 +1170,12 @@
   "chat_task_resume": {
     "message": "继续"
   },
+  "chat_task_adjust_direction": {
+    "message": "调整方向"
+  },
+  "chat_task_adjust_prompt": {
+    "message": "我想调整："
+  },
   "chat_task_stop": {
     "message": "停止任务"
   },
@@ -1310,7 +1316,7 @@
     "message": "截图并保存"
   },
   "chat_task_bind_kicker": {
-    "message": "正在读"
+    "message": "当前页面"
   },
   "chat_task_bind_missing": {
     "message": "没有可用的网页标签。请先打开目标网站，再发送。"

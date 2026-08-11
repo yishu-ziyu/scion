@@ -141,6 +141,7 @@ export type TaskCommand =
       instruction: string;
       chatSessionId: string;
       instructionMessageId: string;
+      changeType?: 'follow_up' | 'direction_change';
     })
   | (ExistingTaskCommand & { type: 'pause' | 'resume' | 'cancel' })
   | (ExistingTaskCommand & { type: 'confirm_completion'; roundId: string; criterionId: string })
@@ -158,6 +159,8 @@ export interface TaskRound {
   id: string;
   instructionMessageId?: string;
   instructionSummary: string;
+  changeType?: 'follow_up' | 'direction_change';
+  createdAt?: number;
   status: TaskStatus;
   commandAcks: Record<string, CommandAck>;
   criteria: CompletionCriterion[];
