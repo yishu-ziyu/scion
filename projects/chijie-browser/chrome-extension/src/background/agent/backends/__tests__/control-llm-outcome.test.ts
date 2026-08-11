@@ -35,6 +35,9 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
     };
     expect(shouldRetryUnrecordedResearchSource({ ...base, pageUrl: 'https://updf.com/' })).toBe(true);
     expect(
+      shouldRetryUnrecordedResearchSource({ ...base, pageUrl: 'https://updf.com/', collectionComplete: true }),
+    ).toBe(false);
+    expect(
       shouldRetryUnrecordedResearchSource({ ...base, pageUrl: 'https://www.google.com/search?q=updf' }),
     ).toBe(false);
     expect(shouldRetryUnrecordedResearchSource({ ...base, pageUrl: 'https://notebook.google.com/' })).toBe(false);

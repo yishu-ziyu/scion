@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractResearchQuotas,
+  isRecoverableResearchDecisionFailure,
   isSearchResultsUrl,
   isRecoverableResearchFailure,
   maxResearchWorkCycles,
@@ -51,6 +52,7 @@ describe('research checkpoint', () => {
     expect(maxResearchWorkCycles({ userDiscussions: 1, products: 1 })).toBe(20);
     expect(isRecoverableResearchFailure('no_action')).toBe(true);
     expect(isRecoverableResearchFailure('evidence_required')).toBe(true);
+    expect(isRecoverableResearchDecisionFailure('evidence_required')).toBe(true);
     expect(isRecoverableResearchFailure('source_required')).toBe(true);
     expect(isRecoverableResearchFailure('research_quota_unmet')).toBe(false);
     expect(researchContinuationQuery(quotas, progress)).toContain('product');
