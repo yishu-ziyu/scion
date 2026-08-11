@@ -58,6 +58,7 @@ import {
 import { ActionResult } from '../agent/types';
 import {
   extractResearchQuotas,
+  isRecoverableResearchDecisionFailure,
   isRecoverableResearchFailure,
   maxResearchWorkCycles,
   renderResearchCheckpoint,
@@ -86,6 +87,7 @@ interface TaskManagerDeps {
 }
 
 const TERMINAL_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled'];
+const MAX_RESEARCH_DECISION_RETRIES = 3;
 
 export class TaskManager {
   private readonly drivers = new Map<string, ExecutorDriver>();
@@ -1172,6 +1174,7 @@ export class TaskManager {
   ): Promise<void> {
     let runRoundId = initialRoundId;
     let verificationRetries = 0;
+    let researchDecisionRetries = 0;
     for (;;) {
       const outcome = await driver.run(runRoundId);
       let task = await getTask(taskId);
@@ -1184,6 +1187,22 @@ export class TaskManager {
       const researchQuotas = extractResearchQuotas(instruction);
       const researchWorkCycleLimit = researchQuotas ? maxResearchWorkCycles(researchQuotas) : 0;
       if (outcome.kind !== 'candidate_complete') {
+        if (outcome.kind === 'failed' && researchQuotas && requiresStructuredResearchDecision(instruction)) {
+          const evidenceSpace = await getEvidenceSpace(taskId);
+          const progress = evidenceSpaceProgress(evidenceSpace);
+          if (
+            researchQuotasMet(researchQuotas, progress) &&
+            !researchDecisionReady(evidenceSpace) &&
+            isRecoverableResearchDecisionFailure(outcome.category) &&
+            researchDecisionRetries < MAX_RESEARCH_DECISION_RETRIES
+          ) {
+            researchDecisionRetries += 1;
+            driver.addFollowUp(
+              `The research collection gates are already complete. The previous structured decision attempt failed with ${outcome.category}. Do not browse, explain, or finish. Call record_research_decision now with exactly 3 capabilities. For every capability use these exact keys: title, user_moment, behavior_change, why_now, why_others_later, implementation_distance, mvp, success_metric, user_evidence_ids, product_evidence_ids, repository_evidence_ids. Also include top-level deferred and contradictions. Correct only the output shape or missing values, then retry the action.`,
+            );
+            continue;
+          }
+        }
         if (
           outcome.kind === 'failed' &&
           researchQuotas &&
