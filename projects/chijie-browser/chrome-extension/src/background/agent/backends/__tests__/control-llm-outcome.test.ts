@@ -4,6 +4,7 @@ import {
   createResearchEvidenceRetryBudget,
   invokeWithTimeout,
   mapLoopOutcomeToExecutor,
+  researchDecisionFailureFeedback,
   shouldKeepActionResultInContext,
   shouldRedirectSearchResultEvidenceAttempt,
   shouldRetryUnrecordedResearchSource,
@@ -56,6 +57,16 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
         actionName: 'record_evidence',
       }),
     ).toBe(false);
+  });
+
+  it('returns only fixed validator codes for structured decision correction', () => {
+    const feedback = researchDecisionFailureFeedback(
+      'Research decision rejected: Secret capability title:seven_answers_required, Secret capability title:product_evidence_required',
+    );
+    expect(feedback).toContain('seven_answers_required');
+    expect(feedback).toContain('product_evidence_required');
+    expect(feedback).not.toContain('Secret capability title');
+    expect(researchDecisionFailureFeedback('Invalid input containing private values')).not.toContain('private values');
   });
 
   it('reminds once per source, then allows navigation away from irrelevant research pages', () => {
