@@ -332,6 +332,8 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).toContain("type: 'retry_research'");
     expect(taskStatusCardSource).toContain('chat_task_retry_research');
     expect(sidePanelSource).toMatch(/command\.type === 'retry_research'[\s\S]{0,500}resolveActiveContentTab/);
+    expect(sidePanelSource).toContain('resolveActiveContentTab({ allowLastFocused: false })');
+    expect(sidePanelSource).toContain('postCommand(bound ? { ...command, tabId: bound.tabId } : command)');
     expect(sidePanelSource.indexOf('{ currentWindow: true }')).toBeLessThan(
       sidePanelSource.indexOf('{ active: true, lastFocusedWindow: true }'),
     );
