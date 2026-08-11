@@ -67,6 +67,8 @@ const TASK_SETS = {
     '022-ARTIFACT-01',
     '022-LEARN-01',
   ],
+  // Frontier Eval v1 — hard long-horizon discriminators (outcome-only scoring)
+  frontier_v1: ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8'],
 };
 
 function resolveTasks() {
@@ -278,6 +280,98 @@ const taskCommands = {
   '022-LEARN-01': {
     script: ['scripts/eval-022-unit-gates.mjs'],
     env: { UNIT_TASK_FILTER: '022-LEARN-01' },
+  },
+
+  // --- Frontier Eval v1 (reports/nanobrowser/frontier-eval-v1) ---
+  // Scoring is user-outcome only; EXTENSION_PATH selects product under test.
+  // Calibrated after smoke floor: multi-step fixtures with headroom, not zero-pass walls.
+  F1: {
+    script: ['chrome-extension/scripts/eval-frontier-task.mjs'],
+    env: {
+      TARGET_URL: 'fixture://frontier/catalog.html',
+      GOAL:
+        '当前是 Interactive Catalog 表格（默认已列出全部商品）。请从表格中找出三款 capsule：Orion Capsule、Nova Capsule、Vega Capsule，在回复中写出各自 price：2100000、1800000、2900000（必须三款齐全）。',
+      VERIFY: 'body_contains_all',
+      EXPECTED: 'Orion Capsule||Nova Capsule||Vega Capsule||2100000||1800000||2900000',
+      E2E_TIMEOUT_MS: '120000',
+    },
+  },
+  F2: {
+    script: ['chrome-extension/scripts/eval-frontier-task.mjs'],
+    env: {
+      TARGET_URL: 'fixture://frontier/catalog.html',
+      GOAL:
+        '多阶段：1) Category 选 module；2) Sort 选 rating；3) Apply；4) Expand Beta Dock Module；5) 回复 serial 与 price：Z-MOD-0042 与 510000。',
+      VERIFY: 'body_contains_all',
+      EXPECTED: 'Z-MOD-0042||510000',
+      E2E_TIMEOUT_MS: '180000',
+    },
+  },
+  F3: {
+    script: ['chrome-extension/scripts/eval-frontier-task.mjs'],
+    env: {
+      TARGET_URL: 'fixture://frontier/catalog.html',
+      GOAL:
+        '从表格读取三款 capsule 的名称与价格 2100000/1800000/2900000 并回复。页面可能中途刷新：刷新后继续完成，不要放弃。',
+      VERIFY: 'body_contains_all',
+      EXPECTED: 'Orion Capsule||Nova Capsule||Vega Capsule||2100000||1800000||2900000',
+      INTERRUPT_AFTER_MS: '8000',
+      E2E_TIMEOUT_MS: '180000',
+    },
+  },
+  F4: {
+    script: ['chrome-extension/scripts/eval-frontier-task.mjs'],
+    env: {
+      TARGET_URL: 'fixture://frontier/catalog.html',
+      GOAL:
+        '从表格读取三款 capsule 名称与价格 2100000/1800000/2900000 并回复。若 active tab 被切到无关站，必须回到本 catalog 页完成。',
+      VERIFY: 'body_contains_all',
+      EXPECTED: 'Orion Capsule||Nova Capsule||Vega Capsule||2100000||1800000||2900000',
+      WRONG_TAB_AFTER_MS: '6000',
+      E2E_TIMEOUT_MS: '180000',
+    },
+  },
+  F5: {
+    script: ['chrome-extension/scripts/eval-frontier-task.mjs'],
+    env: {
+      TARGET_URL: 'fixture://frontier/trap.html',
+      GOAL:
+        '当前页价格错误。点击 “Go to Interactive catalog (correct prices)”，从 catalog 表格读取三款 capsule 真实价格 2100000/1800000/2900000 与名称并回复。禁止使用 999/888。',
+      VERIFY: 'body_contains_all',
+      EXPECTED: 'Orion Capsule||Nova Capsule||Vega Capsule||2100000||1800000||2900000',
+      E2E_TIMEOUT_MS: '150000',
+    },
+  },
+  F6: {
+    script: ['chrome-extension/scripts/eval-frontier-task.mjs'],
+    env: {
+      TARGET_URL: 'fixture://frontier/catalog.html',
+      GOAL:
+        '点击 Expand 打开 Orion Capsule 行，读取 source_ref。回复须同时包含 Orion Capsule、2100000、SRC-ORION-01。',
+      VERIFY: 'body_contains_all',
+      EXPECTED: 'Orion Capsule||2100000||SRC-ORION-01',
+      E2E_TIMEOUT_MS: '150000',
+    },
+  },
+  F7: {
+    script: ['chrome-extension/scripts/eval-frontier-task.mjs'],
+    env: {
+      TARGET_URL: 'fixture://frontier/delay.html',
+      GOAL:
+        'Simple search 会失败。使用 Advanced search（约 2 秒后出现），查询输入 hidden report，回复 RT-77-OK 或 Hidden Report 77。',
+      VERIFY: 'frontier_recovery',
+      E2E_TIMEOUT_MS: '150000',
+    },
+  },
+  F8: {
+    script: ['chrome-extension/scripts/eval-frontier-task.mjs'],
+    env: {
+      TARGET_URL: 'fixture://frontier/spa.html',
+      GOAL:
+        '同页：展开 Dock Ring B 的 details（Expand details），回复 serial Z-MOD-0042。如列表过长可先 Category=dock 再 Apply。',
+      VERIFY: 'frontier_spa_serial',
+      E2E_TIMEOUT_MS: '150000',
+    },
   },
 };
 

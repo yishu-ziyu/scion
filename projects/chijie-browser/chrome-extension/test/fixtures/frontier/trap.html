@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Quick Summary (untrusted)</title>
+  </head>
+  <body>
+    <h1>Quick summary table (DO NOT TRUST)</h1>
+    <p class="trap-banner">This page deliberately has wrong prices and missing sources.</p>
+    <table data-testid="trap-table">
+      <thead>
+        <tr><th>name</th><th>price</th><th>rating</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Orion Capsule</td><td>999</td><td>5.0</td></tr>
+        <tr><td>Nova Capsule</td><td>888</td><td>5.0</td></tr>
+        <!-- missing Vega, missing source columns, wrong prices -->
+      </tbody>
+    </table>
+    <p>If you stop here you will fail the research task.</p>
+    <p>
+      <a href="/hub.html" data-testid="trap-to-hub">Back to hub</a>
+      ·
+      <a href="/catalog.html" data-testid="trap-to-catalog"><strong>Go to Interactive catalog (correct prices)</strong></a>
+    </p>
+  </body>
+</html>

@@ -1,0 +1,42 @@
+{
+  "ccdccfa2-c7b1-44c5-b9a0-ccbcc59bf606": {
+    "createdAt": 1786422890024,
+    "spans": [
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 0,
+          "revision": 1,
+          "roundCount": 1
+        },
+        "id": "009a39a7-926f-4e69-a8d3-41f967e498cc",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786422890024,
+        "status": "ok",
+        "taskId": "ccdccfa2-c7b1-44c5-b9a0-ccbcc59bf606"
+      },
+      {
+        "data": {
+          "attemptCount": 0,
+          "criteriaCount": 0,
+          "evidenceCount": 0,
+          "receiptCount": 1,
+          "revision": 2,
+          "roundCount": 1
+        },
+        "id": "46cd354c-155a-421d-a7a9-d4d7adeac512",
+        "kind": "task",
+        "name": "task_snapshot",
+        "startedAt": 1786422890591,
+        "status": "ok",
+        "taskId": "ccdccfa2-c7b1-44c5-b9a0-ccbcc59bf606"
+      }
+    ],
+    "taskId": "ccdccfa2-c7b1-44c5-b9a0-ccbcc59bf606",
+    "terminalStatus": "completed",
+    "updatedAt": 1786422890591
+  }
+}
