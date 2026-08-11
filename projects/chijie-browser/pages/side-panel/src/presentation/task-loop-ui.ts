@@ -57,6 +57,38 @@ export function defaultStepsExpanded(status: string): boolean {
 }
 
 /**
+ * Statuses that keep the main side panel in a live task workspace.
+ * Terminal statuses (completed / failed / cancelled) stay persisted in history
+ * but must not own the default main surface — that surface returns to idle.
+ */
+export const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = [
+  'running',
+  'paused',
+  'waiting_user',
+  'inputs_required',
+  'interrupted',
+] as const;
+
+/** True while the agent still needs the main task card + live log. */
+export function isActiveTaskStatus(status: TaskStatus | string | null | undefined): boolean {
+  if (!status) return false;
+  return (ACTIVE_TASK_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Main workspace shows task card + live chat only for an active task,
+ * or when the user explicitly opened a historical session.
+ * Completed snapshots remain in storage; they are not the default home view.
+ */
+export function shouldShowMainTaskSurface(input: {
+  status: TaskStatus | string | null | undefined;
+  isHistoricalSession: boolean;
+}): boolean {
+  if (input.isHistoricalSession) return true;
+  return isActiveTaskStatus(input.status);
+}
+
+/**
  * Which surface owns the task card for goal-directed reading order.
  * status → goal → (activity | completion | recovery) → steps → chat.
  */

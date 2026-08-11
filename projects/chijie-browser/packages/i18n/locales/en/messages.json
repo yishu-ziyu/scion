@@ -65,7 +65,7 @@
     "message": "我能帮你做什么？"
   },
   "chat_empty_hint": {
-    "message": "Send a task to start. Progress is above; results land here."
+    "message": "Hand me a task"
   },
   "chat_task_mode_badge": {
     "message": "Task: agent task"
@@ -1078,7 +1078,7 @@
     "message": "Completed at"
   },
   "chat_task_header_idle": {
-    "message": "Ready"
+    "message": "Idle"
   },
   "chat_task_action_open": {
     "message": "Open page"

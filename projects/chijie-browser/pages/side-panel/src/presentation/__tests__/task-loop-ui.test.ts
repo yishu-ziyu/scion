@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { ActionAttempt, CompletionReceipt, TaskSnapshot } from '@extension/storage';
 import {
   defaultStepsExpanded,
+  isActiveTaskStatus,
   isMachinePrimaryCopy,
   observedAttemptCount,
   ratingStorageKey,
   shouldShowExecutionSteps,
+  shouldShowMainTaskSurface,
   shouldShowOutcomeRating,
   shouldShowVerifiedDone,
   taskPrimaryOrganism,
@@ -95,6 +97,24 @@ describe('Feature: Tabbit-class task loop UI (ticket 01, seam S1)', () => {
     expect(taskPrimaryOrganism({ status: 'completed', showVerifiedDone: true })).toBe('completion');
     expect(taskPrimaryOrganism({ status: 'waiting_user' })).toBe('recovery');
     expect(taskPrimaryOrganism({ status: 'paused' })).toBe('idle');
+  });
+
+  it('treats only live statuses as active task (completed snapshot stays persisted, not home)', () => {
+    expect(isActiveTaskStatus('running')).toBe(true);
+    expect(isActiveTaskStatus('paused')).toBe(true);
+    expect(isActiveTaskStatus('waiting_user')).toBe(true);
+    expect(isActiveTaskStatus('inputs_required')).toBe(true);
+    expect(isActiveTaskStatus('interrupted')).toBe(true);
+    expect(isActiveTaskStatus('completed')).toBe(false);
+    expect(isActiveTaskStatus('failed')).toBe(false);
+    expect(isActiveTaskStatus('cancelled')).toBe(false);
+    expect(isActiveTaskStatus(null)).toBe(false);
+    expect(isActiveTaskStatus(undefined)).toBe(false);
+
+    expect(shouldShowMainTaskSurface({ status: 'completed', isHistoricalSession: false })).toBe(false);
+    expect(shouldShowMainTaskSurface({ status: 'running', isHistoricalSession: false })).toBe(true);
+    expect(shouldShowMainTaskSurface({ status: 'completed', isHistoricalSession: true })).toBe(true);
+    expect(shouldShowMainTaskSurface({ status: null, isHistoricalSession: false })).toBe(false);
   });
 
   it('rejects machine tokens as primary user copy', () => {

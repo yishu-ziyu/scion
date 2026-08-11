@@ -33,6 +33,7 @@ import {
   pickActiveContentTab,
   type BoundContentTab,
 } from './presentation/active-tab-bind';
+import { isActiveTaskStatus, shouldShowMainTaskSurface } from './presentation/task-loop-ui';
 import './SidePanel.css';
 
 // Declare chrome API types
@@ -225,9 +226,9 @@ const SidePanel = () => {
     const requiresExplicitResume = taskSnapshot.status === 'interrupted' || taskSnapshot.status === 'inputs_required';
     setInputEnabled(!busy && !requiresExplicitResume);
     setShowStopButton(taskSnapshot.status === 'running');
-    // Follow-up needs a chat session bound to the task (skill runs have none).
-    // Without a session, treat the next goal as a fresh start so instruction can persist.
-    const followable = ['running', 'paused', 'waiting_user', 'completed'].includes(taskSnapshot.status);
+    // Follow-up only while the task is still live. Terminal snapshots stay in history;
+    // the main surface returns to idle and the next goal starts a new task.
+    const followable = isActiveTaskStatus(taskSnapshot.status);
     setIsFollowUpMode(followable && Boolean(taskSnapshot.chatSessionId));
   }, [taskSnapshot]);
 
@@ -255,12 +256,13 @@ const SidePanel = () => {
             setIsHistoricalSession(false);
             break;
           case ExecutionState.TASK_OK:
-            setIsFollowUpMode(true);
+            // Terminal → idle home; completed card/messages stay in history only.
+            setIsFollowUpMode(false);
             setInputEnabled(true);
             setShowStopButton(false);
             break;
           case ExecutionState.TASK_FAIL:
-            setIsFollowUpMode(true);
+            setIsFollowUpMode(false);
             setInputEnabled(true);
             setShowStopButton(false);
             break;
@@ -602,7 +604,7 @@ const SidePanel = () => {
         Boolean(taskSnapshot?.chatSessionId) &&
         taskSnapshot?.id === sessionIdRef.current &&
         taskSnapshot.chatSessionId === sessionIdRef.current &&
-        ['running', 'paused', 'waiting_user', 'completed'].includes(taskSnapshot.status);
+        isActiveTaskStatus(taskSnapshot.status);
       if (canFollowUp && taskSnapshot) {
         sendTaskCommand({
           type: 'follow_up',
@@ -1056,6 +1058,19 @@ const SidePanel = () => {
     }
   };
 
+  // Default main surface is idle unless a task is live or the user opened history.
+  // Terminal snapshots (completed/failed/cancelled) stay in storage + history only.
+  const showMainTaskSurface = shouldShowMainTaskSurface({
+    status: taskSnapshot?.status,
+    isHistoricalSession,
+  });
+  const showActiveTaskCard =
+    Boolean(taskSnapshot) &&
+    isActiveTaskStatus(taskSnapshot?.status) &&
+    (currentSessionId === taskSnapshot?.chatSessionId || taskSnapshot?.sourceSkillId !== undefined);
+  const showLiveMessages = showMainTaskSurface && messages.length > 0;
+  const showIdleHint = !showLiveMessages && favoritePrompts.length === 0;
+
   return (
     <div className="chijie-shell">
       <div className="chijie-shell flex h-screen flex-col overflow-hidden">
@@ -1082,7 +1097,7 @@ const SidePanel = () => {
                   data-testid="header-task-status"
                   aria-live="polite"
                   aria-atomic="true">
-                  {taskSnapshot
+                  {taskSnapshot && isActiveTaskStatus(taskSnapshot.status)
                     ? t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
                     : t('chat_task_header_idle')}
                 </span>
@@ -1167,23 +1182,21 @@ const SidePanel = () => {
                   chat log is the flexible reading surface, composer stays fixed.
                 */}
                 <div className="chijie-workspace" data-testid="sidepanel-workspace">
-                  {taskSnapshot &&
-                    (currentSessionId === taskSnapshot.chatSessionId ||
-                      taskSnapshot.sourceSkillId !== undefined) && (
-                      <TaskStatusCard
-                        snapshot={taskSnapshot}
-                        send={sendTaskCommand}
-                        isDarkMode={false}
-                        defaultInstruction={
-                          [...messages].reverse().find(message => message.actor === Actors.USER)?.content ??
-                          ''
-                        }
-                      />
-                    )}
+                  {showActiveTaskCard && taskSnapshot && (
+                    <TaskStatusCard
+                      snapshot={taskSnapshot}
+                      send={sendTaskCommand}
+                      isDarkMode={false}
+                      defaultInstruction={
+                        [...messages].reverse().find(message => message.actor === Actors.USER)?.content ?? ''
+                      }
+                    />
+                  )}
                   <div
                     className="chijie-chat-log scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3"
-                    data-testid="sidepanel-chat-log">
-                    {messages.length > 0 ? (
+                    data-testid="sidepanel-chat-log"
+                    data-idle={!showMainTaskSurface ? 'true' : 'false'}>
+                    {showLiveMessages ? (
                       <>
                         <MessageList
                           messages={messages}
@@ -1205,32 +1218,37 @@ const SidePanel = () => {
                         />
                         <div ref={messagesEndRef} />
                       </>
-                    ) : favoritePrompts.length === 0 ? (
-                      <div className="flex h-full min-h-[8.5rem] items-center justify-center px-2" data-testid="empty-composer-spacer">
-                        <p className="text-center text-xs text-[var(--chijie-muted)]">
+                    ) : showIdleHint ? (
+                      <div
+                        className="flex h-full min-h-[8.5rem] items-center justify-center px-2"
+                        data-testid="empty-composer-spacer">
+                        <p
+                          className="text-center text-xs text-[var(--chijie-muted)]"
+                          data-testid="idle-delegate-hint">
                           {t('chat_empty_hint')}
                         </p>
                       </div>
                     ) : null}
                   </div>
                   {/* Skills must stay runnable after a completed chat (O1 skill re-run / e2e).
-                      Plain prompt bookmarks still prefer the empty-composer surface. */}
+                      Plain prompt bookmarks still prefer the empty-composer surface.
+                      On idle home, prior live messages are hidden so skills still surface. */}
                   {favoritePrompts.length > 0 &&
-                    (messages.length === 0 || favoritePrompts.some(item => item.kind === 'skill')) && (
-                    <div
-                      className="chijie-bookmarks max-h-36 shrink-0 overflow-y-auto"
-                      data-testid="bookmark-list-panel">
-                      <BookmarkList
-                        bookmarks={favoritePrompts}
-                        onBookmarkSelect={handleBookmarkSelect}
-                        onSkillRun={handleSkillRun}
-                        onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
-                        onBookmarkDelete={handleBookmarkDelete}
-                        onBookmarkReorder={handleBookmarkReorder}
-                        isDarkMode={false}
-                      />
-                    </div>
-                  )}
+                    (!showLiveMessages || favoritePrompts.some(item => item.kind === 'skill')) && (
+                      <div
+                        className="chijie-bookmarks max-h-36 shrink-0 overflow-y-auto"
+                        data-testid="bookmark-list-panel">
+                        <BookmarkList
+                          bookmarks={favoritePrompts}
+                          onBookmarkSelect={handleBookmarkSelect}
+                          onSkillRun={handleSkillRun}
+                          onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
+                          onBookmarkDelete={handleBookmarkDelete}
+                          onBookmarkReorder={handleBookmarkReorder}
+                          isDarkMode={false}
+                        />
+                      </div>
+                    )}
                 </div>
                 <div className="chijie-composer" data-task-active={showStopButton ? 'true' : 'false'}>
                   <div
