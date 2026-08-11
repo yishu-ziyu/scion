@@ -240,6 +240,14 @@ export const recordEvidenceActionSchema: ActionSchema = {
   }),
 };
 
+function normalizeBoundedEvidencePageInput(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const value = { ...(input as Record<string, unknown>) };
+  const limit = Number(value.limit);
+  if (Number.isFinite(limit)) value.limit = Math.min(40, Math.max(1, Math.trunc(limit)));
+  return value;
+}
+
 export const inspectEvidenceSpaceActionSchema: ActionSchema = {
   name: 'inspect_evidence_space',
   description: 'Read durable research progress without loading the full evidence space into the model context',
@@ -251,6 +259,7 @@ export const inspectEvidenceSpaceActionSchema: ActionSchema = {
   ],
   returns: 'Total counts plus a filtered page of evidence IDs, sources, observations and candidate mappings.',
   costHint: 'Cheap local read; no page mutation.',
+  normalizeInput: normalizeBoundedEvidencePageInput,
   schema: z.object({
     record_type: z.enum(EVIDENCE_RECORD_TYPES).optional(),
     query: z.string().max(200).optional(),
@@ -258,6 +267,116 @@ export const inspectEvidenceSpaceActionSchema: ActionSchema = {
     limit: z.coerce.number().int().min(1).max(40).default(20),
   }),
 };
+
+function firstDefined(value: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (value[key] !== undefined) return value[key];
+  }
+  return undefined;
+}
+
+function normalizeStringList(value: unknown): unknown {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return value;
+  return value
+    .split(/[\n,;]+/)
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeResearchCapabilityDecision(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const value = input as Record<string, unknown>;
+  const evidence =
+    value.evidence && typeof value.evidence === 'object' && !Array.isArray(value.evidence)
+      ? (value.evidence as Record<string, unknown>)
+      : {};
+  return {
+    ...value,
+    title: firstDefined(value, ['title', 'name', 'capability']),
+    user_moment: firstDefined(value, ['user_moment', 'userMoment', 'user_scenario', 'userScenario', 'moment']),
+    behavior_change: firstDefined(value, ['behavior_change', 'behaviorChange', 'behavior', 'change']),
+    why_now: firstDefined(value, ['why_now', 'whyNow', 'priority_reason', 'priorityReason']),
+    why_others_later: firstDefined(value, [
+      'why_others_later',
+      'whyOthersLater',
+      'why_not_others',
+      'whyNotOthers',
+      'why_later',
+      'whyLater',
+      'tradeoffs',
+    ]),
+    implementation_distance: firstDefined(value, [
+      'implementation_distance',
+      'implementationDistance',
+      'implementation_gap',
+      'implementationGap',
+      'technical_distance',
+      'technicalDistance',
+      'distance',
+    ]),
+    mvp: firstDefined(value, ['mvp', 'mvp_scope', 'mvpScope', 'minimum_viable_product', 'minimumViableProduct']),
+    success_metric: firstDefined(value, ['success_metric', 'successMetric', 'metric', 'success_measure', 'successMeasure']),
+    user_evidence_ids: normalizeStringList(
+      firstDefined(value, ['user_evidence_ids', 'userEvidenceIds', 'user_evidence', 'userEvidence']) ??
+        firstDefined(evidence, ['user_evidence_ids', 'userEvidenceIds', 'users', 'user']),
+    ),
+    product_evidence_ids: normalizeStringList(
+      firstDefined(value, ['product_evidence_ids', 'productEvidenceIds', 'product_evidence', 'productEvidence']) ??
+        firstDefined(evidence, ['product_evidence_ids', 'productEvidenceIds', 'products', 'product']),
+    ),
+    repository_evidence_ids: normalizeStringList(
+      firstDefined(value, [
+        'repository_evidence_ids',
+        'repositoryEvidenceIds',
+        'repository_evidence',
+        'repositoryEvidence',
+        'repo_evidence_ids',
+        'repoEvidenceIds',
+      ]) ?? firstDefined(evidence, ['repository_evidence_ids', 'repositoryEvidenceIds', 'repository', 'repo']),
+    ),
+  };
+}
+
+function normalizeResearchDecisionInput(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  let value = input as Record<string, unknown>;
+  const wrapped = firstDefined(value, [
+    'record_research_decision',
+    'research_decision',
+    'researchDecision',
+    'final_decision',
+    'finalDecision',
+    'decision',
+  ]);
+  if (wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped)) {
+    value = wrapped as Record<string, unknown>;
+  }
+
+  const rawCapabilities = firstDefined(value, [
+    'capabilities',
+    'final_capabilities',
+    'finalCapabilities',
+    'recommendations',
+  ]);
+  const capabilities = Array.isArray(rawCapabilities)
+    ? rawCapabilities
+    : rawCapabilities && typeof rawCapabilities === 'object'
+      ? Object.values(rawCapabilities as Record<string, unknown>)
+      : rawCapabilities;
+
+  return {
+    ...value,
+    capabilities: Array.isArray(capabilities) ? capabilities.map(normalizeResearchCapabilityDecision) : capabilities,
+    deferred: normalizeStringList(
+      firstDefined(value, ['deferred', 'deferred_items', 'deferredItems', 'not_now', 'notNow', 'later']),
+    ),
+    contradictions:
+      normalizeStringList(
+        firstDefined(value, ['contradictions', 'counter_evidence', 'counterEvidence', 'counterpoints']),
+      ) ?? [],
+  };
+}
 
 const researchCapabilityDecisionSchema = z.object({
   title: z.string().min(2).max(240),
@@ -285,6 +404,7 @@ export const recordResearchDecisionActionSchema: ActionSchema = {
   ],
   returns: 'Accepted only when there are exactly three unique capabilities and every item passes 2 user + 1 product + 1 repository evidence coverage.',
   costHint: 'Local durable write; invalid evidence references are rejected without changing the decision.',
+  normalizeInput: normalizeResearchDecisionInput,
   schema: z.object({
     capabilities: z.array(researchCapabilityDecisionSchema).length(3),
     deferred: z.array(z.string().min(2).max(500)).min(1).max(30),
