@@ -89,16 +89,16 @@ export function shouldAutoRestoreTaskSession(input: {
 }
 
 /**
- * Main workspace shows task card + live chat only for an active task,
- * or when the user explicitly opened a historical session.
- * Completed snapshots remain in storage; they are not the default home view.
+ * Keep the current task workspace visible through terminal delivery/failure so
+ * the user and public acceptance surface can inspect the final result. A fresh
+ * chat clears the snapshot explicitly, so terminal state cannot reclaim it.
  */
 export function shouldShowMainTaskSurface(input: {
   status: TaskStatus | string | null | undefined;
   isHistoricalSession: boolean;
 }): boolean {
   if (input.isHistoricalSession) return true;
-  return isActiveTaskStatus(input.status);
+  return Boolean(input.status);
 }
 
 /**
