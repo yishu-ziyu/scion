@@ -193,6 +193,25 @@ export class InvalidInputError extends Error {
   }
 }
 
+function inputShape(value: unknown, depth = 0): unknown {
+  if (Array.isArray(value)) {
+    return {
+      type: 'array',
+      length: value.length,
+      item: value.length > 0 && depth < 3 ? inputShape(value[0], depth + 1) : undefined,
+    };
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+        key,
+        depth < 3 ? inputShape(child, depth + 1) : typeof child,
+      ]),
+    );
+  }
+  return typeof value;
+}
+
 /**
  * An action is a function that takes an input and returns an ActionResult
  */
@@ -220,7 +239,7 @@ export class Action {
 
     const parsedArgs = this.schema.schema.safeParse(normalizedInput);
     if (!parsedArgs.success) {
-      const errorMessage = parsedArgs.error.message;
+      const errorMessage = `${parsedArgs.error.message}\nInput shape: ${JSON.stringify(inputShape(input))}`;
       throw new InvalidInputError(errorMessage);
     }
     return parsedArgs.data;
