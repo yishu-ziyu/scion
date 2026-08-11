@@ -62,4 +62,40 @@ describe('research action input normalization', () => {
 
     expect(() => recordResearchDecisionActionSchema.schema.parse(normalized)).toThrow();
   });
+
+  it('unwraps nested seven-question answers and evidence matrices without changing gate semantics', () => {
+    const normalized = recordResearchDecisionActionSchema.normalizeInput?.({
+      selectedCapabilities: Array.from({ length: 3 }, (_, index) => ({
+        capability: `Capability ${index + 1}`,
+        sevenQuestions: {
+          userMoment: 'A concrete reader moment with enough detail',
+          behaviorChange: 'The reader completes a clearly different behavior',
+          whyNow: 'Current evidence makes this the next priority',
+          whyOthersLater: 'Lower-ranked options have weaker cross-source support',
+          implementationDistance: 'The repository already contains an adjacent primitive',
+          mvpScope: 'Ship the smallest observable end-to-end slice',
+          successMetric: 'Measure repeated successful use in the target moment',
+        },
+        evidenceMatrix: {
+          users: [`user-${index}-1`, `user-${index}-2`],
+          products: [`product-${index}`],
+          repository: [`repository-${index}`],
+        },
+      })),
+      deferredCapabilities: ['Generic assistant chat'],
+      counterEvidence: ['Some readers prefer external tools'],
+    });
+
+    const parsed = recordResearchDecisionActionSchema.schema.parse(normalized) as {
+      capabilities: Array<Record<string, unknown>>;
+      deferred: string[];
+    };
+    expect(parsed.capabilities[0]).toMatchObject({
+      title: 'Capability 1',
+      user_evidence_ids: ['user-0-1', 'user-0-2'],
+      product_evidence_ids: ['product-0'],
+      repository_evidence_ids: ['repository-0'],
+    });
+    expect(parsed.deferred).toEqual(['Generic assistant chat']);
+  });
 });

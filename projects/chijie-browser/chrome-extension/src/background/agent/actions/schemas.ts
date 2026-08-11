@@ -284,20 +284,43 @@ function normalizeStringList(value: unknown): unknown {
     .filter(Boolean);
 }
 
+function mergeObjectFields(value: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+  const nested = keys
+    .map(key => value[key])
+    .filter((candidate): candidate is Record<string, unknown> =>
+      Boolean(candidate && typeof candidate === 'object' && !Array.isArray(candidate)),
+    );
+  return Object.assign({}, ...nested, value);
+}
+
 function normalizeResearchCapabilityDecision(input: unknown): unknown {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
   const value = input as Record<string, unknown>;
-  const evidence =
-    value.evidence && typeof value.evidence === 'object' && !Array.isArray(value.evidence)
-      ? (value.evidence as Record<string, unknown>)
-      : {};
+  const content = mergeObjectFields(value, [
+    'answers',
+    'seven_questions',
+    'sevenQuestions',
+    'details',
+    'rationale',
+    'fields',
+  ]);
+  const evidence = mergeObjectFields(content, [
+    'evidence',
+    'evidence_matrix',
+    'evidenceMatrix',
+    'evidence_refs',
+    'evidenceRefs',
+    'evidence_ids',
+    'evidenceIds',
+    'sources',
+  ]);
   return {
     ...value,
-    title: firstDefined(value, ['title', 'name', 'capability']),
-    user_moment: firstDefined(value, ['user_moment', 'userMoment', 'user_scenario', 'userScenario', 'moment']),
-    behavior_change: firstDefined(value, ['behavior_change', 'behaviorChange', 'behavior', 'change']),
-    why_now: firstDefined(value, ['why_now', 'whyNow', 'priority_reason', 'priorityReason']),
-    why_others_later: firstDefined(value, [
+    title: firstDefined(content, ['title', 'name', 'capability']),
+    user_moment: firstDefined(content, ['user_moment', 'userMoment', 'user_scenario', 'userScenario', 'moment']),
+    behavior_change: firstDefined(content, ['behavior_change', 'behaviorChange', 'behavior', 'change']),
+    why_now: firstDefined(content, ['why_now', 'whyNow', 'priority_reason', 'priorityReason']),
+    why_others_later: firstDefined(content, [
       'why_others_later',
       'whyOthersLater',
       'why_not_others',
@@ -306,7 +329,7 @@ function normalizeResearchCapabilityDecision(input: unknown): unknown {
       'whyLater',
       'tradeoffs',
     ]),
-    implementation_distance: firstDefined(value, [
+    implementation_distance: firstDefined(content, [
       'implementation_distance',
       'implementationDistance',
       'implementation_gap',
@@ -315,18 +338,24 @@ function normalizeResearchCapabilityDecision(input: unknown): unknown {
       'technicalDistance',
       'distance',
     ]),
-    mvp: firstDefined(value, ['mvp', 'mvp_scope', 'mvpScope', 'minimum_viable_product', 'minimumViableProduct']),
-    success_metric: firstDefined(value, ['success_metric', 'successMetric', 'metric', 'success_measure', 'successMeasure']),
+    mvp: firstDefined(content, ['mvp', 'mvp_scope', 'mvpScope', 'minimum_viable_product', 'minimumViableProduct']),
+    success_metric: firstDefined(content, [
+      'success_metric',
+      'successMetric',
+      'metric',
+      'success_measure',
+      'successMeasure',
+    ]),
     user_evidence_ids: normalizeStringList(
-      firstDefined(value, ['user_evidence_ids', 'userEvidenceIds', 'user_evidence', 'userEvidence']) ??
+      firstDefined(content, ['user_evidence_ids', 'userEvidenceIds', 'user_evidence', 'userEvidence']) ??
         firstDefined(evidence, ['user_evidence_ids', 'userEvidenceIds', 'users', 'user']),
     ),
     product_evidence_ids: normalizeStringList(
-      firstDefined(value, ['product_evidence_ids', 'productEvidenceIds', 'product_evidence', 'productEvidence']) ??
+      firstDefined(content, ['product_evidence_ids', 'productEvidenceIds', 'product_evidence', 'productEvidence']) ??
         firstDefined(evidence, ['product_evidence_ids', 'productEvidenceIds', 'products', 'product']),
     ),
     repository_evidence_ids: normalizeStringList(
-      firstDefined(value, [
+      firstDefined(content, [
         'repository_evidence_ids',
         'repositoryEvidenceIds',
         'repository_evidence',
@@ -357,6 +386,10 @@ function normalizeResearchDecisionInput(input: unknown): unknown {
     'capabilities',
     'final_capabilities',
     'finalCapabilities',
+    'selected_capabilities',
+    'selectedCapabilities',
+    'final_recommendations',
+    'finalRecommendations',
     'recommendations',
   ]);
   const capabilities = Array.isArray(rawCapabilities)
@@ -369,7 +402,20 @@ function normalizeResearchDecisionInput(input: unknown): unknown {
     ...value,
     capabilities: Array.isArray(capabilities) ? capabilities.map(normalizeResearchCapabilityDecision) : capabilities,
     deferred: normalizeStringList(
-      firstDefined(value, ['deferred', 'deferred_items', 'deferredItems', 'not_now', 'notNow', 'later']),
+      firstDefined(value, [
+        'deferred',
+        'deferred_items',
+        'deferredItems',
+        'deferred_capabilities',
+        'deferredCapabilities',
+        'not_selected',
+        'notSelected',
+        'not_selected_capabilities',
+        'notSelectedCapabilities',
+        'not_now',
+        'notNow',
+        'later',
+      ]),
     ),
     contradictions:
       normalizeStringList(
