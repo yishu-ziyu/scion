@@ -48,6 +48,8 @@ import {
 import {
   extractResearchQuotas,
   researchContinuationQuery,
+  researchQuotasMet,
+  requiresStructuredResearchDecision,
   shouldGoBackFromUnavailableResearchPage,
   shouldLeavePrivateResearchDashboard,
   shouldRequireEvidenceBeforeNavigation,
@@ -95,6 +97,7 @@ export function shouldKeepActionResultInContext(actionName: string): boolean {
 
 export function shouldRetryUnrecordedResearchSource(input: {
   hasResearchQuotas: boolean;
+  collectionComplete?: boolean;
   currentSourceRecorded: boolean;
   pageUrl: string;
   pageUnavailable: boolean;
@@ -102,6 +105,7 @@ export function shouldRetryUnrecordedResearchSource(input: {
 }): boolean {
   return (
     input.hasResearchQuotas &&
+    !input.collectionComplete &&
     !input.currentSourceRecorded &&
     !input.pageUnavailable &&
     input.textLength >= 300 &&
@@ -432,10 +436,12 @@ export async function createLlmControlDriver(
           let researchStatus = '';
           let currentSourceRecorded = false;
           let researchProgress: ReturnType<typeof evidenceSpaceProgress> | null = null;
+          let researchCollectionComplete = false;
           if (researchQuotas) {
             const evidenceSpace = await getEvidenceSpace(input.taskId);
             const progress = evidenceSpaceProgress(evidenceSpace);
             researchProgress = progress;
+            researchCollectionComplete = researchQuotasMet(researchQuotas, progress);
             const canonicalPage = canonicalizeEvidenceSource(pageUrl);
             currentSourceRecorded = Boolean(
               canonicalPage && evidenceSpace?.records.some(record => record.canonicalSource === canonicalPage),
@@ -470,12 +476,20 @@ export async function createLlmControlDriver(
               `user_discussions: ${progress.userDiscussions}/${researchQuotas.userDiscussions}`,
               `products: ${progress.products}/${researchQuotas.products}`,
               `repository_records: ${progress.repository}`,
+              `collection_complete: ${researchCollectionComplete}`,
               `current_source_recorded: ${currentSourceRecorded}`,
               `recorded_sources: ${recordedSources.length > 0 ? recordedSources.join(' | ') : 'none'}`,
               `recorded_products: ${recordedProducts.length > 0 ? recordedProducts.join(' | ') : 'none'}`,
               `user_discussion_hosts: ${discussionHosts.length > 0 ? discussionHosts.join(' | ') : 'none'}`,
-              'If the current page is a useful source and current_source_recorded is false, record it before any navigation.',
-              'Do not revisit a recorded source merely to gather more evidence. Open an unread source, and prioritize any user_discussions or products quota still at zero.',
+              ...(researchCollectionComplete && requiresStructuredResearchDecision(instruction)
+                ? [
+                    'The collection gates are complete. Stop browsing and do not record the current page.',
+                    'Use inspect_evidence_space only to obtain valid durable IDs, then call record_research_decision with exactly three complete capabilities.',
+                  ]
+                : [
+                    'If the current page is a useful source and current_source_recorded is false, record it before any navigation.',
+                    'Do not revisit a recorded source merely to gather more evidence. Open an unread source, and prioritize any user_discussions or products quota still at zero.',
+                  ]),
               ...(progress.repository > 0 &&
               (progress.userDiscussions < researchQuotas.userDiscussions || progress.products < researchQuotas.products)
                 ? [
@@ -677,6 +691,7 @@ export async function createLlmControlDriver(
             if (
               shouldRetryUnrecordedResearchSource({
                 hasResearchQuotas: Boolean(researchQuotas),
+                collectionComplete: researchCollectionComplete,
                 currentSourceRecorded,
                 pageUrl,
                 pageUnavailable: pageLooksUnavailable({
@@ -743,6 +758,7 @@ export async function createLlmControlDriver(
               : null;
           const currentNeedsEvidence = shouldRetryUnrecordedResearchSource({
             hasResearchQuotas: Boolean(researchQuotas),
+            collectionComplete: researchCollectionComplete,
             currentSourceRecorded,
             pageUrl,
             pageUnavailable: currentPageUnavailable,

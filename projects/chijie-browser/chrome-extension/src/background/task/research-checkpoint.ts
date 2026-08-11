@@ -31,6 +31,7 @@ const RECOVERABLE_RESEARCH_DECISION_FAILURES = new Set([
   'no_progress',
   'no_action',
   'action_failed',
+  'evidence_required',
   'json_parse_failed',
   'unknown_action',
 ]);
