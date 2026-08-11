@@ -64,6 +64,13 @@ vi.mock('@extension/storage/lib/task', () => {
       store.evidenceSpaces.set(taskId, next);
       return structuredClone(next);
     },
+    resetEvidenceWorkCycles: async (taskId: string) => {
+      const current = store.evidenceSpaces.get(taskId);
+      if (!current) return null;
+      const next = { ...current, workCycles: 0 };
+      store.evidenceSpaces.set(taskId, next);
+      return structuredClone(next);
+    },
     putSkillSaveMeta: async (taskId: string, roundId: string, meta: { templates: unknown[]; unsafe: boolean }) => {
       skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
     },
@@ -739,6 +746,141 @@ describe('TaskManager lifecycle', () => {
       rounds: [{ status: 'running' }],
     });
     expect((await manager.snapshot('task-recover-failed-research'))?.rounds[0]?.failureCategory).toBeUndefined();
+  });
+
+  it('explicitly retries an exhausted quota research task without replacing its evidence or mission plan', async () => {
+    const instruction = '至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最后交付结论。';
+    const plan = {
+      id: 'plan-retry-research',
+      goal: instruction,
+      phases: [
+        {
+          id: 'phase-research',
+          title: '调研',
+          status: 'active' as const,
+          criteriaIds: [],
+          evidenceIds: [],
+          notes: ['保留原计划'],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    store.sessions.set('task-retry-research', {
+      id: 'task-retry-research',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-retry-research',
+      instructionMessageId: 'message-retry-research',
+      status: 'failed',
+      revision: 9,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      plan,
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionMessageId: 'message-retry-research',
+          instructionSummary: 'User instruction',
+          status: 'failed',
+          failureCategory: 'executor_start_failed',
+          commandAcks: {},
+          criteria: [],
+          attempts: [],
+          evidence: [],
+        },
+      ],
+    });
+    store.chatSessions.set('chat-retry-research', {
+      messages: [{ id: 'message-retry-research', content: instruction }],
+    });
+    const evidenceRecords = [
+      ...Array.from({ length: 76 }, () => ({ recordType: 'user_discussion' })),
+      ...Array.from({ length: 30 }, () => ({ recordType: 'product' })),
+    ];
+    store.evidenceSpaces.set('task-retry-research', {
+      taskId: 'task-retry-research',
+      records: evidenceRecords,
+      workCycles: 236,
+    });
+    const createExecutor = vi.fn(async () => fakeDriver());
+    const switchTab = vi.fn();
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab,
+      observeCriteria: vi.fn(async () => []),
+      now: () => 500,
+      ...noPostCommitBackoff,
+    });
+
+    await expect(
+      manager.dispatch({
+        type: 'retry_research',
+        commandId: 'retry-research-1',
+        taskId: 'task-retry-research',
+        expectedRevision: 9,
+        tabId: 11,
+      }),
+    ).resolves.toMatchObject({ accepted: true, revision: 10 });
+
+    await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
+    await expect(manager.snapshot('task-retry-research')).resolves.toMatchObject({
+      status: 'running',
+      activeTabId: 11,
+      currentRoundId: 'round-1',
+      plan,
+      rounds: [{ id: 'round-1', status: 'running' }],
+    });
+    expect((await manager.snapshot('task-retry-research'))?.rounds[0]?.failureCategory).toBeUndefined();
+    expect(store.evidenceSpaces.get('task-retry-research')).toMatchObject({
+      workCycles: 0,
+      records: evidenceRecords,
+    });
+    expect(switchTab).toHaveBeenCalledWith(11);
+  });
+
+  it('rejects explicit research retry for an ordinary failed task', async () => {
+    store.sessions.set('task-not-research', {
+      id: 'task-not-research',
+      goalSummary: 'User task',
+      status: 'failed',
+      revision: 2,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionSummary: 'User instruction',
+          status: 'failed',
+          failureCategory: 'setup_failed',
+          commandAcks: {},
+          criteria: [],
+          attempts: [],
+          evidence: [],
+        },
+      ],
+    });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => fakeDriver()),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 500,
+      ...noPostCommitBackoff,
+    });
+
+    await expect(
+      manager.dispatch({
+        type: 'retry_research',
+        commandId: 'retry-not-research',
+        taskId: 'task-not-research',
+        expectedRevision: 2,
+      }),
+    ).resolves.toMatchObject({ accepted: false, error: 'invalid_transition' });
   });
 
   it('migrates a legacy waiting_approval task to interrupted on recover', async () => {

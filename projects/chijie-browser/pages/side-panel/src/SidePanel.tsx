@@ -591,10 +591,31 @@ const SidePanel = () => {
 
   const sendTaskCommand = useCallback(
     (command: TaskCommand) => {
-      if (command.type === 'start' || command.type === 'run_skill') pendingTaskIdRef.current = command.taskId;
-      sendMessage({ type: 'task_command', command });
+      const postCommand = (nextCommand: TaskCommand) => {
+        if (nextCommand.type === 'start' || nextCommand.type === 'run_skill') {
+          pendingTaskIdRef.current = nextCommand.taskId;
+        }
+        sendMessage({ type: 'task_command', command: nextCommand });
+      };
+      if (command.type === 'retry_research') {
+        void resolveActiveContentTab()
+          .then(bound => {
+            if (!bound) throw new Error(t('chat_task_bind_missing'));
+            setBindPreview(bound);
+            postCommand({ ...command, tabId: bound.tabId });
+          })
+          .catch(error => {
+            void appendMessage({
+              actor: Actors.SYSTEM,
+              content: error instanceof Error ? error.message : String(error),
+              timestamp: Date.now(),
+            });
+          });
+        return;
+      }
+      postCommand(command);
     },
-    [sendMessage],
+    [appendMessage, sendMessage],
   );
 
   // Handle chat commands that start with /

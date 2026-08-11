@@ -96,6 +96,13 @@ export interface TaskStatusCardProps {
   isDarkMode?: boolean;
 }
 
+export function canRetryResearchFailure(snapshot: TaskSnapshot, evidenceSpace?: EvidenceSpace | null): boolean {
+  if (snapshot.status !== 'failed') return false;
+  const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
+  if (round?.failureCategory?.startsWith('research_')) return true;
+  return evidenceSpace?.taskId === snapshot.id && evidenceSpace.records.length > 0;
+}
+
 function waitReasonHint(reason: WaitReason | undefined): string | null {
   if (!reason) return null;
   switch (reason) {
@@ -949,6 +956,22 @@ export function TaskStatusCard({
                 })
               }>
               {t('chat_task_wait_retry')}
+            </button>
+          )}
+          {canRetryResearchFailure(snapshot, evidenceSpace) && (
+            <button
+              type="button"
+              data-testid="research-retry"
+              className={`${primaryButtonClassName} mt-2`}
+              onClick={() =>
+                send({
+                  type: 'retry_research',
+                  commandId: crypto.randomUUID(),
+                  taskId: snapshot.id,
+                  expectedRevision: snapshot.revision,
+                })
+              }>
+              {t('chat_task_retry_research')}
             </button>
           )}
         </div>
