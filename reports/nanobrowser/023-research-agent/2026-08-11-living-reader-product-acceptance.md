@@ -72,6 +72,7 @@
 
 - chrome-extension 定向：3 个测试文件，`71/71` 通过。
 - side-panel 定向：3 个测试文件，`65/65` 通过。
+- side-panel 全量：13 个测试文件，`126/126` 通过。
 - workspace type-check：`12/12` 通过。
 - workspace lint：`12/12` 通过。
 - production ready：`8/8` 通过。
@@ -91,6 +92,18 @@
 - candidate_complete 在 80/30、决策或双回读未满足时被拒绝。
 - 显式 paused 的研究任务 reload 后保持 paused。
 - terminal 结果可见但不会被当作 active 自动恢复。
+
+## 完整满足状态的公共边界复验
+
+为覆盖“如果 80/30、三个能力和飞书双回读全部满足，公共侧栏实际会输出什么”，新增了 storage verifier → progress projection 的集成用例。用例不是现实任务完成证据，而是对完整状态跨模块投影的代表性验证：
+
+1. 证据空间包含 80 条合格用户讨论、30 个合格产品和 1 条仓库依据。
+2. `putResearchDecisionInSpace` 只接受恰好三个、七问齐全且各自满足 2+1+1 的能力，并保留 deferred 与 contradictions。
+3. `putResearchDeliveryInSpace` 依次接受字段与 111 行回读齐全的飞书研究表，以及第一屏包含“下一步做什么 / 为什么 / 暂时不做”和三个能力标题的飞书决策文档。
+4. `deriveTaskProgressView` 在 completed snapshot 上投影五个 done 里程碑，Gate 分别为 `1/1`、`80/80`、`30/30`、`3/3`、`2/2`，两个交付物均为 verified。
+5. 完成态健康文案为“全部要求已经过页面证据验证”，无 current activity，下一步只剩“核对全部验收门并生成最终回执”。
+
+该用例与全量 side-panel 回归一起通过，当前 side-panel 总数为 `126/126`。它证明系统已能把完整持久状态正确投影到公共控制台，但不能替代现实来源、真实三个能力和真实飞书资产的最终验收。
 
 ## 为什么本轮停在 acceptance_blocked
 
