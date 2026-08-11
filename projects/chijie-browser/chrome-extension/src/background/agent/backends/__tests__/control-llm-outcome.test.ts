@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CONTROL_MAX_NO_PROGRESS,
   createResearchEvidenceRetryBudget,
+  inferCompletedResearchOutcome,
   inferResearchDeliveryReadbackAction,
   invokeWithTimeout,
   mapLoopOutcomeToExecutor,
@@ -123,6 +124,18 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
         documentRecorded: false,
         decisionTitles: ['A', 'B', 'C'],
       }),
+    ).toBeNull();
+  });
+
+  it('finishes only after every durable research gate is complete', () => {
+    expect(
+      inferCompletedResearchOutcome({ collectionComplete: true, decisionReady: true, deliveryReady: true }),
+    ).toMatchObject({ kind: 'done' });
+    expect(
+      inferCompletedResearchOutcome({ collectionComplete: true, decisionReady: true, deliveryReady: false }),
+    ).toBeNull();
+    expect(
+      inferCompletedResearchOutcome({ collectionComplete: true, decisionReady: false, deliveryReady: true }),
     ).toBeNull();
   });
 
