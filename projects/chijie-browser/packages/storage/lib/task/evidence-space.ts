@@ -358,6 +358,20 @@ export async function advanceEvidenceWorkCycle(taskId: string, now = Date.now())
   return next;
 }
 
+/** Grant a fresh bounded execution budget without discarding durable research evidence or decisions. */
+export async function resetEvidenceWorkCycles(taskId: string, now = Date.now()): Promise<EvidenceSpace | null> {
+  const all = await evidenceStorage.get();
+  const current = all[taskId];
+  if (!current) return null;
+  const next = {
+    ...current,
+    workCycles: 0,
+    updatedAt: now,
+  };
+  await evidenceStorage.set({ ...all, [taskId]: next });
+  return next;
+}
+
 function validateResearchDecision(
   space: EvidenceSpace,
   draft: Omit<ResearchDecision, 'createdAt'>,

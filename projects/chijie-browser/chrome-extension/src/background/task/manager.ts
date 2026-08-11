@@ -6,6 +6,7 @@ import {
   getSkillSaveMeta,
   getTask,
   putSkillSaveMeta,
+  resetEvidenceWorkCycles,
   researchDecisionReady,
   researchDeliveryReady,
   saveTask,
@@ -254,6 +255,8 @@ export class TaskManager {
         return this.pause(existing, command.commandId);
       case 'resume':
         return this.resume(existing, command.commandId);
+      case 'retry_research':
+        return this.retryResearch(existing, command);
       case 'follow_up':
         return this.followUp(existing, command);
       case 'cancel':
@@ -500,6 +503,39 @@ export class TaskManager {
     const driver = this.drivers.get(task.id);
     if (driver) driver.resume();
     else void this.runCurrentRound(task.id);
+    return ack;
+  }
+
+  private async retryResearch(
+    task: TaskSession,
+    command: Extract<TaskCommand, { type: 'retry_research' }>,
+  ): Promise<CommandAck> {
+    const round = this.currentRound(task);
+    if (task.status !== 'failed' || task.sourceSkillId !== undefined) {
+      return this.reject(task, command.commandId, 'invalid_transition');
+    }
+
+    let instruction = this.instructions.get(task.id);
+    if (!instruction && task.chatSessionId && round.instructionMessageId) {
+      const { chatHistoryStore } = await import('@extension/storage/lib/chat');
+      const session = await chatHistoryStore.getSession(task.chatSessionId);
+      instruction = session?.messages.find(message => message.id === round.instructionMessageId)?.content;
+    }
+    if (!instruction || !extractResearchQuotas(instruction)) {
+      return this.reject(task, command.commandId, 'invalid_transition');
+    }
+
+    await this.stopTaskRuntime(task.id);
+    await resetEvidenceWorkCycles(task.id, this.deps.now());
+    this.instructions.set(task.id, instruction);
+    if (command.tabId !== undefined) task.activeTabId = command.tabId;
+    task.status = 'running';
+    round.status = 'running';
+    delete round.failureCategory;
+    delete round.waitReason;
+    const ack = this.accept(task, command.commandId);
+    await this.persist(task);
+    void this.runCurrentRound(task.id);
     return ack;
   }
 

@@ -1287,6 +1287,9 @@
   "chat_task_wait_retry": {
     "message": "Re-check page and continue"
   },
+  "chat_task_retry_research": {
+    "message": "Continue the remaining research"
+  },
   "act_saveScreenshot_start": {
     "message": "Capturing the page and saving to Downloads"
   },

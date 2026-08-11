@@ -22,7 +22,8 @@ import {
   sourceHasBannedSkyChrome,
 } from '../contracts';
 import { t } from '@extension/i18n';
-import { instructionToSkillTemplate } from '../../components/TaskStatusCard';
+import type { EvidenceSpace, TaskSnapshot } from '@extension/storage';
+import { canRetryResearchFailure, instructionToSkillTemplate } from '../../components/TaskStatusCard';
 import { commandRejectionMessage } from '../../SidePanel';
 
 // Ready/dev i18n resolves via t.devLocale, not chrome.i18n. Pin zh_CN so
@@ -307,6 +308,30 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).toContain('criterion-confirm');
     expect(taskStatusCardSource).not.toContain('proof-deadend-escape');
     expect(taskStatusCardSource).not.toContain('task-cancel-deadend');
+  });
+
+  it('failed quota research exposes an explicit retry that preserves the task shell', () => {
+    const snapshot = {
+      id: 'task-research',
+      status: 'failed',
+      currentRoundId: 'round-1',
+      rounds: [{ id: 'round-1', failureCategory: 'research_quota_unmet' }],
+    } as TaskSnapshot;
+    expect(canRetryResearchFailure(snapshot)).toBe(true);
+    expect(canRetryResearchFailure({ ...snapshot, status: 'completed' })).toBe(false);
+    expect(
+      canRetryResearchFailure(
+        {
+          ...snapshot,
+          rounds: [{ ...snapshot.rounds[0], failureCategory: 'executor_start_failed' }],
+        },
+        { taskId: snapshot.id, records: [{}], workCycles: 1 } as EvidenceSpace,
+      ),
+    ).toBe(true);
+    expect(taskStatusCardSource).toContain('data-testid="research-retry"');
+    expect(taskStatusCardSource).toContain("type: 'retry_research'");
+    expect(taskStatusCardSource).toContain('chat_task_retry_research');
+    expect(sidePanelSource).toMatch(/command\.type === 'retry_research'[\s\S]{0,500}resolveActiveContentTab/);
   });
 
   it('persists a verified text deliverable into chat with receipt-level deduplication', () => {

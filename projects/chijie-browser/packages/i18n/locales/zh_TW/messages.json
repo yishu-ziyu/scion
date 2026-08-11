@@ -1287,6 +1287,9 @@
   "chat_task_wait_retry": {
     "message": "重新檢查頁面並繼續"
   },
+  "chat_task_retry_research": {
+    "message": "繼續完成剩餘調研"
+  },
   "act_saveScreenshot_start": {
     "message": "正在擷取目前頁面並儲存到下載資料夾"
   },

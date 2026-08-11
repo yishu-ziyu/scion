@@ -144,6 +144,7 @@ export type TaskCommand =
       changeType?: 'follow_up' | 'direction_change';
     })
   | (ExistingTaskCommand & { type: 'pause' | 'resume' | 'cancel' })
+  | (ExistingTaskCommand & { type: 'retry_research'; tabId?: number })
   | (ExistingTaskCommand & { type: 'confirm_completion'; roundId: string; criterionId: string })
   | (ExistingTaskCommand & { type: 'save_skill'; roundId: string; title: string; instructionTemplate: string })
   | {
