@@ -14,8 +14,20 @@ import {
   resolveEvalIdentity,
   seedEvalLlm,
 } from './lib/eval-provider.mjs';
+import {
+  buildActionScenarioEvidence,
+  isAttributableActionFailure,
+  selectUniqueNewRuntimeTask,
+} from './lib/action-run-evidence.mjs';
 import { buildScopedTraceEvidence } from './lib/eval-trace-evidence.mjs';
-import { tabProvenanceWrongTab, wrongTabFromIds } from './lib/eval-verification.mjs';
+import {
+  COMPLETION_RESULT_SELECTOR,
+  FINAL_DELIVERABLE_SELECTOR,
+  scopedCompletionSnapshot,
+  tabProvenanceWrongTab,
+  taskSpecificVerificationPass,
+  wrongTabFromIds,
+} from './lib/eval-verification.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../dist');
@@ -56,6 +68,7 @@ let browserVersion = '';
 let runtimeExtensionAttestation = null;
 let lastScenarioEvidence = [];
 let traceTabSamples = [];
+let currentScenarioScope = null;
 
 /**
  * Stable Google Chrome ignores --load-extension (branded builds).
@@ -167,6 +180,130 @@ async function bindActiveTab(panel) {
   return lastBoundTab;
 }
 
+async function readActionRunScope(panel, priorTaskIds, lockedTaskId = '') {
+  return panel.evaluate(
+    async ({ priorIds, lockedId, deliverableSelector, completionResultSelector }) => {
+      const stored = await chrome.storage.local.get(['task-runtime-v1']);
+      const tasks = Object.values(stored['task-runtime-v1'] || {});
+      const prior = new Set(priorIds);
+      const candidates = tasks.filter(task => task?.id && !prior.has(String(task.id)));
+      const candidate = candidates.length === 1 ? candidates[0] : null;
+      const scopeInvalid = candidates.length > 1 || Boolean(candidate && lockedId && candidate.id !== lockedId);
+      const round =
+        candidate?.rounds?.find(item => item?.id === candidate?.currentRoundId) ||
+        candidate?.rounds?.at?.(-1) ||
+        candidate?.rounds?.[candidate.rounds.length - 1];
+      const targetTabIds = [
+        ...(candidate?.targetRefs || []).map(ref => ref?.id),
+        ...(round?.criteria || []).map(item => item?.targetRefId),
+        ...(round?.evidence || []).map(item => item?.targetRefId),
+        ...(round?.attempts || []).flatMap(item => [item?.targetRefId, item?.effect?.targetRefId]),
+      ]
+        .map(value => /^tab-(\d+)$/.exec(String(value || ''))?.[1])
+        .filter(Boolean)
+        .map(Number);
+      const cards = [...document.querySelectorAll('[data-testid="task-status"]')].map(card => ({
+        taskId: card.getAttribute('data-task-id') || '',
+        roundId: card.getAttribute('data-round-id') || '',
+        status: card.getAttribute('data-status') || null,
+        receiptIds: [...card.querySelectorAll('[data-testid="completion-receipt"]')].map(
+          receipt => receipt.getAttribute('data-receipt-id') || '',
+        ),
+        resultTexts: [...card.querySelectorAll(completionResultSelector)].map(result => result.textContent || ''),
+        deliverableTexts: [...card.querySelectorAll(deliverableSelector)].map(
+          deliverable => deliverable.textContent || '',
+        ),
+      }));
+      return {
+        candidateCount: candidates.length,
+        scopeInvalid,
+        task: candidate
+          ? {
+              id: candidate.id,
+              status: candidate.status,
+              roundId: round?.id || '',
+              activeTabId: candidate.activeTabId,
+              targetTabIds: [...new Set(targetTabIds)],
+              receipt: round?.receipt
+                ? {
+                    id: round.receipt.id,
+                    taskId: round.receipt.taskId,
+                    roundId: round.receipt.roundId,
+                  }
+                : null,
+            }
+          : null,
+        cards,
+      };
+    },
+    {
+      priorIds: priorTaskIds,
+      lockedId: lockedTaskId,
+      deliverableSelector: FINAL_DELIVERABLE_SELECTOR,
+      completionResultSelector: COMPLETION_RESULT_SELECTOR,
+    },
+  );
+}
+
+async function captureActionRunScope(panel) {
+  if (!currentScenarioScope) return null;
+  const observed = await readActionRunScope(
+    panel,
+    currentScenarioScope.priorTaskIds,
+    currentScenarioScope.runtimeTask?.id || '',
+  );
+  if (observed.scopeInvalid || observed.candidateCount > 1) {
+    currentScenarioScope.scopeInvalid = true;
+    return null;
+  }
+  const selection = selectUniqueNewRuntimeTask(
+    observed.task ? [observed.task] : [],
+    [],
+    currentScenarioScope.runtimeTask?.id || '',
+  );
+  if (!selection.candidate) return null;
+  currentScenarioScope.runtimeTask = selection.candidate;
+  currentScenarioScope.completion = scopedCompletionSnapshot(observed.cards, {
+    id: selection.candidate.id,
+    roundId: selection.candidate.roundId,
+  });
+  currentScenarioScope.updatedAt = Date.now();
+  return currentScenarioScope;
+}
+
+async function beginActionScenario(panel, label) {
+  const priorTaskIds = await panel.evaluate(async () => {
+    const stored = await chrome.storage.local.get(['task-runtime-v1']);
+    return Object.values(stored['task-runtime-v1'] || {})
+      .map(task => task?.id)
+      .filter(Boolean);
+  });
+  currentScenarioScope = {
+    label,
+    priorTaskIds,
+    runtimeTask: null,
+    completion: null,
+    boundTab: null,
+    scopeInvalid: false,
+  };
+}
+
+async function actionScenarioEvidence(panel, { label, boundTab, error = '', pageEvidence = '', expectedEffect = '' }) {
+  await captureActionRunScope(panel);
+  const activeTab = await readActiveTab(panel);
+  const scenario = buildActionScenarioEvidence({
+    label,
+    runtimeTask: currentScenarioScope?.runtimeTask,
+    completion: currentScenarioScope?.completion,
+    boundTab,
+    activeTab,
+    pageEvidence,
+    expectedEffect,
+    error,
+  });
+  return scenario;
+}
+
 async function assertActiveTab(panel, boundTab, label, tabChecks) {
   const activeTab = await readActiveTab(panel);
   const taskProof = await panel.evaluate(async () => {
@@ -220,20 +357,46 @@ function observedWrongTab(tabChecks) {
   return values.some(value => value === 1) ? 1 : 0;
 }
 
-function buildActionVerificationEvidence(scenarios, finalDeliverable = '') {
+function buildActionVerificationEvidence(scenarios) {
   const receiptIds = [...new Set(scenarios.map(item => item.receipt_id).filter(Boolean))];
   const runtimeTaskIds = [...new Set(scenarios.map(item => item.runtime_task_id).filter(Boolean))];
   const deliverables = scenarios.map(item => item.deliverable).filter(Boolean);
+  const completionResults = scenarios.map(item => item.completion_result).filter(Boolean);
+  const scoped = scenarios.length === 1 ? scenarios[0] : null;
+  const nodeCount = (item, countKey, valueKey) =>
+    Number.isInteger(item?.[countKey]) ? item[countKey] : item?.[valueKey] ? 1 : 0;
   return {
     terminal_status:
-      scenarios.length > 0 && scenarios.every(item => item.terminal_status === 'completed') ? 'completed' : 'failed',
-    receipt_count: receiptIds.length,
-    deliverable_count: deliverables.length,
-    final_deliverable: finalDeliverable || deliverables.join('; '),
+      scoped?.terminal_status ||
+      (scenarios.length > 0 && scenarios.every(item => item.terminal_status === 'completed') ? 'completed' : 'failed'),
+    runtime_status: scoped?.runtime_status || '',
+    ui_status: scoped?.ui_status || '',
+    receipt_count: scenarios.reduce((total, item) => total + nodeCount(item, 'receipt_count', 'receipt_id'), 0),
+    completion_result_count: scenarios.reduce(
+      (total, item) => total + nodeCount(item, 'completion_result_count', 'completion_result'),
+      0,
+    ),
+    completion_result: completionResults.at(-1) || '',
+    deliverable_count: scenarios.reduce(
+      (total, item) => total + nodeCount(item, 'deliverable_count', 'deliverable'),
+      0,
+    ),
+    deliverable_required: true,
+    final_deliverable: deliverables.join('; '),
     // This runner intentionally covers multiple tasks. Never collapse them into
     // one invented runtime id merely to satisfy the single-task formal gate.
     runtime_task_id: runtimeTaskIds.length === 1 ? runtimeTaskIds[0] : '',
     runtime_task_ids: runtimeTaskIds,
+    runtime_round_id: scoped?.runtime_round_id || '',
+    scoped_card_count: scoped?.scoped_card_count ?? 0,
+    ui_task_id: scoped?.ui_task_id || '',
+    ui_round_id: scoped?.ui_round_id || '',
+    visible_receipt_id: scoped?.visible_receipt_id || '',
+    has_runtime_receipt: scoped?.has_runtime_receipt === true,
+    runtime_receipt_id: scoped?.runtime_receipt_id || '',
+    runtime_receipt_task_id: scoped?.runtime_receipt_task_id || '',
+    runtime_receipt_round_id: scoped?.runtime_receipt_round_id || '',
+    receipt_ids: receiptIds,
     scenario_evidence: scenarios,
     verifier: 'action_scenarios',
     attach_attestation: {
@@ -399,42 +562,31 @@ async function sendGoal(panel, target, instruction) {
 
 async function captureActionTraceSample(panel) {
   try {
-    const sample = await panel.evaluate(async () => {
-      const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      const stored = await chrome.storage.local.get(['task-runtime-v1']);
-      const task = Object.values(stored['task-runtime-v1'] || {})
-        .filter(Boolean)
-        .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))[0];
-      const round = task?.rounds?.at?.(-1) || task?.rounds?.[task?.rounds?.length - 1];
-      const targetTabIds = [
-        ...(task?.targetRefs || []).map(ref => ref?.id),
-        ...(round?.criteria || []).map(item => item?.targetRefId),
-        ...(round?.evidence || []).map(item => item?.targetRefId),
-        ...(round?.attempts || []).flatMap(item => [item?.targetRefId, item?.effect?.targetRefId]),
-      ]
-        .map(value => /^tab-(\d+)$/.exec(String(value || ''))?.[1])
-        .filter(Boolean)
-        .map(Number);
-      return {
-        task_id: task?.id ?? null,
-        active_tab_id: active?.id ?? null,
-        task_tab_id: task?.activeTabId ?? null,
-        target_tab_ids: [...new Set(targetTabIds)],
-      };
-    });
+    const scope = await captureActionRunScope(panel);
+    const task = scope?.runtimeTask;
+    if (!task) return;
+    const active = await readActiveTab(panel);
+    const sample = {
+      task_id: task.id,
+      active_tab_id: active?.id ?? null,
+      task_tab_id: task.activeTabId ?? null,
+      target_tab_ids: task.targetTabIds || [],
+    };
     if (sample.task_id) traceTabSamples.push({ captured_at: new Date().toISOString(), ...sample });
   } catch {
     // Missing task state is fail-closed later when trace evidence is built.
   }
 }
 
-async function writeActionTrace(panel, runtimeTaskId, boundTabId) {
+async function writeActionTrace(panel, scenario, boundTabId, outcome) {
   if (!traceDumpDir) return '';
   await captureActionTraceSample(panel);
   const rawTraces = await panel.evaluate(async () => {
     const stored = await chrome.storage.local.get(['eval-traces-v1']);
     return stored['eval-traces-v1'] || {};
   });
+  const runtimeTaskId = scenario.runtime_task_id;
+  const runtimeRoundId = scenario.runtime_round_id;
   const trace = buildScopedTraceEvidence({
     rawTraces,
     evalTaskId,
@@ -443,10 +595,20 @@ async function writeActionTrace(panel, runtimeTaskId, boundTabId) {
     armHash,
     runId,
     runtimeTaskId,
+    runtimeRoundId,
     boundTabId,
-    terminalStatus: 'completed',
-    receiptCount: 1,
-    deliverableCount: 1,
+    terminalStatus: scenario.terminal_status,
+    scopedCardCount: scenario.scoped_card_count,
+    uiTaskId: scenario.ui_task_id,
+    uiRoundId: scenario.ui_round_id,
+    visibleReceiptId: scenario.visible_receipt_id,
+    hasRuntimeReceipt: scenario.has_runtime_receipt,
+    runtimeReceiptId: scenario.runtime_receipt_id,
+    receiptCount: scenario.receipt_count,
+    completionResultCount: scenario.completion_result_count,
+    deliverableCount: scenario.deliverable_count,
+    deliverableRequired: true,
+    outcome,
     tabSamples: traceTabSamples,
   });
   const scopedSamples = traceTabSamples.filter(sample => sample.task_id === runtimeTaskId);
@@ -630,11 +792,18 @@ async function waitForExternalCommit(panel, target, { expectedCount, notBeforeRe
 
   while (Date.now() - start < timeout) {
     await captureActionTraceSample(panel);
-    const snap = await panel.evaluate(() => ({
-      status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status'),
-      receipt: document.querySelector('[data-testid="completion-receipt"]')?.textContent || null,
-      body: (document.body?.innerText || '').slice(0, 400),
-    }));
+    const snap = await panel.evaluate(() => {
+      const receipts = [...document.querySelectorAll('[data-testid="completion-receipt"]')];
+      const results = [...document.querySelectorAll('[data-testid="completion-result"]')];
+      return {
+        status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status'),
+        receipt: receipts[0]?.textContent || null,
+        receiptCount: receipts.length,
+        completionResultCount: results.length,
+        completionResult: results[0]?.textContent?.trim() || '',
+        body: (document.body?.innerText || '').slice(0, 400),
+      };
+    });
     if (snap.status === 'running') seenActiveRun = true;
     const count = await readSubmitCount();
     const receiptId = await readReceiptId(panel);
@@ -645,7 +814,13 @@ async function waitForExternalCommit(panel, target, { expectedCount, notBeforeRe
       throw new Error(`submit count=${count} exceeded expectedCount=${expectedCount}`);
     }
 
-    if (snap.status === 'completed' && snap.receipt && count === expectedCount) {
+    if (
+      snap.status === 'completed' &&
+      snap.receiptCount === 1 &&
+      snap.completionResultCount === 1 &&
+      snap.completionResult &&
+      count === expectedCount
+    ) {
       if (notBeforeReceiptId && receiptId && receiptId === notBeforeReceiptId && !seenActiveRun) {
         console.log('[e2e] ignoring prior completed receipt while waiting for new run');
       } else if (notBeforeReceiptId && receiptId && receiptId === notBeforeReceiptId) {
@@ -800,11 +975,13 @@ async function runAllScenarios(extensionId, run) {
   await new Promise(r => setTimeout(r, 500));
 
   const formReceiptBefore = await readReceiptId(panel);
+  await beginActionScenario(panel, 'form');
   const formBoundTab = await sendGoal(
     panel,
     target,
     'Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.',
   );
+  currentScenarioScope.boundTab = formBoundTab;
   await dumpPanel(panel, `run${run}-after-send`);
 
   // Form: task-scoped external commit must land once and never reuse an old receipt.
@@ -813,12 +990,15 @@ async function runAllScenarios(extensionId, run) {
     notBeforeReceiptId: formReceiptBefore,
   });
   const formTabCheck = await assertActiveTab(panel, formBoundTab, 'form', tabChecks);
-  lastScenarioEvidence.push({
+  const formScenario = await actionScenarioEvidence(panel, {
     label: 'form',
-    terminal_status: formDone.status,
-    receipt_id: formDone.receiptId || formDone.receipt,
-    deliverable: formDone.pageEvidence,
-    runtime_task_id: formTabCheck.task_id,
+    boundTab: formBoundTab,
+    pageEvidence: formDone.pageEvidence,
+    expectedEffect: 'Saved successfully',
+  });
+  assert.equal(formScenario.runtime_task_id, formTabCheck.task_id, 'form runtime task attribution changed');
+  lastScenarioEvidence.push({
+    ...formScenario,
     submit_count: formDone.count,
     quiescence_ms: formDone.quiescence.elapsedMs,
     quiescence_confirmations: formDone.quiescence.confirmations,
@@ -828,13 +1008,19 @@ async function runAllScenarios(extensionId, run) {
 
   if (['018-O1', '013-C01'].includes(evalTaskId)) {
     await assertNoNonChatSentinelLeak(panel, ['FIELD_SENTINEL_8472']);
-    const verification = buildActionVerificationEvidence(lastScenarioEvidence, formDone.pageEvidence);
+    const verification = buildActionVerificationEvidence(lastScenarioEvidence);
     const wrongTab = observedWrongTab(tabChecks);
+    const candidateEvidence = {
+      ...verification,
+      task_id: evalTaskId,
+      outcome: 'verified_pass',
+      privacy_pass: true,
+    };
     const outcome =
-      wrongTab !== null && lastScenarioEvidence.length === 1 && verification.runtime_task_id
+      wrongTab !== null && taskSpecificVerificationPass(evalTaskId, candidateEvidence)
         ? 'verified_pass'
         : 'invalid_run';
-    await writeActionTrace(panel, verification.runtime_task_id, formBoundTab?.id);
+    await writeActionTrace(panel, formScenario, formBoundTab?.id, outcome);
     const evidencePath = writeRunnerEvidence({
       ...verification,
       outcome,
@@ -908,6 +1094,8 @@ async function runAllScenarios(extensionId, run) {
   await setValue(panel, 'skill-input-name', 'FIELD_SENTINEL_CHANGED_9521');
   await target.bringToFront();
   const skillBoundTab = await bindActiveTab(panel);
+  await beginActionScenario(panel, 'skill');
+  currentScenarioScope.boundTab = skillBoundTab;
   await click(panel, 'skill-run-confirm');
   // Skill re-run is a second external commit: count must advance from 1 to 2.
   const skillDone = await waitForExternalCommit(panel, target, {
@@ -915,12 +1103,15 @@ async function runAllScenarios(extensionId, run) {
     notBeforeReceiptId: skillReceiptBefore,
   });
   const skillTabCheck = await assertActiveTab(panel, skillBoundTab, 'skill', tabChecks);
-  lastScenarioEvidence.push({
+  const skillScenario = await actionScenarioEvidence(panel, {
     label: 'skill',
-    terminal_status: skillDone.status,
-    receipt_id: skillDone.receiptId || skillDone.receipt,
-    deliverable: skillDone.pageEvidence,
-    runtime_task_id: skillTabCheck.task_id,
+    boundTab: skillBoundTab,
+    pageEvidence: skillDone.pageEvidence,
+    expectedEffect: 'Saved successfully',
+  });
+  assert.equal(skillScenario.runtime_task_id, skillTabCheck.task_id, 'skill runtime task attribution changed');
+  lastScenarioEvidence.push({
+    ...skillScenario,
     submit_count: skillDone.count,
     quiescence_ms: skillDone.quiescence.elapsedMs,
     quiescence_confirmations: skillDone.quiescence.confirmations,
@@ -933,10 +1124,7 @@ async function runAllScenarios(extensionId, run) {
     console.log(`[e2e] run${run} media SKIP (E2E_SKIP_MEDIA=1)`);
     const latencyMs = Date.now() - scenarioStart;
     console.log(`[e2e] run${run} latency_ms=${latencyMs}`);
-    const verification = buildActionVerificationEvidence(
-      lastScenarioEvidence,
-      `form=${formDone.pageEvidence}; skill=${skillDone.pageEvidence}`,
-    );
+    const verification = buildActionVerificationEvidence(lastScenarioEvidence);
     const wrongTab = observedWrongTab(tabChecks);
     const outcome = lastScenarioEvidence.length === 1 && verification.runtime_task_id ? 'verified_pass' : 'invalid_run';
     const evidencePath = writeRunnerEvidence({
@@ -969,7 +1157,9 @@ async function runAllScenarios(extensionId, run) {
   // Fixture starts paused; prove play before pause.
   assert.equal(await media.$eval('#fixture-audio', el => el.paused), true, 'fixture must start paused');
   const mediaPanel = await openPanelForTarget(extensionId, media);
+  await beginActionScenario(mediaPanel, 'media-play');
   const playBoundTab = await sendGoal(mediaPanel, media, 'Play the visible audio.');
+  currentScenarioScope.boundTab = playBoundTab;
   const playResult = await waitMediaState(mediaPanel, media, {
     expectPaused: false,
     notBeforeReceiptId: null,
@@ -980,16 +1170,19 @@ async function runAllScenarios(extensionId, run) {
   assert.ok(playResult.receiptId || playResult.snap.hasReceipt, 'play must produce a receipt');
   const playDigest = playResult.facts?.digests?.[0] || (await readLatestMediaFacts(mediaPanel))?.digests?.[0] || null;
   assert.ok(playDigest, 'play must bind a media digest');
-  lastScenarioEvidence.push({
+  const playScenario = await actionScenarioEvidence(mediaPanel, {
     label: 'media-play',
-    terminal_status: playResult.snap.status,
-    receipt_id: playResult.receiptId,
-    deliverable: `audio playing digest=${playDigest}`,
-    runtime_task_id: playTabCheck.task_id,
+    boundTab: playBoundTab,
+    pageEvidence: `audio playing digest=${playDigest}`,
+    expectedEffect: `audio playing digest=${playDigest}`,
   });
+  assert.equal(playScenario.runtime_task_id, playTabCheck.task_id, 'media-play runtime task attribution changed');
+  lastScenarioEvidence.push(playScenario);
   console.log(`[e2e] run${run} media play PASS digest=${playDigest} receipt=${playResult.receiptId}`);
 
+  await beginActionScenario(mediaPanel, 'media-pause');
   const pauseBoundTab = await sendGoal(mediaPanel, media, '暂停这个音频');
+  currentScenarioScope.boundTab = pauseBoundTab;
   const pauseResult = await waitMediaState(mediaPanel, media, {
     expectPaused: true,
     notBeforeReceiptId: playResult.receiptId,
@@ -1009,13 +1202,14 @@ async function runAllScenarios(extensionId, run) {
   assert.ok(pauseDigest, 'pause must resolve a media digest');
   assert.equal(pauseDigest, playDigest, 'pause must use the same media digest as play');
   assert.equal(await media.$eval('#fixture-audio', element => element.paused), true);
-  lastScenarioEvidence.push({
+  const pauseScenario = await actionScenarioEvidence(mediaPanel, {
     label: 'media-pause',
-    terminal_status: pauseResult.snap.status,
-    receipt_id: pauseResult.receiptId,
-    deliverable: `audio paused digest=${pauseDigest}`,
-    runtime_task_id: pauseTabCheck.task_id,
+    boundTab: pauseBoundTab,
+    pageEvidence: `audio paused digest=${pauseDigest}`,
+    expectedEffect: `audio paused digest=${pauseDigest}`,
   });
+  assert.equal(pauseScenario.runtime_task_id, pauseTabCheck.task_id, 'media-pause runtime task attribution changed');
+  lastScenarioEvidence.push(pauseScenario);
   console.log(
     `[e2e] run${run} media PASS digest=${pauseDigest} playReceipt=${playResult.receiptId} pauseReceipt=${pauseResult.receiptId}`,
   );
@@ -1140,11 +1334,47 @@ try {
 } catch (error) {
   console.error('[e2e] FAIL', error);
   if (!rowEmitted) {
-    const activeTab = lastPanel ? await readActiveTab(lastPanel) : null;
-    const wrongTab = wrongTabFromIds(lastBoundTab?.id, activeTab?.id);
     const errorText = String(error?.message || error);
+    const boundTab = currentScenarioScope?.boundTab || lastBoundTab || null;
+    let activeTab = lastPanel ? await readActiveTab(lastPanel) : null;
+    let failureScenario = null;
+    let evidenceCollectionError = '';
+    if (currentScenarioScope) {
+      try {
+        failureScenario = await actionScenarioEvidence(lastPanel, {
+          label: currentScenarioScope.label || 'unknown',
+          boundTab,
+          error,
+        });
+        activeTab = Number.isInteger(failureScenario.active_tab_id)
+          ? { ...(activeTab || {}), id: failureScenario.active_tab_id }
+          : activeTab;
+      } catch (scopeError) {
+        evidenceCollectionError = String(scopeError?.message || scopeError);
+        failureScenario = buildActionScenarioEvidence({
+          label: currentScenarioScope.label || 'unknown',
+          runtimeTask: currentScenarioScope.runtimeTask,
+          completion: currentScenarioScope.completion,
+          boundTab,
+          activeTab,
+          error,
+        });
+      }
+      failureScenario.scope_invalid = currentScenarioScope.scopeInvalid === true;
+    }
+    const runtimeEntries = (failureScenario?.target_tab_ids || []).map(target_tab_id => ({
+      task_tab_id: failureScenario?.task_tab_id,
+      target_tab_id,
+    }));
+    if (failureScenario && runtimeEntries.length === 0) {
+      runtimeEntries.push({ task_tab_id: failureScenario.task_tab_id });
+    }
+    const runtimeWrongTab = tabProvenanceWrongTab(runtimeEntries, [boundTab?.id]);
+    const finalWrongTab = wrongTabFromIds(boundTab?.id, activeTab?.id);
+    const wrongTab =
+      runtimeWrongTab === null || finalWrongTab === null ? null : runtimeWrongTab === 1 || finalWrongTab === 1 ? 1 : 0;
     const falseComplete = /completed with (?:receipt but|same receipt)|completed-without/i.test(errorText) ? 1 : 0;
-    const failureClass = unexpectedCommitDetected
+    let failureClass = unexpectedCommitDetected
       ? 'unapproved_commit'
       : /tab provenance/i.test(errorText)
         ? 'tab_provenance'
@@ -1153,20 +1383,38 @@ try {
           : falseComplete
             ? 'verify_fail'
             : 'other';
-    const verification = buildActionVerificationEvidence(lastScenarioEvidence);
+    const attributableFailure = isAttributableActionFailure(failureScenario, {
+      scopeInvalid: currentScenarioScope?.scopeInvalid === true,
+      wrongTab,
+    });
+    if (!attributableFailure && failureClass === 'other') failureClass = 'evidence_protocol';
+    let outcome = attributableFailure ? 'fail' : 'invalid_run';
+    let traceError = '';
+    if (traceDumpDir && lastPanel && failureScenario?.runtime_task_id) {
+      try {
+        await writeActionTrace(lastPanel, failureScenario, boundTab?.id, outcome);
+      } catch (traceFailure) {
+        traceError = String(traceFailure?.message || traceFailure);
+        failureClass = 'evidence_protocol';
+        outcome = 'invalid_run';
+      }
+    }
+    const verification = buildActionVerificationEvidence(failureScenario ? [failureScenario] : []);
     const evidencePath = writeRunnerEvidence({
       ...verification,
-      outcome: failureClass === 'tab_provenance' ? 'invalid_run' : 'fail',
-      terminal_status: 'failed',
-      bound_tab: lastBoundTab ?? null,
+      outcome,
+      bound_tab: boundTab,
       active_tab: activeTab ?? null,
+      tab_provenance: traceTabSamples,
       wrong_tab: wrongTab,
       false_complete: falseComplete,
       unapproved_commit: unexpectedCommitDetected ? 1 : 0,
       error: errorText.slice(0, 200),
+      evidence_collection_error: evidenceCollectionError.slice(0, 200),
+      trace_error: traceError.slice(0, 200),
     });
     emitRow({
-      outcome: failureClass === 'tab_provenance' ? 'invalid_run' : 'fail',
+      outcome,
       false_complete: falseComplete,
       wrong_tab: wrongTab ?? '',
       unapproved_commit: unexpectedCommitDetected ? 1 : 0,

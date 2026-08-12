@@ -4,6 +4,12 @@
  * Prefer data-* attributes; fall back to class-based spans.
  */
 
+import {
+  analyzeInstructionLanguage,
+  instructionAffirmedTargetValue,
+  instructionAffirmsTarget,
+} from '../../instruction-language';
+
 export type ProductRow = {
   name: string;
   price: string;
@@ -17,6 +23,12 @@ export type ProductTableGoal = {
   minRows: number;
 };
 
+/** Canonical, ephemeral input for a row-level evidence digest. */
+export function productRowEvidenceText(row: ProductRow): string {
+  const normalize = (value: string) => value.normalize('NFKC').replace(/\s+/g, ' ').trim();
+  return `product-row-v1:${JSON.stringify([normalize(row.name), normalize(row.price), normalize(row.rating)])}`;
+}
+
 const DEFAULT_MIN_ROWS = 1;
 
 /**
@@ -28,14 +40,8 @@ const DEFAULT_MIN_ROWS = 1;
 export function parseProductTableInstruction(instruction: string): ProductTableGoal | null {
   const text = instruction.replace(/\s+/g, ' ').trim();
   if (!text) return null;
-
-  const wantsTable =
-    /\b(extract|export|scrape|pull)\b/i.test(text) ||
-    /抽取|提取|导出|整理成|做成/.test(text) ||
-    /\b(csv|markdown|\.md)\b/i.test(text) ||
-    /表格|清单/.test(text);
-
-  if (!wantsTable) return null;
+  const language = analyzeInstructionLanguage(instruction);
+  if (!instructionAffirmsTarget(language, 'structured_table')) return null;
 
   const productish =
     /\b(product|products|item|items|listing|listings)\b/i.test(text) ||
@@ -45,23 +51,44 @@ export function parseProductTableInstruction(instruction: string): ProductTableG
 
   if (!productish) return null;
 
-  // Prefer CSV when both mentioned or when "table" alone (R1 default).
-  let format: 'csv' | 'md' = 'csv';
-  if (/\b(markdown|\.md)\b/i.test(text) || /markdown|md\s*表|md格式/.test(text)) {
-    if (!/\bcsv\b/i.test(text) && !/\.csv\b/i.test(text)) {
-      format = 'md';
-    }
-  }
-  if (/\bcsv\b/i.test(text) || /\.csv\b/i.test(text) || /CSV/.test(text)) {
-    format = 'csv';
-  }
-
-  return { format, minRows: DEFAULT_MIN_ROWS };
+  const format = instructionAffirmedTargetValue(language, 'table_format') === 'md' ? 'md' : 'csv';
+  const minRows = instructionAffirmedTargetValue(language, 'product_row_count');
+  return { format, minRows: typeof minRows === 'number' ? minRows : DEFAULT_MIN_ROWS };
 }
 
 /** True when the instruction expects a user-visible table deliverable. */
 export function instructionRequestsProductTable(instruction: string): boolean {
   return parseProductTableInstruction(instruction) !== null;
+}
+
+export function instructionRequestsMostExpensive(instruction: string): boolean {
+  return instructionAffirmsTarget(analyzeInstructionLanguage(instruction), 'most_expensive');
+}
+
+function numericProductPrice(price: string): number | null {
+  const matches = [...price.replace(/\s+/g, '').matchAll(/-?\d[\d,]*(?:\.\d+)?/g)];
+  if (matches.length !== 1) return null;
+  const value = Number(matches[0][0].replace(/,/g, ''));
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Derive the requested comparison from extracted rows, not model prose.
+ * Equal prices resolve to the first source row so the conclusion stays singular
+ * and deterministic while preserving the chosen row's exact price text.
+ */
+export function formatMostExpensiveProductConclusion(rows: ProductRow[]): string | null {
+  let winner: ProductRow | null = null;
+  let highestPrice = Number.NEGATIVE_INFINITY;
+  for (const row of rows) {
+    const price = numericProductPrice(row.price);
+    if (price === null) return null;
+    if (price > highestPrice) {
+      winner = row;
+      highestPrice = price;
+    }
+  }
+  return winner ? `最贵商品是 ${winner.name}，价格为 ${winner.price}。` : null;
 }
 
 function decodeHtmlEntities(raw: string): string {
@@ -83,10 +110,7 @@ function attrValue(attrs: string, name: string): string {
 }
 
 function spanByClass(block: string, className: string): string {
-  const re = new RegExp(
-    `class\\s*=\\s*["'][^"']*\\b${className}\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/`,
-    'i',
-  );
+  const re = new RegExp(`class\\s*=\\s*["'][^"']*\\b${className}\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/`, 'i');
   const m = block.match(re);
   if (!m) return '';
   return decodeHtmlEntities(m[1].replace(/<[^>]+>/g, ' '));
@@ -121,21 +145,11 @@ export function extractProductsFromHtml(html: string, max = 50): ProductRow[] {
   for (const match of html.matchAll(cardRe)) {
     const attrs = match[2] || '';
     const body = match[3] || '';
-    const name =
-      attrValue(attrs, 'data-name') ||
-      spanByClass(body, 'product-name') ||
-      spanByClass(body, 'name') ||
-      '';
+    const name = attrValue(attrs, 'data-name') || spanByClass(body, 'product-name') || spanByClass(body, 'name') || '';
     const price =
-      attrValue(attrs, 'data-price') ||
-      spanByClass(body, 'product-price') ||
-      spanByClass(body, 'price') ||
-      '';
+      attrValue(attrs, 'data-price') || spanByClass(body, 'product-price') || spanByClass(body, 'price') || '';
     const rating =
-      attrValue(attrs, 'data-rating') ||
-      spanByClass(body, 'product-rating') ||
-      spanByClass(body, 'rating') ||
-      '';
+      attrValue(attrs, 'data-rating') || spanByClass(body, 'product-rating') || spanByClass(body, 'rating') || '';
     push(name, price, rating);
     if (found.length >= max) return found;
   }
@@ -194,10 +208,7 @@ export function formatProductsMarkdown(rows: ProductRow[]): string {
  * User-visible deliverable for side-panel completion-deliverable slot.
  * Prefixed with a short result line so hasSubstantiveDeliverableAnswer accepts it.
  */
-export function formatProductTableDeliverable(
-  rows: ProductRow[],
-  format: 'csv' | 'md' = 'csv',
-): string {
+export function formatProductTableDeliverable(rows: ProductRow[], format: 'csv' | 'md' = 'csv'): string {
   if (rows.length === 0) {
     return '未从当前页抽到商品行。';
   }

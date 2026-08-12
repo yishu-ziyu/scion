@@ -3,7 +3,11 @@ import { spawnSync } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { validateScopedTraceEvidence } from '../../chrome-extension/scripts/lib/eval-trace-evidence.mjs';
-import { taskSpecificVerificationPass } from '../../chrome-extension/scripts/lib/eval-verification.mjs';
+import {
+  honestFailureStatus,
+  taskSpecificVerificationPass,
+  verifierRequiresTextDeliverable,
+} from '../../chrome-extension/scripts/lib/eval-verification.mjs';
 import {
   assertRealpathContained,
   assertSafeCampaignStamp,
@@ -450,6 +454,49 @@ export function vitestMachineReportPass(report, suiteFiles) {
   );
 }
 
+export function verificationEvidenceProtocolErrors(payload, { outcome, runtimeTaskId, deliverableRequired }) {
+  const errors = [];
+  const uiOwnershipPass =
+    payload?.scoped_card_count === 1 &&
+    payload?.ui_task_id === runtimeTaskId &&
+    typeof payload?.runtime_round_id === 'string' &&
+    payload.runtime_round_id.length > 0 &&
+    payload?.ui_round_id === payload.runtime_round_id;
+  if (!uiOwnershipPass) errors.push('verification UI task/round ownership invalid');
+
+  if (outcome === 'verified_pass') {
+    const deliverableCountPass =
+      Number.isInteger(payload?.deliverable_count) &&
+      payload.deliverable_count >= (deliverableRequired ? 1 : 0) &&
+      payload.deliverable_count <= 1;
+    if (
+      payload?.terminal_status !== 'completed' ||
+      payload?.has_runtime_receipt !== true ||
+      !String(payload?.runtime_receipt_id || '') ||
+      payload?.visible_receipt_id !== payload.runtime_receipt_id ||
+      payload?.receipt_count !== 1 ||
+      payload?.completion_result_count !== 1 ||
+      typeof payload?.completion_result !== 'string' ||
+      !payload.completion_result.trim() ||
+      !deliverableCountPass ||
+      (deliverableRequired && (typeof payload?.final_deliverable !== 'string' || !payload.final_deliverable.trim()))
+    ) {
+      errors.push('verification completion protocol invalid');
+    }
+  } else if (
+    !honestFailureStatus(payload?.terminal_status) ||
+    payload?.has_runtime_receipt !== false ||
+    Boolean(payload?.runtime_receipt_id) ||
+    Boolean(payload?.visible_receipt_id) ||
+    payload?.receipt_count !== 0 ||
+    payload?.completion_result_count !== 0 ||
+    payload?.deliverable_count !== 0
+  ) {
+    errors.push('honest failure protocol invalid');
+  }
+  return errors;
+}
+
 function trustedUnitRerun(projectRoot, suiteFiles) {
   const args = ['-F', 'chrome-extension', 'exec', 'vitest', 'run', ...suiteFiles, '--reporter=json'];
   const result = spawnSync('pnpm', args, {
@@ -778,14 +825,11 @@ export async function validateEvidenceRows(
           errors.push(`${rowName}: unit ${field} must be not_applicable_unit`);
       }
     } else {
-      if (
-        row.outcome === 'verified_pass' &&
-        (!Number.isInteger(manifest.bound_tab_id) || !manifest.allowed_tab_ids.includes(manifest.bound_tab_id))
-      ) {
-        errors.push(`${rowName}: browser PASS lacks observed bound_tab_id`);
+      if (!Number.isInteger(manifest.bound_tab_id) || !manifest.allowed_tab_ids.includes(manifest.bound_tab_id)) {
+        errors.push(`${rowName}: browser row lacks observed bound_tab_id`);
       }
-      if (row.outcome === 'verified_pass' && !/^https?:\/\//.test(String(manifest.start_url || ''))) {
-        errors.push(`${rowName}: browser PASS lacks observed start_url`);
+      if (!/^https?:\/\//.test(String(manifest.start_url || ''))) {
+        errors.push(`${rowName}: browser row lacks observed start_url`);
       }
       if (
         !String(manifest.profile_or_fixture_id || '').startsWith('fixture://') &&
@@ -966,6 +1010,8 @@ export async function validateEvidenceRows(
               campaignStamp: manifest.campaign_stamp,
               armHash: manifest.arm_hash,
               runId: manifest.run_id,
+              outcome: row.outcome,
+              deliverableRequired: verifierRequiresTextDeliverable(manifest.verifier),
             });
             errors.push(...traceErrors.map(error => `${rowName}: ${error}`));
             if (traceErrors.length === 0) tabProofFound = true;
@@ -973,32 +1019,48 @@ export async function validateEvidenceRows(
             errors.push(`${rowName}: invalid trace JSON ${evidence.path}: ${error.message}`);
           }
         }
-        if (evidence.kind === 'evidence' && evidence.path.endsWith('.json')) {
+        if (evidence.kind === 'evidence' && /-verification\.json$/.test(evidence.path)) {
+          verificationEvidenceCount += 1;
           try {
             const payload = JSON.parse(await readFile(filePath, 'utf8'));
-            if (
+            const expectedDeliverableRequired = verifierRequiresTextDeliverable(manifest.verifier);
+            const identityPass =
               payload?.task_id === row.task_id &&
               Number(payload?.attempt) === Number(row.attempt) &&
               payload?.campaign_stamp === manifest.campaign_stamp &&
               payload?.arm_hash === manifest.arm_hash &&
               payload?.run_id === manifest.run_id &&
               payload?.outcome === row.outcome &&
-              payload?.terminal_status === 'completed' &&
-              payload?.receipt_count === 1 &&
-              payload?.deliverable_count === 1 &&
-              typeof payload?.final_deliverable === 'string' &&
-              payload.final_deliverable.trim() &&
               payload?.runtime_task_id === manifest.runtime_task_id &&
-              payload?.verifier === manifest.verifier &&
+              payload?.verifier === manifest.verifier;
+            if (!identityPass) errors.push(`${rowName}: verification identity mismatch ${evidence.path}`);
+            if (payload?.deliverable_required !== expectedDeliverableRequired) {
+              errors.push(`${rowName}: verification deliverable requirement mismatch ${evidence.path}`);
+            }
+            const attachPass =
               payload?.attach_attestation?.mode === row.attach_mode &&
               payload?.attach_attestation?.connect_url_present === false &&
               payload?.attach_attestation?.owns_browser === true &&
               /^[a-p]{32}$/.test(String(payload?.attach_attestation?.extension_id || '')) &&
               payload?.attach_attestation?.extension_version === manifest.extension_version &&
-              runtimeBundleAttestationPass(payload?.attach_attestation, manifest)
-            ) {
-              if (taskSpecificVerificationPass(row.task_id, payload)) verificationEvidenceCount += 1;
-              else errors.push(`${rowName}: task-specific semantic verifier rejected ${evidence.path}`);
+              runtimeBundleAttestationPass(payload?.attach_attestation, manifest);
+            if (!attachPass) errors.push(`${rowName}: verification runtime attestation invalid ${evidence.path}`);
+
+            const protocolErrors = verificationEvidenceProtocolErrors(payload, {
+              outcome: row.outcome,
+              runtimeTaskId: manifest.runtime_task_id,
+              deliverableRequired: expectedDeliverableRequired,
+            });
+            errors.push(...protocolErrors.map(error => `${rowName}: ${error} ${evidence.path}`));
+            if (row.outcome === 'verified_pass') {
+              if (
+                protocolErrors.length === 0 &&
+                identityPass &&
+                attachPass &&
+                !taskSpecificVerificationPass(row.task_id, payload)
+              ) {
+                errors.push(`${rowName}: task-specific semantic verifier rejected ${evidence.path}`);
+              }
             }
             const boundId = payload?.bound_tab?.id;
             if (Number.isInteger(boundId) && Array.isArray(payload?.tab_provenance)) {
@@ -1037,8 +1099,8 @@ export async function validateEvidenceRows(
                 tabViolation = true;
               }
             }
-          } catch {
-            // Some JSON evidence (for example a fixture report) is not tab provenance.
+          } catch (error) {
+            errors.push(`${rowName}: invalid verification JSON ${evidence.path}: ${error.message}`);
           }
         }
       } catch (error) {
@@ -1054,9 +1116,9 @@ export async function validateEvidenceRows(
     if (manifest.trace_requested && !manifest.evidence_files.some(file => file.kind === 'trace')) {
       errors.push(`${rowName}: trace requested without trace evidence`);
     }
-    if (row.outcome === 'verified_pass' && manifest.attach_mode !== 'unit') {
+    if (manifest.attach_mode !== 'unit') {
       if (manifest.attach_mode !== 'launched_chrome_for_testing') {
-        errors.push(`${rowName}: browser PASS is not bound to the locally launched attested extension`);
+        errors.push(`${rowName}: browser row is not bound to the locally launched attested extension`);
       }
       if (verificationEvidenceCount !== 1) {
         errors.push(
@@ -1078,7 +1140,7 @@ export async function validateEvidenceRows(
         errors.push(`${rowName}: trusted current Vitest rerun did not confirm unit proof`);
       }
     }
-    if (row.outcome === 'verified_pass' && buildAttestationCount !== 1) {
+    if (buildAttestationCount !== 1) {
       errors.push(`${rowName}: expected one build attestation, got ${buildAttestationCount}`);
     }
     if (!tabProofFound) errors.push(`${rowName}: missing task-scoped tab provenance`);

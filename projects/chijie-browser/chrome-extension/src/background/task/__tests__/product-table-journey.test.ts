@@ -3,11 +3,12 @@
  * Scripted control path (auto_proxy); full e2e against fixture is optional follow-up.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CompletionCriterion } from '@extension/storage/lib/task';
+import type { CompletionCriterion, TaskEvent } from '@extension/storage/lib/task';
 import { TaskManager } from '../manager';
 import { createControlLoopDriver, fixtureProductTableControlSteps } from '../../agent/backends/control-loop';
 import {
   extractProductsFromHtml,
+  formatMostExpensiveProductConclusion,
   formatProductTableDeliverable,
   parseProductTableInstruction,
 } from '../../browser/sites/product-table';
@@ -15,8 +16,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+type VerifiedCompletionEvent = Extract<TaskEvent, { type: 'task_completed_verified' }>;
+
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
+  pageHtml: '',
 }));
 
 vi.mock('@extension/storage/lib/task', () => {
@@ -45,7 +49,7 @@ vi.mock('../../agent/factory', () => ({
     getCurrentPage: async () => ({
       url: () => 'http://127.0.0.1/products',
       tabId: 11,
-      getContent: async () => '',
+      getContent: async () => store.pageHtml,
       observeActionTarget: async () => {
         const visibleCells = [
           'Alpha Wireless Headphones',
@@ -102,8 +106,33 @@ vi.mock('../../agent/factory', () => ({
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixtureHtml = readFileSync(path.resolve(__dirname, '../../../../test/fixtures/products.html'), 'utf8');
 
+function waitForVerifiedCompletion(manager: TaskManager, taskId: string): Promise<VerifiedCompletionEvent> {
+  return new Promise((resolve, reject) => {
+    let unsubscribe: () => void = () => undefined;
+    const timeout = setTimeout(() => {
+      unsubscribe();
+      reject(new Error(`timed out waiting for verified completion: ${taskId}`));
+    }, 4_000);
+    unsubscribe = manager.subscribe(event => {
+      if (
+        event.type !== 'task_completed_verified' ||
+        event.taskId !== taskId ||
+        event.roundId !== event.snapshot.currentRoundId
+      ) {
+        return;
+      }
+      clearTimeout(timeout);
+      unsubscribe();
+      resolve(event);
+    });
+  });
+}
+
 describe('R1 product-table journey (auto_proxy)', () => {
-  beforeEach(() => store.sessions.clear());
+  beforeEach(() => {
+    store.sessions.clear();
+    store.pageHtml = fixtureHtml;
+  });
 
   it('fixture HTML → CSV deliverable has ≥5 product rows', () => {
     const goal = parseProductTableInstruction('Extract products to a CSV table with name, price, rating');
@@ -145,6 +174,7 @@ describe('R1 product-table journey (auto_proxy)', () => {
       observeCriteria,
       now: () => 600,
     });
+    const completed = waitForVerifiedCompletion(manager, 'task-r1');
 
     await manager.dispatch({
       type: 'start',
@@ -156,9 +186,11 @@ describe('R1 product-table journey (auto_proxy)', () => {
       instructionMessageId: 'msg-r1',
     });
 
-    await vi.waitFor(async () => {
-      expect((await manager.snapshot('task-r1'))?.status).toBe('completed');
-    });
+    const completedEvent = await completed;
+    expect(completedEvent.snapshot.status).toBe('completed');
+    expect(completedEvent.snapshot.rounds.find(round => round.id === completedEvent.roundId)?.receipt?.id).toBe(
+      completedEvent.receiptId,
+    );
 
     const snap = await manager.snapshot('task-r1');
     if (!snap) throw new Error('missing task');
@@ -171,5 +203,57 @@ describe('R1 product-table journey (auto_proxy)', () => {
     expect(answer).toContain('$49.99');
     const productLines = answer.split('\n').filter(l => /\$\d/.test(l));
     expect(productLines.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('completes the exact LH-03 task with the table and derived highest-price result', async () => {
+    const rows = extractProductsFromHtml(fixtureHtml);
+    const conclusion = formatMostExpensiveProductConclusion(rows);
+    if (!conclusion) throw new Error('fixture prices must be comparable');
+    const csvSummary = `${formatProductTableDeliverable(rows, 'csv')}\n${conclusion}`;
+
+    let pageMarkerPresent = false;
+    const observeCriteria = vi.fn(async (criteria: CompletionCriterion[]) => {
+      const observations = criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: 600,
+        source: 'page' as const,
+        value: pageMarkerPresent,
+      }));
+      pageMarkerPresent = true;
+      return observations;
+    });
+    const manager = new TaskManager({
+      createExecutor: async (input, hooks) =>
+        createControlLoopDriver(input, hooks, {
+          steps: fixtureProductTableControlSteps({ csvSummary }),
+        }),
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 600,
+    });
+    const completed = waitForVerifiedCompletion(manager, 'task-lh-03');
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-lh-03',
+      taskId: 'task-lh-03',
+      tabId: 11,
+      instruction:
+        '这是一个多阶段任务：1) 阅读当前产品列表页；2) 提取所有行为 name,price,rating CSV；3) 根据页面数据在回复中写出最贵商品的名称与价格。',
+      chatSessionId: 'chat-lh-03',
+      instructionMessageId: 'msg-lh-03',
+    });
+
+    const completedEvent = await completed;
+    expect(completedEvent.snapshot.status).toBe('completed');
+    expect(completedEvent.snapshot.rounds.find(round => round.id === completedEvent.roundId)?.receipt?.id).toBe(
+      completedEvent.receiptId,
+    );
+    const snapshot = await manager.snapshot('task-lh-03');
+    const round = snapshot?.rounds.find(item => item.id === snapshot.currentRoundId);
+    expect(round?.instructionSummary).toContain('name,price,rating');
+    expect(round?.instructionSummary).toContain(conclusion);
   });
 });

@@ -13,13 +13,22 @@ import {
   validateRunnerMatrixRow,
 } from '../lib/eval-harness.mjs';
 import {
+  completionProtocolErrors,
+  COMPLETION_RESULT_SELECTOR,
   FINAL_DELIVERABLE_SELECTOR,
+  initialNavigationRetryDecision,
   multiSourceDeliveryPass,
+  navigateInitialTargetWithRetry,
   productDeliverablePass,
+  r1ProductDeliverablePass,
+  scopedCompletionSnapshot,
   tabProvenanceWrongTab,
+  taskSpecificVerificationPass,
+  verifierRequiresTextDeliverable,
   wrongTabFromIds,
 } from '../../chrome-extension/scripts/lib/eval-verification.mjs';
 import { resolveEvalProxyArgs, validateEvalSeedReadback } from '../../chrome-extension/scripts/lib/eval-provider.mjs';
+import { recordNavigationEvidence } from '../../chrome-extension/scripts/eval-public-task.mjs';
 
 test('missing runner protocol is invalid even when the process exits zero', () => {
   const parsed = parseMatrixRows('runner completed successfully\n');
@@ -112,14 +121,7 @@ test('fixture oracle requires an exact CSV tuple set plus the correct highest-pr
     rating: `${4 + index / 10}`,
   }));
   const rows = products.map(product => `${product.name},${product.price},${product.rating}`);
-  const valid = [
-    '已提取 5 件商品：',
-    '```csv',
-    'name,price,rating',
-    ...rows,
-    '```',
-    '最贵商品是 dynamic-4，价格为 $5。',
-  ].join('\n');
+  const valid = ['```csv', 'name,price,rating', ...rows, '```', '最贵商品是 dynamic-4，价格为 $5。'].join('\n');
   assert.equal(FINAL_DELIVERABLE_SELECTOR, '[data-testid="completion-deliverable-copy"]');
   assert.equal(productDeliverablePass(valid, products), true);
   assert.equal(productDeliverablePass(promptText, products), false);
@@ -138,6 +140,95 @@ test('fixture oracle requires an exact CSV tuple set plus the correct highest-pr
       false,
     );
   }
+});
+
+test('product oracle accepts the real six-row formatter output and only its fixed CSV prefix', () => {
+  const products = [
+    { name: 'Alpha Wireless Headphones', price: '$49.99', rating: '4.5' },
+    { name: 'Beta Mechanical Keyboard', price: '$89.00', rating: '4.8' },
+    { name: 'Gamma USB-C Hub', price: '$34.50', rating: '4.2' },
+    { name: 'Delta Desk Lamp', price: '$27.99', rating: '4.0' },
+    { name: 'Epsilon Notebook Stand', price: '$19.95', rating: '4.6' },
+    { name: 'Zeta Webcam Cover', price: '$8.49', rating: '3.9' },
+  ];
+  const table = ['name,price,rating', ...products.map(product => `${product.name},${product.price},${product.rating}`)];
+  const conclusion = '最贵商品是 Beta Mechanical Keyboard，价格为 $89.00。';
+  const formatterOutput = [`已提取 ${products.length} 件商品（CSV）：`, ...table].join('\n');
+  const deliverable = `${formatterOutput}\n${conclusion}`;
+
+  assert.equal(deliverable.split('\n').length, 9);
+  assert.equal(productDeliverablePass(deliverable, products), true);
+  assert.equal(productDeliverablePass([...table, conclusion].join('\n'), products), true);
+  assert.equal(productDeliverablePass(deliverable.replace('已提取 6 件', '已提取 5 件'), products), false);
+  assert.equal(productDeliverablePass(deliverable.replace('（CSV）', '（Markdown）'), products), false);
+  assert.equal(productDeliverablePass(`商品提取结果：\n${table.join('\n')}\n${conclusion}`, products), true);
+  assert.equal(productDeliverablePass(`商品提取结果：\n${deliverable}`, products), true);
+  assert.equal(productDeliverablePass(`任意分析标题：\n${table.join('\n')}\n${conclusion}`, products), false);
+});
+
+test('R1 accepts the real CSV or Markdown formatter table without weakening LH03', () => {
+  const products = [
+    { name: 'Alpha Wireless Headphones', price: '$49.99', rating: '4.5' },
+    { name: 'Beta Mechanical Keyboard', price: '$89.00', rating: '4.8' },
+    { name: 'Gamma USB-C Hub', price: '$34.50', rating: '4.2' },
+    { name: 'Delta Desk Lamp', price: '$27.99', rating: '4.0' },
+    { name: 'Epsilon Notebook Stand', price: '$19.95', rating: '4.6' },
+    { name: 'Zeta Webcam Cover', price: '$8.49', rating: '3.9' },
+  ];
+  const csvRows = products.map(product => `${product.name},${product.price},${product.rating}`);
+  const csv = [`已提取 ${products.length} 件商品（CSV）：`, 'name,price,rating', ...csvRows].join('\n');
+  const markdown = [
+    `已提取 ${products.length} 件商品（Markdown）：`,
+    '| name | price | rating |',
+    '| --- | --- | --- |',
+    ...products.map(product => `| ${product.name} | ${product.price} | ${product.rating} |`),
+  ].join('\n');
+  const payload = final_deliverable => ({
+    task_id: '018-R1',
+    outcome: 'verified_pass',
+    final_deliverable,
+    source_products: products,
+  });
+
+  assert.equal(taskSpecificVerificationPass('018-R1', payload(csv)), true);
+  assert.equal(taskSpecificVerificationPass('018-R1', payload(markdown)), true);
+  assert.equal(taskSpecificVerificationPass('018-R1', payload(csv.replace(csvRows[2], 'forged,$999,5'))), false);
+  assert.equal(taskSpecificVerificationPass('018-R1', payload(csv.replace(`${csvRows[2]}\n`, ''))), false);
+  assert.equal(
+    taskSpecificVerificationPass('021-LH-03', {
+      ...payload(csv),
+      task_id: '021-LH-03',
+    }),
+    false,
+  );
+});
+
+test('product oracle allows provenance and anti-fabrication wording that does not retract its conclusion', () => {
+  const products = [
+    { name: 'Alpha Mouse', price: '$10', rating: '4.1' },
+    { name: 'Beta Keyboard', price: '$25', rating: '4.8' },
+    { name: 'Gamma Stand', price: '$18', rating: '4.4' },
+    { name: 'Delta Hub', price: '$15', rating: '4.2' },
+    { name: 'Epsilon Cable', price: '$8', rating: '4.0' },
+  ];
+  const table = ['name,price,rating', ...products.map(item => `${item.name},${item.price},${item.rating}`)];
+
+  assert.equal(
+    productDeliverablePass(
+      [...table, '不要编造；以下来自页面：最贵商品是 Beta Keyboard，价格为 $25。'].join('\n'),
+      products,
+    ),
+    true,
+  );
+  assert.equal(
+    productDeliverablePass(
+      [...table, 'Do not fabricate; from the page: the most expensive item is Beta Keyboard at $25; sourced.'].join(
+        '\n',
+      ),
+      products,
+    ),
+    true,
+  );
 });
 
 test('fixture oracle rejects token bags, wrong columns, duplicates, and fabricated CSV rows', () => {
@@ -189,10 +280,71 @@ test('R1 scorer only reads one task-scoped deliverable and a matching receipt', 
   const source = readFileSync(new URL('../../chrome-extension/scripts/r1-extract-e2e.mjs', import.meta.url), 'utf8');
   assert.match(source, /FINAL_DELIVERABLE_SELECTOR/);
   assert.match(source, /readScopedTask/);
-  assert.match(source, /deliverableCount === 1/);
-  assert.match(source, /receiptCount === 1/);
+  assert.match(source, /scopedCompletionSnapshot/);
+  assert.match(source, /completionProtocolErrors/);
+  assert.match(source, /data-task-id/);
+  assert.match(source, /data-round-id/);
+  assert.match(source, /data-receipt-id/);
+  assert.match(source, /priorReceiptIds/);
+  assert.match(source, /scopedTasks\.length > 1/);
+  assert.match(source, /newReceiptIds\.length !== 1/);
+  assert.match(source, /card\.querySelectorAll\(deliverableSelector\)/);
+  assert.match(source, /deliverableRequired: true/);
+  assert.match(source, /completion_result_count: result\.completionResultCount/);
+  assert.doesNotMatch(source, /seenRunning/);
+  assert.doesNotMatch(source, /document\.querySelectorAll\(deliverableSelector\)/);
   assert.doesNotMatch(source, /instructionSummary/);
   assert.doesNotMatch(source, /scoreCsvText\(snap\.body/);
+});
+
+test('R1 runner applies its own R1 verifier to real formatter CSV and Markdown', () => {
+  const source = readFileSync(new URL('../../chrome-extension/scripts/r1-extract-e2e.mjs', import.meta.url), 'utf8');
+  const verifierName = /const oraclePass = (\w+)\(snap\.answer, products\)/.exec(source)?.[1];
+  assert.equal(verifierName, 'r1ProductDeliverablePass');
+  assert.doesNotMatch(source, /\bproductDeliverablePass\b/);
+
+  const products = [
+    { name: 'Alpha Wireless Headphones', price: '$49.99', rating: '4.5' },
+    { name: 'Beta Mechanical Keyboard', price: '$89.00', rating: '4.8' },
+    { name: 'Gamma USB-C Hub', price: '$34.50', rating: '4.2' },
+    { name: 'Delta Desk Lamp', price: '$27.99', rating: '4.0' },
+    { name: 'Epsilon Notebook Stand', price: '$19.95', rating: '4.6' },
+    { name: 'Zeta Webcam Cover', price: '$8.49', rating: '3.9' },
+  ];
+  const verifier = { r1ProductDeliverablePass }[verifierName];
+  const csvRows = products.map(product => `${product.name},${product.price},${product.rating}`);
+  const csv = [`已提取 ${products.length} 件商品（CSV）：`, 'name,price,rating', ...csvRows].join('\n');
+  const markdown = [
+    `已提取 ${products.length} 件商品（Markdown）：`,
+    '| name | price | rating |',
+    '| --- | --- | --- |',
+    ...products.map(product => `| ${product.name} | ${product.price} | ${product.rating} |`),
+  ].join('\n');
+
+  assert.equal(verifier(csv, products), true);
+  assert.equal(verifier(markdown, products), true);
+  assert.equal(verifier(csv.replace(`${csvRows[2]}\n`, ''), products), false);
+  assert.equal(verifier(csv.replace(csvRows[2], 'forged,$999,5'), products), false);
+});
+
+test('R1 honest failures and timeouts keep their new task and current card identity', () => {
+  const source = readFileSync(new URL('../../chrome-extension/scripts/r1-extract-e2e.mjs', import.meta.url), 'utf8');
+  assert.match(source, /runtimeTaskId = scopedTask\.taskId/);
+  assert.match(source, /latestResult = snap/);
+  assert.match(source, /runtimeTaskSnapshot = runtimeTask/);
+  assert.match(source, /terminal_status: latestResult\?\.status \?\? runtimeTaskSnapshot\?\.status/);
+  assert.match(source, /scoped_card_count: latestResult\?\.scopedCardCount/);
+  assert.match(source, /ui_task_id: latestResult\?\.uiTaskId/);
+  assert.match(source, /ui_round_id: latestResult\?\.uiRoundId/);
+  assert.match(source, /visible_receipt_id: latestResult\?\.visibleReceiptId/);
+  assert.match(source, /runtime_task_id: runtimeTaskId/);
+});
+
+test('action runner records the unique visible completion result', () => {
+  const source = readFileSync(new URL('../../chrome-extension/scripts/action-agent-e2e.mjs', import.meta.url), 'utf8');
+  assert.match(source, /querySelectorAll\('\[data-testid="completion-result"\]'\)/);
+  assert.match(source, /completionResultCount === 1/);
+  assert.match(source, /completion_result_count: scenarios\.reduce/);
 });
 
 test('public and frontier body_contains_all score only the unique final deliverable', () => {
@@ -201,10 +353,201 @@ test('public and frontier body_contains_all score only the unique final delivera
     '../../chrome-extension/scripts/eval-frontier-task.mjs',
   ]) {
     const source = readFileSync(new URL(relative, import.meta.url), 'utf8');
-    assert.match(source, /document\.querySelectorAll\(deliverableSelector\)/);
+    assert.match(source, /card\.querySelectorAll\(deliverableSelector\)/);
+    assert.match(source, /card\.querySelectorAll\(completionResultSelector\)/);
+    assert.match(source, /data-task-id/);
+    assert.match(source, /data-round-id/);
+    assert.match(source, /data-receipt-id/);
+    assert.match(source, /navigateInitialTargetWithRetry/);
+    assert.match(source, /initial_navigation_attempts/);
+    assert.match(source, /initial_navigation_error_categories/);
     assert.match(source, /case 'body_contains_all':[\s\S]{0,240}return deliverableContainsAll\(answer, expected\)/);
     assert.doesNotMatch(source, /deliverableContainsAll\((?:body|goal|prompt)/);
+    assert.doesNotMatch(source, /seenRunning/);
+    assert.doesNotMatch(source, /wrong_tab:\s*wrongTab\s*\?\?\s*0/);
+    assert.match(source, /wrong_tab:\s*wrongTab\s*\?\?\s*''/);
+    assert.match(source, /priorReceiptIds/);
+    assert.match(source, /runtimeTaskSnapshot/);
   }
+});
+
+test('completion protocol accepts a fast new receipt and separates result from optional deliverable', () => {
+  assert.equal(COMPLETION_RESULT_SELECTOR, '[data-testid="completion-result"]');
+  const runtimeTask = {
+    id: 'new-task',
+    status: 'completed',
+    roundId: 'round-1',
+    receipt: { id: 'new-receipt', taskId: 'new-task', roundId: 'round-1' },
+  };
+  const base = {
+    status: 'completed',
+    scopedCardCount: 1,
+    uiTaskId: 'new-task',
+    uiRoundId: 'round-1',
+    receiptCount: 1,
+    visibleReceiptId: 'new-receipt',
+    resultCount: 1,
+    resultText: '已到达目标页',
+    deliverableCount: 0,
+    deliverableText: '',
+    deliverableRequired: false,
+    runtimeTask,
+    priorReceiptIds: ['old-receipt'],
+  };
+  assert.deepEqual(completionProtocolErrors(base), []);
+  assert(
+    completionProtocolErrors({
+      ...base,
+      runtimeTask: { ...runtimeTask, receipt: { ...runtimeTask.receipt, id: 'old-receipt' } },
+    }).some(error => error.includes('stale')),
+  );
+  assert(completionProtocolErrors({ ...base, receiptCount: 2 }).some(error => error.includes('receipt_count')));
+  assert(completionProtocolErrors({ ...base, resultCount: 2 }).some(error => error.includes('completion_result')));
+  assert(completionProtocolErrors({ ...base, deliverableCount: 2 }).some(error => error.includes('deliverable_count')));
+  assert(completionProtocolErrors({ ...base, uiRoundId: 'old-round' }).some(error => error.includes('UI task/round')));
+  assert(
+    completionProtocolErrors({
+      ...base,
+      runtimeTask: { ...runtimeTask, receipt: { ...runtimeTask.receipt, roundId: 'old-round' } },
+    }).some(error => error.includes('receipt ownership')),
+  );
+  assert(
+    completionProtocolErrors({ ...base, deliverableRequired: true }).some(error => error.includes('deliverable_count')),
+  );
+  assert.equal(verifierRequiresTextDeliverable('url_contains'), false);
+  assert.equal(verifierRequiresTextDeliverable('body_contains'), true);
+  assert(
+    completionProtocolErrors({
+      ...base,
+      status: 'failed',
+      runtimeTask: { ...runtimeTask, status: 'failed' },
+      receiptCount: 0,
+      visibleReceiptId: '',
+      resultCount: 0,
+      resultText: '',
+      deliverableCount: 0,
+    }).some(error => error.includes('retains runtime receipt')),
+  );
+});
+
+test('completion snapshot ignores stale cards and rejects a stale visible receipt', () => {
+  const runtimeTask = {
+    id: 'new-task',
+    status: 'completed',
+    roundId: 'new-round',
+    receipt: { id: 'new-receipt', taskId: 'new-task', roundId: 'new-round' },
+  };
+  const staleCard = {
+    taskId: 'old-task',
+    roundId: 'old-round',
+    status: 'completed',
+    receiptIds: ['old-receipt'],
+    resultTexts: ['旧结果'],
+    deliverableTexts: ['旧成果'],
+  };
+  const currentCard = {
+    taskId: 'new-task',
+    roundId: 'new-round',
+    status: 'completed',
+    receiptIds: ['new-receipt'],
+    resultTexts: ['新结果'],
+    deliverableTexts: [],
+  };
+  const snap = scopedCompletionSnapshot([staleCard, currentCard], runtimeTask);
+  assert.equal(snap.scopedCardCount, 1);
+  assert.equal(snap.resultText, '新结果');
+  assert.equal(snap.visibleReceiptId, 'new-receipt');
+  const base = {
+    ...snap,
+    deliverableText: snap.answer,
+    deliverableRequired: false,
+    runtimeTask,
+    priorReceiptIds: ['old-receipt'],
+  };
+  assert.deepEqual(completionProtocolErrors(base), []);
+  assert(
+    completionProtocolErrors({ ...base, visibleReceiptId: 'old-receipt' }).some(error =>
+      error.includes('visible receipt ownership'),
+    ),
+  );
+  assert(
+    completionProtocolErrors({
+      ...scopedCompletionSnapshot([staleCard], runtimeTask),
+      deliverableText: '',
+      deliverableRequired: false,
+      runtimeTask,
+      priorReceiptIds: ['old-receipt'],
+    }).some(error => error.includes('scoped_card_count')),
+  );
+  assert(
+    completionProtocolErrors({
+      ...base,
+      ...scopedCompletionSnapshot([currentCard, { ...currentCard }], runtimeTask),
+    }).some(error => error.includes('scoped_card_count')),
+  );
+});
+
+test('initial navigation retries exactly one connection-closed error and preserves failure history', async () => {
+  assert.deepEqual(initialNavigationRetryDecision(new Error('net::ERR_CONNECTION_CLOSED at https://a.test'), 1), {
+    errorCategory: 'ERR_CONNECTION_CLOSED',
+    retry: true,
+  });
+  for (const error of [
+    new Error('net::ERR_CONNECTION_RESET at https://a.test'),
+    new Error('net::ERR_CONNECTION_CLOSED_FAKE at https://a.test'),
+    new Error('generic navigation failure'),
+  ]) {
+    assert.equal(initialNavigationRetryDecision(error, 1).retry, false);
+  }
+  assert.equal(initialNavigationRetryDecision(new Error('net::ERR_CONNECTION_CLOSED'), 2).retry, false);
+
+  let nonRetryCalls = 0;
+  await assert.rejects(
+    navigateInitialTargetWithRetry({
+      url: 'https://a.test',
+      navigate: async () => {
+        nonRetryCalls += 1;
+        throw new Error('net::ERR_CONNECTION_RESET at https://a.test');
+      },
+      wait: async () => {},
+    }),
+    /ERR_CONNECTION_RESET/,
+  );
+  assert.equal(nonRetryCalls, 1);
+
+  const calls = [];
+  const states = [];
+  const recovered = await navigateInitialTargetWithRetry({
+    url: 'https://a.test',
+    navigate: async url => {
+      calls.push(url);
+      if (calls.length === 1) throw new Error('net::ERR_CONNECTION_CLOSED at https://a.test');
+    },
+    wait: async () => {},
+    onState: state => states.push(state),
+  });
+  assert.deepEqual(calls, ['https://a.test', 'https://a.test']);
+  assert.deepEqual(recovered, { attempts: 2, errorCategories: ['ERR_CONNECTION_CLOSED'] });
+  assert.deepEqual(states.at(-1), { attempts: 2, errorCategories: ['ERR_CONNECTION_CLOSED'] });
+
+  const failures = [];
+  await assert.rejects(
+    navigateInitialTargetWithRetry({
+      url: 'https://a.test',
+      navigate: async () => {
+        failures.push('attempt');
+        throw new Error('net::ERR_CONNECTION_CLOSED at https://a.test');
+      },
+      wait: async () => {},
+      onState: state => states.push(state),
+    }),
+    /ERR_CONNECTION_CLOSED/,
+  );
+  assert.equal(failures.length, 2);
+  assert.deepEqual(states.at(-1), {
+    attempts: 2,
+    errorCategories: ['ERR_CONNECTION_CLOSED', 'ERR_CONNECTION_CLOSED'],
+  });
 });
 
 test('wrong-tab metric uses observed bound and active tab ids', () => {
@@ -236,7 +579,7 @@ test('multi-source regression requires real visits plus the complete final deliv
     'Example Domains https://www.iana.org/help/example-domains',
     'Web browser https://en.wikipedia.org/wiki/Web_browser',
     definition,
-    '观察一：IANA 解释了示例域名的用途。',
+    '观察一：IANA 解释了示例域名保留用于文档和测试。',
     '观察二：Wikipedia 将浏览器定义为访问网站的应用。',
   ].join('\n');
   assert.equal(
@@ -250,10 +593,37 @@ test('multi-source regression requires real visits plus the complete final deliv
   assert.equal(
     multiSourceDeliveryPass({
       finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable: `双来源交付：\n${deliverable}\n来源：https://www.iana.org/help/example-domains；https://en.wikipedia.org/wiki/Web_browser`,
+      navigationEvidence,
+    }),
+    true,
+  );
+  assert.equal(
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable: `双来源交付：\n${deliverable}\n来源：https://www.iana.org/help/example-domains；https://en.wikipedia.org/wiki/Web_browser\n结论：两个来源都非常权威。`,
+      navigationEvidence,
+    }),
+    false,
+  );
+  assert.equal(
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
       deliverable,
       navigationEvidence: navigationEvidence.slice(1),
     }),
     false,
+  );
+  assert.equal(
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable: deliverable.replace(
+        '观察一：IANA 解释了示例域名保留用于文档和测试。',
+        '观察一：不要编造；以下来自页面：IANA 解释了示例域名保留用于文档和测试。',
+      ),
+      navigationEvidence,
+    }),
+    true,
   );
   assert.equal(
     multiSourceDeliveryPass({
@@ -267,7 +637,7 @@ test('multi-source regression requires real visits plus the complete final deliv
     multiSourceDeliveryPass({
       finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
       deliverable: deliverable
-        .replace('观察一：IANA 解释了示例域名的用途。', '观察一：IANA 的示例域名完全不用于文档或测试用途。')
+        .replace('观察一：IANA 解释了示例域名保留用于文档和测试。', '观察一：IANA 的示例域名完全不用于文档或测试用途。')
         .replace(
           '观察二：Wikipedia 将浏览器定义为访问网站的应用。',
           '观察二：Wikipedia 说浏览器不是访问网站网页的软件应用。',
@@ -287,7 +657,7 @@ test('multi-source regression requires real visits plus the complete final deliv
   assert.equal(
     multiSourceDeliveryPass({
       finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
-      deliverable: deliverable.replace('观察一：IANA 解释了示例域名的用途。', '观察一：'),
+      deliverable: deliverable.replace('观察一：IANA 解释了示例域名保留用于文档和测试。', '观察一：'),
       navigationEvidence,
     }),
     false,
@@ -296,7 +666,7 @@ test('multi-source regression requires real visits plus the complete final deliv
     multiSourceDeliveryPass({
       finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
       deliverable: deliverable
-        .replace('观察一：IANA 解释了示例域名的用途。', '观察一：今天天气晴朗适合出门散步和运动。')
+        .replace('观察一：IANA 解释了示例域名保留用于文档和测试。', '观察一：今天天气晴朗适合出门散步和运动。')
         .replace('观察二：Wikipedia 将浏览器定义为访问网站的应用。', '观察二：今天天气晴朗适合出门散步和运动。'),
       navigationEvidence,
     }),
@@ -307,7 +677,7 @@ test('multi-source regression requires real visits plus the complete final deliv
     multiSourceDeliveryPass({
       finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
       deliverable: deliverable
-        .replace('观察一：IANA 解释了示例域名的用途。', `观察一：${repeatedObservation}`)
+        .replace('观察一：IANA 解释了示例域名保留用于文档和测试。', `观察一：${repeatedObservation}`)
         .replace('观察二：Wikipedia 将浏览器定义为访问网站的应用。', `观察二：${repeatedObservation}`),
       navigationEvidence,
     }),
@@ -317,7 +687,7 @@ test('multi-source regression requires real visits plus the complete final deliv
     multiSourceDeliveryPass({
       finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
       deliverable: deliverable.replace(
-        '观察一：IANA 解释了示例域名的用途。',
+        '观察一：IANA 解释了示例域名保留用于文档和测试。',
         '观察一：Wikipedia 将浏览器定义为访问网站的应用。',
       ),
       navigationEvidence,
@@ -343,6 +713,59 @@ test('multi-source regression requires real visits plus the complete final deliv
     }),
     false,
   );
+});
+
+test('public evidence records navigation events without inflating consecutive polls', () => {
+  const definition = 'A web browser, often shortened to browser, is an application for accessing websites.';
+  const wiki = {
+    url: 'https://en.wikipedia.org/wiki/Web_browser',
+    title: 'Web browser - Wikipedia',
+    first_paragraph: definition,
+  };
+  const iana = {
+    url: 'https://www.iana.org/help/example-domains',
+    title: 'Example Domains',
+    first_paragraph: '',
+  };
+  const deliverable = [
+    'Example Domains https://www.iana.org/help/example-domains',
+    'Web browser https://en.wikipedia.org/wiki/Web_browser',
+    definition,
+    '观察一：IANA 解释了示例域名用于文档和测试。',
+    '观察二：Wikipedia 将浏览器定义为访问网站的应用软件。',
+  ].join('\n');
+
+  const corrected = [];
+  recordNavigationEvidence(corrected, { ...wiki, captured_at: '2026-08-13T01:00:00.000Z' });
+  recordNavigationEvidence(corrected, { ...iana, captured_at: '2026-08-13T01:00:01.000Z' });
+  recordNavigationEvidence(corrected, { ...wiki, captured_at: '2026-08-13T01:00:02.000Z' });
+  assert.deepEqual(
+    corrected.map(item => [item.sequence, item.url, item.captured_at]),
+    [
+      [1, wiki.url, '2026-08-13T01:00:00.000Z'],
+      [2, iana.url, '2026-08-13T01:00:01.000Z'],
+      [3, wiki.url, '2026-08-13T01:00:02.000Z'],
+    ],
+  );
+  assert.equal(multiSourceDeliveryPass({ finalUrl: wiki.url, deliverable, navigationEvidence: corrected }), true);
+  assert.equal(
+    multiSourceDeliveryPass({ finalUrl: wiki.url, deliverable, navigationEvidence: corrected.slice(0, 2) }),
+    false,
+  );
+
+  const repeatedPolls = [];
+  recordNavigationEvidence(repeatedPolls, { ...iana, title: '', captured_at: '2026-08-13T01:00:00.000Z' });
+  recordNavigationEvidence(repeatedPolls, { ...iana, captured_at: '2026-08-13T01:00:01.000Z' });
+  recordNavigationEvidence(repeatedPolls, { ...iana, captured_at: '2026-08-13T01:00:02.000Z' });
+  assert.equal(repeatedPolls.length, 1);
+  assert.equal(repeatedPolls[0].title, 'Example Domains');
+  assert.equal(repeatedPolls[0].captured_at, '2026-08-13T01:00:00.000Z');
+
+  recordNavigationEvidence(repeatedPolls, { ...wiki, captured_at: '2026-08-13T01:00:00.000Z' });
+  assert.equal(repeatedPolls.length, 2);
+  assert.equal(repeatedPolls[1].sequence, 2);
+  assert.equal(repeatedPolls[1].captured_at, '2026-08-13T01:00:00.001Z');
+  assert.equal(multiSourceDeliveryPass({ finalUrl: wiki.url, deliverable, navigationEvidence: repeatedPolls }), true);
 });
 
 test('attach mode distinguishes isolated launch, CDP attach, and unit runners', () => {

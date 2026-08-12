@@ -465,6 +465,7 @@ export function TaskStatusCard({
     showVerifiedDone && round?.receipt ? (
       <div
         data-testid="completion-receipt"
+        data-receipt-id={round.receipt.id}
         data-coverage={goalCoverage.coverage}
         className={showPartialComplete ? 'chijie-done-block is-partial' : 'chijie-done-block'}>
         {showPartialComplete ? (
@@ -563,6 +564,8 @@ export function TaskStatusCard({
   return (
     <section
       data-testid="task-status"
+      data-task-id={snapshot.id}
+      data-round-id={round?.id}
       data-status={showPartialComplete ? 'waiting_user' : showUnverifiedComplete ? 'failed' : snapshot.status}
       data-coverage={showVerifiedDone ? goalCoverage.coverage : undefined}
       data-attention={needsAttention || showPartialComplete || showUnverifiedComplete ? 'true' : 'false'}

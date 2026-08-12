@@ -47,6 +47,12 @@ export interface DispatchResult {
   actOutcome?: ActOutcome;
 }
 
+export interface ExecutorMissionPlan {
+  id: string;
+  goal: string;
+  phases: Array<{ id: string; title: string; status: string }>;
+}
+
 export interface ExecutorInput {
   taskId: string;
   roundId: string;
@@ -56,11 +62,7 @@ export interface ExecutorInput {
    * Optional mission plan snapshot for long-horizon context (book ch2 / product 021).
    * Prefer code-maintained phases only; never pass raw secrets.
    */
-  plan?: {
-    id: string;
-    goal: string;
-    phases: Array<{ id: string; title: string; status: string }>;
-  };
+  plan?: ExecutorMissionPlan;
 }
 
 export class StaleTaskRoundError extends Error {
@@ -71,6 +73,8 @@ export class StaleTaskRoundError extends Error {
 }
 
 export interface ExecutorHooks {
+  /** Read the authoritative plan for this round; undefined means it is no longer available. */
+  getMissionPlan?(roundId: string): Promise<ExecutorMissionPlan | undefined>;
   onPlan(roundId: string, criteria: CompletionCriterionDraft[]): Promise<void>;
   dispatchAction(roundId: string, action: Action, rawArgs: unknown): Promise<DispatchResult>;
 }

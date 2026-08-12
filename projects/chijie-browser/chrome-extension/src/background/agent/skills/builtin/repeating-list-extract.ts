@@ -3,7 +3,9 @@
  */
 import {
   extractProductsFromHtml,
+  formatMostExpensiveProductConclusion,
   formatProductTableDeliverable,
+  instructionRequestsMostExpensive,
   parseProductTableInstruction,
 } from '../../../browser/sites/product-table';
 import { createTableArtifact } from '../../../task/artifact';
@@ -42,14 +44,19 @@ export const repeatingListExtractSkill: BrowserSkill = {
       };
     }
 
-    const summary = formatProductTableDeliverable(rows, goal.format);
+    let summary = formatProductTableDeliverable(rows, goal.format);
+    if (instructionRequestsMostExpensive(context.instruction)) {
+      const conclusion = formatMostExpensiveProductConclusion(rows);
+      if (!conclusion) {
+        return { decision: { kind: 'continue', reason: 'prices_not_comparable' } };
+      }
+      summary += `\n${conclusion}`;
+    }
     const artifact = createTableArtifact({
       title: 'Product table',
       columns: ['name', 'price', 'rating'],
       rows: rows.map(r => ({ name: r.name, price: r.price, rating: r.rating })),
-      sources: context.frame?.tab.url
-        ? [{ url: context.frame.tab.url, title: context.frame.tab.title }]
-        : [],
+      sources: context.frame?.tab.url ? [{ url: context.frame.tab.url, title: context.frame.tab.title }] : [],
     });
 
     return {
