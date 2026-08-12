@@ -377,6 +377,8 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(componentsCss).toContain('.chijie-prompt-frame');
     expect(componentsCss).toContain('.chijie-prompt-menu');
     expect(componentsCss).toContain('.chijie-prompt-chip');
+    expect(componentsCss).toContain('.chijie-composer .chijie-prompt-field:focus-visible');
+    expect(componentsCss).not.toContain('.chijie-prompt-frame:focus-within');
     expect(chatInput).not.toMatch(/Planner|Navigator|step_failed/);
   });
 
