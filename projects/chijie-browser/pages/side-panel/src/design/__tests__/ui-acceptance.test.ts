@@ -254,13 +254,29 @@ describe('Feature: Side panel uses 持节 design system', () => {
 describe('Feature: design/003 task main blocks', () => {
   it('progress console and TaskStatusCard include mission, audit, and completion testids', () => {
     expect(taskProgressOverviewSource).toContain('task-goal-block');
-    expect(taskProgressOverviewSource).toContain('mission-plan');
+    expect(taskProgressOverviewSource).toContain('MissionPlanList');
+    expect(readFileSync(resolve(here, '../../components/MissionPlanList.tsx'), 'utf8')).toContain('mission-plan');
     expect(taskStatusCardSource).toContain('task-round-timeline');
     expect(taskStatusCardSource).toContain('completion-receipt');
     expect(taskStatusCardSource).toContain('completion-receipt-meta');
     expect(taskStatusCardSource).toContain('completion-receipt-details');
     expect(taskStatusCardSource).toContain('completion-evidence-list');
     expect(taskStatusCardSource).not.toContain('批准一次');
+  });
+
+  it('mission plan is collapsible and driven by truthful runtime status rather than demo timers', () => {
+    const missionPlanListSource = readFileSync(resolve(here, '../../components/MissionPlanList.tsx'), 'utf8');
+    expect(missionPlanListSource).toContain('aria-expanded={!collapsed}');
+    expect(missionPlanListSource).toContain('missionPlanItemStatus');
+    expect(missionPlanListSource).toContain("taskStatus === 'paused'");
+    expect(missionPlanListSource).toContain("taskStatus === 'needs_user'");
+    expect(missionPlanListSource).toContain("taskStatus === 'failed'");
+    expect(missionPlanListSource).not.toContain('START_DELAY');
+    expect(missionPlanListSource).not.toContain('STEP_MS');
+    expect(missionPlanListSource).not.toMatch(/setTimeout\(\(\)\s*=>\s*setCurrent/);
+    expect(componentsCss).toContain('.chijie-plan-collapsible.is-collapsed');
+    expect(componentsCss).toContain("li[data-status='waiting_user']");
+    expect(componentsCss).toContain("li[data-status='failed']");
   });
 
   it('humanActionLabel maps machine actions to Chinese product copy', async () => {

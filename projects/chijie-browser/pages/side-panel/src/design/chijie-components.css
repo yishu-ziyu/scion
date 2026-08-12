@@ -346,6 +346,334 @@ summary:focus-visible,
   border-top: 1px solid var(--chijie-border);
 }
 
+.chijie-plan-todo {
+  gap: 0;
+  padding: 6px 10px 10px;
+  border: 1px solid var(--chijie-border);
+  border-radius: var(--chijie-radius-md);
+  background: var(--chijie-surface);
+}
+
+.chijie-plan-head {
+  display: flex;
+  width: 100%;
+  min-height: 22px;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--chijie-foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.chijie-plan-head:focus-visible {
+  border-radius: var(--chijie-radius-sm);
+  outline: 2px solid color-mix(in srgb, var(--chijie-accent) 42%, transparent);
+  outline-offset: 3px;
+}
+
+.chijie-plan-head-icon {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--chijie-muted);
+}
+
+.chijie-plan-head-list,
+.chijie-plan-chevron,
+.chijie-plan-head-check,
+.chijie-plan-head-state {
+  position: absolute;
+  inset: 0;
+  width: 14px;
+  height: 14px;
+  margin: auto;
+  transition: opacity 140ms ease;
+}
+
+.chijie-plan-head-check {
+  width: 16px;
+  height: 16px;
+  color: var(--chijie-accent);
+}
+
+.chijie-plan-head-state {
+  color: var(--chijie-warning);
+}
+
+.chijie-plan-head-icon[data-state='failed'] .chijie-plan-head-state {
+  color: var(--chijie-danger);
+}
+
+.chijie-plan-chevron {
+  opacity: 0;
+  transition: opacity 140ms ease, transform 220ms ease;
+}
+
+.chijie-plan-head[aria-expanded='false'] .chijie-plan-chevron {
+  transform: rotate(-90deg);
+}
+
+.chijie-plan-head:hover .chijie-plan-head-list,
+.chijie-plan-head:hover .chijie-plan-head-pie,
+.chijie-plan-head:hover .chijie-plan-head-check,
+.chijie-plan-head:hover .chijie-plan-head-state {
+  opacity: 0;
+}
+
+.chijie-plan-head:hover .chijie-plan-chevron {
+  opacity: 1;
+}
+
+.chijie-plan-title {
+  font-weight: 600;
+}
+
+.chijie-plan-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--chijie-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chijie-plan-roll-count {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.chijie-plan-roll-digit {
+  display: inline-block;
+  height: 1em;
+  overflow: hidden;
+  line-height: 1em;
+}
+
+.chijie-plan-roll-inner {
+  display: flex;
+  flex-direction: column;
+  transition: transform 350ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chijie-plan-roll-inner > span {
+  height: 1em;
+  line-height: 1em;
+}
+
+.chijie-plan-roll-inner.is-up {
+  transform: translateY(-1em);
+}
+
+.chijie-plan-collapsible {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition: grid-template-rows 280ms ease, opacity 200ms ease;
+}
+
+.chijie-plan-collapsible.is-collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chijie-plan-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chijie-progress-plan .chijie-plan-list {
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.chijie-progress-plan .chijie-plan-list > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 0;
+  color: var(--chijie-muted);
+  line-height: 18px;
+  animation: chijie-plan-item-in 360ms ease backwards;
+  animation-delay: calc(var(--chijie-plan-index, 0) * 50ms);
+}
+
+@keyframes chijie-plan-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(-7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chijie-progress-plan .chijie-plan-list > li[data-status='active'] {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--chijie-foreground);
+}
+
+.chijie-progress-plan .chijie-plan-list > li[data-status='blocked'],
+.chijie-progress-plan .chijie-plan-list > li[data-status='waiting_user'] {
+  color: var(--chijie-warning);
+}
+
+.chijie-progress-plan .chijie-plan-list > li[data-status='failed'] {
+  color: var(--chijie-danger);
+}
+
+.chijie-progress-plan .chijie-plan-list > li[data-status='paused'] {
+  color: var(--chijie-muted);
+}
+
+.chijie-plan-item-icon-wrap {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 1px;
+}
+
+.chijie-plan-item-icon,
+.chijie-plan-item-state {
+  position: absolute;
+  inset: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--chijie-muted);
+  opacity: 0;
+  transition: opacity 320ms ease;
+}
+
+.chijie-plan-item-icon.is-on,
+.chijie-plan-item-state.is-on {
+  opacity: 1;
+}
+
+.chijie-plan-item-icon.is-strong {
+  color: var(--chijie-foreground);
+}
+
+.chijie-plan-list > li[data-status='blocked'] .chijie-plan-item-state,
+.chijie-plan-list > li[data-status='waiting_user'] .chijie-plan-item-state {
+  color: var(--chijie-warning);
+}
+
+.chijie-plan-list > li[data-status='failed'] .chijie-plan-item-state {
+  color: var(--chijie-danger);
+}
+
+.chijie-plan-list > li[data-status='done'] .chijie-plan-item-icon {
+  color: var(--chijie-accent);
+}
+
+.chijie-plan-list .chijie-progress-milestone-title {
+  position: relative;
+  color: var(--chijie-muted);
+  font-size: 12px;
+  font-weight: 450;
+  transition: color 360ms ease;
+}
+
+.chijie-plan-list .chijie-progress-milestone-title::before {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    var(--chijie-foreground) 0%,
+    var(--chijie-foreground) 30%,
+    color-mix(in srgb, var(--chijie-foreground) 45%, transparent) 45%,
+    color-mix(in srgb, var(--chijie-foreground) 45%, transparent) 55%,
+    var(--chijie-foreground) 70%,
+    var(--chijie-foreground) 100%
+  );
+  background-position: 100% 0;
+  background-size: 300% 100%;
+  background-clip: text;
+  color: transparent;
+  content: attr(data-label);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 360ms ease;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.chijie-plan-list > li[data-status='active'] .chijie-progress-milestone-title {
+  color: transparent;
+}
+
+.chijie-plan-list > li[data-status='active'] .chijie-progress-milestone-title::before {
+  opacity: 1;
+  animation: chijie-plan-shine 2.25s cubic-bezier(0.25, 0.1, 0.25, 1) 2;
+}
+
+.chijie-plan-list > li[data-status='done'] .chijie-progress-milestone-title {
+  color: var(--chijie-muted);
+}
+
+@keyframes chijie-plan-shine {
+  0%,
+  18% {
+    background-position: 100% 0;
+  }
+  82%,
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+.chijie-plan-item-state-label {
+  color: currentColor;
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+@property --chijie-plan-progress {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 0%;
+}
+
+.chijie-plan-head-pie {
+  position: absolute;
+  inset: 0;
+  width: 13px;
+  height: 13px;
+  margin: auto;
+  border-radius: 50%;
+  color: var(--chijie-foreground);
+  transition: opacity 140ms ease, --chijie-plan-progress 400ms ease;
+}
+
+.chijie-plan-head-pie-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  color: var(--chijie-muted);
+}
+
+.chijie-plan-head-pie::after {
+  position: absolute;
+  inset: 2.6px;
+  border-radius: 50%;
+  background: conic-gradient(currentColor var(--chijie-plan-progress, 0%), transparent 0);
+  content: '';
+}
+
 .chijie-progress-section-head {
   display: flex;
   align-items: center;
