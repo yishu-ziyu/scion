@@ -369,7 +369,7 @@ describe('deriveTaskProgressView', () => {
     expect(view.nextStep).toContain('飞书研究表与决策文档');
   });
 
-  it('projects a fully verified 80/30 decision and dual-readback state through the public task surface', () => {
+  it('projects durable completed research gates even when the restored mission label is generic', () => {
     const evidenceSpace = space(80, 30);
     const decision = putResearchDecisionInSpace({
       space: evidenceSpace,
@@ -407,11 +407,13 @@ describe('deriveTaskProgressView', () => {
 
     const view = deriveTaskProgressView({
       snapshot: snapshot('completed'),
-      missionInstruction: originalInstruction,
+      missionInstruction: 'User task',
       evidenceSpace: document.space,
       now: 12_000,
     });
 
+    expect(view.kind).toBe('research');
+    expect(view.mission.title).toBe('Living Reader 下一阶段能力决策');
     expect(view.status).toBe('completed');
     expect(view.health).toMatchObject({ state: 'complete', summary: '全部要求已经过页面证据验证' });
     expect(view.currentActivity).toBeUndefined();

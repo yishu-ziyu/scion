@@ -95,6 +95,19 @@ export function isLivingReaderMission(instruction: string): boolean {
   return LIVING_READER_RE.test(instruction);
 }
 
+function isLivingReaderEvidenceSpace(evidenceSpace?: EvidenceSpace | null): boolean {
+  if (!evidenceSpace) return false;
+  const recordMatches = evidenceSpace.records.some(record =>
+    [record.sourceTitle, record.relatedProduct, record.livingReaderCapability].some(value =>
+      LIVING_READER_RE.test(value ?? ''),
+    ),
+  );
+  const deliveryMatches = Object.values(evidenceSpace.researchDelivery ?? {}).some(artifact =>
+    LIVING_READER_RE.test(`${artifact?.title ?? ''}\n${artifact?.observedText ?? ''}`),
+  );
+  return recordMatches || deliveryMatches;
+}
+
 function boundedResearchQuota(value: string | undefined): number {
   const count = Number(value);
   return Number.isSafeInteger(count) && count > 0 && count <= MAX_RESEARCH_QUOTA ? count : 0;
@@ -487,7 +500,7 @@ function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressVi
 }
 
 export function deriveTaskProgressView(input: DeriveTaskProgressViewInput): TaskProgressView {
-  return isLivingReaderMission(input.missionInstruction)
+  return isLivingReaderMission(input.missionInstruction) || isLivingReaderEvidenceSpace(input.evidenceSpace)
     ? researchProgressView(input)
     : genericProgressView(input);
 }
