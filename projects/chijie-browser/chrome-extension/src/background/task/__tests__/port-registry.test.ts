@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PortRegistry } from '../port-registry';
 
 describe('PortRegistry', () => {
-  it('interrupts only after the last side panel disconnects', () => {
+  it('releases stale side-panel transports without making them task-lifetime owners', () => {
     const registry = new PortRegistry<{ postMessage(message: string): void }>();
     const oldPort = { postMessage: vi.fn() };
     const newPort = { postMessage: vi.fn() };
