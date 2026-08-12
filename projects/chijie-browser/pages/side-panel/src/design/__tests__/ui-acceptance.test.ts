@@ -368,6 +368,15 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(chatInput).toContain('data-testid="task-mode-badge"');
     expect(chatInput).toContain('chat_task_mode_badge');
     expect(chatInput).toContain('chat_task_input_placeholder');
+    expect(chatInput).toContain('chijie-prompt-frame');
+    expect(chatInput).toContain('chijie-prompt-send');
+    expect(chatInput).toContain('FiArrowUp');
+    expect(chatInput).toContain('onSendMessage(messageContent, displayContent)');
+    expect(chatInput).toContain('onClick={onMicClick}');
+    expect(chatInput).toContain('accept=".txt,.md,.markdown,.json,.csv,.log,.xml,.yaml,.yml"');
+    expect(componentsCss).toContain('.chijie-prompt-frame');
+    expect(componentsCss).toContain('.chijie-prompt-menu');
+    expect(componentsCss).toContain('.chijie-prompt-chip');
     expect(chatInput).not.toMatch(/Planner|Navigator|step_failed/);
   });
 

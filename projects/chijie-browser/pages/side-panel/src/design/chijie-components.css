@@ -1781,32 +1781,280 @@ summary:focus-visible,
   background: var(--chijie-surface);
 }
 
-.chijie-composer form {
-  border-radius: var(--chijie-radius-lg);
-  background: var(--chijie-surface);
+.chijie-prompt-input {
+  width: 100%;
+  font-family: var(--chijie-font-body);
 }
 
-.chijie-composer textarea {
+.chijie-prompt-input.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.chijie-prompt-frame {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 10px;
+  border: 1px solid var(--chijie-border-strong);
+  border-radius: 14px;
+  background: var(--chijie-surface-raised);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.chijie-prompt-frame:focus-within {
+  border-color: color-mix(in srgb, var(--chijie-accent) 48%, var(--chijie-border-strong));
+}
+
+.chijie-prompt-field {
   width: 100%;
-  min-height: 56px;
-  padding: 10px 12px;
+  min-height: 36px;
+  max-height: 112px;
+  padding: 1px 2px;
+  overflow-y: auto;
   border: 0;
+  outline: 0;
   background: transparent;
   color: var(--chijie-foreground);
-  font-family: var(--chijie-font-body);
+  font-family: inherit;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 18px;
   resize: none;
 }
 
-.chijie-composer textarea::placeholder {
-  color: #87918d;
+.chijie-prompt-field::placeholder {
+  color: var(--chijie-muted);
 }
 
-.chijie-composer .chijie-btn-primary,
-.chijie-composer .chijie-btn-danger {
-  width: auto;
-  min-width: 82px;
+.chijie-prompt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chijie-prompt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 4px 3px 7px;
+  border: 1px solid var(--chijie-border);
+  border-radius: var(--chijie-radius-pill);
+  background: var(--chijie-surface);
+  color: var(--chijie-foreground);
+  font-size: 11px;
+  line-height: 14px;
+  animation: chijie-prompt-chip-in 220ms ease both;
+}
+
+.chijie-prompt-chip > svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--chijie-muted);
+}
+
+.chijie-prompt-chip > span {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chijie-prompt-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--chijie-muted);
+  cursor: pointer;
+}
+
+.chijie-prompt-chip-remove:hover {
+  background: var(--chijie-accent-subtle);
+  color: var(--chijie-accent);
+}
+
+.chijie-prompt-chip-remove svg {
+  width: 11px;
+  height: 11px;
+}
+
+.chijie-prompt-actions,
+.chijie-prompt-actions-left {
+  display: flex;
+  align-items: center;
+}
+
+.chijie-prompt-actions {
+  justify-content: space-between;
+}
+
+.chijie-prompt-actions-left {
+  min-width: 0;
+  gap: 5px;
+}
+
+.chijie-prompt-icon-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--chijie-foreground) 6%, transparent);
+  color: var(--chijie-foreground);
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.chijie-prompt-icon-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--chijie-foreground) 10%, transparent);
+}
+
+.chijie-prompt-icon-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.chijie-prompt-icon-button:disabled {
+  color: var(--chijie-muted);
+  cursor: default;
+  opacity: 0.58;
+}
+
+.chijie-prompt-icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.chijie-prompt-add svg {
+  transition: transform 190ms ease;
+}
+
+.chijie-prompt-add[data-open='true'] svg {
+  transform: rotate(45deg);
+}
+
+.chijie-prompt-mic.is-recording {
+  background: var(--chijie-accent);
+  color: #ffffff;
+}
+
+.chijie-prompt-send:not(:disabled) {
+  background: var(--chijie-foreground);
+  color: var(--chijie-surface);
+}
+
+.chijie-prompt-send:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--chijie-foreground) 86%, var(--chijie-accent));
+}
+
+.chijie-prompt-stop {
+  background: var(--chijie-danger-subtle);
+  color: var(--chijie-danger);
+}
+
+.chijie-prompt-mode {
+  max-width: 110px;
+  overflow: hidden;
+  color: var(--chijie-muted);
+  font-size: 11px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chijie-prompt-add-wrap {
+  position: relative;
+}
+
+.chijie-prompt-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 25;
+  width: 190px;
+  padding: 4px;
+  border: 1px solid var(--chijie-border);
+  border-radius: 11px;
+  background: var(--chijie-surface-raised);
+  animation: chijie-prompt-menu-in 180ms ease both;
+}
+
+.chijie-prompt-menu button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--chijie-foreground);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chijie-prompt-menu button:hover {
+  background: var(--chijie-accent-subtle);
+}
+
+.chijie-prompt-menu button svg {
+  width: 14px;
+  height: 14px;
+  color: var(--chijie-muted);
+}
+
+.chijie-prompt-menu small {
+  display: block;
+  padding: 3px 8px 4px;
+  color: var(--chijie-muted);
+  font-size: 10px;
+}
+
+.chijie-prompt-spinner {
+  animation: chijie-prompt-spin 0.75s linear infinite;
+}
+
+@keyframes chijie-prompt-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chijie-prompt-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes chijie-prompt-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* First-run model setup — calm tool launch, not SaaS onboarding */
