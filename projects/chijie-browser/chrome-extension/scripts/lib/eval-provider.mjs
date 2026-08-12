@@ -423,7 +423,11 @@ export function validateEvalSeedReadback(cfg, observed, expectedFeatureFlags = r
   if (observed?.navigator_model !== cfg.model) errors.push('navigator model');
   if (String(observed?.provider_base_url || '').replace(/\/+$/, '') !== cfg.baseUrl) errors.push('provider base URL');
   if (observed?.provider_type !== cfg.type) errors.push('provider type');
-  if (JSON.stringify(observed?.feature_flags) !== JSON.stringify(expectedFeatureFlags)) errors.push('feature flags');
+  const observedFlags = Object.entries(observed?.feature_flags || {}).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  const expectedFlags = Object.entries(expectedFeatureFlags || {}).sort(([left], [right]) => left.localeCompare(right));
+  if (JSON.stringify(observedFlags) !== JSON.stringify(expectedFlags)) errors.push('feature flags');
   return errors;
 }
 
