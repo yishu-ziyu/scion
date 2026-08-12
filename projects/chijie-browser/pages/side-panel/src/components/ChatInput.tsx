@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { FaMicrophone } from 'react-icons/fa';
 import { AiOutlineLoading3Quarters } from 'react-icons/ai';
-import { FiPaperclip, FiX } from 'react-icons/fi';
+import { FiArrowUp, FiPaperclip, FiPlus, FiSquare, FiX } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 
 interface ChatInputProps {
@@ -35,12 +35,14 @@ export default function ChatInput({
 }: ChatInputProps) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const isSendButtonDisabled = useMemo(
     () => disabled || (text.trim() === '' && attachedFiles.length === 0),
     [disabled, text, attachedFiles],
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachmentMenuRef = useRef<HTMLDivElement>(null);
 
   // Handle text changes and resize textarea
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -70,6 +72,22 @@ export default function ChatInput({
       textarea.style.height = `${Math.min(textarea.scrollHeight, 72)}px`;
     }
   }, []);
+
+  useEffect(() => {
+    if (!attachmentMenuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!attachmentMenuRef.current?.contains(event.target as Node)) setAttachmentMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAttachmentMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [attachmentMenuOpen]);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -119,6 +137,7 @@ export default function ChatInput({
   );
 
   const handleFileSelect = useCallback(() => {
+    setAttachmentMenuOpen(false);
     fileInputRef.current?.click();
   }, []);
 
@@ -175,32 +194,23 @@ export default function ChatInput({
     <form
       onSubmit={handleSubmit}
       data-testid="task-mode-input"
-      className={`overflow-hidden rounded-[12px] border border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] ${disabled ? 'cursor-not-allowed opacity-80' : ''}`}
+      className={`chijie-prompt-input${disabled ? ' is-disabled' : ''}`}
       aria-label={t('chat_input_form')}>
-      <div className="flex flex-col">
-        <div className="flex items-center gap-2 border-b border-[var(--chijie-border)] px-3 py-2">
-          <span
-            data-testid="task-mode-badge"
-            className="rounded-full border border-[var(--chijie-border-strong)] bg-[var(--chijie-surface)] px-2.5 py-0.5 text-xs font-medium text-[var(--chijie-foreground)]">
-            {t('chat_task_mode_badge')}
-          </span>
-        </div>
+      <div className="chijie-prompt-frame">
         {attachedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-2 border-b border-[var(--chijie-border)] p-2">
+          <div className="chijie-prompt-chips" data-testid="prompt-attachments">
             {attachedFiles.map((file, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-1 rounded-[60px] border border-[var(--chijie-border-strong)] px-2 py-1 text-xs text-[var(--chijie-foreground)]">
-                <FiPaperclip className="size-3" aria-hidden />
-                <span className="max-w-[150px] truncate">{file.name}</span>
+              <span key={`${file.name}-${index}`} className="chijie-prompt-chip">
+                <FiPaperclip aria-hidden />
+                <span>{file.name}</span>
                 <button
                   type="button"
                   onClick={() => handleRemoveFile(index)}
-                  className="ml-1 rounded-sm text-[var(--chijie-muted)] hover:text-[var(--chijie-accent)]"
+                  className="chijie-prompt-chip-remove"
                   aria-label={`Remove ${file.name}`}>
-                  <FiX className="size-3" aria-hidden />
+                  <FiX aria-hidden />
                 </button>
-              </div>
+              </span>
             ))}
           </div>
         )}
@@ -214,29 +224,36 @@ export default function ChatInput({
           disabled={disabled}
           aria-disabled={disabled}
           rows={2}
-          className="w-full resize-none border-none bg-transparent p-3 text-[var(--chijie-foreground)] focus:outline-none disabled:cursor-not-allowed"
+          className="chijie-prompt-field"
           placeholder={
             attachedFiles.length > 0 ? t('chat_task_input_attach_placeholder') : t('chat_task_input_placeholder')
           }
           aria-label={t('chat_input_editor')}
         />
 
-        <div className="flex items-center justify-between gap-2 border-t border-[var(--chijie-border)] p-2">
-          <div className="flex gap-2 text-[var(--chijie-muted)]">
-            <button
-              type="button"
-              onClick={handleFileSelect}
-              disabled={disabled}
-              aria-label={t('chat_input_attach_files')}
-              title={t('chat_input_attach_files_title')}
-              className={`rounded-full p-1.5 transition-colors ${
-                disabled
-                  ? 'cursor-not-allowed opacity-50'
-                  : 'hover:bg-[var(--chijie-accent-subtle)] hover:text-[var(--chijie-accent)]'
-              }`}>
-              <FiPaperclip className="size-[18px]" aria-hidden />
-            </button>
-
+        <div className="chijie-prompt-actions">
+          <div className="chijie-prompt-actions-left">
+            <div className="chijie-prompt-add-wrap" ref={attachmentMenuRef}>
+              <button
+                type="button"
+                className="chijie-prompt-icon-button chijie-prompt-add"
+                data-open={attachmentMenuOpen ? 'true' : undefined}
+                onClick={() => setAttachmentMenuOpen(open => !open)}
+                disabled={disabled}
+                aria-expanded={attachmentMenuOpen}
+                aria-label={t('chat_input_attach_files')}>
+                <FiPlus aria-hidden />
+              </button>
+              {attachmentMenuOpen && (
+                <div className="chijie-prompt-menu" role="menu">
+                  <button type="button" role="menuitem" onClick={handleFileSelect}>
+                    <FiPaperclip aria-hidden />
+                    <span>{t('chat_input_attach_files')}</span>
+                  </button>
+                  <small>.txt · .md · .json · .csv · 1 MB</small>
+                </div>
+              )}
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -246,7 +263,6 @@ export default function ChatInput({
               className="hidden"
               aria-hidden="true"
             />
-
             {onMicClick && (
               <button
                 type="button"
@@ -259,25 +275,26 @@ export default function ChatInput({
                       ? t('chat_stt_recording_stop')
                       : t('chat_stt_input_start')
                 }
-                className={`rounded-full p-1.5 transition-colors ${
-                  disabled || isProcessingSpeech
-                    ? 'cursor-not-allowed opacity-50'
-                    : isRecording
-                      ? 'bg-[var(--chijie-accent)] text-white'
-                      : 'hover:bg-[var(--chijie-accent-subtle)] hover:text-[var(--chijie-accent)]'
-                }`}>
+                className={`chijie-prompt-icon-button chijie-prompt-mic${isRecording ? ' is-recording' : ''}`}>
                 {isProcessingSpeech ? (
-                  <AiOutlineLoading3Quarters className="size-4 animate-spin" />
+                  <AiOutlineLoading3Quarters className="chijie-prompt-spinner" aria-hidden />
                 ) : (
-                  <FaMicrophone className={`size-4 ${isRecording ? 'animate-pulse' : ''}`} />
+                  <FaMicrophone aria-hidden />
                 )}
               </button>
             )}
+            <span data-testid="task-mode-badge" className="chijie-prompt-mode">
+              {t('chat_task_mode_badge')}
+            </span>
           </div>
 
           {showStopButton ? (
-            <button type="button" onClick={onStopTask} className="chijie-btn-danger w-auto min-w-[88px]">
-              {t('chat_buttons_stop')}
+            <button
+              type="button"
+              onClick={onStopTask}
+              className="chijie-prompt-icon-button chijie-prompt-stop"
+              aria-label={t('chat_buttons_stop')}>
+              <FiSquare aria-hidden />
             </button>
           ) : (
             <button
@@ -285,8 +302,9 @@ export default function ChatInput({
               data-testid="goal-send"
               disabled={isSendButtonDisabled}
               aria-disabled={isSendButtonDisabled}
-              className="chijie-btn-primary w-auto min-w-[88px]">
-              {t('chat_buttons_send')}
+              className="chijie-prompt-icon-button chijie-prompt-send"
+              aria-label={t('chat_buttons_send')}>
+              <FiArrowUp aria-hidden />
             </button>
           )}
         </div>
