@@ -425,6 +425,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(sidePanelSource).toContain('chijie-chat-log');
     expect(sidePanelSource).toContain('chijie-composer');
     expect(sidePanelSource).toMatch(/onAdjustDirection=\{\(\) => \{[\s\S]{0,600}setInputEnabled\(true\)/);
+    expect(sidePanelSource).toMatch(/onAdjustDirection=\{\(\) => \{[\s\S]{0,300}setIsHistoricalSession\(false\)/);
     expect(sidePanelSource).toContain("setInputTextRef.current?.(t('chat_task_adjust_prompt'))");
     expect(sidePanelSource).toContain("changeType: isDirectionChange ? 'direction_change' : 'follow_up'");
     expect(taskProgressOverviewSource).toContain('data-testid="task-direction-change"');
