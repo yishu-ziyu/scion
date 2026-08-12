@@ -133,4 +133,27 @@ describe('TaskProgressOverview mission-plan integration', () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain('当前阶段遇到阻塞');
   });
+
+  it('replaces the duplicated health and next-step cards with one compact interrupted surface', () => {
+    const view: TaskProgressView = {
+      kind: 'generic',
+      mission: { title: '描述当前页面', deliverable: '给出页面摘要' },
+      status: 'paused',
+      milestones: [milestone('current', 'active')],
+      health: { state: 'paused', summary: '运行已中断，检查点已经保存' },
+      findings: [],
+      artifacts: [],
+      nextStep: '继续完成“描述当前页面”',
+      updatedAt: 1,
+    };
+
+    const controls = createElement('div', { 'data-testid': 'interrupted-controls' }, '继续任务');
+    const html = renderToStaticMarkup(createElement(TaskProgressOverview, { view, now: 1, interrupted: true, controls }));
+
+    expect(html).toContain('data-testid="task-interrupted-status"');
+    expect(html).toContain('任务已中断，进度已经保存');
+    expect(html).toContain('可以从「阶段 current」继续');
+    expect(html).toContain('data-testid="interrupted-controls"');
+    expect(html).not.toContain('data-testid="task-progress-health"');
+  });
 });

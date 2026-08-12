@@ -15,6 +15,7 @@ import {
   FiLayers,
   FiList,
   FiMousePointer,
+  FiMoreHorizontal,
   FiPlay,
   FiSearch,
   FiX,
@@ -769,7 +770,7 @@ export function TaskStatusCard({
           {t('chat_task_pause')}
         </button>
       )}
-      {(snapshot.status === 'paused' || snapshot.status === 'interrupted') && (
+      {snapshot.status === 'paused' && (
         <button
           type="button"
           className={primaryButtonClassName}
@@ -805,6 +806,52 @@ export function TaskStatusCard({
     </div>
   ) : null;
 
+  const interruptedControls =
+    snapshot.status === 'interrupted' ? (
+      <div className="chijie-interrupted-actions" data-testid="task-continuous-controls">
+        <button
+          type="button"
+          data-testid="task-resume"
+          className="chijie-interrupted-resume"
+          onClick={() =>
+            send({
+              type: 'resume',
+              commandId: crypto.randomUUID(),
+              taskId: snapshot.id,
+              expectedRevision: snapshot.revision,
+            })
+          }>
+          继续任务
+        </button>
+        {onAdjustDirection && (
+          <button type="button" className="chijie-interrupted-adjust" onClick={onAdjustDirection}>
+            {t('chat_task_adjust_direction')}
+          </button>
+        )}
+        <details className="chijie-interrupted-more">
+          <summary aria-label="更多任务操作">
+            <FiMoreHorizontal aria-hidden />
+          </summary>
+          <div className="chijie-interrupted-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="task-stop-menu"
+              onClick={() =>
+                send({
+                  type: 'cancel',
+                  commandId: crypto.randomUUID(),
+                  taskId: snapshot.id,
+                  expectedRevision: snapshot.revision,
+                })
+              }>
+              {t('chat_task_stop')}
+            </button>
+          </div>
+        </details>
+      </div>
+    ) : null;
+
   return (
     <section
       data-testid="task-status"
@@ -814,21 +861,28 @@ export function TaskStatusCard({
       data-primary-organism={primaryOrganism}
       className={taskCardClassName}>
       {/* 1. Status strip: what phase + where (one glance) */}
-      <header className="chijie-task-head">
-        <span
-          className="chijie-task-status-pill"
-          data-testid="task-status-label"
-          data-status={showPartialComplete ? 'waiting_user' : snapshot.status}
-          data-partial={showPartialComplete ? 'true' : 'false'}>
-          {showPartialComplete ? t('chat_task_partial_title') : t(statusLabelKey(snapshot.status))}
-        </span>
+      <header className="chijie-task-head" data-interrupted={snapshot.status === 'interrupted' ? 'true' : undefined}>
+        {snapshot.status !== 'interrupted' && (
+          <span
+            className="chijie-task-status-pill"
+            data-testid="task-status-label"
+            data-status={showPartialComplete ? 'waiting_user' : snapshot.status}
+            data-partial={showPartialComplete ? 'true' : 'false'}>
+            {showPartialComplete ? t('chat_task_partial_title') : t(statusLabelKey(snapshot.status))}
+          </span>
+        )}
         <span className="chijie-task-site-chip" data-testid="task-site" title={siteLabel(snapshot)}>
           {siteHostLabel(snapshot)}
         </span>
       </header>
 
       {/* 2. Stable mission + durable gates + health. Follow-ups never replace Mission. */}
-      <TaskProgressOverview view={progressView} now={nowTick} controls={taskControls} />
+      <TaskProgressOverview
+        view={progressView}
+        now={nowTick}
+        controls={snapshot.status === 'interrupted' ? interruptedControls : taskControls}
+        interrupted={snapshot.status === 'interrupted'}
+      />
 
       {/* 3b. Running activity is already represented semantically in TaskProgressOverview.
           Keep raw browser operations as a collapsed audit trail. */}
@@ -885,7 +939,6 @@ export function TaskStatusCard({
           Stop remains only in chijie-task-controls below. */}
       {(snapshot.status === 'failed' ||
         snapshot.status === 'cancelled' ||
-        snapshot.status === 'interrupted' ||
         snapshot.status === 'waiting_user' ||
         snapshot.status === 'inputs_required') && (
         <div data-testid="task-next-step" className="chijie-next-step" data-primary-organism="recovery">

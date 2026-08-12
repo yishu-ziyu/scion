@@ -15,6 +15,7 @@ interface TaskProgressOverviewProps {
   view: TaskProgressView;
   now?: number;
   controls?: ReactNode;
+  interrupted?: boolean;
 }
 
 function relativeTime(timestamp: number | undefined, now: number): string | null {
@@ -37,8 +38,14 @@ function HealthIcon({ state }: { state: TaskProgressView['health']['state'] }) {
   return <FiActivity aria-hidden />;
 }
 
-export function TaskProgressOverview({ view, now = Date.now(), controls }: TaskProgressOverviewProps) {
+export function TaskProgressOverview({
+  view,
+  now = Date.now(),
+  controls,
+  interrupted = false,
+}: TaskProgressOverviewProps) {
   const blocked = view.milestones.find(milestone => milestone.status === 'blocked');
+  const interruptedMilestone = view.milestones.find(milestone => milestone.status === 'active');
   const lastProgress = relativeTime(view.health.lastMeaningfulProgressAt, now);
 
   return (
@@ -73,20 +80,36 @@ export function TaskProgressOverview({ view, now = Date.now(), controls }: TaskP
         </section>
       )}
 
-      <section className="chijie-progress-health" data-state={view.health.state} data-testid="task-progress-health">
-        <span className="chijie-progress-health-icon">
-          <HealthIcon state={view.health.state} />
-        </span>
-        <span className="chijie-progress-health-copy">
-          <strong>{view.health.summary}</strong>
-          {lastProgress && <span>最近有效进展：{lastProgress}</span>}
-          <span>
-            {view.status === 'paused' ? '继续后' : '下一步'}：{view.nextStep}
+      {interrupted ? (
+        <section className="chijie-interrupted-status" data-testid="task-interrupted-status">
+          <span className="chijie-interrupted-status-icon">
+            <FiPauseCircle aria-hidden />
           </span>
-        </span>
-      </section>
-
-      {controls}
+          <span className="chijie-interrupted-status-copy">
+            <strong>任务已中断，进度已经保存</strong>
+            <span>
+              {interruptedMilestone ? `可以从「${interruptedMilestone.title}」继续` : `继续后：${view.nextStep}`}
+            </span>
+          </span>
+          {controls}
+        </section>
+      ) : (
+        <>
+          <section className="chijie-progress-health" data-state={view.health.state} data-testid="task-progress-health">
+            <span className="chijie-progress-health-icon">
+              <HealthIcon state={view.health.state} />
+            </span>
+            <span className="chijie-progress-health-copy">
+              <strong>{view.health.summary}</strong>
+              {lastProgress && <span>最近有效进展：{lastProgress}</span>}
+              <span>
+                {view.status === 'paused' ? '继续后' : '下一步'}：{view.nextStep}
+              </span>
+            </span>
+          </section>
+          {controls}
+        </>
+      )}
 
       {view.findings.length > 0 && (
         <section className="chijie-progress-findings" data-testid="task-progress-findings">
