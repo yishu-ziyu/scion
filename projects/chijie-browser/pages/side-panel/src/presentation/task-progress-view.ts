@@ -52,6 +52,30 @@ export interface ProgressArtifact {
   url?: string;
 }
 
+/** design/008: answers "should I intervene?" — not a debug dashboard. */
+export type ProgressHealthState =
+  | 'advancing'
+  | 'recovering'
+  | 'slow'
+  | 'needs_user'
+  | 'paused'
+  | 'failed'
+  | 'complete';
+
+export interface ProgressHealth {
+  state: ProgressHealthState;
+  summary: string;
+  lastMeaningfulProgressAt?: number;
+}
+
+/** design/008: one semantic Now line — action + purpose, not chain-of-thought. */
+export interface ProgressCurrentActivity {
+  summary: string;
+  purpose: string;
+  site?: string;
+  startedAt: number;
+}
+
 export interface TaskProgressView {
   kind: 'research' | 'generic';
   mission: {
@@ -63,6 +87,9 @@ export interface TaskProgressView {
     occurredAt: number;
   };
   status: ProgressViewStatus;
+  health: ProgressHealth;
+  /** Present only while the task is actively working (or recovering). */
+  currentActivity?: ProgressCurrentActivity;
   milestones: ProgressMilestone[];
   findings: ProgressFinding[];
   artifacts: ProgressArtifact[];
@@ -136,6 +163,121 @@ function viewStatus(snapshot: TaskSnapshot, evidenceSpace?: EvidenceSpace | null
   if (snapshot.status === 'failed' || snapshot.status === 'cancelled') return 'failed';
   if (evidenceSpace?.researchDecision && !researchDeliveryComplete(evidenceSpace)) return 'delivering';
   return snapshot.rounds.some(round => round.evidence.length > 0) ? 'working' : 'planning';
+}
+
+function lastMeaningfulProgressAt(
+  snapshot: TaskSnapshot,
+  evidenceSpace?: EvidenceSpace | null,
+): number | undefined {
+  const evidenceAt = evidenceSpace?.updatedAt;
+  const recordAt = evidenceSpace?.records.reduce(
+    (max, record) => Math.max(max, record.capturedAt ?? 0),
+    0,
+  );
+  const candidates = [evidenceAt, recordAt, snapshot.updatedAt].filter(
+    (value): value is number => typeof value === 'number' && value > 0,
+  );
+  if (candidates.length === 0) return undefined;
+  return Math.max(...candidates);
+}
+
+/**
+ * S1 health projection: status-driven mutual exclusion only.
+ * Does not use action counts. slow/recovering need more signals later.
+ */
+function activitySiteLabel(snapshot: TaskSnapshot): string | undefined {
+  const page =
+    [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page' && ref.tabId === snapshot.activeTabId) ??
+    [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page');
+  const raw = page?.label?.trim() || page?.urlOrigin?.trim();
+  if (!raw) return undefined;
+  try {
+    if (raw.includes('://')) {
+      return new URL(raw).hostname.replace(/^www\./, '') || compact(raw, 40);
+    }
+    return compact(raw.replace(/^www\./, ''), 40);
+  } catch {
+    return compact(raw, 40);
+  }
+}
+
+function latestAttempt(snapshot: TaskSnapshot) {
+  const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
+  const attempts = round?.attempts ?? [];
+  return attempts.length > 0 ? attempts[attempts.length - 1] : undefined;
+}
+
+/**
+ * S2 Now line: only while running. Summary from last attempt; purpose from active milestone.
+ */
+export function deriveCurrentActivity(
+  snapshot: TaskSnapshot,
+  milestones: ProgressMilestone[],
+): ProgressCurrentActivity | undefined {
+  if (snapshot.status !== 'running') return undefined;
+  const attempt = latestAttempt(snapshot);
+  const active = milestones.find(milestone => milestone.status === 'active');
+  const summaryRaw =
+    attempt?.displaySummary?.replace(/\s+/g, ' ').trim() ||
+    attempt?.targetLabel?.replace(/\s+/g, ' ').trim() ||
+    attempt?.actionName?.replace(/_/g, ' ').trim() ||
+    '正在推进任务';
+  const summary = compact(summaryRaw, 80);
+  const purpose = active
+    ? `服务于「${active.title}」`
+    : snapshot.plan?.goal
+      ? '推进当前验收'
+      : '推进当前任务';
+  return {
+    summary,
+    purpose,
+    site: activitySiteLabel(snapshot),
+    startedAt: attempt?.executingAt ?? attempt?.authorizedAt ?? attempt?.proposedAt ?? snapshot.updatedAt,
+  };
+}
+
+export function deriveProgressHealth(
+  snapshot: TaskSnapshot,
+  evidenceSpace?: EvidenceSpace | null,
+): ProgressHealth {
+  const lastAt = lastMeaningfulProgressAt(snapshot, evidenceSpace);
+  switch (snapshot.status) {
+    case 'paused':
+    case 'interrupted':
+      return { state: 'paused', summary: '已暂停', lastMeaningfulProgressAt: lastAt };
+    case 'waiting_user':
+    case 'inputs_required':
+      return {
+        state: 'needs_user',
+        summary: '需要你处理登录、验证或确认后才能继续',
+        lastMeaningfulProgressAt: lastAt,
+      };
+    case 'failed':
+      return {
+        state: 'failed',
+        summary: '未完成，请查看缺口后继续或调整方向',
+        lastMeaningfulProgressAt: lastAt,
+      };
+    case 'cancelled':
+      return {
+        state: 'failed',
+        summary: '已停止',
+        lastMeaningfulProgressAt: lastAt,
+      };
+    case 'completed':
+      return {
+        state: 'complete',
+        summary: '已验证完成',
+        lastMeaningfulProgressAt: lastAt,
+      };
+    case 'running':
+    default:
+      return {
+        state: 'advancing',
+        summary: '正常推进',
+        lastMeaningfulProgressAt: lastAt,
+      };
+  }
 }
 
 function researchDeliveryComplete(space?: EvidenceSpace | null): boolean {
@@ -314,6 +456,7 @@ function researchProgressView(input: DeriveTaskProgressViewInput): TaskProgressV
   else if (!deliveryDone) nextStep = '创建并回读飞书研究表与决策文档';
   else if (snapshot.status === 'completed') nextStep = '任务已完成';
 
+  const currentActivity = deriveCurrentActivity(snapshot, milestones);
   return {
     kind: 'research',
     mission: {
@@ -322,6 +465,8 @@ function researchProgressView(input: DeriveTaskProgressViewInput): TaskProgressV
     },
     directionChange: latestDirectionChange(snapshot),
     status: viewStatus(snapshot, evidenceSpace),
+    health: deriveProgressHealth(snapshot, evidenceSpace),
+    ...(currentActivity ? { currentActivity } : {}),
     milestones,
     findings,
     artifacts,
@@ -367,6 +512,7 @@ function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressVi
         },
       ]
     : [];
+  const currentActivity = deriveCurrentActivity(snapshot, milestones);
   return {
     kind: 'generic',
     mission: {
@@ -375,6 +521,8 @@ function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressVi
     },
     directionChange: latestDirectionChange(snapshot),
     status: viewStatus(snapshot),
+    health: deriveProgressHealth(snapshot),
+    ...(currentActivity ? { currentActivity } : {}),
     milestones,
     findings: [],
     artifacts,

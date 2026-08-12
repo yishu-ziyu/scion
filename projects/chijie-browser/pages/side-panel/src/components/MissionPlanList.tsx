@@ -14,6 +14,11 @@ export type MissionPlanItemStatus =
 interface MissionPlanListProps {
   milestones: ProgressMilestone[];
   status: ProgressViewStatus;
+  /**
+   * When false, do not show phase-ratio pie as if it were goal progress (008 / S3).
+   * Defaults to true only when at least one gate has a target.
+   */
+  durableProgress?: boolean;
 }
 
 function iconClassName(on: boolean, strong = false): string {
@@ -148,17 +153,20 @@ function HeadIcon({
   status,
   complete,
   progress,
+  showPie,
 }: {
   status: ProgressViewStatus;
   complete: boolean;
   progress: number;
+  showPie: boolean;
 }) {
   if (complete) return <FilledCheckIcon />;
   if (status === 'paused') return <FiPauseCircle className="chijie-plan-head-state" aria-hidden />;
   if (status === 'needs_user' || status === 'failed') {
     return <FiAlertCircle className="chijie-plan-head-state" aria-hidden />;
   }
-  if (status !== 'planning') {
+  // S3: no phase-count pie when there are no durable gates (forbids fake goal %).
+  if (showPie && status !== 'planning') {
     return (
       <span
         className="chijie-plan-head-pie"
@@ -195,15 +203,21 @@ function ItemIcon({ status }: { status: MissionPlanItemStatus }) {
   );
 }
 
-export function MissionPlanList({ milestones, status }: MissionPlanListProps) {
+export function MissionPlanList({ milestones, status, durableProgress }: MissionPlanListProps) {
   const [collapsed, setCollapsed] = useState(false);
   const itemStatuses = milestones.map(milestone => missionPlanItemStatus(milestone.status, status));
   const doneCount = itemStatuses.filter(itemStatus => itemStatus === 'done').length;
   const complete = milestones.length > 0 && doneCount === milestones.length;
+  const hasDurableGates =
+    durableProgress ??
+    milestones.some(milestone => milestone.gates.some(gate => gate.target !== undefined && gate.target > 0));
   const progress = milestones.length > 0 ? Math.round((doneCount / milestones.length) * 100) : 0;
 
   return (
-    <section className="chijie-progress-plan chijie-plan-todo" data-testid="mission-plan">
+    <section
+      className="chijie-progress-plan chijie-plan-todo"
+      data-testid="mission-plan"
+      data-durable-progress={hasDurableGates ? 'true' : 'false'}>
       <button
         type="button"
         className="chijie-plan-head"
@@ -211,7 +225,7 @@ export function MissionPlanList({ milestones, status }: MissionPlanListProps) {
         aria-label="展开或收起任务计划"
         onClick={() => setCollapsed(current => !current)}>
         <span className="chijie-plan-head-icon" data-state={status}>
-          <HeadIcon status={status} complete={complete} progress={progress} />
+          <HeadIcon status={status} complete={complete} progress={progress} showPie={hasDurableGates} />
           <svg className="chijie-plan-chevron" viewBox="0 0 24 24" aria-hidden="true">
             <path
               d="m19.5 8.25-7.5 7.5-7.5-7.5"
@@ -225,8 +239,17 @@ export function MissionPlanList({ milestones, status }: MissionPlanListProps) {
         </span>
         <span className="chijie-plan-title">任务计划</span>
         <span className="chijie-plan-count" data-testid="mission-plan-count">
-          <RollingCount value={`${doneCount}/${milestones.length}`} />
-          <span>阶段</span>
+          {hasDurableGates ? (
+            <>
+              <RollingCount value={`${doneCount}/${milestones.length}`} />
+              <span>阶段</span>
+            </>
+          ) : (
+            <>
+              <RollingCount value={`${milestones.length}`} />
+              <span>里程碑</span>
+            </>
+          )}
         </span>
       </button>
 

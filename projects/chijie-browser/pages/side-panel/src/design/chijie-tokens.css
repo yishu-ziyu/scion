@@ -25,16 +25,37 @@
   --chijie-danger: #d94a4a;
   --chijie-danger-subtle: #fbecea;
   --chijie-space-unit: 8px;
+  /* S5: compact ladder for ~430px console (Notion spacing notes + 008 density). */
+  --chijie-space-1: 4px;
+  --chijie-space-2: 8px;
+  --chijie-space-3: 12px;
+  --chijie-space-4: 16px;
+  --chijie-space-5: 24px;
+  --chijie-space-section: 16px;
   --chijie-radius-sm: 4px;
   --chijie-radius-md: 8px;
   --chijie-radius-lg: 12px;
   --chijie-radius-xl: 16px;
   --chijie-radius-pill: 999px;
   --chijie-radius-torn: 16px;
+  /* S5: 3–5 type steps (Sajid/Refactoring UI), not Material full scale. */
+  --chijie-text-xs: 11px;
+  --chijie-text-sm: 12px;
+  --chijie-text-md: 14px;
+  --chijie-text-lg: 16px;
+  --chijie-weight-regular: 400;
+  --chijie-weight-medium: 500;
+  --chijie-weight-semibold: 600;
+  --chijie-leading-tight: 1.15;
+  --chijie-leading-normal: 1.4;
+  --chijie-success: #166f4e;
+  --chijie-success-subtle: #eaf4ef;
   --chijie-font-body: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
   --chijie-font-mono: 'Space Mono', ui-monospace, monospace;
   --chijie-font-hand: 'Gochi Hand', 'Noto Sans SC', cursive;
   --chijie-font-serif: 'Noto Serif SC', 'Averia Serif Libre', serif;
+  --chijie-panel-pad-x: 12px;
+  --chijie-duration-fast: 160ms;
 }
 
 html,

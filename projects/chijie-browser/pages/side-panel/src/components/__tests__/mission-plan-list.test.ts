@@ -64,11 +64,37 @@ describe('MissionPlanList rendered contract', () => {
 
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('aria-label="展开或收起任务计划"');
-    expect(html).toContain('aria-label="1/3"');
+    // No durable gates → count is milestone total, not a fake done/total phase ratio pie.
+    expect(html).toContain('data-durable-progress="false"');
+    expect(html).toContain('aria-label="3"');
+    expect(html).toContain('里程碑');
+    expect(html).not.toContain('aria-label="1/3"');
     expect(html).toContain('data-status="done"');
     expect(html).toContain('data-status="active"');
     expect(html).toContain('data-status="planned"');
     expect(html).toContain('正在读取当前页面');
+  });
+
+  it('shows durable gate ratio and pie only when milestones have real targets', () => {
+    const html = renderToStaticMarkup(
+      createElement(MissionPlanList, {
+        milestones: [
+          milestone('done', 'done', {
+            gates: [{ id: 'g1', label: '合格讨论', status: 'passed', current: 80, target: 80 }],
+          }),
+          milestone('active', 'active', {
+            gates: [{ id: 'g2', label: '竞品', status: 'active', current: 10, target: 20 }],
+          }),
+        ],
+        status: 'working',
+        durableProgress: true,
+      }),
+    );
+
+    expect(html).toContain('data-durable-progress="true"');
+    expect(html).toContain('aria-label="1/2"');
+    expect(html).toContain('阶段');
+    expect(html).toContain('chijie-plan-head-pie');
   });
 
   it.each([
@@ -110,7 +136,9 @@ describe('MissionPlanList rendered contract', () => {
   it('marks every stage done only after verified task completion', () => {
     const html = renderPlan([milestone('current', 'active'), milestone('next', 'planned')], 'completed');
 
-    expect(html).toContain('aria-label="2/2"');
+    // Without durable targets the count is the milestone total, not a fake ratio.
+    expect(html).toContain('aria-label="2"');
+    expect(html).toContain('data-durable-progress="false"');
     expect(html.match(/data-status="done"/g)).toHaveLength(2);
     expect(html).not.toContain('data-status="active"');
     expect(html).not.toContain('data-status="planned"');
@@ -123,6 +151,7 @@ describe('TaskProgressOverview mission-plan integration', () => {
       kind: 'generic',
       mission: { title: '描述当前页面', deliverable: '给出页面摘要' },
       status: 'working',
+      health: { state: 'advancing', summary: '正常推进' },
       milestones: [milestone('blocked', 'blocked', { summary: '页面暂不可读' })],
       findings: [],
       artifacts: [],
@@ -135,13 +164,15 @@ describe('TaskProgressOverview mission-plan integration', () => {
     expect(html).toContain('data-testid="mission-plan"');
     expect(html).toContain('role="alert"');
     expect(html).toContain('当前阶段遇到阻塞');
+    expect(html).toContain('data-testid="task-progress-health"');
   });
 
-  it('replaces the duplicated health and next-step cards with one compact interrupted surface', () => {
+  it('keeps interrupted recovery controls and a mutual-exclusion health line', () => {
     const view: TaskProgressView = {
       kind: 'generic',
       mission: { title: '描述当前页面', deliverable: '给出页面摘要' },
       status: 'paused',
+      health: { state: 'paused', summary: '已暂停', lastMeaningfulProgressAt: 1 },
       milestones: [milestone('current', 'active')],
       findings: [],
       artifacts: [],
@@ -158,8 +189,41 @@ describe('TaskProgressOverview mission-plan integration', () => {
     expect(html).toContain('任务已中断，进度已经保存');
     expect(html).toContain('可以从「阶段 current」继续');
     expect(html).toContain('data-testid="interrupted-controls"');
-    expect(html).not.toContain('data-testid="task-progress-health"');
+    expect(html).toContain('data-testid="task-progress-health"');
+    expect(html).toContain('data-health="paused"');
+    expect(html).toContain('已暂停');
+    // Now line is running-only; paused recovery must not fake live activity.
     expect(html).not.toContain('data-testid="task-progress-current-activity"');
+    expect(html).not.toContain('思考中');
+  });
+
+  it('renders the Now line when currentActivity is present', () => {
+    const view: TaskProgressView = {
+      kind: 'generic',
+      mission: { title: '描述当前页面', deliverable: '给出页面摘要' },
+      status: 'working',
+      health: { state: 'advancing', summary: '正常推进' },
+      currentActivity: {
+        summary: '打开 Zotero 官网',
+        purpose: '服务于「用户研究」',
+        site: 'zotero.org',
+        startedAt: 1,
+      },
+      milestones: [milestone('research', 'active')],
+      findings: [],
+      artifacts: [],
+      nextStep: '继续收集证据',
+      updatedAt: 1,
+    };
+
+    const html = renderToStaticMarkup(createElement(TaskProgressOverview, { view, now: 1 }));
+
+    expect(html).toContain('data-testid="task-progress-current-activity"');
+    expect(html).toContain('data-testid="task-now-summary"');
+    expect(html).toContain('打开 Zotero 官网');
+    expect(html).toContain('服务于「用户研究」');
+    expect(html).toContain('zotero.org');
+    expect(html).toContain('data-testid="task-progress-health"');
   });
 });
 
@@ -169,15 +233,18 @@ describe('ThinkingReasoning rendered contract', () => {
     { id: 'attempt-2', text: '读取当前页面' },
   ];
 
-  it('shows the live stream expanded while the task is running', () => {
+  it('keeps the audit stream collapsible while running (no forced live chrome)', () => {
     const html = renderToStaticMarkup(createElement(ThinkingReasoning, { items, running: true, elapsed: '12s' }));
 
     expect(html).toContain('data-testid="task-thinking-reasoning"');
     expect(html).toContain('data-running="true"');
-    expect(html).toContain('aria-expanded="true"');
-    expect(html).toContain('思考中…');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('处理过程');
+    expect(html).not.toContain('思考中');
+    expect(html).not.toContain('is-shimmer');
     expect(html).toContain('打开 Zotero 官网');
     expect(html).toContain('读取当前页面');
+    expect(html).toContain('is-collapsed');
   });
 
   it('folds completed work into an elapsed summary by default', () => {

@@ -205,7 +205,7 @@ describe('deriveTaskProgressView', () => {
     expect(view.nextStep).toContain('4 条合格用户讨论证据');
   });
 
-  it('keeps durable progress while paused without deriving a duplicate live-status card', () => {
+  it('keeps durable progress while paused and exposes mutual-exclusion health', () => {
     const view = deriveTaskProgressView({
       snapshot: snapshot('paused'),
       missionInstruction: originalInstruction,
@@ -215,17 +215,38 @@ describe('deriveTaskProgressView', () => {
 
     expect(view.status).toBe('paused');
     expect(view.milestones.some(item => item.status === 'active')).toBe(true);
-    expect(view).not.toHaveProperty('health');
+    expect(view.health.state).toBe('paused');
+    expect(view.health.summary).toBe('已暂停');
     expect(view).not.toHaveProperty('currentActivity');
   });
 
+  it('projects a Now line only while running (action + purpose + site)', () => {
+    const view = deriveTaskProgressView({
+      snapshot: snapshot('running'),
+      missionInstruction: originalInstruction,
+      evidenceSpace: space(76, 26),
+      now: 12_000,
+    });
+
+    expect(view.health.state).toBe('advancing');
+    expect(view.currentActivity).toMatchObject({
+      summary: '打开 Zotero 官网',
+      purpose: expect.stringMatching(/服务于「/),
+      site: 'example.com',
+      startedAt: 9_100,
+    });
+  });
+
   it.each([
-    ['waiting_user', 'needs_user'],
-    ['inputs_required', 'needs_user'],
-    ['failed', 'failed'],
-    ['cancelled', 'failed'],
-    ['completed', 'completed'],
-  ] as const)('maps %s to one non-running public state', (taskStatus, viewStatus) => {
+    ['waiting_user', 'needs_user', 'needs_user'],
+    ['inputs_required', 'needs_user', 'needs_user'],
+    ['failed', 'failed', 'failed'],
+    ['cancelled', 'failed', 'failed'],
+    ['completed', 'completed', 'complete'],
+    // running without round.evidence stays planning; health still advances.
+    ['running', 'planning', 'advancing'],
+    ['interrupted', 'paused', 'paused'],
+  ] as const)('maps %s to public status %s and health %s', (taskStatus, viewStatus, healthState) => {
     const view = deriveTaskProgressView({
       snapshot: snapshot(taskStatus),
       missionInstruction: originalInstruction,
@@ -234,8 +255,13 @@ describe('deriveTaskProgressView', () => {
     });
 
     expect(view.status).toBe(viewStatus);
-    expect(view).not.toHaveProperty('health');
-    expect(view).not.toHaveProperty('currentActivity');
+    expect(view.health.state).toBe(healthState);
+    expect(view.health.summary.length).toBeGreaterThan(0);
+    if (taskStatus === 'running') {
+      expect(view.currentActivity?.summary).toBe('打开 Zotero 官网');
+    } else {
+      expect(view).not.toHaveProperty('currentActivity');
+    }
   });
 
   it('projects a durable direction-change round separately from the stable mission', () => {
