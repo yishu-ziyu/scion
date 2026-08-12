@@ -229,6 +229,58 @@ verified Feishu deliveries: 2/2
 | living-reader-delivery | 重新打开研究表和决策文档并滚动读取 | 表头、179 行回读、做什么/为什么/暂不做/风险和三项标题存在 |
 | Living Reader long-horizon acceptance | 最终任务卡片与内存储状态 | completed/completed、verified receipt、全部门通过 |
 
+## 2026-08-12 独立复查
+
+在已有验收完成后，又创建 fresh ego space `21`，从最新构建的真实扩展入口重新执行一次独立复查。创建前 `listTaskSpaces()` 返回空数组，因此本轮没有复用先前页面或浏览器空间。
+
+### 重试与恢复上下文
+
+- 定向回归测试重新通过：TaskManager 与 research checkpoint 共 `69/69`，其中覆盖 correction round 恢复时把原始研究指令与最新纠正指令一起交给执行器。
+- 真实历史入口恢复的仍是正式任务 `0708c02a-2a12-4e3e-8217-6fc7b5f7015e`，不是新任务；持久 runtime 为 `5` 个 round，最终 round 状态 `completed`。
+- 持久聊天链仍包含最初的 `至少 80 条用户讨论`、`至少 30 个产品`，以及后续多个 retry/resume 指令。五个 round 的 `instructionMessageId` 均能回指同一聊天链，最终 round 指令仍明确保留 `80 / 30 / 恰好 3 / 双回读` 四项门槛。
+- 恢复后的公共卡片直接显示 `81/80`、`30/30`、`3/3`、`2/2` 和 `5/5`，证明原配额不是只存在于测试夹具，而是在真实恢复输出中继续生效。
+
+### 三项决策与双交付
+
+扩展持久状态再次读取到 `182` 条证据记录，以及恰好三个能力：
+
+1. `Cross-document grounded reasoning workspace`
+2. `Reader-world concept and timeline map`
+3. `Anti-hallucination source-grounded reading mode`
+
+每项能力均持久化七个决策字段：`userMoment`、`whyNow`、`behaviorChange`、`mvp`、`successMetric`、`implementationDistance`、`whyOthersLater`；每项引用 `2` 条用户证据、`1` 条产品证据、`1` 条仓库证据。顶层仍有 `3` 项 deferred 和 `3` 项 contradictions。
+
+两份持久交付收据仍同时存在：
+
+- `research_table`：重新打开真实飞书页面后，标题和九个要求字段全部可见；持久收据仍为 `rowCount=179`。
+- `decision_document`：重新打开真实飞书页面并滚动 `.bear-web-x-container.docx-in-wiki` 到底部后，`下一步做什么`、`为什么`、`暂时不做`、`反证与风险` 和三个能力标题全部从页面正文读回。
+
+本轮新截图：
+
+- [恢复后的完成公共卡片](./2026-08-12-independent-recheck-completed-card.png)
+- [研究表独立回读](./2026-08-12-independent-recheck-research-table.png)
+- [决策文档独立回读](./2026-08-12-independent-recheck-decision-document.png)
+
+### 最终回执与报告一致性
+
+本轮从真实扩展存储重新读取到：
+
+```json
+{
+  "status": "completed",
+  "revision": 3113,
+  "roundCount": 5,
+  "latestRoundStatus": "completed",
+  "receiptId": "b49bc82f-e2f2-4bf9-a322-fc9486306d69",
+  "receiptVerifiedAt": 1786493600049,
+  "records": 182,
+  "decisionCount": 3,
+  "deliveryKinds": ["decision_document", "research_table"]
+}
+```
+
+完成态 progress projection 定向测试重新通过 `16/16`；`chrome-extension` 与 `@extension/sidepanel` TypeScript 检查均通过。复查结果与本报告原判断一致：用户结果、恢复上下文、三项正式决策、双回读和 verified terminal completion 为 `PASS`；富文本编辑器完全无人辅助写入仍为 `PARTIAL`，没有被本次复查夸大为通过。
+
 ## G23 映射
 
 | Gate | 最终结果 | 状态 |
