@@ -3269,7 +3269,7 @@ describe('TaskManager lifecycle', () => {
             criteria: [
               expect.objectContaining({
                 kind: 'page_text',
-                expectedDigest: await sha256('Saved successfully'),
+                expectedDigest: await sha256('Saved successfully'.toLocaleLowerCase()),
               }),
             ],
           },

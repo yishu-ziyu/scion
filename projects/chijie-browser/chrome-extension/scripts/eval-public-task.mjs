@@ -228,10 +228,19 @@ export function recordNavigationEvidence(entries, observed) {
 async function capturePageEvidence(target) {
   try {
     const observed = await target.evaluate(() => {
-      const firstParagraph =
-        document.querySelector('#mw-content-text .mw-parser-output > p:not(.mw-empty-elt)')?.textContent ||
-        document.querySelector('main p')?.textContent ||
-        '';
+      const firstParagraph = (() => {
+        const wikiParas = Array.from(
+          document.querySelectorAll('#mw-content-text .mw-parser-output > p:not(.mw-empty-elt)'),
+        )
+          .map(node => (node.textContent || '').replace(/\s+/g, ' ').trim())
+          .filter(
+            text =>
+              text.length >= 40 &&
+              !/you deserve an explanation|our fundraiser|please donate|less than 2% of our readers donate/i.test(text),
+          );
+        if (wikiParas[0]) return wikiParas[0];
+        return document.querySelector('main p')?.textContent || '';
+      })();
       return {
         url: location.href,
         title: document.title,

@@ -1635,6 +1635,7 @@ export default class Page {
     if (this._puppeteerPage && urlIdentity) {
       try {
         const capture = await this._puppeteerPage.evaluate(() => ({
+          title: document.title || '',
           bodyText: document.body?.innerText || '',
           leafText:
             typeof document.querySelectorAll === 'function'
@@ -1645,19 +1646,23 @@ export default class Page {
         }));
         const bodyText = typeof capture === 'string' ? capture : capture.bodyText;
         const leafText = typeof capture === 'string' ? [] : capture.leafText;
+        const pageTitle = typeof capture === 'string' ? '' : capture.title;
         const bounded = bodyText.slice(0, 200_000);
         const normalizedBody = bounded.replace(/\s+/g, ' ').trim();
         if (normalizedBody) bodyDigest = await sha256(normalizedBody);
         const candidates = [
           ...new Set(
-            [bounded, ...leafText.slice(0, 1_024)]
+            [pageTitle, bounded, ...leafText.slice(0, 1_024)]
               .flatMap(part => part.split(/(?<=[.!?。！？])\s+|\n+/))
               .map(part => part.replace(/\s+/g, ' ').trim())
               .filter(part => part.length > 0 && part.length <= 240)
               .slice(0, 512),
           ),
         ];
-        if (candidates.length > 0) textDigests = await Promise.all(candidates.map(candidate => sha256(candidate)));
+        if (candidates.length > 0) {
+          const folded = candidates.map(candidate => candidate.toLocaleLowerCase());
+          textDigests = await Promise.all([...new Set([...candidates, ...folded])].map(candidate => sha256(candidate)));
+        }
         const revisionDigest = await sha256(
           JSON.stringify({
             normalizedUrl,
