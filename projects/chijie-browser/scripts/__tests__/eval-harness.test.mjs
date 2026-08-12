@@ -372,6 +372,22 @@ test('provider identity is accepted only after storage readback matches both age
     feature_flags: flags,
   };
   assert.deepEqual(validateEvalSeedReadback(cfg, observed, flags), []);
+  assert.deepEqual(
+    validateEvalSeedReadback(
+      cfg,
+      { ...observed, feature_flags: { second: true, first: false } },
+      {
+        first: false,
+        second: true,
+      },
+    ),
+    [],
+  );
+  assert(
+    validateEvalSeedReadback(cfg, { ...observed, feature_flags: { ...flags, unexpected: true } }, flags).includes(
+      'feature flags',
+    ),
+  );
   assert(validateEvalSeedReadback(cfg, { ...observed, planner_model: 'spoofed' }, flags).includes('planner model'));
   assert(
     validateEvalSeedReadback(cfg, { ...observed, provider_base_url: 'http://127.0.0.1:9999/v1' }, flags).includes(
