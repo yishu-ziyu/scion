@@ -3,13 +3,27 @@
  * artifact schema/row/source checks are real, not summary-text only.
  */
 import { describe, expect, it } from 'vitest';
-import { createTableArtifact } from '../artifact';
+import { createTableArtifact, createTextArtifact } from '../artifact';
 import { verifyCandidateComplete } from '../verification-engine';
 
 describe('022-VERIFY-01 false candidate_complete', () => {
   it('rejects empty candidate with no evidence (Executor cannot self-complete)', () => {
     const result = verifyCandidateComplete({
       // Executor claims done with no artifacts/criteria
+    });
+    expect(result.complete).toBe(false);
+    expect(result.verdict).toBe('INCONCLUSIVE');
+  });
+
+  it('does not treat an arbitrary text artifact as verified completion', () => {
+    const result = verifyCandidateComplete({
+      artifacts: [
+        createTextArtifact({
+          title: 'metadata shortcut',
+          text: '标题：Context engineering；域名：example.test',
+          sources: [{ url: 'https://example.test' }],
+        }),
+      ],
     });
     expect(result.complete).toBe(false);
     expect(result.verdict).toBe('INCONCLUSIVE');
@@ -24,10 +38,7 @@ describe('022-VERIFY-01 false candidate_complete', () => {
     });
     const result = verifyCandidateComplete({
       artifacts: [artifact],
-      artifactCriteria: [
-        { kind: 'artifact_exists' },
-        { kind: 'artifact_row_count', operator: '>=', expected: 5 },
-      ],
+      artifactCriteria: [{ kind: 'artifact_exists' }, { kind: 'artifact_row_count', operator: '>=', expected: 5 }],
     });
     expect(result.complete).toBe(false);
     expect(result.verdict).toBe('FAIL');

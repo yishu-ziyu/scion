@@ -33,6 +33,7 @@ import {
   formatBindChip,
   formatBindDetail,
   pickActiveContentTab,
+  taskBoundContentTab,
   type BoundContentTab,
 } from './presentation/active-tab-bind';
 import {
@@ -40,10 +41,37 @@ import {
   shouldAutoRestoreTaskSession,
   shouldShowMainTaskSurface,
 } from './presentation/task-loop-ui';
+import { completionChatDelivery, hasCompletionChatDelivery } from './presentation/completion-chat-delivery';
+import { taskAllowsDirectionChange, taskLocksComposer, taskNeedsDirectStop } from './presentation/wait-affordance';
 import {
-  completionChatDelivery,
-  hasCompletionChatDelivery,
-} from './presentation/completion-chat-delivery';
+  cancellationIntentAfterDisconnect,
+  cancellationIntentAfterDispatch,
+  canBeginExclusiveTaskLaunch,
+  canExposeMessageRecoveryActions,
+  canFollowUpInOwnedSession,
+  canDispatchTaskCommand,
+  confirmsNewChatCancellation,
+  hasPendingLifecycleCommand,
+  historicalProjectionAfterHistoryBack,
+  isCurrentAsyncSessionResult,
+  isRejectedTaskLaunchAck,
+  mergeAuthoritativeTaskSnapshot,
+  modelHistoryForTurn,
+  newChatCancellationTarget,
+  ownsAsyncSessionOperation,
+  pendingStartAfterPostFailure,
+  projectMessagesForDisplay,
+  protectedLiveHistorySessionId,
+  recoverySessionOwner,
+  shouldAcceptHistorySnapshot,
+  shouldAcceptTaskSignal,
+  shouldRenderMessageForSession,
+  shouldRenderCommandRejection,
+  shouldDeleteSupersededLaunchSession,
+  shouldRetryNewChatCancellationAfterLifecycleAck,
+  shouldSuppressExecutionForSessionRecovery,
+  shouldSuppressLegacyTaskOk,
+} from './presentation/session-task-identity';
 import './SidePanel.css';
 
 // Declare chrome API types
@@ -68,19 +96,19 @@ export function commandRejectionMessage(error: CommandRejection): string {
   }
 }
 
+/** A new-chat reset is safe only after the old live task has acknowledged cancellation. */
+export { confirmsNewChatCancellation, shouldAcceptTaskSignal } from './presentation/session-task-identity';
+
 /** Resolve the content tab the user is looking at (not chrome:// / extension pages). */
 export async function resolveActiveContentTab(
   options: { allowLastFocused?: boolean } = {},
 ): Promise<BoundContentTab | null> {
-  const queries: chrome.tabs.QueryInfo[] = [
-    { active: true, currentWindow: true },
-    { currentWindow: true },
-  ];
+  const queries: chrome.tabs.QueryInfo[] = [{ active: true, currentWindow: true }, { currentWindow: true }];
   if (options.allowLastFocused !== false) queries.push({ active: true, lastFocusedWindow: true });
   for (const query of queries) {
     try {
       const tabs = await chrome.tabs.query(query);
-      const bound = pickActiveContentTab(tabs);
+      const bound = pickActiveContentTab(tabs, { requireActive: options.allowLastFocused === false });
       if (bound) return bound;
     } catch {
       /* try next query */
@@ -120,6 +148,34 @@ const SidePanel = () => {
   const setInputTextRef = useRef<((text: string) => void) | null>(null);
   const pendingDirectionChangeRef = useRef(false);
   const pendingTaskIdRef = useRef<string | null>(null);
+  const pendingStartCommandRef = useRef<{ taskId: string; commandId: string } | null>(null);
+  const pendingHistoryTaskIdRef = useRef<string | null>(null);
+  const pendingNewChatCancellationRef = useRef<{ taskId: string; commandId: string | null } | null>(null);
+  const dismissedTaskIdsRef = useRef(new Set<string>());
+  const sessionGenerationRef = useRef(0);
+  const taskSnapshotRef = useRef<TaskSnapshot | null>(null);
+  const authoritativeTaskSnapshotRef = useRef<TaskSnapshot | null>(null);
+  const isHistoricalSessionRef = useRef(false);
+  const finalizeNewChatRef = useRef<(cancelledTaskId?: string) => void>(() => undefined);
+  const requestNewChatCancellationRef = useRef<(taskId: string, revision: number) => void>(() => undefined);
+  const autoRestoreRequestRef = useRef(0);
+  const completionDeliveryRequestRef = useRef(0);
+  const historySelectionRequestRef = useRef(0);
+  const bookmarkRequestRef = useRef(0);
+  const taskLaunchRequestRef = useRef(0);
+  const pendingAsyncLaunchRef = useRef<{
+    kind: 'message' | 'skill';
+    generation: number;
+    requestToken: number;
+    sessionId?: string | null;
+  } | null>(null);
+  const recoveringAuthoritativeTaskRef = useRef(false);
+  const recoverySessionOwnerRef = useRef<ReturnType<typeof recoverySessionOwner>>(null);
+  const pendingTaskCommandsRef = useRef(
+    new Map<string, { commandId: string; taskId: string; type: TaskCommand['type'] }>(),
+  );
+  const [pendingCommandTypes, setPendingCommandTypes] = useState<ReadonlySet<TaskCommand['type']>>(() => new Set());
+  const [taskLaunchPending, setTaskLaunchPending] = useState(false);
   const deliveredCompletionReceiptsRef = useRef(new Set<string>());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -135,11 +191,46 @@ const SidePanel = () => {
   );
 
   const refreshBindPreview = useCallback(async () => {
-    const bound = await resolveActiveContentTab();
+    const bound = await resolveActiveContentTab({ allowLastFocused: false });
     setBindPreview(bound);
   }, []);
 
   const activeTaskId = taskSnapshot && isActiveTaskStatus(taskSnapshot.status) ? taskSnapshot.id : null;
+  taskSnapshotRef.current = taskSnapshot;
+  isHistoricalSessionRef.current = isHistoricalSession;
+
+  const finalizeNewChat = useCallback((cancelledTaskId?: string) => {
+    if (cancelledTaskId) dismissedTaskIdsRef.current.add(cancelledTaskId);
+    pendingNewChatCancellationRef.current = null;
+    setMessages([]);
+    setCurrentSessionId(null);
+    sessionIdRef.current = null;
+    setInputEnabled(true);
+    setShowStopButton(false);
+    setIsFollowUpMode(false);
+    setIsHistoricalSession(false);
+    isHistoricalSessionRef.current = false;
+    setTaskSnapshot(null);
+    taskSnapshotRef.current = null;
+    authoritativeTaskSnapshotRef.current = null;
+    setEvidenceSpace(null);
+    setChatLogExpanded(false);
+    pendingTaskIdRef.current = null;
+    pendingStartCommandRef.current = null;
+    pendingHistoryTaskIdRef.current = null;
+    pendingDirectionChangeRef.current = false;
+    historySelectionRequestRef.current += 1;
+    bookmarkRequestRef.current += 1;
+    taskLaunchRequestRef.current += 1;
+    pendingAsyncLaunchRef.current = null;
+    recoveringAuthoritativeTaskRef.current = false;
+    recoverySessionOwnerRef.current = null;
+    setTaskLaunchPending(false);
+    pendingTaskCommandsRef.current.clear();
+    setPendingCommandTypes(new Set());
+    sessionGenerationRef.current += 1;
+  }, []);
+  finalizeNewChatRef.current = finalizeNewChat;
 
   // New live task (or task id change) starts with chat folded so Mission/Now/Health stay first.
   useEffect(() => {
@@ -230,16 +321,20 @@ const SidePanel = () => {
       sessionId?: string | null,
       storedContent?: string,
       persist = true,
+      replaceVisible = false,
     ): Promise<ChatMessage | null> => {
+      if (sessionId === undefined && isHistoricalSessionRef.current) return null;
       const isProgressMessage = newMessage.content === progressMessage;
-      setMessages(prev => {
-        const filteredMessages = prev.filter(
-          (msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1),
-        );
-        return [...filteredMessages, newMessage];
-      });
-
       const effectiveSessionId = sessionId !== undefined ? sessionId : sessionIdRef.current;
+      if (shouldRenderMessageForSession(sessionId, sessionIdRef.current)) {
+        setMessages(prev => {
+          if (replaceVisible) return [newMessage];
+          const filteredMessages = prev.filter(
+            (msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1),
+          );
+          return [...filteredMessages, newMessage];
+        });
+      }
       if (!effectiveSessionId || isProgressMessage || !persist) return null;
       return chatHistoryStore.addMessage(effectiveSessionId, {
         ...newMessage,
@@ -251,8 +346,9 @@ const SidePanel = () => {
 
   useEffect(() => {
     if (!taskSnapshot) return;
-    const busy = false;
-    const requiresExplicitResume = taskSnapshot.status === 'interrupted' || taskSnapshot.status === 'inputs_required';
+    const busy = shouldSuppressExecutionForSessionRecovery(recoverySessionOwnerRef.current, sessionIdRef.current);
+    const round = taskSnapshot.rounds.find(item => item.id === taskSnapshot.currentRoundId);
+    const requiresExplicitResume = taskLocksComposer(taskSnapshot.status, round?.waitReason);
     setInputEnabled(!busy && !requiresExplicitResume);
     setShowStopButton(taskSnapshot.status === 'running');
     // Follow-up only while the task is still live. Terminal snapshots stay in history;
@@ -281,9 +377,12 @@ const SidePanel = () => {
   }, [taskSnapshot?.id, taskSnapshot?.revision, taskSnapshot?.status]);
 
   useEffect(() => {
-    const chatSessionId = taskSnapshot?.chatSessionId;
+    if (!taskSnapshot) return;
+    const chatSessionId =
+      taskSnapshot.chatSessionId ?? (taskSnapshot.sourceSkillId !== undefined ? taskSnapshot.id : null);
     if (
       !chatSessionId ||
+      dismissedTaskIdsRef.current.has(taskSnapshot.id) ||
       !shouldAutoRestoreTaskSession({
         status: taskSnapshot?.status,
         taskChatSessionId: chatSessionId,
@@ -292,28 +391,97 @@ const SidePanel = () => {
     ) {
       return;
     }
+    const taskId = taskSnapshot.id;
+    const taskRevision = taskSnapshot.revision;
+    const generation = sessionGenerationRef.current;
+    const previousSessionId = sessionIdRef.current;
+    const requestToken = ++autoRestoreRequestRef.current;
+    let disposed = false;
     void chatHistoryStore.getSession(chatSessionId).then(session => {
-      if (!session) return;
+      const currentTask = taskSnapshotRef.current;
+      if (
+        !session ||
+        dismissedTaskIdsRef.current.has(taskId) ||
+        !isCurrentAsyncSessionResult({
+          disposed,
+          generation,
+          currentGeneration: sessionGenerationRef.current,
+          requestToken,
+          currentRequestToken: autoRestoreRequestRef.current,
+          taskId,
+          currentTaskId: currentTask?.id,
+          taskRevision,
+          currentTaskRevision: currentTask?.revision,
+          sessionId: chatSessionId,
+          currentSessionId: sessionIdRef.current,
+          previousSessionId,
+        })
+      ) {
+        return;
+      }
       setCurrentSessionId(session.id);
       sessionIdRef.current = session.id;
       setMessages(session.messages);
       setIsHistoricalSession(false);
+      isHistoricalSessionRef.current = false;
+      if (
+        currentTask &&
+        recoverySessionOwnerRef.current?.taskId === taskId &&
+        recoverySessionOwnerRef.current.sessionId === session.id
+      ) {
+        recoverySessionOwnerRef.current = null;
+        setTaskLaunchPending(false);
+        const currentRound = currentTask.rounds.find(round => round.id === currentTask.currentRoundId);
+        setInputEnabled(!taskLocksComposer(currentTask.status, currentRound?.waitReason));
+      }
     });
+    return () => {
+      disposed = true;
+    };
   }, [taskSnapshot]);
 
   useEffect(() => {
     const delivery = completionChatDelivery({
       snapshot: taskSnapshot,
       currentSessionId,
-      messages,
+      messages: projectMessagesForDisplay(messages),
+      isHistoricalSession,
     });
     if (!delivery || deliveredCompletionReceiptsRef.current.has(delivery.receiptId)) return;
 
-    deliveredCompletionReceiptsRef.current.add(delivery.receiptId);
+    const taskId = taskSnapshot!.id;
+    const taskRevision = taskSnapshot!.revision;
+    const generation = sessionGenerationRef.current;
+    const requestToken = ++completionDeliveryRequestRef.current;
+    const deliveredReceipts = deliveredCompletionReceiptsRef.current;
+    let disposed = false;
+    let committed = false;
+    deliveredReceipts.add(delivery.receiptId);
     void chatHistoryStore
       .getSession(delivery.sessionId)
       .then(session => {
-        if (!session || hasCompletionChatDelivery(session.messages, delivery)) return;
+        const currentTask = taskSnapshotRef.current;
+        if (
+          !session ||
+          hasCompletionChatDelivery(session.messages, delivery) ||
+          dismissedTaskIdsRef.current.has(taskId) ||
+          !isCurrentAsyncSessionResult({
+            disposed,
+            generation,
+            currentGeneration: sessionGenerationRef.current,
+            requestToken,
+            currentRequestToken: completionDeliveryRequestRef.current,
+            taskId,
+            currentTaskId: currentTask?.id,
+            taskRevision,
+            currentTaskRevision: currentTask?.revision,
+            sessionId: delivery.sessionId,
+            currentSessionId: sessionIdRef.current,
+          })
+        ) {
+          return;
+        }
+        committed = true;
         return appendMessage(
           {
             actor: Actors.SYSTEM,
@@ -324,13 +492,40 @@ const SidePanel = () => {
         );
       })
       .catch(() => {
-        deliveredCompletionReceiptsRef.current.delete(delivery.receiptId);
+        deliveredReceipts.delete(delivery.receiptId);
       });
-  }, [appendMessage, currentSessionId, messages, taskSnapshot]);
+    return () => {
+      disposed = true;
+      if (!committed) deliveredReceipts.delete(delivery.receiptId);
+    };
+  }, [appendMessage, currentSessionId, isHistoricalSession, messages, taskSnapshot]);
 
   const handleTaskState = useCallback(
     (event: AgentEvent) => {
       const { actor, state, timestamp, data } = event;
+      if (shouldSuppressLegacyTaskOk(actor, state)) return;
+      if (isHistoricalSessionRef.current) return;
+      if (
+        shouldSuppressExecutionForSessionRecovery(
+          recoverySessionOwnerRef.current,
+          sessionIdRef.current,
+          recoveringAuthoritativeTaskRef.current,
+        )
+      ) {
+        return;
+      }
+      if (
+        !shouldAcceptTaskSignal({
+          taskId: data?.taskId,
+          dismissedTaskIds: dismissedTaskIdsRef.current,
+          authoritativeTaskId: authoritativeTaskSnapshotRef.current?.id,
+          displayedTaskId: taskSnapshotRef.current?.id,
+          pendingStartTaskId: pendingStartCommandRef.current?.taskId,
+          currentSessionId: sessionIdRef.current,
+        })
+      ) {
+        return;
+      }
       const details = data?.details ?? '';
 
       // Side effects for task lifecycle (input lock, follow-up) - not chat labels
@@ -338,12 +533,6 @@ const SidePanel = () => {
         switch (state) {
           case ExecutionState.TASK_START:
             setIsHistoricalSession(false);
-            break;
-          case ExecutionState.TASK_OK:
-            // Terminal → idle home; completed card/messages stay in history only.
-            setIsFollowUpMode(false);
-            setInputEnabled(true);
-            setShowStopButton(false);
             break;
           case ExecutionState.TASK_FAIL:
             setIsFollowUpMode(false);
@@ -453,28 +642,277 @@ const SidePanel = () => {
         if (message && message.type === EventType.EXECUTION) {
           handleTaskState(message);
         } else if (message && message.type === 'task_snapshot') {
-          const requestedTaskId =
-            typeof message.requestedTaskId === 'string' ? message.requestedTaskId : pendingTaskIdRef.current;
+          const requestedTaskId = typeof message.requestedTaskId === 'string' ? message.requestedTaskId : null;
           if (message.snapshot) {
-            setTaskSnapshot(current => mergeTaskSnapshot(current, message.snapshot, undefined, requestedTaskId));
+            const incoming = message.snapshot as TaskSnapshot;
+            const pendingReset = pendingNewChatCancellationRef.current;
+            if (requestedTaskId && pendingReset?.taskId === requestedTaskId && incoming.id === requestedTaskId) {
+              if (!isActiveTaskStatus(incoming.status)) {
+                finalizeNewChatRef.current(incoming.id);
+              } else if (!pendingReset?.commandId) {
+                requestNewChatCancellationRef.current(incoming.id, incoming.revision);
+              }
+            } else if (requestedTaskId) {
+              if (
+                shouldAcceptHistorySnapshot({
+                  requestedTaskId,
+                  snapshotTaskId: incoming.id,
+                  pendingHistoryTaskId: pendingHistoryTaskIdRef.current,
+                  currentSessionId: sessionIdRef.current,
+                  isHistoricalSession: isHistoricalSessionRef.current,
+                })
+              ) {
+                setTaskSnapshot(incoming);
+              }
+            } else if (
+              shouldAcceptTaskSignal({
+                taskId: incoming.id,
+                dismissedTaskIds: dismissedTaskIdsRef.current,
+                authoritativeTaskId: authoritativeTaskSnapshotRef.current?.id,
+                displayedTaskId: isHistoricalSessionRef.current ? null : taskSnapshotRef.current?.id,
+                pendingStartTaskId: pendingStartCommandRef.current?.taskId,
+                currentSessionId: isHistoricalSessionRef.current ? null : sessionIdRef.current,
+                allowBootstrap: true,
+                allowAuthoritativeRecovery: recoveringAuthoritativeTaskRef.current,
+              })
+            ) {
+              const wasRecoveringAuthoritativeTask = recoveringAuthoritativeTaskRef.current;
+              recoveringAuthoritativeTaskRef.current = false;
+              const authoritative = mergeAuthoritativeTaskSnapshot(authoritativeTaskSnapshotRef.current, incoming);
+              if (wasRecoveringAuthoritativeTask) {
+                recoverySessionOwnerRef.current = isActiveTaskStatus(authoritative.status)
+                  ? recoverySessionOwner(authoritative, sessionIdRef.current)
+                  : null;
+                if (recoverySessionOwnerRef.current) {
+                  setInputEnabled(false);
+                } else {
+                  setTaskLaunchPending(false);
+                  setInputEnabled(true);
+                }
+              }
+              if (authoritative !== incoming) {
+                setTaskSnapshotLoaded(true);
+                return;
+              }
+              authoritativeTaskSnapshotRef.current = authoritative;
+              const replacesPendingStart = pendingStartCommandRef.current?.taskId === incoming.id;
+              if (!isHistoricalSessionRef.current) {
+                setTaskSnapshot(current =>
+                  mergeTaskSnapshot(current, incoming, undefined, replacesPendingStart ? incoming.id : null),
+                );
+              }
+              if (replacesPendingStart) {
+                pendingStartCommandRef.current = null;
+                pendingTaskIdRef.current = null;
+                if (!pendingAsyncLaunchRef.current) setTaskLaunchPending(false);
+              }
+              if (pendingReset?.taskId === incoming.id) {
+                if (!isActiveTaskStatus(incoming.status)) {
+                  finalizeNewChatRef.current(incoming.id);
+                } else if (isActiveTaskStatus(incoming.status) && !pendingReset.commandId) {
+                  requestNewChatCancellationRef.current(incoming.id, incoming.revision);
+                }
+              }
+            }
           } else if (requestedTaskId) {
-            setTaskSnapshot(current => (current?.id === requestedTaskId ? current : null));
+            if (pendingNewChatCancellationRef.current?.taskId === requestedTaskId) {
+              finalizeNewChatRef.current(requestedTaskId);
+            } else if (
+              pendingHistoryTaskIdRef.current === requestedTaskId &&
+              sessionIdRef.current === requestedTaskId
+            ) {
+              setTaskSnapshot(null);
+            }
+          } else if (pendingNewChatCancellationRef.current) {
+            finalizeNewChatRef.current(pendingNewChatCancellationRef.current.taskId);
+          } else {
+            recoveringAuthoritativeTaskRef.current = false;
+            recoverySessionOwnerRef.current = null;
+            pendingStartCommandRef.current = null;
+            pendingTaskIdRef.current = null;
+            setTaskLaunchPending(false);
+            setInputEnabled(true);
+            setShowStopButton(false);
           }
-          if (requestedTaskId && pendingTaskIdRef.current === requestedTaskId) pendingTaskIdRef.current = null;
           setTaskSnapshotLoaded(true);
         } else if (message && message.type === 'task_event') {
-          setTaskSnapshot(current =>
-            mergeTaskSnapshot(current, message.event.snapshot, message.event, pendingTaskIdRef.current),
-          );
+          const incoming = message.event.snapshot as TaskSnapshot;
+          const pendingNewChatCancellation = pendingNewChatCancellationRef.current;
+          if (
+            confirmsNewChatCancellation(pendingNewChatCancellation, {
+              taskId: incoming.id,
+              status: incoming.status,
+            })
+          ) {
+            // TaskManager persists + broadcasts cancel before dispatch resolves its matching ack.
+            finalizeNewChatRef.current(pendingNewChatCancellation?.taskId);
+            setTaskSnapshotLoaded(true);
+            return;
+          }
+          if (dismissedTaskIdsRef.current.has(incoming.id)) {
+            setTaskSnapshotLoaded(true);
+            return;
+          }
+          if (
+            !shouldAcceptTaskSignal({
+              taskId: incoming.id,
+              dismissedTaskIds: dismissedTaskIdsRef.current,
+              authoritativeTaskId: authoritativeTaskSnapshotRef.current?.id,
+              displayedTaskId: isHistoricalSessionRef.current ? null : taskSnapshotRef.current?.id,
+              pendingStartTaskId: pendingStartCommandRef.current?.taskId,
+              currentSessionId: isHistoricalSessionRef.current ? null : sessionIdRef.current,
+            })
+          ) {
+            setTaskSnapshotLoaded(true);
+            return;
+          }
+          const wasRecoveringAuthoritativeTask = recoveringAuthoritativeTaskRef.current;
+          const authoritative = mergeAuthoritativeTaskSnapshot(authoritativeTaskSnapshotRef.current, incoming);
+          if (wasRecoveringAuthoritativeTask) {
+            recoveringAuthoritativeTaskRef.current = false;
+            recoverySessionOwnerRef.current = isActiveTaskStatus(authoritative.status)
+              ? recoverySessionOwner(authoritative, sessionIdRef.current)
+              : null;
+            if (recoverySessionOwnerRef.current) {
+              setInputEnabled(false);
+            } else {
+              setTaskLaunchPending(false);
+              setInputEnabled(true);
+            }
+          }
+          if (authoritative !== incoming) {
+            setTaskSnapshotLoaded(true);
+            return;
+          }
+          authoritativeTaskSnapshotRef.current = authoritative;
+          const replacesPendingStart = pendingStartCommandRef.current?.taskId === incoming.id;
+          if (!isHistoricalSessionRef.current) {
+            setTaskSnapshot(current =>
+              mergeTaskSnapshot(current, incoming, message.event, replacesPendingStart ? incoming.id : null),
+            );
+          }
+          if (replacesPendingStart) {
+            pendingStartCommandRef.current = null;
+            pendingTaskIdRef.current = null;
+            if (!pendingAsyncLaunchRef.current) setTaskLaunchPending(false);
+          }
+          const pendingReset = pendingNewChatCancellationRef.current;
+          if (pendingReset?.taskId === incoming.id) {
+            if (!isActiveTaskStatus(incoming.status)) {
+              finalizeNewChatRef.current(incoming.id);
+            } else if (!pendingReset.commandId) {
+              requestNewChatCancellationRef.current(incoming.id, incoming.revision);
+            }
+          }
           setTaskSnapshotLoaded(true);
-        } else if (message && message.type === 'command_ack' && !message.ack.accepted) {
-          if (pendingTaskIdRef.current === message.ack.taskId) pendingTaskIdRef.current = null;
-          portRef.current?.postMessage({ type: 'get_active_task' });
-          void appendMessage({
-            actor: Actors.SYSTEM,
-            content: commandRejectionMessage(message.ack.error),
-            timestamp: Date.now(),
-          });
+        } else if (message && message.type === 'command_ack') {
+          const pendingNewChatCancellation = pendingNewChatCancellationRef.current;
+          const pendingStartCommand = pendingStartCommandRef.current;
+          const pendingCommand = pendingTaskCommandsRef.current.get(message.ack.commandId);
+          const ownsPendingAck = pendingCommand?.taskId === message.ack.taskId;
+          if (
+            confirmsNewChatCancellation(pendingNewChatCancellation, {
+              taskId: message.ack.taskId,
+              commandId: message.ack.commandId,
+              accepted: message.ack.accepted,
+            })
+          ) {
+            finalizeNewChatRef.current(pendingNewChatCancellation?.taskId);
+            return;
+          }
+          if (
+            !ownsPendingAck &&
+            !shouldAcceptTaskSignal({
+              taskId: message.ack.taskId,
+              dismissedTaskIds: dismissedTaskIdsRef.current,
+              authoritativeTaskId: authoritativeTaskSnapshotRef.current?.id,
+              displayedTaskId: isHistoricalSessionRef.current ? null : taskSnapshotRef.current?.id,
+              pendingStartTaskId: pendingStartCommandRef.current?.taskId,
+              currentSessionId: isHistoricalSessionRef.current ? null : sessionIdRef.current,
+            })
+          ) {
+            return;
+          }
+          if (ownsPendingAck) {
+            pendingTaskCommandsRef.current.delete(message.ack.commandId);
+            setPendingCommandTypes(new Set([...pendingTaskCommandsRef.current.values()].map(item => item.type)));
+          }
+          if (
+            shouldRetryNewChatCancellationAfterLifecycleAck({
+              pending: pendingNewChatCancellationRef.current,
+              taskId: message.ack.taskId,
+              type: pendingCommand?.type,
+              accepted: message.ack.accepted,
+            })
+          ) {
+            requestNewChatCancellationRef.current(message.ack.taskId, message.ack.revision);
+          }
+          if (message.ack.accepted && pendingStartCommandRef.current?.taskId === message.ack.taskId) {
+            // Preserve launch identity/single-flight until its authoritative snapshot arrives.
+            if (pendingNewChatCancellation?.taskId === message.ack.taskId) {
+              portRef.current?.postMessage({ type: 'get_task', taskId: message.ack.taskId });
+            }
+          }
+          if (!message.ack.accepted) {
+            const rejectsTaskLaunch = ownsPendingAck && isRejectedTaskLaunchAck(pendingCommand, message.ack);
+            if (
+              pendingNewChatCancellation?.taskId === message.ack.taskId &&
+              pendingStartCommand?.taskId === message.ack.taskId &&
+              pendingStartCommand?.commandId === message.ack.commandId
+            ) {
+              finalizeNewChatRef.current(message.ack.taskId);
+              return;
+            }
+            const rejectsNewChatCancellation =
+              pendingNewChatCancellation?.taskId === message.ack.taskId &&
+              pendingNewChatCancellation?.commandId === message.ack.commandId;
+            if (pendingNewChatCancellation && rejectsNewChatCancellation) {
+              if (message.ack.error === 'not_found') {
+                finalizeNewChatRef.current(message.ack.taskId);
+                return;
+              }
+              pendingNewChatCancellationRef.current = {
+                taskId: pendingNewChatCancellation.taskId,
+                commandId: null,
+              };
+              setInputEnabled(false);
+            }
+            if (pendingStartCommandRef.current?.taskId === message.ack.taskId) {
+              pendingStartCommandRef.current = null;
+              pendingTaskIdRef.current = null;
+            }
+            if (rejectsTaskLaunch) {
+              dismissedTaskIdsRef.current.add(message.ack.taskId);
+              recoveringAuthoritativeTaskRef.current = true;
+              recoverySessionOwnerRef.current = null;
+              pendingAsyncLaunchRef.current = null;
+              taskLaunchRequestRef.current += 1;
+              setInputEnabled(false);
+              setShowStopButton(false);
+              setTaskSnapshotLoaded(true);
+            }
+            portRef.current?.postMessage(
+              pendingNewChatCancellationRef.current
+                ? { type: 'get_task', taskId: pendingNewChatCancellationRef.current.taskId }
+                : { type: 'get_active_task' },
+            );
+            if (
+              !rejectsNewChatCancellation &&
+              message.ack.error !== 'stale_revision' &&
+              shouldRenderCommandRejection({
+                taskId: message.ack.taskId,
+                isHistoricalSession: isHistoricalSessionRef.current,
+                displayedTaskId: taskSnapshotRef.current?.id,
+                currentSessionId: sessionIdRef.current,
+              })
+            ) {
+              void appendMessage({
+                actor: Actors.SYSTEM,
+                content: commandRejectionMessage(message.ack.error),
+                timestamp: Date.now(),
+              });
+            }
+          }
         } else if (message && message.type === 'error') {
           // Handle error messages from service worker
           appendMessage({
@@ -510,11 +948,7 @@ const SidePanel = () => {
             return;
           }
           const decision = message.decision;
-          if (
-            !decision ||
-            typeof decision.kind !== 'string' ||
-            typeof decision.userVisibleText !== 'string'
-          ) {
+          if (!decision || typeof decision.kind !== 'string' || typeof decision.userVisibleText !== 'string') {
             pending.reject(new Error(t('errors_unknown')));
             return;
           }
@@ -536,6 +970,16 @@ const SidePanel = () => {
         setTaskSnapshotLoaded(false);
         setInputEnabled(true);
         setShowStopButton(false);
+        // Keep a requested New Chat across service-worker reconnect; the next
+        // authoritative snapshot either confirms cancellation or reissues it.
+        if (pendingNewChatCancellationRef.current) {
+          pendingNewChatCancellationRef.current = cancellationIntentAfterDisconnect(
+            pendingNewChatCancellationRef.current,
+          );
+          setInputEnabled(false);
+        }
+        pendingTaskCommandsRef.current.clear();
+        setPendingCommandTypes(new Set());
         scheduleReconnect();
       });
 
@@ -556,7 +1000,10 @@ const SidePanel = () => {
           stopConnection(); // Stop if port is invalid
         }
       }, 25000);
-      portRef.current.postMessage({ type: 'get_active_task' });
+      const pendingReset = pendingNewChatCancellationRef.current;
+      portRef.current.postMessage(
+        pendingReset ? { type: 'get_task', taskId: pendingReset.taskId } : { type: 'get_active_task' },
+      );
     } catch (error) {
       console.error('Failed to establish connection:', error);
       appendMessage({
@@ -605,34 +1052,102 @@ const SidePanel = () => {
 
   const sendTaskCommand = useCallback(
     (command: TaskCommand) => {
-      const postCommand = (nextCommand: TaskCommand) => {
+      if (!canDispatchTaskCommand(pendingTaskCommandsRef.current.values(), command)) return false;
+      const trackCommand = (nextCommand: TaskCommand) => {
+        pendingTaskCommandsRef.current.set(nextCommand.commandId, {
+          commandId: nextCommand.commandId,
+          taskId: nextCommand.taskId,
+          type: nextCommand.type,
+        });
+        setPendingCommandTypes(new Set([...pendingTaskCommandsRef.current.values()].map(item => item.type)));
+      };
+      const clearCommand = (commandId: string) => {
+        pendingTaskCommandsRef.current.delete(commandId);
+        setPendingCommandTypes(new Set([...pendingTaskCommandsRef.current.values()].map(item => item.type)));
+      };
+      const postCommand = (nextCommand: TaskCommand, tracked = false) => {
         if (nextCommand.type === 'start' || nextCommand.type === 'run_skill') {
           pendingTaskIdRef.current = nextCommand.taskId;
+          pendingStartCommandRef.current = { taskId: nextCommand.taskId, commandId: nextCommand.commandId };
         }
-        sendMessage({ type: 'task_command', command: nextCommand });
+        if (!tracked) trackCommand(nextCommand);
+        try {
+          sendMessage({ type: 'task_command', command: nextCommand });
+        } catch (error) {
+          clearCommand(nextCommand.commandId);
+          const remainingPendingStart = pendingStartAfterPostFailure(pendingStartCommandRef.current, nextCommand);
+          if (remainingPendingStart !== pendingStartCommandRef.current) {
+            pendingStartCommandRef.current = remainingPendingStart;
+            pendingTaskIdRef.current = null;
+          }
+          throw error;
+        }
       };
       if (command.type === 'retry_research') {
+        const generation = sessionGenerationRef.current;
+        const taskRevision = taskSnapshotRef.current?.revision;
+        trackCommand(command);
         void resolveActiveContentTab({ allowLastFocused: false })
           .then(bound => {
+            if (
+              generation !== sessionGenerationRef.current ||
+              taskSnapshotRef.current?.id !== command.taskId ||
+              taskSnapshotRef.current?.revision !== taskRevision ||
+              dismissedTaskIdsRef.current.has(command.taskId)
+            ) {
+              clearCommand(command.commandId);
+              return;
+            }
             if (bound) setBindPreview(bound);
             // A standalone extension page may not share a Chrome window with the
             // task tab. In that case omit tabId so TaskManager retains the task's
             // already-bound activeTabId instead of borrowing another window.
-            postCommand(bound ? { ...command, tabId: bound.tabId } : command);
+            postCommand(bound ? { ...command, tabId: bound.tabId } : command, true);
           })
           .catch(error => {
+            clearCommand(command.commandId);
             void appendMessage({
               actor: Actors.SYSTEM,
               content: error instanceof Error ? error.message : String(error),
               timestamp: Date.now(),
             });
           });
-        return;
+        return true;
       }
       postCommand(command);
+      return true;
     },
     [appendMessage, sendMessage],
   );
+
+  const requestNewChatCancellation = useCallback(
+    (taskId: string, revision: number) => {
+      const existing = pendingNewChatCancellationRef.current;
+      if (existing?.taskId !== taskId || existing.commandId) return;
+      const inFlightCancel = [...pendingTaskCommandsRef.current.values()].find(
+        command => command.taskId === taskId && command.type === 'cancel',
+      );
+      if (inFlightCancel) {
+        pendingNewChatCancellationRef.current = { taskId, commandId: inFlightCancel.commandId };
+        return;
+      }
+      const commandId = crypto.randomUUID();
+      try {
+        const dispatched = sendTaskCommand({ type: 'cancel', commandId, taskId, expectedRevision: revision });
+        pendingNewChatCancellationRef.current = cancellationIntentAfterDispatch(taskId, commandId, dispatched);
+      } catch (error) {
+        pendingNewChatCancellationRef.current = { taskId, commandId: null };
+        setInputEnabled(false);
+        void appendMessage({
+          actor: Actors.SYSTEM,
+          content: error instanceof Error ? error.message : String(error),
+          timestamp: Date.now(),
+        });
+      }
+    },
+    [appendMessage, sendTaskCommand],
+  );
+  requestNewChatCancellationRef.current = requestNewChatCancellation;
 
   // Handle chat commands that start with /
   const handleCommand = async (command: string): Promise<boolean> => {
@@ -739,20 +1254,80 @@ const SidePanel = () => {
       console.log('Cannot send messages in historical sessions');
       return;
     }
+    if (
+      shouldSuppressExecutionForSessionRecovery(
+        recoverySessionOwnerRef.current,
+        sessionIdRef.current,
+        recoveringAuthoritativeTaskRef.current,
+      )
+    ) {
+      return;
+    }
 
+    const startingFreshSession = !isFollowUpMode || !sessionIdRef.current;
+    if (
+      !canBeginExclusiveTaskLaunch({
+        pendingAsyncLaunch: pendingAsyncLaunchRef.current !== null,
+        pendingStartTaskId: pendingStartCommandRef.current?.taskId,
+      })
+    ) {
+      return;
+    }
+    const launchOwner = startingFreshSession
+      ? {
+          kind: 'message' as const,
+          generation: ++sessionGenerationRef.current,
+          requestToken: ++taskLaunchRequestRef.current,
+        }
+      : null;
+    if (launchOwner) {
+      recoveringAuthoritativeTaskRef.current = false;
+      recoverySessionOwnerRef.current = null;
+      pendingAsyncLaunchRef.current = launchOwner;
+      setTaskLaunchPending(true);
+    }
+    let turnSessionId: string | null = null;
+    let launchResolved = !startingFreshSession;
+    const turnGeneration = launchOwner?.generation ?? sessionGenerationRef.current;
     try {
       setInputEnabled(false);
+      if (startingFreshSession) {
+        const supersededTask = taskSnapshotRef.current;
+        if (supersededTask && !isActiveTaskStatus(supersededTask.status)) {
+          dismissedTaskIdsRef.current.add(supersededTask.id);
+          taskSnapshotRef.current = null;
+          if (authoritativeTaskSnapshotRef.current?.id === supersededTask.id) {
+            authoritativeTaskSnapshotRef.current = null;
+          }
+          setTaskSnapshot(null);
+          setEvidenceSpace(null);
+        }
+      }
       // Create a chat session when this is a fresh start, or when follow-up has no session yet
-      if (!isFollowUpMode || !sessionIdRef.current) {
+      if (startingFreshSession) {
         const titleText = displayText || text;
         const newSession = await chatHistoryStore.createSession(
           titleText.substring(0, 50) + (titleText.length > 50 ? '...' : ''),
         );
         console.log('newSession', newSession);
         const sessionId = newSession.id;
+        if (
+          !launchOwner ||
+          !ownsAsyncSessionOperation({
+            owner: launchOwner,
+            currentGeneration: sessionGenerationRef.current,
+            currentRequestToken: taskLaunchRequestRef.current,
+          })
+        ) {
+          void chatHistoryStore.deleteSession(sessionId);
+          return;
+        }
+        pendingAsyncLaunchRef.current = { ...launchOwner, sessionId };
         setCurrentSessionId(sessionId);
         sessionIdRef.current = sessionId;
       }
+      turnSessionId = sessionIdRef.current;
+      if (!turnSessionId) throw new Error('Failed to create chat session');
 
       const userMessage: Message = {
         actor: Actors.USER,
@@ -760,16 +1335,11 @@ const SidePanel = () => {
         timestamp: Date.now(),
       };
 
-      const historyForModel = messages
-        .filter(m => typeof m.content === 'string' && m.content.trim())
-        .slice(-12)
-        .map(m => ({
-          role: (m.actor === Actors.USER ? 'user' : 'assistant') as 'user' | 'assistant',
-          content: m.content,
-        }));
+      const historyForModel = modelHistoryForTurn(messages, startingFreshSession);
 
-      const storedMessage = await appendMessage(userMessage, sessionIdRef.current, text);
-      if (!storedMessage || !sessionIdRef.current) throw new Error('Failed to persist message');
+      const storedMessage = await appendMessage(userMessage, turnSessionId, text, true, startingFreshSession);
+      if (!storedMessage) throw new Error('Failed to persist message');
+      if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
 
       if (!portRef.current) {
         setupConnection();
@@ -777,15 +1347,21 @@ const SidePanel = () => {
 
       // LLM decides: reply / clarify / execute / stop (no keyword router)
       const decision = await requestUserTurnDecision(trimmedText, historyForModel);
+      // A delayed decision from a superseded chat must never append or start work in the new chat.
+      if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
 
       if (decision.kind === 'reply' || decision.kind === 'clarify') {
-        await appendMessage({
-          actor: Actors.SYSTEM,
-          content: decision.userVisibleText,
-          timestamp: Date.now(),
-        });
+        await appendMessage(
+          {
+            actor: Actors.SYSTEM,
+            content: decision.userVisibleText,
+            timestamp: Date.now(),
+          },
+          turnSessionId,
+        );
         setInputEnabled(true);
         setShowStopButton(false);
+        launchResolved = true;
         return;
       }
 
@@ -799,96 +1375,131 @@ const SidePanel = () => {
           });
         }
         if (decision.userVisibleText) {
-          await appendMessage({
-            actor: Actors.SYSTEM,
-            content: decision.userVisibleText,
-            timestamp: Date.now(),
-          });
+          await appendMessage(
+            {
+              actor: Actors.SYSTEM,
+              content: decision.userVisibleText,
+              timestamp: Date.now(),
+            },
+            turnSessionId,
+          );
         }
         setInputEnabled(true);
         setShowStopButton(false);
+        launchResolved = true;
         return;
       }
 
       // execute (or unknown kind treated as execute only if model said execute)
       if (decision.kind !== 'execute') {
-        await appendMessage({
-          actor: Actors.SYSTEM,
-          content: decision.userVisibleText || '我没太理解，请再说一遍你想在页面上做什么。',
-          timestamp: Date.now(),
-        });
+        await appendMessage(
+          {
+            actor: Actors.SYSTEM,
+            content: decision.userVisibleText || '我没太理解，请再说一遍你想在页面上做什么。',
+            timestamp: Date.now(),
+          },
+          turnSessionId,
+        );
         setInputEnabled(true);
         setShowStopButton(false);
+        launchResolved = true;
         return;
       }
 
       if (decision.userVisibleText) {
-        await appendMessage({
-          actor: Actors.SYSTEM,
-          content: decision.userVisibleText,
-          timestamp: Date.now(),
-        });
+        await appendMessage(
+          {
+            actor: Actors.SYSTEM,
+            content: decision.userVisibleText,
+            timestamp: Date.now(),
+          },
+          turnSessionId,
+        );
       }
 
-      const bound = await resolveActiveContentTab();
-      setBindPreview(bound);
-      if (!bound) {
-        throw new Error(t('chat_task_bind_missing'));
-      }
-      const tabId = bound.tabId;
-
+      const currentTask = taskSnapshotRef.current;
+      const canFollowUp = canFollowUpInOwnedSession(currentTask, turnSessionId);
       setShowStopButton(true);
-
-      const canFollowUp =
-        Boolean(taskSnapshot?.chatSessionId) &&
-        taskSnapshot?.id === sessionIdRef.current &&
-        taskSnapshot.chatSessionId === sessionIdRef.current &&
-        isActiveTaskStatus(taskSnapshot.status);
-      if (canFollowUp && taskSnapshot) {
+      if (canFollowUp && currentTask) {
         sendTaskCommand({
           type: 'follow_up',
           commandId: crypto.randomUUID(),
-          taskId: taskSnapshot.id,
-          expectedRevision: taskSnapshot.revision,
+          taskId: currentTask.id,
+          expectedRevision: currentTask.revision,
           instruction: text,
-          chatSessionId: sessionIdRef.current,
+          chatSessionId: turnSessionId,
           instructionMessageId: storedMessage.id,
           changeType: isDirectionChange ? 'direction_change' : 'follow_up',
         });
       } else {
+        const bound = await resolveActiveContentTab({ allowLastFocused: false });
+        if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
+        setBindPreview(bound);
+        if (!bound) throw new Error(t('chat_task_bind_missing'));
         sendTaskCommand({
           type: 'start',
           commandId: crypto.randomUUID(),
-          taskId: sessionIdRef.current,
+          taskId: turnSessionId,
           instruction: text,
-          chatSessionId: sessionIdRef.current,
+          chatSessionId: turnSessionId,
           instructionMessageId: storedMessage.id,
-          tabId,
+          tabId: bound.tabId,
         });
       }
+      launchResolved = true;
     } catch (err) {
+      if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('Task error', errorMessage);
-      appendMessage({
-        actor: Actors.SYSTEM,
-        content: errorMessage,
-        timestamp: Date.now(),
-      });
+      appendMessage(
+        {
+          actor: Actors.SYSTEM,
+          content: errorMessage,
+          timestamp: Date.now(),
+        },
+        turnSessionId,
+      );
       setInputEnabled(true);
       setShowStopButton(false);
+      launchResolved = true;
+    } finally {
+      const stillOwnsLaunch = launchOwner
+        ? ownsAsyncSessionOperation({
+            owner: { ...launchOwner, ...(turnSessionId ? { sessionId: turnSessionId } : {}) },
+            currentGeneration: sessionGenerationRef.current,
+            currentRequestToken: taskLaunchRequestRef.current,
+            currentSessionId: sessionIdRef.current,
+          })
+        : true;
+      if (
+        shouldDeleteSupersededLaunchSession({
+          startingFreshSession,
+          launchResolved,
+          stillOwnsLaunch,
+          sessionId: turnSessionId,
+        })
+      ) {
+        void chatHistoryStore.deleteSession(turnSessionId!);
+      }
+      if (launchOwner && pendingAsyncLaunchRef.current?.requestToken === launchOwner.requestToken) {
+        pendingAsyncLaunchRef.current = null;
+        if (!pendingStartCommandRef.current) setTaskLaunchPending(false);
+      }
     }
   };
 
   const handleStopTask = async () => {
     try {
-      if (taskSnapshot) {
-        sendTaskCommand({
-          type: 'cancel',
-          commandId: crypto.randomUUID(),
-          taskId: taskSnapshot.id,
-          expectedRevision: taskSnapshot.revision,
-        });
-      }
+      const liveTask = authoritativeTaskSnapshotRef.current ?? taskSnapshot;
+      if (!liveTask) return;
+      const cancelCommand = {
+        type: 'cancel' as const,
+        commandId: crypto.randomUUID(),
+        taskId: liveTask.id,
+        expectedRevision: liveTask.revision,
+      };
+      if (!canDispatchTaskCommand(pendingTaskCommandsRef.current.values(), cancelCommand)) return;
+      sendTaskCommand(cancelCommand);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('Task cancellation error', errorMessage);
@@ -898,44 +1509,52 @@ const SidePanel = () => {
         timestamp: Date.now(),
       });
     }
-    setInputEnabled(true);
+    setInputEnabled(false);
     setShowStopButton(false);
   };
 
   const handlePauseTask = useCallback(() => {
-    if (!taskSnapshot) return;
+    if (!taskSnapshot || hasPendingLifecycleCommand(pendingCommandTypes)) return;
     sendTaskCommand({
       type: 'pause',
       commandId: crypto.randomUUID(),
       taskId: taskSnapshot.id,
       expectedRevision: taskSnapshot.revision,
     });
-  }, [sendTaskCommand, taskSnapshot]);
+  }, [pendingCommandTypes, sendTaskCommand, taskSnapshot]);
 
   const handleResumeTask = useCallback(() => {
-    if (!taskSnapshot) return;
+    if (!taskSnapshot || hasPendingLifecycleCommand(pendingCommandTypes)) return;
     sendTaskCommand({
       type: 'resume',
       commandId: crypto.randomUUID(),
       taskId: taskSnapshot.id,
       expectedRevision: taskSnapshot.revision,
     });
-  }, [sendTaskCommand, taskSnapshot]);
+  }, [pendingCommandTypes, sendTaskCommand, taskSnapshot]);
 
   const handleNewChat = () => {
-    // Clear messages and start a new chat
-    setMessages([]);
-    setCurrentSessionId(null);
-    sessionIdRef.current = null;
-    setInputEnabled(true);
-    setShowStopButton(false);
-    setIsFollowUpMode(false);
-    setIsHistoricalSession(false);
-    setTaskSnapshot(null);
-    pendingTaskIdRef.current = null;
-
-    // Disconnect any existing connection
-    stopConnection();
+    const authoritative = authoritativeTaskSnapshotRef.current;
+    const cancellationTaskId = newChatCancellationTarget({
+      authoritativeTask: authoritative ? { taskId: authoritative.id, status: authoritative.status } : null,
+      pendingStartTaskId: pendingStartCommandRef.current?.taskId,
+      displayedTask: taskSnapshot ? { taskId: taskSnapshot.id, status: taskSnapshot.status } : null,
+    });
+    if (cancellationTaskId) {
+      if (pendingNewChatCancellationRef.current?.taskId === cancellationTaskId) return;
+      pendingNewChatCancellationRef.current = { taskId: cancellationTaskId, commandId: null };
+      sessionGenerationRef.current += 1;
+      setInputEnabled(false);
+      const known =
+        authoritative?.id === cancellationTaskId
+          ? authoritative
+          : taskSnapshot?.id === cancellationTaskId
+            ? taskSnapshot
+            : null;
+      if (known) requestNewChatCancellation(cancellationTaskId, known.revision);
+      return;
+    }
+    finalizeNewChat(taskSnapshot?.id ?? authoritative?.id);
   };
 
   const loadChatSessions = useCallback(async () => {
@@ -953,24 +1572,35 @@ const SidePanel = () => {
   };
 
   const handleBackToChat = (reset = false) => {
+    historySelectionRequestRef.current += 1;
+    bookmarkRequestRef.current += 1;
+    pendingHistoryTaskIdRef.current = null;
+    const nextHistoricalSession = historicalProjectionAfterHistoryBack(isHistoricalSessionRef.current, reset);
+    isHistoricalSessionRef.current = nextHistoricalSession;
+    setIsHistoricalSession(nextHistoricalSession);
     setShowHistory(false);
     if (reset) {
       setCurrentSessionId(null);
       setMessages([]);
       setIsFollowUpMode(false);
-      setIsHistoricalSession(false);
     }
   };
 
   const handleSessionSelect = async (sessionId: string) => {
+    const requestToken = ++historySelectionRequestRef.current;
+    const generation = ++sessionGenerationRef.current;
     try {
       const fullSession = await chatHistoryStore.getSession(sessionId);
+      if (requestToken !== historySelectionRequestRef.current || generation !== sessionGenerationRef.current) return;
       if (fullSession && fullSession.messages.length > 0) {
+        dismissedTaskIdsRef.current.delete(sessionId);
         setCurrentSessionId(fullSession.id);
+        sessionIdRef.current = fullSession.id;
         setMessages(fullSession.messages);
         setIsFollowUpMode(false);
         setIsHistoricalSession(true); // Mark this as a historical session
-        pendingTaskIdRef.current = fullSession.id;
+        isHistoricalSessionRef.current = true;
+        pendingHistoryTaskIdRef.current = fullSession.id;
         setTaskSnapshot(null);
         portRef.current?.postMessage({ type: 'get_task', taskId: fullSession.id });
         console.log('history session selected', sessionId);
@@ -983,11 +1613,24 @@ const SidePanel = () => {
 
   const handleSessionDelete = async (sessionId: string) => {
     try {
+      if (sessionId === protectedLiveHistorySessionId(authoritativeTaskSnapshotRef.current)) return;
       await chatHistoryStore.deleteSession(sessionId);
       await loadChatSessions();
-      if (sessionId === currentSessionId) {
+      if (sessionId === sessionIdRef.current) {
+        dismissedTaskIdsRef.current.add(sessionId);
+        sessionGenerationRef.current += 1;
+        historySelectionRequestRef.current += 1;
+        pendingHistoryTaskIdRef.current = null;
+        pendingDirectionChangeRef.current = false;
+        sessionIdRef.current = null;
         setMessages([]);
         setCurrentSessionId(null);
+        setIsHistoricalSession(false);
+        isHistoricalSessionRef.current = false;
+        setIsFollowUpMode(false);
+        setTaskSnapshot(null);
+        taskSnapshotRef.current = null;
+        setEvidenceSpace(null);
       }
     } catch (error) {
       console.error('Failed to delete session:', error);
@@ -995,27 +1638,41 @@ const SidePanel = () => {
   };
 
   const handleSessionBookmark = async (sessionId: string) => {
+    const owner = {
+      generation: sessionGenerationRef.current,
+      requestToken: ++bookmarkRequestRef.current,
+      sessionId: sessionIdRef.current,
+    };
+    const stillOwnsBookmark = () =>
+      ownsAsyncSessionOperation({
+        owner,
+        currentGeneration: sessionGenerationRef.current,
+        currentRequestToken: bookmarkRequestRef.current,
+        currentSessionId: sessionIdRef.current,
+      });
     try {
       const fullSession = await chatHistoryStore.getSession(sessionId);
 
-      if (fullSession && fullSession.messages.length > 0) {
+      if (stillOwnsBookmark() && fullSession && fullSession.messages.length > 0) {
         // Get the session title
         const sessionTitle = fullSession.title;
         // Get the first 8 words of the title
         const title = sessionTitle.split(' ').slice(0, 8).join(' ');
 
         // Get the first message content (the task)
-        const taskContent = fullSession.messages[0]?.content || '';
+        const taskContent = projectMessagesForDisplay(fullSession.messages)[0]?.content || '';
 
         // Add to favorites storage
         await favoritesStorage.addPrompt(title, taskContent);
+        if (!stillOwnsBookmark()) return;
 
         // Update favorites in the UI
         const prompts = await favoritesStorage.getAllPrompts();
+        if (!stillOwnsBookmark()) return;
         setFavoritePrompts(prompts);
 
-        // Return to chat view after pinning
-        handleBackToChat(true);
+        // Return to the projection that owned the history list; bookmarking never resets another task/session.
+        handleBackToChat(false);
       }
     } catch (error) {
       console.error('Failed to pin session to favorites:', error);
@@ -1029,28 +1686,133 @@ const SidePanel = () => {
   };
 
   const handleSkillRun = async (skill: FavoriteSkill, values: Record<string, string>) => {
+    const currentTask = authoritativeTaskSnapshotRef.current ?? taskSnapshotRef.current;
+    if (currentTask && isActiveTaskStatus(currentTask.status)) return;
+    if (
+      !canBeginExclusiveTaskLaunch({
+        pendingAsyncLaunch: pendingAsyncLaunchRef.current !== null,
+        pendingStartTaskId: pendingStartCommandRef.current?.taskId,
+      })
+    ) {
+      return;
+    }
+    const launchOwner = {
+      kind: 'skill' as const,
+      generation: ++sessionGenerationRef.current,
+      requestToken: ++taskLaunchRequestRef.current,
+    };
+    recoveringAuthoritativeTaskRef.current = false;
+    recoverySessionOwnerRef.current = null;
+    pendingAsyncLaunchRef.current = launchOwner;
+    setTaskLaunchPending(true);
+    setInputEnabled(false);
+    let ownSessionId: string | null = null;
+    let launchResolved = false;
     try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const tabId = tabs[0]?.id;
-      if (!tabId) throw new Error('No active tab found');
-      setInputEnabled(false);
+      const session = await chatHistoryStore.createSession(`Skill · ${skill.title}`.slice(0, 50));
+      ownSessionId = session.id;
+      if (
+        !ownsAsyncSessionOperation({
+          owner: launchOwner,
+          currentGeneration: sessionGenerationRef.current,
+          currentRequestToken: taskLaunchRequestRef.current,
+        })
+      ) {
+        return;
+      }
+      pendingAsyncLaunchRef.current = { ...launchOwner, sessionId: session.id };
+      setCurrentSessionId(session.id);
+      sessionIdRef.current = session.id;
+      setMessages([]);
+      setIsHistoricalSession(false);
+      isHistoricalSessionRef.current = false;
+      setIsFollowUpMode(false);
+      setTaskSnapshot(null);
+      taskSnapshotRef.current = null;
+      authoritativeTaskSnapshotRef.current = null;
+      setEvidenceSpace(null);
+      pendingHistoryTaskIdRef.current = null;
+      const invocation = await chatHistoryStore.addMessage(session.id, {
+        actor: Actors.USER,
+        content: `运行 Skill：${skill.title}`,
+        timestamp: Date.now(),
+      });
+      if (
+        !ownsAsyncSessionOperation({
+          owner: { ...launchOwner, sessionId: session.id },
+          currentGeneration: sessionGenerationRef.current,
+          currentRequestToken: taskLaunchRequestRef.current,
+          currentSessionId: sessionIdRef.current,
+        })
+      ) {
+        return;
+      }
+      setMessages([invocation]);
+      if (currentTask && !isActiveTaskStatus(currentTask.status)) dismissedTaskIdsRef.current.add(currentTask.id);
+      const bound = await resolveActiveContentTab({ allowLastFocused: false });
+      if (
+        !ownsAsyncSessionOperation({
+          owner: { ...launchOwner, sessionId: session.id },
+          currentGeneration: sessionGenerationRef.current,
+          currentRequestToken: taskLaunchRequestRef.current,
+          currentSessionId: sessionIdRef.current,
+        })
+      ) {
+        return;
+      }
+      if (!bound) throw new Error(t('chat_task_bind_missing'));
       setShowStopButton(true);
       sendTaskCommand({
         type: 'run_skill',
         commandId: crypto.randomUUID(),
-        taskId: crypto.randomUUID(),
+        taskId: session.id,
         skillId: skill.id,
         values,
-        tabId,
+        tabId: bound.tabId,
       });
+      launchResolved = true;
     } catch (error) {
+      const ownsFailure = ownsAsyncSessionOperation({
+        owner: { ...launchOwner, ...(ownSessionId ? { sessionId: ownSessionId } : {}) },
+        currentGeneration: sessionGenerationRef.current,
+        currentRequestToken: taskLaunchRequestRef.current,
+        currentSessionId: sessionIdRef.current,
+      });
+      if (!ownsFailure) return;
+      launchResolved = true;
       setInputEnabled(true);
       setShowStopButton(false);
-      void appendMessage({
-        actor: Actors.SYSTEM,
-        content: error instanceof Error ? error.message : String(error),
-        timestamp: Date.now(),
+      if (ownSessionId) {
+        void appendMessage(
+          {
+            actor: Actors.SYSTEM,
+            content: error instanceof Error ? error.message : String(error),
+            timestamp: Date.now(),
+          },
+          ownSessionId,
+        );
+      }
+    } finally {
+      const stillOwnsLaunch = ownsAsyncSessionOperation({
+        owner: { ...launchOwner, ...(ownSessionId ? { sessionId: ownSessionId } : {}) },
+        currentGeneration: sessionGenerationRef.current,
+        currentRequestToken: taskLaunchRequestRef.current,
+        currentSessionId: sessionIdRef.current,
       });
+      if (
+        shouldDeleteSupersededLaunchSession({
+          startingFreshSession: true,
+          launchResolved,
+          stillOwnsLaunch,
+          sessionId: ownSessionId,
+        })
+      ) {
+        void chatHistoryStore.deleteSession(ownSessionId!);
+      }
+      if (pendingAsyncLaunchRef.current?.requestToken === launchOwner.requestToken) {
+        pendingAsyncLaunchRef.current = null;
+        if (!pendingStartCommandRef.current) setTaskLaunchPending(false);
+      }
     }
   };
 
@@ -1322,6 +2084,7 @@ const SidePanel = () => {
 
   // Default main surface is idle unless a task is live or the user opened history.
   // Terminal snapshots (completed/failed/cancelled) stay in storage + history only.
+  const displayMessages = projectMessagesForDisplay(messages);
   const showMainTaskSurface = shouldShowMainTaskSurface({
     status: taskSnapshot?.status,
     isHistoricalSession,
@@ -1332,8 +2095,18 @@ const SidePanel = () => {
   // Idle home still shows this session's chat (replies/clarifications); only task card needs active status.
   const showLiveMessages = messages.length > 0;
   const showIdleHint = !showLiveMessages && favoritePrompts.length === 0;
-  const liveTaskConsole =
-    Boolean(taskSnapshot) && showTaskCard && isActiveTaskStatus(taskSnapshot.status);
+  const liveTaskConsole = Boolean(taskSnapshot) && showTaskCard && isActiveTaskStatus(taskSnapshot.status);
+  const hasAuthoritativeLiveTask = protectedLiveHistorySessionId(authoritativeTaskSnapshotRef.current) !== null;
+  const visibleFavoritePrompts =
+    liveTaskConsole || hasAuthoritativeLiveTask
+      ? favoritePrompts.filter(item => item.kind !== 'skill')
+      : favoritePrompts;
+  const messageRecoveryEnabled = canExposeMessageRecoveryActions({
+    isHistoricalSession,
+    taskSnapshotLoaded,
+    inputEnabled,
+  });
+  const lifecycleCommandPending = hasPendingLifecycleCommand(pendingCommandTypes);
   // S4: progress console first; chat is a foldable log while the task is live.
   const chatCollapsed = liveTaskConsole && showLiveMessages && !chatLogExpanded;
   // S6: continuous pause/resume stay beside the fixed composer; stop is demoted.
@@ -1342,7 +2115,13 @@ const SidePanel = () => {
     !isHistoricalSession &&
     (taskSnapshot!.status === 'running' ||
       taskSnapshot!.status === 'paused' ||
-      taskSnapshot!.status === 'interrupted');
+      taskSnapshot!.status === 'interrupted' ||
+      taskSnapshot!.status === 'waiting_user' ||
+      taskSnapshot!.status === 'inputs_required');
+  const visibleBindPreview =
+    taskSnapshot && isActiveTaskStatus(taskSnapshot.status)
+      ? taskBoundContentTab(taskSnapshot, bindPreview)
+      : bindPreview;
 
   return (
     <div className="chijie-shell">
@@ -1353,7 +2132,7 @@ const SidePanel = () => {
               <button
                 type="button"
                 onClick={() => handleBackToChat(false)}
-                className="cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
+                className="min-h-10 cursor-pointer px-2 text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
                 aria-label={t('nav_back_a11y')}>
                 {t('nav_back')}
               </button>
@@ -1371,7 +2150,9 @@ const SidePanel = () => {
                   aria-live="polite"
                   aria-atomic="true">
                   {taskSnapshot && showTaskCard
-                    ? t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
+                    ? taskSnapshot.status === 'completed'
+                      ? '任务结果'
+                      : t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
                     : t('chat_task_header_idle')}
                 </span>
               </div>
@@ -1383,19 +2164,17 @@ const SidePanel = () => {
                 <button
                   type="button"
                   onClick={handleNewChat}
-                  onKeyDown={e => e.key === 'Enter' && handleNewChat()}
                   className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
                   aria-label={t('nav_newChat_a11y')}
-                  tabIndex={0}>
+                  aria-busy={Boolean(pendingNewChatCancellationRef.current)}
+                  disabled={Boolean(pendingNewChatCancellationRef.current)}>
                   <PiPlusBold size={20} />
                 </button>
                 <button
                   type="button"
                   onClick={handleLoadHistory}
-                  onKeyDown={e => e.key === 'Enter' && handleLoadHistory()}
                   className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
-                  aria-label={t('nav_loadHistory_a11y')}
-                  tabIndex={0}>
+                  aria-label={t('nav_loadHistory_a11y')}>
                   <GrHistory size={20} />
                 </button>
               </>
@@ -1403,10 +2182,8 @@ const SidePanel = () => {
             <button
               type="button"
               onClick={() => chrome.runtime.openOptionsPage()}
-              onKeyDown={e => e.key === 'Enter' && chrome.runtime.openOptionsPage()}
               className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
-              aria-label={t('nav_settings_a11y')}
-              tabIndex={0}>
+              aria-label={t('nav_settings_a11y')}>
               <FiSettings size={20} />
             </button>
           </div>
@@ -1418,6 +2195,7 @@ const SidePanel = () => {
               onSessionSelect={handleSessionSelect}
               onSessionDelete={handleSessionDelete}
               onSessionBookmark={handleSessionBookmark}
+              protectedSessionId={protectedLiveHistorySessionId(authoritativeTaskSnapshotRef.current)}
               visible={true}
               isDarkMode={false}
             />
@@ -1455,49 +2233,80 @@ const SidePanel = () => {
                   chat log is the flexible reading surface, composer stays fixed.
                 */}
                 <div className="chijie-workspace" data-testid="sidepanel-workspace">
-                  {showTaskCard && taskSnapshot && (() => {
-                    const latestInstruction =
-                      [...messages].reverse().find(message => message.actor === Actors.USER)?.content ?? '';
-                    const originalInstruction =
-                      messages.find(
-                        message =>
-                          message.actor === Actors.USER &&
-                          'id' in message &&
-                          message.id === taskSnapshot.instructionMessageId,
-                      )?.content ||
-                      taskSnapshot.plan?.goal ||
-                      taskSnapshot.goalSummary ||
-                      messages.find(message => message.actor === Actors.USER)?.content ||
-                      latestInstruction;
-                    return (
-                      <TaskStatusCard
-                        snapshot={taskSnapshot}
-                        send={sendTaskCommand}
-                        isDarkMode={false}
-                        defaultInstruction={latestInstruction}
-                        missionInstruction={originalInstruction}
-                        evidenceSpace={evidenceSpace}
-                        onAdjustDirection={() => {
-                          pendingDirectionChangeRef.current = true;
-                          setIsHistoricalSession(false);
-                          const existingComposer = document.querySelector(
-                            '.chijie-composer textarea',
-                          ) as HTMLTextAreaElement | null;
-                          if (!existingComposer?.value.trim()) {
-                            setInputTextRef.current?.(t('chat_task_adjust_prompt'));
+                  {showTaskCard &&
+                    taskSnapshot &&
+                    (() => {
+                      const latestInstruction =
+                        [...displayMessages].reverse().find(message => message.actor === Actors.USER)?.content ?? '';
+                      const firstUserInstruction = displayMessages.find(
+                        message => message.actor === Actors.USER,
+                      )?.content;
+                      const originalInstruction =
+                        displayMessages.find(
+                          message =>
+                            message.actor === Actors.USER &&
+                            'id' in message &&
+                            message.id === taskSnapshot.instructionMessageId,
+                        )?.content ||
+                        firstUserInstruction ||
+                        taskSnapshot.plan?.goal ||
+                        taskSnapshot.goalSummary ||
+                        latestInstruction;
+                      const currentRound = taskSnapshot.rounds.find(round => round.id === taskSnapshot.currentRoundId);
+                      const canAdjustDirection = taskAllowsDirectionChange(
+                        taskSnapshot.status,
+                        currentRound?.waitReason,
+                      );
+                      return (
+                        <TaskStatusCard
+                          snapshot={taskSnapshot}
+                          send={command => {
+                            if (!isHistoricalSessionRef.current) sendTaskCommand(command);
+                          }}
+                          isDarkMode={false}
+                          defaultInstruction={latestInstruction}
+                          missionInstruction={originalInstruction}
+                          evidenceSpace={evidenceSpace}
+                          pendingCommandTypes={pendingCommandTypes}
+                          readOnly={isHistoricalSession}
+                          onContinueInComposer={() => {
+                            pendingDirectionChangeRef.current = false;
+                            if (taskSnapshot.status === 'completed') setIsFollowUpMode(true);
+                            setIsHistoricalSession(false);
+                            setInputEnabled(true);
+                            window.requestAnimationFrame(() => {
+                              const composer = document.querySelector(
+                                '.chijie-composer textarea',
+                              ) as HTMLTextAreaElement | null;
+                              composer?.focus();
+                              composer?.scrollIntoView({ block: 'nearest' });
+                            });
+                          }}
+                          onAdjustDirection={
+                            canAdjustDirection
+                              ? () => {
+                                  pendingDirectionChangeRef.current = true;
+                                  setIsHistoricalSession(false);
+                                  const existingComposer = document.querySelector(
+                                    '.chijie-composer textarea',
+                                  ) as HTMLTextAreaElement | null;
+                                  if (!existingComposer?.value.trim()) {
+                                    setInputTextRef.current?.(t('chat_task_adjust_prompt'));
+                                  }
+                                  setInputEnabled(true);
+                                  window.requestAnimationFrame(() => {
+                                    const composer = document.querySelector(
+                                      '.chijie-composer textarea',
+                                    ) as HTMLTextAreaElement | null;
+                                    composer?.focus();
+                                    composer?.scrollIntoView({ block: 'nearest' });
+                                  });
+                                }
+                              : undefined
                           }
-                          setInputEnabled(true);
-                          window.requestAnimationFrame(() => {
-                            const composer = document.querySelector(
-                              '.chijie-composer textarea',
-                            ) as HTMLTextAreaElement | null;
-                            composer?.focus();
-                            composer?.scrollIntoView({ block: 'nearest' });
-                          });
-                        }}
-                      />
-                    );
-                  })()}
+                        />
+                      );
+                    })()}
                   <div
                     className="chijie-chat-log scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3"
                     data-testid="sidepanel-chat-log"
@@ -1530,24 +2339,32 @@ const SidePanel = () => {
                           <MessageList
                             messages={
                               taskSnapshot?.status === 'running'
-                                ? messages
-                                : messages.filter(message => message.content !== progressMessage)
+                                ? displayMessages
+                                : displayMessages.filter(message => message.content !== progressMessage)
                             }
                             isDarkMode={false}
-                            onRetry={() => {
-                              const lastUser = [...messages].reverse().find(m => m.actor === Actors.USER);
-                              if (lastUser?.content) {
-                                void handleSendMessage(lastUser.content);
-                              } else {
-                                setInputTextRef.current?.('');
-                              }
-                            }}
-                            onRephrase={() => {
-                              const el = document.querySelector(
-                                '.chijie-composer textarea',
-                              ) as HTMLTextAreaElement | null;
-                              el?.focus();
-                            }}
+                            onRetry={
+                              messageRecoveryEnabled
+                                ? () => {
+                                    const lastUser = [...messages].reverse().find(m => m.actor === Actors.USER);
+                                    if (lastUser?.content) {
+                                      void handleSendMessage(lastUser.content);
+                                    } else {
+                                      setInputTextRef.current?.('');
+                                    }
+                                  }
+                                : undefined
+                            }
+                            onRephrase={
+                              messageRecoveryEnabled
+                                ? () => {
+                                    const el = document.querySelector(
+                                      '.chijie-composer textarea',
+                                    ) as HTMLTextAreaElement | null;
+                                    el?.focus();
+                                  }
+                                : undefined
+                            }
                           />
                           <div ref={messagesEndRef} />
                         </>
@@ -1556,9 +2373,7 @@ const SidePanel = () => {
                       <div
                         className="flex h-full min-h-[8.5rem] items-center justify-center px-2"
                         data-testid="empty-composer-spacer">
-                        <p
-                          className="text-center text-xs text-[var(--chijie-muted)]"
-                          data-testid="idle-delegate-hint">
+                        <p className="text-center text-xs text-[var(--chijie-muted)]" data-testid="idle-delegate-hint">
                           {t('chat_empty_hint')}
                         </p>
                       </div>
@@ -1567,18 +2382,19 @@ const SidePanel = () => {
                   {/* Skills must stay runnable after a completed chat (O1 skill re-run / e2e).
                       Plain prompt bookmarks still prefer the empty-composer surface.
                       On idle home, prior live messages are hidden so skills still surface. */}
-                  {favoritePrompts.length > 0 &&
-                    (!showLiveMessages || favoritePrompts.some(item => item.kind === 'skill')) && (
+                  {visibleFavoritePrompts.length > 0 &&
+                    (!showLiveMessages || visibleFavoritePrompts.some(item => item.kind === 'skill')) && (
                       <div
                         className="chijie-bookmarks max-h-36 shrink-0 overflow-y-auto"
                         data-testid="bookmark-list-panel">
                         <BookmarkList
-                          bookmarks={favoritePrompts}
+                          bookmarks={visibleFavoritePrompts}
                           onBookmarkSelect={handleBookmarkSelect}
                           onSkillRun={handleSkillRun}
                           onBookmarkUpdateTitle={handleBookmarkUpdateTitle}
                           onBookmarkDelete={handleBookmarkDelete}
                           onBookmarkReorder={handleBookmarkReorder}
+                          skillRunDisabled={taskLaunchPending}
                           isDarkMode={false}
                         />
                       </div>
@@ -1590,13 +2406,13 @@ const SidePanel = () => {
                   <div
                     className="chijie-bind-chip"
                     data-testid="active-tab-bind"
-                    data-bound={bindPreview ? 'true' : 'false'}
-                    title={formatBindDetail(bindPreview) || t('chat_task_bind_missing')}
+                    data-bound={visibleBindPreview ? 'true' : 'false'}
+                    title={formatBindDetail(visibleBindPreview) || t('chat_task_bind_missing')}
                     role="status"
                     aria-live="polite">
                     <span className="chijie-bind-chip-kicker">{t('chat_task_bind_kicker')}</span>
                     <span className="chijie-bind-chip-value">
-                      {formatBindChip(bindPreview, t('chat_task_bind_missing'))}
+                      {formatBindChip(visibleBindPreview, t('chat_task_bind_missing'))}
                     </span>
                   </div>
                   {showComposerContinuousControls && taskSnapshot && (
@@ -1609,34 +2425,50 @@ const SidePanel = () => {
                           type="button"
                           className="chijie-btn-secondary"
                           data-testid="composer-pause"
+                          disabled={lifecycleCommandPending}
+                          aria-busy={lifecycleCommandPending}
                           onClick={handlePauseTask}>
                           {t('chat_task_pause')}
                         </button>
-                      ) : (
+                      ) : taskSnapshot.status === 'paused' || taskSnapshot.status === 'interrupted' ? (
                         <button
                           type="button"
                           className="chijie-btn-primary"
                           data-testid="composer-resume"
+                          disabled={lifecycleCommandPending}
+                          aria-busy={lifecycleCommandPending}
                           onClick={handleResumeTask}>
                           {t('chat_task_resume')}
                         </button>
+                      ) : null}
+                      {taskNeedsDirectStop(taskSnapshot.status) ? (
+                        <button
+                          type="button"
+                          className="chijie-btn-secondary"
+                          data-testid="composer-stop"
+                          disabled={lifecycleCommandPending}
+                          aria-busy={lifecycleCommandPending}
+                          onClick={() => void handleStopTask()}>
+                          {t('chat_task_stop')}
+                        </button>
+                      ) : (
+                        <div className="chijie-composer-stop">
+                          <details>
+                            <summary aria-label="更多任务操作">更多</summary>
+                            <div className="chijie-composer-stop-menu" role="menu">
+                              <button
+                                type="button"
+                                role="menuitem"
+                                data-testid="composer-stop"
+                                disabled={lifecycleCommandPending}
+                                aria-busy={lifecycleCommandPending}
+                                onClick={() => void handleStopTask()}>
+                                {t('chat_task_stop')}
+                              </button>
+                            </div>
+                          </details>
+                        </div>
                       )}
-                      <div className="chijie-composer-stop">
-                        <details>
-                          <summary aria-label="更多任务操作">更多</summary>
-                          <div className="chijie-composer-stop-menu" role="menu">
-                            <button
-                              type="button"
-                              role="menuitem"
-                              data-testid="composer-stop"
-                              onClick={() => {
-                                void handleStopTask();
-                              }}>
-                              {t('chat_task_stop')}
-                            </button>
-                          </div>
-                        </details>
-                      </div>
                     </div>
                   )}
                   <ChatInput

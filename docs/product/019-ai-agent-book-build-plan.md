@@ -18,7 +18,7 @@ related:
   - "product/006"
   - "design/002"
   - "design/007"
-last_modified: "2026-08-11"
+last_modified: "2026-08-13"
 ---
 
 # 019 — AI Agent Book 驱动的持节建设规划
@@ -30,14 +30,14 @@ last_modified: "2026-08-11"
 
 ## 执行状态
 
-| Wave | 状态 | 证据 |
-|---|---|---|
-| Wave 0 | 完成 | 019 current、020 eval master、run_state 已登记 |
-| Wave 1 | 完成 | `task/trace.ts`、`scripts/eval-matrix.mjs`、`scripts/eval-model-swap.mjs`；矩阵报告 `reports/nanobrowser/eval/` |
-| Wave 2 | 完成 | 状态栏、prompt 版本化、ACI、特性开关、重试策略、上下文压缩；2026-08-06 单测与 type-check 全绿 |
-| Wave 3 | 部分→加强 | 2026-08-06 formal batch MiniMax-M3 **10/10 verified_pass**（含 `021-LH-01..03`）；真站长尾仍待跑 |
-| Wave 4 | 阻塞 | Owner 日常 Chrome 登录态；协议仍为 product/005；**历史黄金旅程，非 021 北极星** |
-| Wave 5 | 进行中 | `scripts/outer-loop.mjs` 已跑；Skill candidates 已落盘 `reports/nanobrowser/outer-rl/skills/candidates/`；真实站轨迹待补 |
+| Wave   | 状态      | 证据                                                                                                                                                        |
+| ------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wave 0 | 完成      | 019 current、020 eval master、run_state 已登记                                                                                                              |
+| Wave 1 | 完成      | `task/trace.ts`、`scripts/eval-matrix.mjs`、`scripts/eval-model-swap.mjs`；矩阵报告 `reports/nanobrowser/eval/`                                             |
+| Wave 2 | 完成      | 状态栏、prompt 版本化、ACI、特性开关、重试策略、上下文压缩；2026-08-06 单测与 type-check 全绿                                                               |
+| Wave 3 | 部分→加强 | 2026-08-06 旧协议批次记录 MiniMax-M3 **10/10**（含 `021-LH-01..03`）；本轮已证明旧 evaluator 可伪 PASS，该数字只作历史线索，新门复跑前不可用于发布          |
+| Wave 4 | 阻塞      | Owner 日常 Chrome 登录态；协议仍为 product/005；**历史黄金旅程，非 021 北极星**                                                                             |
+| Wave 5 | 进行中    | `scripts/outer-loop.mjs` 已跑；Skill candidates 已落盘 `reports/nanobrowser/outer-rl/skills/candidates/`，但在新 evaluator 和冻结回归通过前全部隔离，不晋升 |
 
 ## 目的
 
@@ -124,61 +124,61 @@ last_modified: "2026-08-11"
 
 ### 2.1 已经具备的部分
 
-| 书本部件 | 持节现状 | 证据 |
-|---|---|---|
-| Harness 壳 | TaskManager / ActionDispatcher / CompletionChecker / 回执 | `design/002`、`task/manager.ts` |
-| 可换执行核 | `control` 默认，`nano` 可拔 | `design/002`、`agent/factory.ts` |
-| 观察帧 | Snapshot Frame、`pageRevision`、stale frame reject | `design/007`、`task/action-frame.ts` |
-| 约束 | 任务内自主执行（无默认审批门）、外部提交留审计标签、隐私抽检 | `product/021`、`decisions/004`、`services/guardrails` |
-| 验证 | URL / page_text / media_state / tab_state / download_state criteria | `control-policy.ts`、`task/completion.ts` |
-| 纠正 | `no_progress`、`maxFailures`、失败分类、可恢复重试 | `backends/observe-act-loop.ts`、`control-llm.ts` |
-| 产品 UX | 人话步骤、停止、完成证据、反展示泄漏 | `product/014`、`design/005` |
-| 评估文档 | 013 固定任务集、015 冻结验收句、016/017/018 Claw 30 | `product/013/015/016/017/018` |
+| 书本部件   | 持节现状                                                            | 证据                                                  |
+| ---------- | ------------------------------------------------------------------- | ----------------------------------------------------- |
+| Harness 壳 | TaskManager / ActionDispatcher / CompletionChecker / 回执           | `design/002`、`task/manager.ts`                       |
+| 可换执行核 | `control` 默认，`nano` 可拔                                         | `design/002`、`agent/factory.ts`                      |
+| 观察帧     | Snapshot Frame、`pageRevision`、stale frame reject                  | `design/007`、`task/action-frame.ts`                  |
+| 约束       | 任务内自主执行（无默认审批门）、外部提交留审计标签、隐私抽检        | `product/021`、`decisions/004`、`services/guardrails` |
+| 验证       | URL / page_text / media_state / tab_state / download_state criteria | `control-policy.ts`、`task/completion.ts`             |
+| 纠正       | `no_progress`、`maxFailures`、失败分类、可恢复重试                  | `backends/observe-act-loop.ts`、`control-llm.ts`      |
+| 产品 UX    | 人话步骤、停止、完成证据、反展示泄漏                                | `product/014`、`design/005`                           |
+| 评估文档   | 013 固定任务集、015 冻结验收句、016/017/018 Claw 30                 | `product/013/015/016/017/018`                         |
 
 ### 2.2 Historical baseline before Wave 1–2 implementation
 
 > **时代边界：** 下表描述 **019 刚提出、Wave 1–2 尚未落地时** 的缺口快照。
 > **禁止**当作 2026-08-11 的 Current gaps。已落地项见文首 Wave 表与 §2.3。
 
-| 缺口（历史） | 当时现状 | 当时问题 |
-|---|---|---|
-| 自动化评估环境 | 只有手动 CSV + e2e 片段 | 无法重复 reset、批量跑分、前后对比 |
-| 模型替换实验 | 只有 MiniMax-M3 部分矩阵 | 无法区分模型瓶颈和 Harness 瓶颈 |
-| 结构化可观测性 | 只有 logger / PostHog 粗事件 | 无法回放每个观察、动作、验证、耗时、成本 |
-| Agent 状态栏 | 未实现 | 长任务中模型需要自己数步骤、记状态 |
-| 上下文压缩 | 未实现 | 长轨迹会腐化、超限、成本上升 |
-| 工具 ACI | schema 已有，描述缺少例子和边界 | 工具选错根因大概率在描述 |
-| 提示词版本化 | prompt 是静态常量 | 无法知道哪个 commit 改了什么行为 |
-| 消融/特性开关 | 未实现 | 无法验证每个特性真实贡献 |
-| 持续进化闭环 | `product/006` 只是 draft | 没有轨迹回流、Skill 候选、回归 |
-| Claw 30 证据 | 1 pass / 1 partial / 28 not_run | 不能宣称对标完成 |
+| 缺口（历史）   | 当时现状                        | 当时问题                                 |
+| -------------- | ------------------------------- | ---------------------------------------- |
+| 自动化评估环境 | 只有手动 CSV + e2e 片段         | 无法重复 reset、批量跑分、前后对比       |
+| 模型替换实验   | 只有 MiniMax-M3 部分矩阵        | 无法区分模型瓶颈和 Harness 瓶颈          |
+| 结构化可观测性 | 只有 logger / PostHog 粗事件    | 无法回放每个观察、动作、验证、耗时、成本 |
+| Agent 状态栏   | 未实现                          | 长任务中模型需要自己数步骤、记状态       |
+| 上下文压缩     | 未实现                          | 长轨迹会腐化、超限、成本上升             |
+| 工具 ACI       | schema 已有，描述缺少例子和边界 | 工具选错根因大概率在描述                 |
+| 提示词版本化   | prompt 是静态常量               | 无法知道哪个 commit 改了什么行为         |
+| 消融/特性开关  | 未实现                          | 无法验证每个特性真实贡献                 |
+| 持续进化闭环   | `product/006` 只是 draft        | 没有轨迹回流、Skill 候选、回归           |
+| Claw 30 证据   | 1 pass / 1 partial / 28 not_run | 不能宣称对标完成                         |
 
 ### 2.3 Current gaps（仅写仍然真实的问题）
 
-| 缺口 | 现状 | 为何仍算缺口 |
-|---|---|---|
-| 语义上下文压缩 | 确定性 archive / 轨迹窗口已落地 | 非 LLM 语义摘要；长任务语义腐化仍在 |
-| 中断恢复协议 | plan 持久化有；体验未封顶 | 跨重启完整恢复协议偏薄 |
-| 长程真站稳健性 | fixture / 公网迷你集有证据 | 飞书/B 站等 Owner 登录真站长尾未封 |
-| Learned Skill 晋升 | outer-loop candidates 已生成；`learned/plan` 代码 partial | `enableLearnedSkills=false`；未进默认 registry；缺换输入晋升证据 |
-| Observation Diff 生产化 | 代码 landed；`enableObservationDiff=false` | payload 降本 ≥30% Release Gate **NOT_RUN** |
-| 022 整包 Release Gate | Kernel/Skill/Artifact **default_enabled** | product_status 仍 proposed；Regression/Diff/正式矩阵多项 NOT_RUN 或 PARTIAL（见 `product/022` §0.3） |
-| Claw 30 全表 | 历史评测资产 | 非北极星；多数行仍 not_run 时不得宣称 Claw 对标完成 |
+| 缺口                    | 现状                                                      | 为何仍算缺口                                                                                         |
+| ----------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| 语义上下文压缩          | 确定性 archive / 轨迹窗口已落地                           | 非 LLM 语义摘要；长任务语义腐化仍在                                                                  |
+| 中断恢复协议            | plan 持久化有；体验未封顶                                 | 跨重启完整恢复协议偏薄                                                                               |
+| 长程真站稳健性          | fixture / 公网迷你集有证据                                | 飞书/B 站等 Owner 登录真站长尾未封                                                                   |
+| Learned Skill 晋升      | outer-loop candidates 已生成；`learned/plan` 代码 partial | `enableLearnedSkills=false`；未进默认 registry；缺换输入晋升证据                                     |
+| Observation Diff 生产化 | 代码 landed；`enableObservationDiff=false`                | payload 降本 ≥30% Release Gate **NOT_RUN**                                                           |
+| 022 整包 Release Gate   | Kernel/Skill/Artifact **default_enabled**                 | product_status 仍 proposed；Regression/Diff/正式矩阵多项 NOT_RUN 或 PARTIAL（见 `product/022` §0.3） |
+| Claw 30 全表            | 历史评测资产                                              | 非北极星；多数行仍 not_run 时不得宣称 Claw 对标完成                                                  |
 
 ## 3. 差距对照表（Current）
 
-| 书本要求 | 持节现有（2026-08） | 仍缺什么 | 动作归属 |
-|---|---|---|---|
-| Model | MiniMax-M3 正式分 + model-swap 脚本 | 更系统的 swap 矩阵与噪声纪律 | 019 W1 已落；继续按 020 跑 |
-| Context | 状态栏 + 确定性压缩 + plan memory | 语义压缩 | 021 / W2 加深 |
-| Tools | ACI + prompt 版本 `chijie-control-v0.3.0` | 描述持续打磨 | W2 维护 |
-| Loop | observe-act + Skill Runtime 默认开 | 真站长尾失败簇 | 021 + 022 |
-| Constrain | 任务级自主 + flags | 消融实验纪律 | flags 已存在 |
-| Verify | CompletionChecker + Artifact Verifier 默认路径 | 022 VERIFY/ARTIFACT 正式矩阵 | 022 Release Gate |
-| Correct | no_progress / retry taxonomy | 映射表与真机统计 | 持续 |
-| Evaluation | `eval-matrix` / traces / 020 注册表 | 真站与 022 baseline | 020 |
-| Observability | task trace spans | 统一 release 回放验收 | W1 加深 |
-| Evolution | outer-loop candidates_generated | 筛选晋升与 learned 接入 | 006 / 022 LearnedSkills |
+| 书本要求      | 持节现有（2026-08）                            | 仍缺什么                     | 动作归属                   |
+| ------------- | ---------------------------------------------- | ---------------------------- | -------------------------- |
+| Model         | MiniMax-M3 正式分 + model-swap 脚本            | 更系统的 swap 矩阵与噪声纪律 | 019 W1 已落；继续按 020 跑 |
+| Context       | 状态栏 + 确定性压缩 + plan memory              | 语义压缩                     | 021 / W2 加深              |
+| Tools         | ACI + prompt 版本 `chijie-control-v0.3.0`      | 描述持续打磨                 | W2 维护                    |
+| Loop          | observe-act + Skill Runtime 默认开             | 真站长尾失败簇               | 021 + 022                  |
+| Constrain     | 任务级自主 + flags                             | 消融实验纪律                 | flags 已存在               |
+| Verify        | CompletionChecker + Artifact Verifier 默认路径 | 022 VERIFY/ARTIFACT 正式矩阵 | 022 Release Gate           |
+| Correct       | no_progress / retry taxonomy                   | 映射表与真机统计             | 持续                       |
+| Evaluation    | `eval-matrix` / traces / 020 注册表            | 真站与 022 baseline          | 020                        |
+| Observability | task trace spans                               | 统一 release 回放验收        | W1 加深                    |
+| Evolution     | outer-loop candidates_generated                | 筛选晋升与 learned 接入      | 006 / 022 LearnedSkills    |
 
 ## 4. 新建设顺序
 
@@ -303,9 +303,9 @@ Claw 30（016/017/018）仅为**历史评测资产**，可按需补跑，**不�
 当前下一会话默认（与 `run_state` 一致）：
 
 - `current_milestone: long_horizon_v1`
-- `next_default: long_horizon_eval_harden_and_outer_loop`
+- `next_default: long_horizon_progress_console_and_eval_harden`
 - 北极星：`product/021`；自主：`decisions/004`
-- Wave 0–2 已完成；Wave 3 部分加强；Wave 4 历史黄金旅程阻塞于 Owner 登录；Wave 5 已有 candidates（`outer_rl_status: candidates_generated`）
+- Wave 0–2 已完成；Wave 3 部分加强；Wave 4 历史黄金旅程阻塞于 Owner 登录；Wave 5 已有但仍隔离的 candidates（`outer_rl_status: candidates_generated_quarantined`）
 
 Owner 当时验收的三点（已发生，勿再当作“下一会话从 Wave 1 开工”指令）：
 
@@ -323,13 +323,13 @@ Owner 当时验收的三点（已发生，勿再当作“下一会话从 Wave 1 
 
 ## 8. 书本源码锚点
 
-| 方法论 | 本地书源码 |
-|---|---|
-| Harness 五要素 | `book/chapter1.md` |
-| Agent 状态栏 / 上下文压缩 | `book/chapter2.md` |
-| 工具 ACI / MCP / 主动发现 | `book/chapter4.md` |
-| Coding Agent Harness / 错误恢复 | `book/chapter5.md` |
-| 评估 / 可观测性 / 内部评估基础设施 | `book/chapter6.md` |
-| 外环进化 | `book/chapter8.md` |
-| Computer Use 动作空间与 Grounding | `book/chapter9.md` |
-| Harness 与模型共同演进 | `book/afterword.md` |
+| 方法论                             | 本地书源码          |
+| ---------------------------------- | ------------------- |
+| Harness 五要素                     | `book/chapter1.md`  |
+| Agent 状态栏 / 上下文压缩          | `book/chapter2.md`  |
+| 工具 ACI / MCP / 主动发现          | `book/chapter4.md`  |
+| Coding Agent Harness / 错误恢复    | `book/chapter5.md`  |
+| 评估 / 可观测性 / 内部评估基础设施 | `book/chapter6.md`  |
+| 外环进化                           | `book/chapter8.md`  |
+| Computer Use 动作空间与 Grounding  | `book/chapter9.md`  |
+| Harness 与模型共同演进             | `book/afterword.md` |

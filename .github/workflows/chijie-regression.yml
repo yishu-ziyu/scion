@@ -1,0 +1,227 @@
+name: Chijie regression
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chijie-regression-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  HUSKY: "0"
+  TURBO_TELEMETRY_DISABLED: "1"
+
+defaults:
+  run:
+    shell: bash
+    working-directory: projects/chijie-browser
+
+jobs:
+  evaluator-contracts:
+    name: Evaluator contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Block private knowledge-base links
+        run: |
+          private_link_pattern="https?://[^[:space:]<>\"']*(notion\\.so|notion\\.site)|https?://[^[:space:]<>\"']*[?&]X-Amz-(Algorithm|Credential|Date|Expires|Security-Token|Signature)="
+          # Page ids are ambiguous with ordinary hashes across the repository. Restrict the
+          # id-only guard to the design-note surfaces that may receive de-identified Notion research.
+          private_page_id_pattern="(^|[^[:xdigit:]])[[:xdigit:]]{32}([^[:xdigit:]]|$)|[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}"
+          set +e
+          matched_files="$(git grep -IlEi "$private_link_pattern" -- ../../docs ../../reports)"
+          scan_status=$?
+          page_id_files="$(git grep -IlEi "$private_page_id_pattern" -- ../../docs/design ../../reports/nanobrowser/design-iter 2>/dev/null)"
+          page_id_status=$?
+          set -e
+
+          if (( scan_status > 1 || page_id_status > 1 )); then
+            echo '::error::Private-link scan could not complete.'
+            exit 2
+          fi
+
+          if [[ -n "$matched_files" || -n "$page_id_files" ]]; then
+            echo '::error::Tracked docs or reports contain a private knowledge-base reference or signed resource URL.'
+            printf '%s\n%s\n' "$matched_files" "$page_id_files" | sed '/^$/d; s#^../../##' | sort -u
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.1
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+
+      - name: Test offline evaluator contracts
+        run: node --test scripts/__tests__/*.test.mjs
+
+      - name: Validate Phase 0 eval registry
+        env:
+          DRY_RUN: "1"
+          TASK_SET: phase0_022
+        run: pnpm eval:matrix
+
+  unit-regression:
+    name: Unit regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.1
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: pnpm
+          cache-dependency-path: projects/chijie-browser/pnpm-lock.yaml
+
+      - name: Install dependencies
+        id: install
+        run: pnpm install --frozen-lockfile
+
+      # Unit tests type-check imports from this gitignored module. The committed
+      # example is deliberately empty, so CI never injects or reads a provider key.
+      - name: Create empty provider stub
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: cp chrome-extension/src/personal/secrets.local.example.ts chrome-extension/src/personal/secrets.local.ts
+
+      - name: Prepare workspace packages
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm exec turbo ready
+
+      - name: Test critical verification paths
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: >-
+          pnpm -F chrome-extension exec vitest run
+          src/background/task/__tests__/completion.test.ts
+          src/background/task/__tests__/manager.test.ts
+          src/background/task/__tests__/mission-plan.test.ts
+          src/background/task/__tests__/verification-engine.test.ts
+          src/background/browser/sites/__tests__/understanding-answer.test.ts
+
+      - name: Test all extension units
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm -F chrome-extension test
+
+      - name: Test side panel
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm -F @extension/sidepanel test
+
+  static-quality:
+    name: Static quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.1
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: pnpm
+          cache-dependency-path: projects/chijie-browser/pnpm-lock.yaml
+
+      - name: Install dependencies
+        id: install
+        run: pnpm install --frozen-lockfile
+
+      - name: Create empty provider stub
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: cp chrome-extension/src/personal/secrets.local.example.ts chrome-extension/src/personal/secrets.local.ts
+
+      - name: Prepare workspace packages
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm exec turbo ready
+
+      - name: Type-check all workspaces
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm type-check
+
+      # The repository-level lint and prettier scripts use --fix/--write. CI invokes
+      # their read-only equivalents so a passing run cannot hide a dirty diff.
+      - name: Lint all workspaces
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm exec turbo lint --continue
+
+      - name: Check formatting
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: ${{ github.workspace }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]] || ! git cat-file -e "${BASE_SHA}^{commit}"; then
+            BASE_SHA="$(git rev-parse HEAD^)"
+          fi
+
+          mapfile -d '' changed_files < <(
+            git diff --name-only --diff-filter=ACMR -z "$BASE_SHA" "$GITHUB_SHA" -- .
+          )
+
+          if (( ${#changed_files[@]} == 0 )); then
+            echo 'No changed files require a formatting check.'
+            exit 0
+          fi
+
+          project_files=()
+          root_files=()
+          for file in "${changed_files[@]}"; do
+            if [[ "$file" == projects/chijie-browser/* ]]; then
+              project_files+=("$GITHUB_WORKSPACE/$file")
+            else
+              root_files+=("$GITHUB_WORKSPACE/$file")
+            fi
+          done
+
+          if (( ${#project_files[@]} > 0 )); then
+            pnpm --dir projects/chijie-browser exec prettier --check --ignore-unknown \
+              --ignore-path "$GITHUB_WORKSPACE/projects/chijie-browser/.prettierignore" \
+              "${project_files[@]}"
+          fi
+
+          if (( ${#root_files[@]} > 0 )); then
+            pnpm --dir projects/chijie-browser exec prettier --check --ignore-unknown \
+              --ignore-path /dev/null "${root_files[@]}"
+          fi
+
+      - name: Bundle with an inert provider placeholder
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          MINIMAX_API_KEY: ci-bundle-placeholder-not-a-secret
+        run: pnpm build

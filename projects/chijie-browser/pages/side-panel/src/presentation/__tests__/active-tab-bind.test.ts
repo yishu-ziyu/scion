@@ -4,6 +4,7 @@ import {
   isUsableContentTabUrl,
   pickActiveContentTab,
   tabHost,
+  taskBoundContentTab,
 } from '../active-tab-bind';
 
 describe('active-tab-bind', () => {
@@ -22,6 +23,15 @@ describe('active-tab-bind', () => {
     expect(bound?.tabId).toBe(2);
     expect(bound?.host).toBe('bilibili.com');
     expect(bound?.title).toContain('进球');
+  });
+
+  it('never borrows a background content tab when active-only binding is required', () => {
+    const tabs = [
+      { id: 1, url: 'chrome-extension://abc/side.html', title: 'Side panel', active: true },
+      { id: 2, url: 'https://example.com/', title: 'Background page', active: false },
+    ];
+    expect(pickActiveContentTab(tabs, { requireActive: true })).toBeNull();
+    expect(pickActiveContentTab(tabs)?.tabId).toBe(2);
   });
 
   it('prefers active usable when multiple', () => {
@@ -52,5 +62,45 @@ describe('active-tab-bind', () => {
 
   it('tabHost strips www', () => {
     expect(tabHost('https://www.example.com/a')).toBe('example.com');
+  });
+
+  it('keeps a live task chip on its bound tab after the user activates another page', () => {
+    const fallback = {
+      tabId: 2,
+      url: 'https://other.test/',
+      title: 'Other page',
+      host: 'other.test',
+    };
+    const bound = taskBoundContentTab(
+      {
+        activeTabId: 1,
+        targetRefs: [
+          {
+            kind: 'page',
+            tabId: 1,
+            urlOrigin: 'https://task.test',
+            normalizedUrl: 'https://task.test/work',
+            label: 'Task page',
+          },
+        ],
+      },
+      fallback,
+    );
+
+    expect(bound).toEqual({
+      tabId: 1,
+      url: 'https://task.test/work',
+      title: 'Task page',
+      host: 'task.test',
+    });
+  });
+
+  it('does not show a different active tab while the task target is not yet persisted', () => {
+    expect(
+      taskBoundContentTab(
+        { activeTabId: 1, targetRefs: [] },
+        { tabId: 2, url: 'https://other.test/', title: 'Other page', host: 'other.test' },
+      ),
+    ).toBeNull();
   });
 });

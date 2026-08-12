@@ -1,5 +1,7 @@
 # Outer loop skill candidates
 
+> **QUARANTINED / NOT ELIGIBLE：** 本页与下列 `R=10` 均由 pre-harden、non-gateable 矩阵派生，不是当前已验证能力，不得晋升 Skill。
+
 - Generated: 2026-08-06T15:53:56.869Z
 - TASK_SET: long_horizon
 - MIN_R: 9

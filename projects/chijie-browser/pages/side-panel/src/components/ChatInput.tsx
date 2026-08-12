@@ -23,6 +23,18 @@ interface AttachedFile {
   type: string;
 }
 
+export function closeAttachmentMenuOnEscape(
+  event: Pick<KeyboardEvent, 'key' | 'preventDefault'>,
+  closeMenu: () => void,
+  restoreTriggerFocus: () => void,
+): boolean {
+  if (event.key !== 'Escape') return false;
+  event.preventDefault();
+  closeMenu();
+  restoreTriggerFocus();
+  return true;
+}
+
 export default function ChatInput({
   onSendMessage,
   onStopTask,
@@ -43,6 +55,7 @@ export default function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
+  const attachmentTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Handle text changes and resize textarea
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -79,7 +92,11 @@ export default function ChatInput({
       if (!attachmentMenuRef.current?.contains(event.target as Node)) setAttachmentMenuOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setAttachmentMenuOpen(false);
+      closeAttachmentMenuOnEscape(
+        event,
+        () => setAttachmentMenuOpen(false),
+        () => attachmentTriggerRef.current?.focus(),
+      );
     };
     document.addEventListener('pointerdown', closeOnOutsidePointer);
     document.addEventListener('keydown', closeOnEscape);
@@ -235,11 +252,13 @@ export default function ChatInput({
           <div className="chijie-prompt-actions-left">
             <div className="chijie-prompt-add-wrap" ref={attachmentMenuRef}>
               <button
+                ref={attachmentTriggerRef}
                 type="button"
                 className="chijie-prompt-icon-button chijie-prompt-add"
                 data-open={attachmentMenuOpen ? 'true' : undefined}
                 onClick={() => setAttachmentMenuOpen(open => !open)}
                 disabled={disabled}
+                aria-haspopup="menu"
                 aria-expanded={attachmentMenuOpen}
                 aria-label={t('chat_input_attach_files')}>
                 <FiPlus aria-hidden />

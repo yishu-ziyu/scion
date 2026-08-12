@@ -12,6 +12,7 @@ interface BookmarkListProps {
   onBookmarkUpdateTitle?: (id: number, title: string) => void;
   onBookmarkDelete?: (id: number) => void;
   onBookmarkReorder?: (draggedId: number, targetId: number) => void;
+  skillRunDisabled?: boolean;
   isDarkMode?: boolean;
 }
 
@@ -22,6 +23,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
   onBookmarkUpdateTitle,
   onBookmarkDelete,
   onBookmarkReorder,
+  skillRunDisabled = false,
 }) => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState<string>('');
@@ -36,6 +38,7 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
   };
 
   const handleRunSkill = (skill: FavoriteSkill) => {
+    if (skillRunDisabled) return;
     const values = skillDraft.values;
     dispatchSkillDraft({ type: 'submitted' });
     onSkillRun(skill, values);
@@ -103,27 +106,27 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
             onDrop={e => handleDrop(e, bookmark.id)}
             className="chijie-bookmark-item group relative">
             {editingId === bookmark.id ? (
-              <div className="flex items-center">
+              <div className="flex items-center gap-1">
                 <input
                   ref={inputRef}
                   type="text"
                   value={editTitle}
                   onChange={e => setEditTitle(e.target.value)}
-                  className="chijie-field mr-2 grow py-1 text-sm"
+                  className="chijie-field min-w-0 grow text-sm"
                 />
                 <button
                   onClick={() => handleSaveEdit(bookmark.id)}
-                  className="rounded p-1 text-[var(--chijie-accent)] hover:bg-[var(--chijie-accent-subtle)]"
+                  className="flex size-10 shrink-0 items-center justify-center rounded bg-[var(--chijie-surface)] text-[var(--chijie-accent)] hover:bg-[var(--chijie-accent-subtle)] focus-visible:opacity-100"
                   aria-label={t('chat_bookmarks_saveEdit')}
                   type="button">
-                  <FaCheck size={14} />
+                  <FaCheck size={16} aria-hidden />
                 </button>
                 <button
                   onClick={handleCancelEdit}
-                  className="ml-1 rounded p-1 text-[var(--chijie-danger)] hover:bg-[var(--chijie-danger-subtle)]"
+                  className="flex size-10 shrink-0 items-center justify-center rounded bg-[var(--chijie-surface)] text-[var(--chijie-danger)] hover:bg-[var(--chijie-danger-subtle)] focus-visible:opacity-100"
                   aria-label={t('chat_bookmarks_cancelEdit')}
                   type="button">
-                  <FaTimes size={14} />
+                  <FaTimes size={16} aria-hidden />
                 </button>
               </div>
             ) : (
@@ -131,17 +134,20 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                 <div className="flex flex-col gap-2">
                   {bookmark.kind === 'skill' ? (
                     <>
-                      <div className="truncate pr-10 text-sm font-medium text-[var(--chijie-foreground)]">
+                      <div className="truncate pr-20 text-sm font-medium text-[var(--chijie-foreground)]">
                         {bookmark.title}
                       </div>
                       {skillDraft.runningSkillId === bookmark.id ? (
                         <>
                           {bookmark.inputs.map(input => (
-                            <label key={input.name} className="flex flex-col gap-1 text-xs">
+                            <label
+                              key={input.name}
+                              className="flex flex-col gap-1 text-xs text-[var(--chijie-paper-muted)]">
                               {input.label}
                               <input
                                 data-testid={`skill-input-${input.name}`}
                                 value={skillDraft.values[input.name] ?? ''}
+                                disabled={skillRunDisabled}
                                 onChange={event =>
                                   dispatchSkillDraft({
                                     type: 'value_changed',
@@ -149,13 +155,15 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                                     value: event.target.value,
                                   })
                                 }
-                                className="chijie-field px-2 py-1"
+                                className="chijie-field px-2"
                               />
                             </label>
                           ))}
                           <button
                             type="button"
                             data-testid="skill-run-confirm"
+                            disabled={skillRunDisabled}
+                            aria-busy={skillRunDisabled}
                             onClick={() => handleRunSkill(bookmark)}
                             className="chijie-btn-primary">
                             {t('chat_skills_runConfirm')}
@@ -165,6 +173,8 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                         <button
                           type="button"
                           data-testid="skill-run"
+                          disabled={skillRunDisabled}
+                          aria-busy={skillRunDisabled}
                           onClick={() => dispatchSkillDraft({ type: 'opened', skillId: bookmark.id })}
                           className="chijie-btn-primary">
                           {t('chat_skills_run')}
@@ -178,8 +188,8 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                       onKeyDown={e => {
                         if (e.key === 'Enter' || e.key === ' ') onBookmarkSelect(bookmark.content);
                       }}
-                      className="w-full text-left">
-                      <div className="truncate pr-10 text-sm font-medium text-[var(--chijie-foreground)]">
+                      className="min-h-10 w-full pr-20 text-left">
+                      <div className="truncate text-sm font-medium text-[var(--chijie-foreground)]">
                         {bookmark.title}
                       </div>
                     </button>
@@ -189,17 +199,17 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
             )}
 
             {editingId !== bookmark.id && (
-              <>
+              <div className="absolute right-1 top-1/2 z-10 flex -translate-y-1/2">
                 {/* Edit button - top right */}
                 <button
                   onClick={e => {
                     e.stopPropagation();
                     handleEditClick(bookmark);
                   }}
-                  className="absolute right-[28px] top-1/2 z-10 -translate-y-1/2 rounded bg-white p-1 text-[var(--chijie-accent)] opacity-0 transition-opacity duration-200 hover:bg-[var(--chijie-accent-subtle)] group-hover:opacity-100"
+                  className="flex size-10 items-center justify-center rounded bg-[var(--chijie-surface)] text-[var(--chijie-accent)] opacity-100 transition-colors duration-200 hover:bg-[var(--chijie-accent-subtle)] focus-visible:opacity-100"
                   aria-label={t('chat_bookmarks_edit')}
                   type="button">
-                  <FaPen size={14} />
+                  <FaPen size={16} aria-hidden />
                 </button>
 
                 {/* Delete button - bottom right */}
@@ -211,12 +221,12 @@ const BookmarkList: React.FC<BookmarkListProps> = ({
                       onBookmarkDelete(bookmark.id);
                     }
                   }}
-                  className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded bg-white p-1 text-[var(--chijie-muted)] opacity-0 transition-opacity duration-200 hover:bg-[var(--chijie-danger-subtle)] hover:text-[var(--chijie-danger)] group-hover:opacity-100"
+                  className="flex size-10 items-center justify-center rounded bg-[var(--chijie-surface)] text-[var(--chijie-danger)] opacity-100 transition-colors duration-200 hover:bg-[var(--chijie-danger-subtle)] focus-visible:opacity-100"
                   aria-label={t('chat_bookmarks_delete')}
                   type="button">
-                  <FaTrash size={14} />
+                  <FaTrash size={16} aria-hidden />
                 </button>
-              </>
+              </div>
             )}
           </div>
         ))}

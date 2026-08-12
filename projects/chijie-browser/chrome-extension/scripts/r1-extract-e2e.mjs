@@ -18,7 +18,20 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { connect, launch } from 'puppeteer-core';
-import { hasEvalApiKey, resolveModel, seedEvalLlm } from './lib/eval-provider.mjs';
+import {
+  attestRuntimeExtension,
+  hasEvalApiKey,
+  resolveChromeForEval,
+  resolveEvalIdentity,
+  seedEvalLlm,
+} from './lib/eval-provider.mjs';
+import { buildScopedTraceEvidence } from './lib/eval-trace-evidence.mjs';
+import {
+  FINAL_DELIVERABLE_SELECTOR,
+  productDeliverablePass,
+  tabProvenanceWrongTab,
+  wrongTabFromIds,
+} from './lib/eval-verification.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../dist');
@@ -31,35 +44,35 @@ const reportDir = process.env.R1_REPORT_DIR || path.resolve(__dirname, '../../..
 const evalTaskId = process.env.EVAL_TASK_ID || '018-R1';
 const promptVersion = process.env.PROMPT_VERSION || 'chijie-control-v0.3.0';
 const policyTag = process.env.POLICY_TAG || 'baseline';
-const model = resolveModel();
+const evalIdentity = resolveEvalIdentity();
+const model = evalIdentity.model;
+const provider = evalIdentity.provider;
+const providerBaseUrl = evalIdentity.base_url;
+const featureFlagsHash = process.env.EVAL_FEATURE_FLAGS_HASH || '';
+const attempt = Number(process.env.EVAL_ATTEMPT || 1);
+const campaignStamp = process.env.EVAL_CAMPAIGN_STAMP || '';
+const armHash = process.env.EVAL_ARM_HASH || '';
+const runId = process.env.EVAL_RUN_ID || '';
+const attachMode = connectUrl ? 'connected_cdp' : 'launched_chrome_for_testing';
+const evidenceDir = process.env.EVIDENCE_DIR || '';
+const traceDumpDir = process.env.TRACE_DUMP_DIR || '';
 
 const GOAL = 'Extract products to a CSV table with name, price, rating';
 
 let browser;
 let ownsBrowser = false;
+let panelPage;
+let boundTab;
+let rowEmitted = false;
+let runStartedAt = 0;
+let browserVersion = '';
+let runtimeTaskId = '';
+let terminalEvidence = null;
+const tabSamples = [];
 
 function resolveChromePath() {
-  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
-  const candidates = [
-    path.join(
-      os.homedir(),
-      'Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
-    ),
-    path.join(
-      os.homedir(),
-      '.agent-browser/browsers/chrome-146.0.7680.80/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
-    ),
-    '/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
-    '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  ];
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return candidates[candidates.length - 1];
+  return resolveChromeForEval();
 }
-
-
 
 const chromePath = resolveChromePath();
 
@@ -106,6 +119,81 @@ async function click(page, testId) {
   }, testId);
 }
 
+async function readActiveTab(panel) {
+  try {
+    return await panel.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      return tab ? { id: tab.id, url: tab.url || '', title: tab.title || '' } : null;
+    });
+  } catch {
+    return null;
+  }
+}
+
+function relativeEvidencePath(filePath) {
+  return path.relative(path.resolve(__dirname, '../..'), filePath).replaceAll(path.sep, '/');
+}
+
+function writeRunnerEvidence(partial) {
+  if (!evidenceDir) return '';
+  mkdirSync(evidenceDir, { recursive: true });
+  const safeTaskId = evalTaskId.replace(/[^a-zA-Z0-9._-]+/g, '_');
+  const outPath = path.join(evidenceDir, `${safeTaskId}-attempt-${attempt}-verification.json`);
+  writeFileSync(
+    outPath,
+    JSON.stringify(
+      {
+        task_id: evalTaskId,
+        attempt,
+        campaign_stamp: campaignStamp,
+        arm_hash: armHash,
+        run_id: runId,
+        model,
+        provider,
+        provider_base_url: providerBaseUrl,
+        feature_flags_hash: featureFlagsHash,
+        prompt_version: promptVersion,
+        policy_tag: policyTag,
+        attach_mode: attachMode,
+        verifier: 'products_extract',
+        ...partial,
+      },
+      null,
+      2,
+    ) + '\n',
+  );
+  return relativeEvidencePath(outPath);
+}
+
+function emitRow(partial) {
+  rowEmitted = true;
+  console.log(
+    `matrix_row ${JSON.stringify({
+      task_id: evalTaskId,
+      attempt,
+      campaign_stamp: campaignStamp,
+      arm_hash: armHash,
+      run_id: runId,
+      model,
+      provider,
+      provider_base_url: providerBaseUrl,
+      feature_flags_hash: featureFlagsHash,
+      attach_mode: attachMode,
+      prompt_version: promptVersion,
+      policy_tag: policyTag,
+      outcome: 'fail',
+      false_complete: 0,
+      wrong_tab: '',
+      unapproved_commit: 0,
+      latency_ms: runStartedAt ? Date.now() - runStartedAt : 0,
+      failure_class: '',
+      evidence_path: '',
+      browser_version: browserVersion,
+      ...partial,
+    })}`,
+  );
+}
+
 async function dumpPanel(panel, label) {
   const info = await panel.evaluate(() => ({
     status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status') || null,
@@ -118,7 +206,9 @@ async function dumpPanel(panel, label) {
 
 /** Inject eval LLM (default MiniMax; optional PROVIDER=custom_openai for Grok etc.). */
 async function seedMiniMax(panel) {
-  await seedEvalLlm(panel);
+  const config = await seedEvalLlm(panel);
+  assert.equal(config.kind, provider, 'seeded provider differs from evaluator identity');
+  assert.equal(config.model, model, 'seeded model differs from evaluator identity');
 }
 
 async function openPanelForTarget(extensionId, target, { seed = false } = {}) {
@@ -204,9 +294,7 @@ async function resetExtensionState(panel) {
   });
 }
 
-/**
- * Accept CSV header + ≥5 product data rows from panel body, deliverable slot, or task storage.
- */
+/** Accept CSV header + ≥5 product data rows from one task-scoped deliverable only. */
 function scoreCsvText(text) {
   if (!text) return { ok: false, dataRows: 0, hasHeader: false };
   const normalized = text.replace(/\r\n/g, '\n');
@@ -219,55 +307,87 @@ function scoreCsvText(text) {
   return { ok: hasHeader && dataRows.length >= 5, dataRows: dataRows.length, hasHeader };
 }
 
-async function readTaskDeliverable(panel) {
+async function readTaskIds(panel) {
   return panel.evaluate(async () => {
     const all = await chrome.storage.local.get(['task-runtime-v1']);
-    const runtime = all['task-runtime-v1'] || {};
-    const tasks = Object.values(runtime).filter(Boolean);
-    const ranked = tasks
-      .map(task => {
-        const rounds = task.rounds || [];
-        const last = rounds[rounds.length - 1];
-        return {
-          taskId: task.id,
-          status: task.status,
-          instructionSummary: last?.instructionSummary || task.goalSummary || '',
-          receiptId: last?.receipt?.id || null,
-          updatedAt: task.updatedAt || last?.receipt?.verifiedAt || 0,
-        };
-      })
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    return ranked[0] || null;
+    return Object.keys(all['task-runtime-v1'] || {});
   });
 }
 
-async function waitExtractCompleted(panel) {
+async function readScopedTask(panel, priorTaskIds, expectedTabId) {
+  return panel.evaluate(
+    async ({ priorIds, tabId }) => {
+      const all = await chrome.storage.local.get(['task-runtime-v1']);
+      const prior = new Set(priorIds);
+      const candidates = Object.values(all['task-runtime-v1'] || {}).filter(
+        task => task && !prior.has(task.id) && task.activeTabId === tabId,
+      );
+      return candidates.map(task => {
+        const rounds = task.rounds || [];
+        const last = rounds[rounds.length - 1];
+        const targetTabIds = [
+          ...(task.targetRefs || []).map(ref => ref?.id),
+          ...(last?.criteria || []).map(item => item?.targetRefId),
+          ...(last?.evidence || []).map(item => item?.targetRefId),
+          ...(last?.attempts || []).flatMap(item => [item?.targetRefId, item?.effect?.targetRefId]),
+        ]
+          .map(value => /^tab-(\d+)$/.exec(String(value || ''))?.[1])
+          .filter(Boolean)
+          .map(Number);
+        return {
+          taskId: task.id,
+          status: task.status,
+          activeTabId: task.activeTabId,
+          receiptId: last?.receipt?.id || null,
+          targetTabIds: [...new Set(targetTabIds)],
+          updatedAt: task.updatedAt || last?.receipt?.verifiedAt || 0,
+        };
+      });
+    },
+    { priorIds: priorTaskIds, tabId: expectedTabId },
+  );
+}
+
+async function waitExtractCompleted(panel, { priorTaskIds, expectedTabId, products }) {
   const start = Date.now();
   let seenRunning = false;
+  let completedSince = 0;
   while (Date.now() - start < timeout) {
-    const snap = await panel.evaluate(() => {
+    const snap = await panel.evaluate(deliverableSelector => {
       const status = document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status');
       const body = document.body?.innerText || '';
-      const deliverable =
-        document.querySelector('[data-testid="completion-deliverable"]')?.textContent ||
-        document.querySelector('[data-testid="completion-deliverable-copy"]')?.textContent ||
-        '';
-      const result = document.querySelector('[data-testid="completion-result"]')?.textContent || '';
-      const receipt = document.querySelector('[data-testid="completion-receipt"]')?.textContent || '';
-      return { status, body, deliverable, result, receipt };
-    });
+      const deliverables = [...document.querySelectorAll(deliverableSelector)];
+      const receipts = [...document.querySelectorAll('[data-testid="completion-receipt"]')];
+      return {
+        status,
+        body,
+        deliverable: deliverables[0]?.textContent?.trim() || '',
+        deliverableCount: deliverables.length,
+        receiptCount: receipts.length,
+      };
+    }, FINAL_DELIVERABLE_SELECTOR);
     if (snap.status === 'running' || snap.status === 'waiting_user') {
       seenRunning = true;
     }
 
-    const combined = [snap.deliverable, snap.result, snap.receipt, snap.body].filter(Boolean).join('\n');
-    const scored = scoreCsvText(combined);
-    const fromStorage = await readTaskDeliverable(panel);
-    const storageScored = scoreCsvText(fromStorage?.instructionSummary || '');
+    const scopedTasks = await readScopedTask(panel, priorTaskIds, expectedTabId);
+    const scopedTask = scopedTasks[0] || null;
+    if (scopedTask) {
+      const activeTab = await readActiveTab(panel);
+      tabSamples.push({
+        captured_at: new Date().toISOString(),
+        task_id: scopedTask.taskId,
+        active_tab_id: activeTab?.id ?? null,
+        task_tab_id: scopedTask.activeTabId,
+        target_tab_ids: scopedTask.targetTabIds,
+      });
+    }
+    const scored = scoreCsvText(snap.deliverable);
+    const oraclePass = productDeliverablePass(snap.deliverable, products);
 
     if ((Date.now() - start) % 8000 < 1600) {
       console.log(
-        `[r1-e2e] poll status=${snap.status} header=${scored.hasHeader || storageScored.hasHeader} rows=${Math.max(scored.dataRows, storageScored.dataRows)} seenRunning=${seenRunning}`,
+        `[r1-e2e] poll status=${snap.status} header=${scored.hasHeader} rows=${scored.dataRows} scoped=${scopedTasks.length} seenRunning=${seenRunning}`,
       );
     }
 
@@ -276,22 +396,41 @@ async function waitExtractCompleted(panel) {
       throw new Error(`task ${snap.status}: ${snap.body.slice(0, 300)}`);
     }
 
-    if (snap.status === 'completed' && (scored.ok || storageScored.ok)) {
+    if (
+      snap.status === 'completed' &&
+      seenRunning &&
+      snap.deliverableCount === 1 &&
+      snap.receiptCount === 1 &&
+      scopedTasks.length === 1 &&
+      scopedTask.status === 'completed' &&
+      scopedTask.receiptId &&
+      oraclePass
+    ) {
       return {
         status: snap.status,
-        scored: scored.ok ? scored : storageScored,
-        deliverable: snap.deliverable || fromStorage?.instructionSummary || '',
-        bodySlice: snap.body.slice(0, 600),
-        storage: fromStorage,
+        receipt: true,
+        scored,
+        deliverable: snap.deliverable,
+        receiptCount: snap.receiptCount,
+        deliverableCount: snap.deliverableCount,
+        storage: scopedTask,
       };
     }
 
-    // Completed without CSV — hard fail once we have seen a run.
-    if (snap.status === 'completed' && seenRunning && !scored.ok && !storageScored.ok) {
-      await dumpPanel(panel, 'completed-without-csv');
-      throw new Error(
-        `completed but CSV missing (header=${scored.hasHeader} rows=${scored.dataRows} storageRows=${storageScored.dataRows})`,
-      );
+    if (snap.status === 'completed' && seenRunning) {
+      completedSince ||= Date.now();
+      if (Date.now() - completedSince > 5000) {
+        if (snap.deliverableCount !== 1 || snap.receiptCount !== 1 || scopedTasks.length !== 1) {
+          throw new Error(
+            `eval_invalid: task-scoped evidence count deliverable=${snap.deliverableCount} receipt=${snap.receiptCount} tasks=${scopedTasks.length}`,
+          );
+        }
+        throw new Error(
+          `completed but CSV missing (header=${scored.hasHeader} rows=${scored.dataRows} oracle=${oraclePass})`,
+        );
+      }
+    } else {
+      completedSince = 0;
     }
 
     await new Promise(r => setTimeout(r, 1200));
@@ -314,7 +453,8 @@ async function resolveExtensionId() {
 
 function writeReport(payload) {
   mkdirSync(reportDir, { recursive: true });
-  const logPath = path.join(reportDir, 'e2e-r1-extract.log');
+  const safeTaskId = evalTaskId.replace(/[^a-zA-Z0-9._-]+/g, '_');
+  const logPath = path.join(reportDir, `${safeTaskId}-attempt-${attempt}-e2e-r1-extract.json`);
   writeFileSync(logPath, JSON.stringify(payload, null, 2), 'utf8');
   console.log('[r1-e2e] report=', logPath);
   return logPath;
@@ -348,6 +488,7 @@ try {
     });
     ownsBrowser = true;
   }
+  browserVersion = await browser.version().catch(() => '');
 
   console.log('[r1-e2e] waiting service worker...');
   let extensionId;
@@ -365,8 +506,17 @@ try {
   // Sanity: fixture has ≥5 products in DOM.
   const productCount = await target.$$eval('[data-testid^="product-"]', els => els.length);
   assert.ok(productCount >= 5, `fixture must list ≥5 products, got ${productCount}`);
+  const products = await target.$$eval('[data-testid^="product-"]', elements =>
+    elements.map(element => ({
+      name: element.getAttribute('data-name') || '',
+      price: element.getAttribute('data-price') || '',
+      rating: element.getAttribute('data-rating') || '',
+    })),
+  );
 
   const panel = await openPanelForTarget(extensionId, target, { seed: true });
+  panelPage = panel;
+  const runtimeExtensionAttestation = await attestRuntimeExtension(panel, extensionPath);
   await resetExtensionState(panel);
   await seedMiniMax(panel);
   await panel.reload({ waitUntil: 'domcontentloaded' });
@@ -374,72 +524,168 @@ try {
   await target.bringToFront();
   await new Promise(r => setTimeout(r, 500));
 
+  boundTab = await readActiveTab(panel);
+  if (!Number.isInteger(boundTab?.id)) throw new Error('tab provenance unavailable');
+  const priorTaskIds = await readTaskIds(panel);
+  runStartedAt = Date.now();
   await sendGoal(panel, target, GOAL);
   await dumpPanel(panel, 'after-send');
 
-  const result = await waitExtractCompleted(panel);
+  const result = await waitExtractCompleted(panel, { priorTaskIds, expectedTabId: boundTab.id, products });
+  runtimeTaskId = result.storage?.taskId || '';
+  if (!runtimeTaskId) throw new Error('task provenance unavailable');
+  const activeTab = await readActiveTab(panel);
+  const taskTabEntries = (result.storage?.targetTabIds || []).map(target_tab_id => ({
+    task_tab_id: result.storage.activeTabId,
+    target_tab_id,
+  }));
+  if (taskTabEntries.length === 0) taskTabEntries.push({ task_tab_id: result.storage?.activeTabId });
+  const taskWrongTab = tabProvenanceWrongTab(taskTabEntries, [boundTab?.id]);
+  const finalWrongTab = wrongTabFromIds(boundTab?.id, activeTab?.id);
+  const wrongTab = taskWrongTab === 1 || finalWrongTab === 1 ? 1 : (taskWrongTab ?? finalWrongTab);
+  if (wrongTab === null) throw new Error('tab provenance unavailable');
   console.log(
     `[r1-e2e] PASS status=${result.status} header=${result.scored.hasHeader} dataRows=${result.scored.dataRows}`,
   );
-  console.log(
-    `matrix_row ${JSON.stringify({
-      task_id: evalTaskId,
-      attempt: 1,
-      model,
-      prompt_version: promptVersion,
-      policy_tag: policyTag,
-      outcome: 'verified_pass',
-      false_complete: 0,
-      wrong_tab: 0,
-      unapproved_commit: 0,
-      latency_ms: 0,
-      failure_class: '',
-      notes: `rows=${result.scored.dataRows}`,
-    })}`,
-  );
-
   const reportPath = writeReport({
-    status: 'pass',
+    status: wrongTab ? 'fail' : 'pass',
+    attempt,
+    attachMode,
     goal: GOAL,
     origin,
     productCount,
     scored: result.scored,
     deliverableSlice: (result.deliverable || '').slice(0, 800),
     storageStatus: result.storage?.status || null,
+    receipt: result.receipt,
+    taskId: result.storage?.taskId || null,
+    tabProvenance: taskTabEntries,
+    boundTab,
+    activeTab,
+    wrongTab,
     at: new Date().toISOString(),
   });
+  const runnerEvidencePath = writeRunnerEvidence({
+    outcome: wrongTab ? 'fail' : 'verified_pass',
+    status: result.status,
+    terminal_status: result.status,
+    rows: result.scored.dataRows,
+    receipt: result.receipt,
+    receipt_count: result.receiptCount,
+    deliverable_count: result.deliverableCount,
+    final_deliverable: result.deliverable,
+    source_products: products,
+    runtime_task_id: runtimeTaskId,
+    tab_provenance: tabSamples,
+    bound_tab: boundTab,
+    active_tab: activeTab,
+    attach_attestation: {
+      mode: attachMode,
+      connect_url_present: Boolean(connectUrl),
+      owns_browser: ownsBrowser,
+      ...runtimeExtensionAttestation,
+    },
+    wrong_tab: wrongTab,
+    report_path: relativeEvidencePath(reportPath),
+  });
+  terminalEvidence = {
+    terminal_status: result.status,
+    receipt_count: result.receiptCount,
+    deliverable_count: result.deliverableCount,
+  };
+  emitRow({
+    outcome: wrongTab ? 'fail' : 'verified_pass',
+    wrong_tab: wrongTab,
+    latency_ms: Date.now() - runStartedAt,
+    failure_class: wrongTab ? 'wrong_tab' : '',
+    evidence_path: [runnerEvidencePath, relativeEvidencePath(reportPath)].filter(Boolean).join(';'),
+    notes: `rows=${result.scored.dataRows}`,
+  });
+  if (wrongTab) throw new Error(`wrong active tab id=${activeTab.id} expected=${boundTab.id}`);
 
   console.log(`r1-extract-e2e PASS report=${reportPath}`);
 } catch (error) {
   console.error('[r1-e2e] FAIL', error);
-  console.log(
-    `matrix_row ${JSON.stringify({
-      task_id: evalTaskId,
-      attempt: 1,
-      model,
-      prompt_version: promptVersion,
-      policy_tag: policyTag,
-      outcome: 'fail',
-      false_complete: 0,
-      wrong_tab: 0,
-      unapproved_commit: 0,
-      latency_ms: 0,
-      failure_class: 'other',
-      notes: String(error?.stack || error).slice(0, 200),
-    })}`,
-  );
+  const activeTab = panelPage ? await readActiveTab(panelPage) : null;
+  const wrongTab = wrongTabFromIds(boundTab?.id, activeTab?.id);
+  const errorText = String(error?.stack || error).slice(0, 200);
+  const falseComplete = /completed but CSV missing/i.test(errorText) ? 1 : 0;
+  const failureClass = /eval_invalid:/i.test(errorText)
+    ? 'evidence_protocol'
+    : /tab provenance/i.test(errorText)
+      ? 'tab_provenance'
+      : /wrong active tab/i.test(errorText)
+        ? 'wrong_tab'
+        : falseComplete
+          ? 'verify_fail'
+          : 'other';
+  let reportPath = '';
   try {
-    writeReport({
+    reportPath = writeReport({
       status: 'fail',
+      attempt,
+      attachMode,
       goal: GOAL,
       error: String(error?.stack || error),
+      boundTab: boundTab ?? null,
+      activeTab,
+      wrongTab,
+      falseComplete,
       at: new Date().toISOString(),
     });
   } catch {
     /* ignore report write failure */
   }
+  if (!rowEmitted) {
+    const runnerEvidencePath = writeRunnerEvidence({
+      outcome: ['tab_provenance', 'evidence_protocol'].includes(failureClass) ? 'invalid_run' : 'fail',
+      bound_tab: boundTab ?? null,
+      active_tab: activeTab,
+      wrong_tab: wrongTab,
+      false_complete: falseComplete,
+      report_path: reportPath ? relativeEvidencePath(reportPath) : '',
+      error: errorText,
+    });
+    emitRow({
+      outcome: ['tab_provenance', 'evidence_protocol'].includes(failureClass) ? 'invalid_run' : 'fail',
+      false_complete: falseComplete,
+      wrong_tab: wrongTab ?? '',
+      failure_class: failureClass,
+      evidence_path: [runnerEvidencePath, reportPath ? relativeEvidencePath(reportPath) : ''].filter(Boolean).join(';'),
+      notes: errorText,
+    });
+  }
   process.exitCode = 1;
 } finally {
+  if (traceDumpDir && panelPage) {
+    try {
+      const traces = await panelPage.evaluate(async () => {
+        const stored = await chrome.storage.local.get(['eval-traces-v1']);
+        return stored['eval-traces-v1'] || {};
+      });
+      const traceEvidence = buildScopedTraceEvidence({
+        rawTraces: traces,
+        evalTaskId,
+        attempt,
+        campaignStamp,
+        armHash,
+        runId,
+        runtimeTaskId,
+        boundTabId: boundTab?.id,
+        terminalStatus: terminalEvidence?.terminal_status,
+        receiptCount: terminalEvidence?.receipt_count,
+        deliverableCount: terminalEvidence?.deliverable_count,
+        tabSamples,
+      });
+      mkdirSync(traceDumpDir, { recursive: true });
+      writeFileSync(
+        path.join(traceDumpDir, `${evalTaskId}-attempt-${attempt}-trace.json`),
+        JSON.stringify(traceEvidence, null, 2),
+      );
+    } catch (error) {
+      console.warn('[r1-e2e] TRACE_DUMP failed', String(error?.message || error));
+    }
+  }
   if (ownsBrowser) {
     await browser?.close().catch(() => {});
     await rm(profilePath, { recursive: true, force: true });

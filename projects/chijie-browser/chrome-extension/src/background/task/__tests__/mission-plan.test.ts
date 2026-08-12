@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceMissionPhase,
+  applyFinalDeliverableToMissionPlan,
   applyPassedCriteriaToMissionPlan,
+  applySinglePhaseEvidence,
+  attachCriteriaAcrossMissionPlan,
   attachCriteriaToActivePhase,
   buildMissionPlan,
   countMissionPhases,
   derivePhaseTitle,
   markActivePhase,
-  markRemainingPhasesDone,
-  maybeAdvancePhaseByAttemptHeuristic,
   refineMissionPlanFromInstruction,
   renderMissionPlanForAgent,
   restoreMissionPlan,
@@ -26,7 +27,7 @@ describe('mission plan', () => {
     expect(plan.phases[0]).toMatchObject({ id: 'phase-1', title: '调研', status: 'active' });
     expect(plan.phases[1]).toMatchObject({ id: 'phase-2', title: '输出', status: 'planned' });
     expect(plan.phases[2]).toMatchObject({ id: 'phase-3', title: '总结', status: 'planned' });
-    expect(plan.goal).toBe('User task');
+    expect(plan.goal).toBe('调研并总结');
 
     const json = JSON.stringify(plan);
     expect(json).not.toContain('竞品');
@@ -35,6 +36,17 @@ describe('mission plan', () => {
     // Phase label may be 总结; raw segment "写一份结论" must not leak.
     expect(json).not.toContain('写一份结论');
     expect(json).not.toContain('结论');
+  });
+
+  it('derives a useful single-phase goal from canonical action words only', () => {
+    const plan = refineMissionPlanFromInstruction(
+      '阅读当前飞书页面，用一句中文概括核心主题，并引用一个正文中可见的细节；不要修改页面。',
+      1750,
+    );
+    expect(plan.goal).toBe('阅读并总结');
+    expect(plan.phases).toHaveLength(1);
+    expect(JSON.stringify(plan)).not.toContain('飞书');
+    expect(JSON.stringify(plan)).not.toContain('核心主题');
   });
 
   it('keeps buildMissionPlan as generic 阶段 N skeleton', () => {
@@ -65,9 +77,15 @@ describe('mission plan', () => {
     expect(single.updatedAt).toBe(1800);
   });
 
+  it('treats a trailing success clause as proof, not an evidence-free phase', () => {
+    const plan = refineMissionPlanFromInstruction('submit; success is Saved successfully.', 1850);
+    expect(plan.phases).toHaveLength(1);
+    expect(plan.phases[0]).toMatchObject({ title: 'submit', status: 'active' });
+    expect(JSON.stringify(plan)).not.toContain('Saved successfully');
+  });
+
   it('strips emails and long tokens from titles and never stores them on the plan', () => {
-    const instruction =
-      '调研 alice@example.com 的竞品；输出 sk-abc1234567890xyzSECRET 报告；验证结果';
+    const instruction = '调研 alice@example.com 的竞品；输出 sk-abc1234567890xyzSECRET 报告；验证结果';
     const plan = refineMissionPlanFromInstruction(instruction, 1900);
     const json = JSON.stringify(plan);
     expect(json).not.toContain('alice@example.com');
@@ -93,7 +111,7 @@ describe('mission plan', () => {
     expect(plan.phases[2]?.status).toBe('active');
   });
 
-  it('serializes a JSON-safe checkpoint and restores progress', () => {
+  it('serializes a JSON-safe checkpoint and rejects evidence-free done progress on restore', () => {
     let plan = refineMissionPlanFromInstruction('调研；输出；验证', 2100);
     plan = advanceMissionPhase(plan, 'phase-1', 'done', 2101);
     plan = markActivePhase(plan, 1, 2102);
@@ -109,8 +127,8 @@ describe('mission plan', () => {
     expect(restored).not.toBeNull();
     expect(restored?.id).toBe(plan.id);
     expect(restored?.phases.map(p => ({ title: p.title, status: p.status }))).toEqual([
-      { title: '调研', status: 'done' },
-      { title: '输出', status: 'active' },
+      { title: '调研', status: 'active' },
+      { title: '输出', status: 'planned' },
       { title: '验证', status: 'planned' },
     ]);
     expect(restoreMissionPlan(null)).toBeNull();
@@ -122,7 +140,7 @@ describe('mission plan', () => {
     plan = advanceMissionPhase(plan, 'phase-1', 'done', 2201);
     plan = markActivePhase(plan, 1, 2202);
     const text = renderMissionPlanForAgent(plan);
-    expect(text).toContain('Mission: User task');
+    expect(text).toContain('Mission: 调研并验证');
     expect(text).toContain('Progress: 1/3 done; active=输出');
     expect(text).toContain('[x] 1. 调研');
     expect(text).toContain('[>] 2. 输出');
@@ -193,34 +211,100 @@ describe('mission plan', () => {
     expect(plan.phases[2]?.status).toBe('planned');
   });
 
-  it('advances multi-phase missions by successful attempt count when no criteria bound', () => {
-    let plan = refineMissionPlanFromInstruction('调研；输出；验证', 2500);
-    plan = maybeAdvancePhaseByAttemptHeuristic(plan, 1, 2501);
+  it('closes a single phase only with its own complete criterion evidence', () => {
+    let plan = refineMissionPlanFromInstruction('阅读当前页面', 2450);
+    plan = attachCriteriaAcrossMissionPlan(plan, ['c1', 'c2'], 2451);
+
+    expect(applySinglePhaseEvidence(plan, ['unowned'], 2452)).toBe(plan);
+    expect(applySinglePhaseEvidence(plan, ['c1'], 2453).phases[0]).toMatchObject({
+      status: 'active',
+      evidenceIds: ['c1'],
+    });
+
+    const completed = applySinglePhaseEvidence(plan, ['c1', 'c2'], 2454);
+    expect(completed.phases[0]).toMatchObject({
+      status: 'done',
+      criteriaIds: ['c1', 'c2'],
+      evidenceIds: ['c1', 'c2'],
+    });
+  });
+
+  it('distributes frozen criteria across proof phases and keeps final output separate', () => {
+    let plan = refineMissionPlanFromInstruction('调研；验证；输出', 2500);
+    plan = attachCriteriaAcrossMissionPlan(plan, ['c1', 'c2'], 2501);
+    expect(plan.phases.map(p => p.criteriaIds)).toEqual([['c1'], ['c2'], []]);
+
+    plan = applyPassedCriteriaToMissionPlan(plan, ['c1', 'c2'], 2502);
     expect(plan.phases.map(p => p.status)).toEqual(['done', 'active', 'planned']);
+    expect(plan.phases.map(p => p.evidenceIds)).toEqual([['c1'], [], []]);
 
-    plan = maybeAdvancePhaseByAttemptHeuristic(plan, 2, 2502);
+    // c2 was observed while phase 1 owned the frontier, so the same batch may
+    // not prefill phase 2. A fresh later verification advances it.
+    plan = applyPassedCriteriaToMissionPlan(plan, ['c2'], 2503);
     expect(plan.phases.map(p => p.status)).toEqual(['done', 'done', 'active']);
+    expect(plan.phases.map(p => p.evidenceIds)).toEqual([['c1'], ['c2'], []]);
 
-    // Never auto-closes the last phase
-    plan = maybeAdvancePhaseByAttemptHeuristic(plan, 99, 2503);
-    expect(plan.phases.map(p => p.status)).toEqual(['done', 'done', 'active']);
-  });
-
-  it('does not use attempt heuristic when active phase has criteria', () => {
-    let plan = refineMissionPlanFromInstruction('调研；输出；验证', 2600);
-    plan = attachCriteriaToActivePhase(plan, ['c1'], 2601);
-    plan = maybeAdvancePhaseByAttemptHeuristic(plan, 5, 2602);
-    expect(plan.phases.map(p => p.status)).toEqual(['active', 'planned', 'planned']);
-  });
-
-  it('marks remaining phases done while preserving intermediate done state', () => {
-    let plan = refineMissionPlanFromInstruction('调研；输出；验证', 2700);
-    plan = advanceMissionPhase(plan, 'phase-1', 'done', 2701);
-    plan = markActivePhase(plan, 1, 2702);
-    plan.phases[0] = { ...plan.phases[0]!, criteriaIds: ['c1'], evidenceIds: ['c1'] };
-    plan = markRemainingPhasesDone(plan, 2703);
+    plan = applyFinalDeliverableToMissionPlan(plan, 'deliverable:d1', 2504);
     expect(plan.phases.map(p => p.status)).toEqual(['done', 'done', 'done']);
-    expect(plan.phases[0]?.criteriaIds).toEqual(['c1']);
-    expect(plan.phases[0]?.evidenceIds).toEqual(['c1']);
+    expect(plan.phases[2]?.evidenceIds).toEqual(['deliverable:d1']);
+  });
+
+  it('never assigns unowned evidence or closes a non-delivery phase from a final digest', () => {
+    let plan = refineMissionPlanFromInstruction('调研；验证', 2600);
+    plan = attachCriteriaAcrossMissionPlan(plan, ['c1', 'c2'], 2601);
+    plan = applyPassedCriteriaToMissionPlan(plan, ['unowned'], 2602);
+    expect(plan.phases.map(p => p.evidenceIds)).toEqual([[], []]);
+    expect(plan.phases.map(p => p.status)).toEqual(['active', 'planned']);
+
+    plan = applyFinalDeliverableToMissionPlan(plan, 'deliverable:d1', 2603);
+    expect(plan.phases.map(p => p.status)).toEqual(['active', 'planned']);
+    expect(plan.phases.map(p => p.evidenceIds)).toEqual([[], []]);
+  });
+
+  it('does not let a final digest skip an earlier evidence-free phase', () => {
+    let plan = refineMissionPlanFromInstruction('调研；验证；输出', 2700);
+    plan = markActivePhase(plan, 2, 2701);
+    plan = applyFinalDeliverableToMissionPlan(plan, 'deliverable:d1', 2702);
+    expect(plan.phases.map(p => p.status)).toEqual(['planned', 'planned', 'active']);
+    expect(plan.phases[2]?.evidenceIds).toEqual([]);
+  });
+
+  it('preserves blocked phases when later evidence arrives', () => {
+    let plan = refineMissionPlanFromInstruction('调研；验证；输出', 2750);
+    plan = attachCriteriaAcrossMissionPlan(plan, ['c1', 'c2'], 2751);
+    plan.phases[1] = { ...plan.phases[1]!, status: 'blocked' };
+    plan = applyPassedCriteriaToMissionPlan(plan, ['c1', 'c2'], 2752);
+    expect(plan.phases.map(p => p.status)).toEqual(['done', 'blocked', 'planned']);
+    expect(plan.phases[1]?.evidenceIds).toEqual([]);
+  });
+
+  it('restores one criterion owner and drops future-phase prefills', () => {
+    const restored = restoreMissionPlan({
+      id: 'mission-corrupt',
+      goal: '调研并输出',
+      createdAt: 1,
+      updatedAt: 2,
+      phases: [
+        {
+          id: 'phase-1',
+          title: '调研',
+          status: 'active',
+          criteriaIds: ['c1'],
+          evidenceIds: [],
+          notes: [],
+        },
+        {
+          id: 'phase-2',
+          title: '输出',
+          status: 'done',
+          criteriaIds: ['c1', 'c2'],
+          evidenceIds: ['c1', 'c2'],
+          notes: [],
+        },
+      ],
+    });
+    expect(restored?.phases.map(phase => phase.criteriaIds)).toEqual([['c1'], ['c2']]);
+    expect(restored?.phases.map(phase => phase.status)).toEqual(['active', 'planned']);
+    expect(restored?.phases.map(phase => phase.evidenceIds)).toEqual([[], []]);
   });
 });

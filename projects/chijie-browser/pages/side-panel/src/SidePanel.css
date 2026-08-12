@@ -55,6 +55,7 @@ code {
 
 .header-icon {
   display: inline-flex;
+  flex: none;
   width: 40px;
   height: 40px;
   align-items: center;
@@ -156,4 +157,81 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* WCAG reflow: at 200% zoom and on short side panels, keep every region in the
+ * document flow so the console, chat, and composer remain keyboard reachable. */
+@media (max-height: 560px), (max-width: 280px) {
+  .chijie-shell > .chijie-shell {
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    scroll-padding-block: 56px 180px;
+  }
+
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+
+  .chijie-workspace {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  .chijie-paper-card,
+  .chijie-paper-card[data-status='running'],
+  .chijie-paper-card[data-primary-organism='activity'],
+  .chijie-paper-card[data-primary-organism='completion'] {
+    max-height: min(48dvh, 360px);
+  }
+
+  .chijie-chat-log {
+    flex: 0 0 auto;
+    min-height: 6.5rem;
+    max-height: min(36dvh, 240px);
+  }
+
+  .chijie-composer {
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+  }
+}
+
+@media (max-width: 300px) {
+  .header {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .header-logo {
+    min-width: 0;
+    flex: 1 1 56px;
+  }
+
+  .header-icons {
+    min-width: 0;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+
+  .chijie-header-brand,
+  .chijie-header-brand-sub {
+    max-width: 100%;
+  }
+
+  .chijie-header-logo {
+    width: min(112px, 100%);
+    max-width: 100%;
+    height: auto;
+  }
+
+  .chijie-header-brand-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }

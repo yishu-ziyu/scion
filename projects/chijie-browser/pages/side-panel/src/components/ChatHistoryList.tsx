@@ -15,6 +15,7 @@ interface ChatHistoryListProps {
   onSessionDelete: (sessionId: string) => void;
   onSessionBookmark: (sessionId: string) => void;
   visible: boolean;
+  protectedSessionId?: string | null;
   isDarkMode?: boolean;
 }
 
@@ -24,8 +25,10 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
   onSessionDelete,
   onSessionBookmark,
   visible,
+  protectedSessionId = null,
   isDarkMode = false,
 }) => {
+  void isDarkMode;
   if (!visible) return null;
 
   const formatDate = (timestamp: number) => {
@@ -34,67 +37,57 @@ const ChatHistoryList: React.FC<ChatHistoryListProps> = ({
   };
 
   return (
-    <div className="h-full overflow-y-auto p-4">
-      <h2 className={`mb-4 text-lg font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-        {t('chat_history_title')}
-      </h2>
+    <div className="h-full overflow-y-auto bg-[var(--chijie-background)] p-4 text-[var(--chijie-foreground)]">
+      <h2 className="mb-4 text-lg font-semibold text-[var(--chijie-foreground)]">{t('chat_history_title')}</h2>
       {sessions.length === 0 ? (
-        <div
-          className={`rounded-lg ${isDarkMode ? 'bg-slate-800 text-gray-400' : 'bg-white/30 text-gray-500'} p-4 text-center backdrop-blur-sm`}>
+        <div className="rounded-lg border border-[var(--chijie-border)] bg-[var(--chijie-surface-raised)] p-4 text-center text-[var(--chijie-paper-muted)]">
           {t('chat_history_empty')}
         </div>
       ) : (
         <div className="space-y-2">
-          {sessions.map(session => (
-            <div
-              key={session.id}
-              className={`group relative rounded-lg ${
-                isDarkMode ? 'bg-slate-800 hover:bg-slate-700' : 'bg-white/50 hover:bg-white/70'
-              } p-3 backdrop-blur-sm transition-all`}>
-              <button onClick={() => onSessionSelect(session.id)} className="w-full text-left" type="button">
-                <h3 className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>
-                  {session.title}
-                </h3>
-                <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  {formatDate(session.createdAt)}
-                </p>
-              </button>
-
-              {/* Bookmark button - top right */}
-              {onSessionBookmark && (
+          {sessions.map(session => {
+            const protectedLiveSession = session.id === protectedSessionId;
+            return (
+              <div
+                key={session.id}
+                className="group relative rounded-lg border border-[var(--chijie-border)] bg-[var(--chijie-surface-raised)] p-3 transition-colors hover:border-[var(--chijie-border-strong)] hover:bg-[var(--chijie-accent-subtle)]">
                 <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    onSessionBookmark(session.id);
-                  }}
-                  className={`absolute right-2 top-2 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 ${
-                    isDarkMode
-                      ? 'bg-slate-700 text-sky-400 hover:bg-slate-600'
-                      : 'bg-white text-sky-500 hover:bg-gray-100'
-                  }`}
-                  aria-label={t('chat_history_bookmark')}
+                  onClick={() => onSessionSelect(session.id)}
+                  className="min-h-12 w-full rounded pr-20 text-left"
                   type="button">
-                  <BsBookmark size={14} />
+                  <h3 className="break-words text-sm font-medium text-[var(--chijie-foreground)]">{session.title}</h3>
+                  <p className="mt-1 text-xs text-[var(--chijie-paper-muted)]">{formatDate(session.createdAt)}</p>
                 </button>
-              )}
 
-              {/* Delete button - bottom right */}
-              <button
-                onClick={e => {
-                  e.stopPropagation();
-                  onSessionDelete(session.id);
-                }}
-                className={`absolute bottom-2 right-2 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 ${
-                  isDarkMode
-                    ? 'bg-slate-700 text-gray-400 hover:bg-slate-600'
-                    : 'bg-white text-gray-500 hover:bg-gray-100'
-                }`}
-                aria-label={t('chat_history_delete')}
-                type="button">
-                <FaTrash size={14} />
-              </button>
-            </div>
-          ))}
+                <div className="absolute right-1 top-1 flex gap-1">
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      onSessionBookmark(session.id);
+                    }}
+                    className="flex size-10 items-center justify-center rounded bg-[var(--chijie-surface)] text-[var(--chijie-accent)] opacity-100 transition-colors hover:bg-[var(--chijie-accent-subtle)] focus-visible:opacity-100"
+                    aria-label={t('chat_history_bookmark')}
+                    type="button">
+                    <BsBookmark size={16} aria-hidden />
+                  </button>
+
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      if (protectedLiveSession) return;
+                      onSessionDelete(session.id);
+                    }}
+                    disabled={protectedLiveSession}
+                    className="flex size-10 items-center justify-center rounded bg-[var(--chijie-surface)] text-[var(--chijie-danger)] opacity-100 transition-colors hover:bg-[var(--chijie-danger-subtle)] focus-visible:opacity-100 disabled:cursor-not-allowed disabled:text-[var(--chijie-paper-muted)]"
+                    aria-label={protectedLiveSession ? '正在运行的任务不可删除' : t('chat_history_delete')}
+                    title={protectedLiveSession ? '正在运行的任务不可删除' : undefined}
+                    type="button">
+                    <FaTrash size={16} aria-hidden />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

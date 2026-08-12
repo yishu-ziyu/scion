@@ -42,20 +42,27 @@ import type {
 import { StaleTaskRoundError } from './contracts';
 import { buildAttemptDisplaySummary, buildAttemptTargetLabel } from './attempt-display';
 import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
-import { checkCompletion } from './completion';
-import { tableColumns, tableRowCount, type TaskArtifact } from './artifact';
+import {
+  checkCompletion,
+  durableHttpCompletionUrl,
+  redactedHttpUrlIdentity,
+  type CompletionCheckInput,
+} from './completion';
+import type { TaskArtifact } from './artifact';
 import { verifyCandidateComplete, type ArtifactCriterion } from './verification-engine';
 import { sha256 } from './digest';
 import { allowsVerifiedComplete } from './page-state';
 import { resolveMediaArgs, resolveTabArgs } from './media';
 import { toRedactedTaskSnapshot, traceStore } from './trace';
 import {
+  applyFinalDeliverableToMissionPlan,
   applyPassedCriteriaToMissionPlan,
-  attachCriteriaToActivePhase,
-  markRemainingPhasesDone,
+  applySinglePhaseEvidence,
+  attachCriteriaAcrossMissionPlan,
   refineMissionPlanFromInstruction,
 } from './mission-plan';
 import { ActionResult } from '../agent/types';
+import { isUnderstandingOnlyInstruction } from '../browser/sites/understanding-answer';
 import {
   extractResearchQuotas,
   isRecoverableResearchDecisionFailure,
@@ -88,6 +95,534 @@ interface TaskManagerDeps {
 
 const TERMINAL_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled'];
 const MAX_RESEARCH_DECISION_RETRIES = 3;
+
+export interface InstructionDeliverableContract {
+  required: boolean;
+  requiresPageContent: boolean;
+  requiresChinese: boolean;
+  minimumItems: number;
+  minimumItemsWithUrl: number;
+  minimumDistinctUrls: number;
+  eachItemNeedsUrl: boolean;
+  requiresSourceOrder: boolean;
+  minimumContentChars: number;
+}
+
+export interface InstructionDeliverableCheck {
+  passed: boolean;
+  reasons: string[];
+}
+
+const COUNT_WORDS: Record<string, number> = {
+  一: 1,
+  二: 2,
+  两: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+  十: 10,
+};
+
+function parseRequestedCount(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const numeric = Number(raw);
+  if (Number.isInteger(numeric) && numeric > 0 && numeric <= 20) return numeric;
+  return COUNT_WORDS[raw] ?? null;
+}
+
+export function normalizeProvenanceUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return (url.origin + url.pathname).replace(/\/+$/, '') || url.origin;
+  } catch {
+    return null;
+  }
+}
+
+export async function queryIdentityDigestForUrl(value: string): Promise<string | undefined> {
+  return (await redactedHttpUrlIdentity(value))?.queryIdentityDigest;
+}
+
+export async function redactDeliverableUrlsForPersistence(value: string): Promise<string> {
+  const matches = [...value.matchAll(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi)];
+  if (matches.length === 0) return value;
+  let cursor = 0;
+  const chunks: string[] = [];
+  for (const match of matches) {
+    const index = match.index;
+    if (index === undefined) continue;
+    const raw = match[0].replace(/[.,，。!?！？]+$/, '');
+    const trailing = match[0].slice(raw.length);
+    chunks.push(value.slice(cursor, index));
+    chunks.push((await durableHttpCompletionUrl(raw)) ?? '[invalid-url]');
+    chunks.push(trailing);
+    cursor = index + match[0].length;
+  }
+  chunks.push(value.slice(cursor));
+  return chunks.join('');
+}
+
+function transientUrlIdentityKey(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    const rawSearch = url.search.startsWith('?') ? url.search.slice(1) : url.search;
+    if (/%(?![0-9a-f]{2})/i.test(rawSearch)) return null;
+    const pairs = rawSearch.split('&').map(pair => {
+      if (!pair) return '';
+      const separator = pair.indexOf('=');
+      const rawKey = separator >= 0 ? pair.slice(0, separator) : pair;
+      const rawValue = separator >= 0 ? pair.slice(separator + 1) : '';
+      const key = decodeURIComponent(rawKey.replace(/\+/g, '%20'));
+      const valuePart = decodeURIComponent(rawValue.replace(/\+/g, '%20'));
+      return `${encodeURIComponent(key)}=${encodeURIComponent(valuePart)}`;
+    });
+    const normalizedUrl = normalizeProvenanceUrl(value);
+    return normalizedUrl ? `${normalizedUrl}\n${pairs.join('&')}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Deterministic, instruction-derived delivery contract. It deliberately checks
+ * only explicit, falsifiable output shape (body content, count, full URLs);
+ * semantic quality remains the executor's job and cannot be rescued by "done".
+ */
+export function deriveInstructionDeliverableContract(instruction: string): InstructionDeliverableContract {
+  const text = instruction.replace(/\s+/g, ' ').trim();
+  const itemMatch =
+    /([一二两三四五六七八九十]|\d{1,2})\s*(?:条|项|个)\s*(?:中文|英文)?\s*(?:观察|结论|发现|要点|摘要|说明|回答|结果)/i.exec(
+      text,
+    ) ?? /\b(\d{1,2})\s+(?:observations?|findings?|items?|points?|results?)\b/i.exec(text);
+  const minimumItems = parseRequestedCount(itemMatch?.[1]) ?? 1;
+  const eachItemNeedsUrl =
+    /(?:每|各)(?:条|项|个|一条|一个)?.{0,12}(?:带|附|包含|给出).{0,8}(?:完整)?\s*(?:URL|链接|网址)/i.test(text) ||
+    /\beach\b.{0,16}\b(?:url|link)\b/i.test(text);
+  const explicitUrlCount =
+    parseRequestedCount(
+      /([一二两三四五六七八九十]|\d{1,2})\s*(?:个|条)?\s*(?:完整)?\s*(?:URL|链接|网址)/i.exec(text)?.[1],
+    ) ?? 0;
+  const literalUrlCount = new Set(
+    [...text.matchAll(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi)]
+      .map(match => transientUrlIdentityKey(match[0].replace(/[.,，。!?！？]+$/, '')))
+      .filter((key): key is string => Boolean(key)),
+  ).size;
+  const intentText = text.replace(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi, ' ');
+  const requestsUrl =
+    !/\bURL\s*host\b/i.test(text) &&
+    (/(?:最终|完整|页面|当前|目标).{0,8}(?:URL|链接|网址)|(?:带上|给出|包含|附上|写出|列出|回复|输出).{0,16}(?:URL|链接|网址)|标题.{0,8}(?:URL|链接|网址)/i.test(
+      text,
+    ) ||
+      /\b(?:include|provide|return|show|with)\b.{0,20}\b(?:url|link)\b/i.test(text));
+  const minimumItemsWithUrl = eachItemNeedsUrl ? minimumItems : requestsUrl ? 1 : 0;
+  const hasDistinctSourceSequence =
+    eachItemNeedsUrl && /(?:先|首先).{0,160}(?:再|然后|随后).{0,160}(?:最终|最后|输出|回复)/.test(text);
+  const minimumDistinctUrls = Math.max(
+    explicitUrlCount,
+    literalUrlCount,
+    hasDistinctSourceSequence ? minimumItems : requestsUrl ? 1 : 0,
+  );
+  const explicitlyRequestsPageContent =
+    /核心主题|正文|可见.{0,8}细节|细节|首段|第一段|定义|概括|摘要|总结|观察|引用|摘录|页面内容|展示的内容|描述.{0,12}(?:页面|内容)/.test(
+      intentText,
+    ) ||
+    /\b(?:body|content|detail|definition|first paragraph|quote|extract|summari[sz]e|observation|describe)\b/i.test(
+      intentText,
+    );
+  const referencesPageSource =
+    literalUrlCount > 0 ||
+    /(?:当前|这个|该|本)(?:[^\s。！？!?]{0,16})?(?:页面|网页|网站|标签页)|(?:页面|网页|网站)(?:上|中|里|所)/.test(
+      intentText,
+    ) ||
+    /\b(?:this|the|current)\s+(?:page|webpage|site|tab)\b/i.test(intentText);
+  const requestsFactAnswer =
+    /告诉我|回答|给出|返回|查找|查询|是什么|是多少|是否|有没有|谁|何时|什么时候|多少钱|日期|价格|金额|数量|数值|数字|作者|发布|出版|上线|版本|事实/.test(
+      intentText,
+    ) ||
+    /(?:页面|网页|网站|链接).{0,40}(?:声称|宣称|写道|提到|指出|显示|说明)/.test(intentText) ||
+    /\b(?:tell me|answer|give|provide|return|find|report|what|who|when|how many|how much|does|do|is|are)\b/i.test(
+      intentText,
+    ) ||
+    /\b(?:date|price|cost|amount|number|count|author|writer|creator|release|launch|publication|published|version|fact)\b/i.test(
+      intentText,
+    ) ||
+    /\b(?:page|webpage|site|url)\b.{0,40}\b(?:claim|state|say|show|mention|report)\b/i.test(intentText);
+  const asksMetadataIdentity =
+    (/标题|域名|网站域名|网址|\btitle\b|\bdomain\b|\bhost\b|\burl\b/i.test(intentText) ||
+      /(?:哪|什么|哪个)(?:个)?(?:网站|站点)|识别当前(?:页|页面|网站|站点)/.test(intentText)) &&
+    !explicitlyRequestsPageContent &&
+    !/日期|价格|金额|数量|数值|数字|作者|发布|出版|上线|版本|事实|声称|宣称|写道|提到|指出/.test(intentText) &&
+    !/\b(?:date|price|cost|amount|number|count|author|writer|creator|release|launch|publication|published|version|fact|claim|state|say|show|mention|report)\b/i.test(
+      intentText,
+    );
+  const requiresPageContent =
+    explicitlyRequestsPageContent || (referencesPageSource && requestsFactAnswer && !asksMetadataIdentity);
+  const required =
+    requiresPageContent ||
+    minimumItems > 1 ||
+    minimumItemsWithUrl > 0 ||
+    minimumDistinctUrls > 0 ||
+    /复制|发给我|发我|告诉我|回复我|贴给我|第一条评论|评论内容|热评|摘录|回答|写出|列出|输出.{0,16}(?:观察|结论|发现|要点|结果)/.test(
+      text,
+    ) ||
+    /\b(?:copy|tell me|send me|return|answer|output)\b/i.test(text) ||
+    /\bextract\b.+\b(?:csv|table)\b/i.test(text) ||
+    /\b(?:csv|table)\b.+\b(?:name|price|rating)\b/i.test(text) ||
+    /(?:抽取|提取|导出).{0,24}(?:表|CSV|csv)/i.test(text);
+  const minimumContentChars =
+    /核心主题.{0,20}细节|细节.{0,20}核心主题|首段|第一段|定义|\bfirst paragraph\b|\bdefinition\b/i.test(text) ? 18 : 10;
+
+  return {
+    required,
+    requiresPageContent,
+    requiresChinese: /中文|用汉语|in chinese/i.test(text),
+    minimumItems,
+    minimumItemsWithUrl,
+    minimumDistinctUrls,
+    eachItemNeedsUrl,
+    requiresSourceOrder: hasDistinctSourceSequence,
+    minimumContentChars,
+  };
+}
+
+function answerSegments(answer: string): string[] {
+  return answer
+    .split(/\n+|[；;]/)
+    .flatMap(line => line.split(/(?<=[。！？!?])\s+/))
+    .map(segment => segment.replace(/^\s*(?:[-*•]|\d{1,2}[.)、]|[一二两三四五六七八九十][、.])\s*/, '').trim())
+    .filter(Boolean);
+}
+
+function isMetadataOnlySegment(segment: string): boolean {
+  return (
+    /^(?:标题|title|域名|host|URL|url|网址|页面地址|站点)\s*[:：=]/i.test(segment) ||
+    /^页面(?:地址|状态).{0,24}(?:符合|到达|完成|正确|目标)/.test(segment) ||
+    /^(?:已完成|完成|done|success|opened|已打开)[.!。！]*$/i.test(segment)
+  );
+}
+
+function structuredTableCells(segment: string): string[] {
+  const value = segment.trim();
+  if (!value) return [];
+  if (value.startsWith('|') && value.endsWith('|')) {
+    return value
+      .slice(1, -1)
+      .split('|')
+      .map(cell => cell.replace(/\\\|/g, '|').trim())
+      .filter(Boolean);
+  }
+
+  const cells: string[] = [];
+  let cell = '';
+  let quoted = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === '"') {
+      if (quoted && value[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === ',' && !quoted) {
+      cells.push(cell.trim());
+      cell = '';
+    } else {
+      cell += character;
+    }
+  }
+  cells.push(cell.trim());
+  return quoted ? [] : cells.filter(Boolean);
+}
+
+function isStructuredTableMetadata(segment: string, explicitFields: string[]): boolean {
+  if (/^已提取\s*\d+\s*件商品（(?:CSV|Markdown)）：?$/i.test(segment.trim())) return true;
+  const cells = structuredTableCells(segment).map(cell => cell.toLowerCase());
+  if (cells.length === 0) return false;
+  if (cells.every(cell => /^:?-{3,}:?$/.test(cell))) return true;
+  return (
+    explicitFields.length > 0 &&
+    cells.length === explicitFields.length &&
+    cells.every((cell, i) => cell === explicitFields[i])
+  );
+}
+
+function isBasicSubstantiveAnswer(summary: string, goalText: string): boolean {
+  const s = summary.replace(/\s+/g, ' ').trim();
+  if (s.length < 8) return false;
+  if (/^(?:好的|好[，,]|可以[，,]|收到|明白).{0,48}(?:我来|将|正在|马上|会)/.test(s)) return false;
+  if (/^(?:sure|okay|ok)[,.! ]{0,3}(?:i(?:'ll| will)|let me)/i.test(s)) return false;
+  if (/^Control loop candidate complete$/i.test(s)) return false;
+  if (/^(done|完成|ok|已完成|success|好了|opened|playing|paused)[.!。！]*$/i.test(s)) return false;
+  if (/^(视频|媒体).{0,12}(播放|暂停|核对)/.test(s)) return false;
+  if (/^(目标)?标签已关闭/.test(s)) return false;
+  if (/^页面(地址|状态)已/.test(s)) return false;
+  if (/^下载已(开始|完成)/.test(s)) return false;
+  if (/^(Browser opened|Switched to|Playing video|Opened |Paused video)/i.test(s)) return false;
+  if (/User instruction/i.test(s)) return false;
+  const goal = goalText.replace(/\s+/g, ' ').trim();
+  if (goal && (s === goal || s.includes(goal) || (s.length <= goal.length + 4 && goal.includes(s)))) return false;
+  return true;
+}
+
+export interface DeliverablePageEvidence {
+  normalizedUrl: string;
+  queryIdentityDigest?: string;
+  textDigests?: string[];
+  pageRevision?: string;
+  visitSeq?: number;
+  label?: string;
+}
+
+type DeliverableEvidenceInput = string | DeliverablePageEvidence;
+
+async function pageEvidence(inputs?: Iterable<DeliverableEvidenceInput>): Promise<DeliverablePageEvidence[]> {
+  const results = await Promise.all(
+    [...(inputs ?? [])].map(async input => {
+      if (typeof input === 'string') {
+        const identity = await redactedHttpUrlIdentity(input);
+        return identity ? { ...identity } : null;
+      }
+      const identity = await redactedHttpUrlIdentity(input.normalizedUrl);
+      if (!identity) return null;
+      return {
+        ...input,
+        normalizedUrl: identity.normalizedUrl,
+        ...(input.queryIdentityDigest
+          ? { queryIdentityDigest: input.queryIdentityDigest }
+          : identity.queryIdentityDigest
+            ? { queryIdentityDigest: identity.queryIdentityDigest }
+            : {}),
+      };
+    }),
+  );
+  return results.filter((item): item is DeliverablePageEvidence => item !== null);
+}
+
+function quotedPassages(segment: string): string[] {
+  return [...segment.matchAll(/[“"「『]([^”"」』]{8,240})[”"」』]/g)]
+    .map(match => match[1]?.replace(/\s+/g, ' ').trim() ?? '')
+    .filter(Boolean);
+}
+
+async function firstSegmentIdentity(segment: string): Promise<DeliverablePageEvidence | null> {
+  const raw = /https?:\/\/[^\s<>"'，。；;）)\]}]+/i.exec(segment)?.[0];
+  return raw ? redactedHttpUrlIdentity(raw.replace(/[.,，。!?！？]+$/, '')) : null;
+}
+
+function provenanceIdentityKey(identity: DeliverablePageEvidence): string {
+  return `${identity.normalizedUrl}\n${identity.queryIdentityDigest ?? 'no-query'}`;
+}
+
+function latestPageEvidence(items: DeliverablePageEvidence[]): DeliverablePageEvidence | undefined {
+  return items.reduce<DeliverablePageEvidence | undefined>((latest, item) => {
+    if (!latest) return item;
+    if (item.visitSeq === undefined || latest.visitSeq === undefined) return item;
+    return item.visitSeq >= latest.visitSeq ? item : latest;
+  }, undefined);
+}
+
+function hasUnsupportedUnquotedClaim(segment: string): boolean {
+  const residue = segment
+    .replace(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi, '')
+    .replace(/[“"「『][^”"」』]{8,240}[”"」』]/g, '')
+    .replace(/^\s*(?:[-*•]|\d{1,2}[.)、]|[一二两三四五六七八九十][、.])\s*/, '')
+    .replace(/[：:。.!！?？]/g, ' ')
+    .trim();
+  if (!residue) return false;
+  const clauses = residue
+    .split(/[，,、]/)
+    .map(clause => clause.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  return clauses.some(clause => {
+    const sourceFrame =
+      /^(?:(?:[A-Za-z][A-Za-z0-9 ._-]{0,40}|[\u4e00-\u9fffA-Za-z0-9._-]{1,20})\s*)?(?:页面|条目)(?:的)?(?:正文|首段|原文|内容)?(?:写道|记载|提到|指出|引用|如下)?$/;
+    const contentFrame = /^(?:文章)?(?:核心|主题)?(?:与|和)?(?:正文)?(?:细节|内容|原文)(?:是|为|写道|如下)?$/;
+    const englishFrame =
+      /^(?:(?:[A-Za-z][A-Za-z0-9 ._-]{0,40})\s+)?(?:page|entry|body|lead|text|source)\s*(?:says|states|reads|shows|quote|excerpt)?$/i;
+    return !sourceFrame.test(clause) && !contentFrame.test(clause) && !englishFrame.test(clause);
+  });
+}
+
+async function instructionSourcePosition(instruction: string, evidence: DeliverablePageEvidence): Promise<number> {
+  const lower = instruction.toLowerCase();
+  for (const match of instruction.matchAll(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi)) {
+    const identity = await redactedHttpUrlIdentity(match[0].replace(/[.,，。!?！？]+$/, ''));
+    if (identity && provenanceIdentityKey(identity) === provenanceIdentityKey(evidence)) return match.index;
+  }
+  if (evidence.queryIdentityDigest) return -1;
+  const exact = lower.indexOf(evidence.normalizedUrl.toLowerCase());
+  if (exact >= 0) return exact;
+  try {
+    const hostname = new URL(evidence.normalizedUrl).hostname.replace(/^www\./, '');
+    const positions = hostname
+      .split('.')
+      .filter(part => part.length >= 3)
+      .map(part => lower.indexOf(part.toLowerCase()))
+      .filter(position => position >= 0);
+    if (positions.length > 0) return Math.min(...positions);
+  } catch {
+    return -1;
+  }
+  return -1;
+}
+
+async function quoteMatchesEvidence(quote: string, evidence: DeliverablePageEvidence): Promise<boolean> {
+  if (!evidence.pageRevision || !evidence.textDigests?.length) return false;
+  return evidence.textDigests.includes(await sha256(quote.replace(/\s+/g, ' ').trim()));
+}
+
+export async function checkInstructionDeliverable(
+  instruction: string,
+  answer: string,
+  evidenceInputs?: Iterable<DeliverableEvidenceInput>,
+): Promise<InstructionDeliverableCheck> {
+  const contract = deriveInstructionDeliverableContract(instruction);
+  const reasons: string[] = [];
+  if (!isBasicSubstantiveAnswer(answer, instruction)) reasons.push('non_substantive');
+
+  const rawAnswerUrls = [...answer.matchAll(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi)].map(match =>
+    match[0].replace(/[.,，。!?！？]+$/, ''),
+  );
+  const orderedIdentities = (await Promise.all(rawAnswerUrls.map(value => redactedHttpUrlIdentity(value)))).filter(
+    (identity): identity is DeliverablePageEvidence => identity !== null,
+  );
+  if (orderedIdentities.length !== rawAnswerUrls.length) reasons.push('invalid_url_provenance');
+  const urls = new Set(orderedIdentities.map(provenanceIdentityKey));
+  if (urls.size < contract.minimumDistinctUrls) reasons.push('distinct_url_count');
+  const evidence = await pageEvidence(evidenceInputs);
+  if (contract.minimumDistinctUrls > 0) {
+    const visited = new Set(evidence.map(provenanceIdentityKey));
+    if ([...urls].some(url => !visited.has(url))) {
+      reasons.push('url_not_visited');
+    }
+  }
+
+  const segments = answerSegments(answer);
+  if (contract.minimumItems > 1) {
+    const itemCount = segments.filter(segment => !isMetadataOnlySegment(segment)).length;
+    if (itemCount < contract.minimumItems) reasons.push('item_count');
+  }
+  if (contract.minimumItemsWithUrl > 0) {
+    const itemsWithUrl = segments.filter(segment => /https?:\/\//i.test(segment)).length;
+    if (itemsWithUrl < contract.minimumItemsWithUrl) reasons.push('item_url_count');
+  }
+
+  if (contract.requiresPageContent) {
+    const structuredTable =
+      /\b(?:csv|table)\b/i.test(instruction) || /(?:表格|表|清单).{0,16}(?:字段|列|商品|产品)/.test(instruction);
+    const explicitTableFields = structuredTable
+      ? extractExplicitTableFields(instruction).map(field => field.toLowerCase())
+      : [];
+    const bodySegments = segments.filter(
+      segment => !isMetadataOnlySegment(segment) && !isStructuredTableMetadata(segment, explicitTableFields),
+    );
+    const declaredTableRows = structuredTable
+      ? Number(/^已提取\s*(\d+)\s*件商品（(?:CSV|Markdown)）/i.exec(segments[0] ?? '')?.[1])
+      : Number.NaN;
+    if (Number.isSafeInteger(declaredTableRows) && declaredTableRows !== bodySegments.length) {
+      reasons.push('page_content_unsupported');
+    }
+    const bodyText = bodySegments
+      .join(' ')
+      .replace(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi, '')
+      .replace(/\s+/g, '');
+    if (bodyText.length < contract.minimumContentChars) reasons.push('page_content');
+
+    const grounded: Array<{ target: DeliverablePageEvidence; segment: string }> = [];
+    const requiredSegments = bodySegments;
+    const currentPage = latestPageEvidence(evidence);
+    const currentPageEvidence = currentPage?.pageRevision && currentPage.textDigests?.length ? [currentPage] : [];
+    let ungroundedSegment = false;
+    for (const segment of requiredSegments) {
+      const segmentIdentity = await firstSegmentIdentity(segment);
+      const latestIdentityTarget = segmentIdentity
+        ? latestPageEvidence(
+            evidence.filter(item => provenanceIdentityKey(item) === provenanceIdentityKey(segmentIdentity)),
+          )
+        : undefined;
+      const targets = segmentIdentity
+        ? latestIdentityTarget
+          ? [latestIdentityTarget]
+          : []
+        : /https?:\/\//i.test(segment)
+          ? []
+          : currentPageEvidence;
+      if (contract.eachItemNeedsUrl && !segmentIdentity) {
+        ungroundedSegment = true;
+        reasons.push('item_url_count');
+      }
+      const quotes = quotedPassages(segment);
+      let matched: DeliverablePageEvidence | undefined;
+      for (const target of targets) {
+        const tableCells = structuredTable ? structuredTableCells(segment) : [];
+        if (
+          tableCells.length > 1 &&
+          (await Promise.all(tableCells.map(cell => quoteMatchesEvidence(cell, target)))).every(Boolean)
+        ) {
+          matched = target;
+        } else if (
+          quotes.length > 0 &&
+          (await Promise.all(quotes.map(quote => quoteMatchesEvidence(quote, target)))).every(Boolean)
+        ) {
+          matched = target;
+        }
+        if (matched) break;
+      }
+      if (matched) grounded.push({ target: matched, segment });
+      else ungroundedSegment = true;
+      if (!structuredTable && hasUnsupportedUnquotedClaim(segment)) reasons.push('page_content_unsupported');
+    }
+    if (grounded.length < contract.minimumItems || ungroundedSegment) reasons.push('page_content_ungrounded');
+
+    if (contract.requiresSourceOrder && grounded.length >= contract.minimumItems) {
+      const orderedTargets = grounded.slice(0, contract.minimumItems).map(item => item.target);
+      const visitOrder = orderedTargets.map(item => item.visitSeq);
+      const instructionOrder = await Promise.all(
+        orderedTargets.map(item => instructionSourcePosition(instruction, item)),
+      );
+      const strictlyIncreasing = (values: number[]) =>
+        values.every((value, index) => index === 0 || value > values[index - 1]);
+      if (
+        visitOrder.some(value => !Number.isSafeInteger(value)) ||
+        instructionOrder.some(value => value < 0) ||
+        !strictlyIncreasing(visitOrder as number[]) ||
+        !strictlyIncreasing(instructionOrder)
+      ) {
+        reasons.push('source_order_unverified');
+      }
+    }
+  }
+  if (contract.requiresChinese && !/[\u4e00-\u9fff]/.test(answer)) reasons.push('language');
+  return { passed: reasons.length === 0, reasons };
+}
+
+export function extractExplicitTableFields(instruction: string): string[] {
+  const text = instruction.replace(/\s+/g, ' ').trim();
+  const candidates: string[] = [];
+  const english = /\bwith\s+([a-z][a-z0-9 _-]*(?:\s*,\s*[a-z][a-z0-9 _-]*)+(?:\s*,?\s+and\s+[a-z][a-z0-9 _-]*)?)/i.exec(
+    text,
+  )?.[1];
+  const chinese =
+    /(?:字段|列)(?:为|是|包含|包括)?\s*[:：]?\s*([A-Za-z\u4e00-\u9fff][^。；;]{1,100})/.exec(text)?.[1] ??
+    /[（(]([A-Za-z\u4e00-\u9fff][^）)]{1,100})[）)]/.exec(text)?.[1];
+  for (const group of [english, chinese]) {
+    if (!group) continue;
+    candidates.push(
+      ...group
+        .split(/\s*(?:,|，|、|\band\b|和|及)\s*/i)
+        .map(field => field.trim().toLowerCase())
+        .filter(field => /^[a-z][a-z0-9_-]{0,31}$|^[\u4e00-\u9fff]{1,12}$/.test(field)),
+    );
+  }
+  return [...new Set(candidates)].slice(0, 12);
+}
 
 export class TaskManager {
   private readonly drivers = new Map<string, ExecutorDriver>();
@@ -289,9 +824,9 @@ export class TaskManager {
       taskId: command.taskId,
       revision: 1,
     };
-    // goalSummary/instructionSummary stay generic on purpose: snapshots must not
-    // embed the raw instruction (secrets / success phrases). UI shows the user
-    // text from the chat message via defaultInstruction.
+    const plan = refineMissionPlanFromInstruction(command.instruction, now);
+    // Persist only the plan's canonical action label; raw instruction text,
+    // entities, secrets, and success phrases remain in ephemeral/chat storage.
     const round: TaskRound = {
       id: roundId,
       instructionMessageId: command.instructionMessageId,
@@ -304,7 +839,7 @@ export class TaskManager {
     };
     const task: TaskSession = {
       id: command.taskId,
-      goalSummary: 'User task',
+      goalSummary: plan.goal,
       chatSessionId: command.chatSessionId,
       instructionMessageId: command.instructionMessageId,
       status: 'running',
@@ -313,7 +848,7 @@ export class TaskManager {
       currentRoundId: roundId,
       targetRefs: [],
       rounds: [round],
-      plan: refineMissionPlanFromInstruction(command.instruction, now),
+      plan,
       createdAt: now,
       updatedAt: now,
     };
@@ -323,9 +858,14 @@ export class TaskManager {
       await this.deps.switchTab(command.tabId);
       const tab = await chrome.tabs.get(command.tabId);
       let urlOrigin = 'null';
+      let normalizedUrl: string | undefined;
+      let queryIdentityDigest: string | undefined;
       if (tab.url) {
         try {
           urlOrigin = new URL(tab.url).origin;
+          const identity = await redactedHttpUrlIdentity(tab.url);
+          normalizedUrl = identity?.normalizedUrl;
+          queryIdentityDigest = identity?.queryIdentityDigest;
         } catch {
           urlOrigin = 'null';
         }
@@ -338,8 +878,12 @@ export class TaskManager {
           tabId: command.tabId,
           frameId: 0,
           urlOrigin,
+          ...(normalizedUrl ? { normalizedUrl } : {}),
+          ...(queryIdentityDigest ? { queryIdentityDigest } : {}),
           digest: '',
           label,
+          visitSeq: 1,
+          observedAt: now,
         },
       ];
     } catch {
@@ -426,7 +970,7 @@ export class TaskManager {
       revision: 1,
     };
     let plan = refineMissionPlanFromInstruction(renderedInstruction, now);
-    plan = attachCriteriaToActivePhase(
+    plan = attachCriteriaAcrossMissionPlan(
       plan,
       criteria.map(item => item.id),
       now,
@@ -527,7 +1071,8 @@ export class TaskManager {
         .reverse()
         .find(
           message =>
-            (message.actor === 'user' || message.actor === undefined) && Boolean(extractResearchQuotas(message.content)),
+            (message.actor === 'user' || message.actor === undefined) &&
+            Boolean(extractResearchQuotas(message.content)),
         )?.content;
     }
     if (current && extractResearchQuotas(current)) return current;
@@ -903,7 +1448,11 @@ export class TaskManager {
       '';
     const deliverableBlocks =
       this.instructionRequestsUserDeliverable(instructionForRound) &&
-      !this.hasSubstantiveDeliverableAnswer(round.instructionSummary?.trim() ?? '', instructionForRound);
+      !(await this.hasSubstantiveDeliverableAnswer(
+        round.instructionSummary?.trim() ?? '',
+        instructionForRound,
+        this.visitedPageEvidence(task),
+      ));
 
     if (!canComplete || deliverableBlocks) {
       // Partial evidence still advances mission phases before full task complete.
@@ -921,16 +1470,17 @@ export class TaskManager {
       }
       return false;
     }
+    let completed = false;
     await this.queueTransition(async () => {
       const current = await getTask(taskId);
       if (!current || current.status !== 'running' || current.currentRoundId !== roundId) return;
       const currentRound = this.currentRound(current);
       currentRound.evidence.push(...checked.evidence);
       this.syncMissionPlanFromEvidence(current, checked.evidence);
-      await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
+      completed = await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
     });
-    await this.stopTaskRuntime(taskId);
-    return true;
+    if (completed) await this.stopTaskRuntime(taskId);
+    return completed;
   }
 
   private readStringField(value: unknown, key: string): string | undefined {
@@ -1041,6 +1591,36 @@ export class TaskManager {
     roundId: string,
     target: TaskSession['targetRefs'][number],
   ): Promise<void> {
+    let enrichedTarget = target;
+    if (target.kind === 'page') {
+      try {
+        const tab = await chrome.tabs.get(target.tabId);
+        const label = tab.title?.replace(/\s+/g, ' ').trim().slice(0, 160);
+        let urlOrigin = target.urlOrigin;
+        let normalizedUrl = target.normalizedUrl;
+        let queryIdentityDigest = target.queryIdentityDigest;
+        if (tab.url && (!normalizedUrl || !queryIdentityDigest)) {
+          try {
+            urlOrigin = new URL(tab.url).origin;
+            const identity = await redactedHttpUrlIdentity(tab.url);
+            normalizedUrl = identity?.normalizedUrl ?? normalizedUrl;
+            queryIdentityDigest = identity?.queryIdentityDigest;
+          } catch {
+            // Keep the page-observer origin.
+          }
+        }
+        enrichedTarget = {
+          ...target,
+          urlOrigin,
+          ...(normalizedUrl ? { normalizedUrl } : {}),
+          ...(queryIdentityDigest ? { queryIdentityDigest } : {}),
+          ...(label ? { label } : {}),
+        };
+      } catch {
+        // A tab may close between observation and persistence; the observed
+        // target remains valid provenance without an optional title label.
+      }
+    }
     await this.queueTransition(async () => {
       const task = await getTask(taskId);
       if (!task) return;
@@ -1057,15 +1637,84 @@ export class TaskManager {
           return;
         }
       }
-      const index = task.targetRefs.findIndex(item => item.id === target.id);
-      if (index === -1) task.targetRefs.push(target);
-      else if (target.kind === 'media') {
+      const index = task.targetRefs.findIndex(item => item.id === enrichedTarget.id);
+      const existingTarget = index >= 0 ? task.targetRefs[index] : undefined;
+      if (enrichedTarget.kind === 'page') {
+        const nextVisitSeq = task.targetRefs.reduce((max, item) => Math.max(max, item.visitSeq ?? 0), 0) + 1;
+        const capturedTextDigests = enrichedTarget.textDigests;
+        const capturedBodyDigest = enrichedTarget.bodyDigest;
+        const capturedPageRevision = enrichedTarget.pageRevision;
+        const capturedQueryIdentity = enrichedTarget.queryIdentityDigest;
+        enrichedTarget = {
+          ...existingTarget,
+          ...enrichedTarget,
+          visitSeq: nextVisitSeq,
+          observedAt: enrichedTarget.observedAt ?? this.deps.now(),
+        };
+        if (!capturedTextDigests?.length) delete enrichedTarget.textDigests;
+        if (!capturedBodyDigest) delete enrichedTarget.bodyDigest;
+        if (!capturedPageRevision) delete enrichedTarget.pageRevision;
+        if (!capturedQueryIdentity) delete enrichedTarget.queryIdentityDigest;
+      }
+      if (index === -1) task.targetRefs.push(enrichedTarget);
+      else if (enrichedTarget.kind === 'media') {
         task.targetRefs.splice(index, 1);
-        task.targetRefs.push(target);
-      } else task.targetRefs[index] = target;
-      task.activeTabId = target.tabId;
+        task.targetRefs.push(enrichedTarget);
+      } else task.targetRefs[index] = enrichedTarget;
+      task.activeTabId = enrichedTarget.tabId;
       task.revision += 1;
       await this.persist(task);
+    });
+  }
+
+  private async captureCurrentPageEvidence(taskId: string, roundId: string): Promise<void> {
+    try {
+      const { browserContext } = await import('../agent/factory');
+      const page = await browserContext.getCurrentPage();
+      const observation = await page.observeActionTarget('read_page_text', {}, 'after');
+      if (observation.target.kind !== 'page') return;
+      await this.persistTarget(taskId, roundId, observation.target);
+    } catch {
+      await this.persistPageCaptureFailure(taskId, roundId);
+    }
+  }
+
+  private async persistPageCaptureFailure(taskId: string, roundId: string): Promise<void> {
+    const task = await getTask(taskId);
+    if (!task) return;
+    const latestPage = [...task.targetRefs]
+      .filter(target => target.kind === 'page' && target.normalizedUrl)
+      .sort((left, right) => (right.visitSeq ?? -1) - (left.visitSeq ?? -1))[0];
+    let identity = latestPage
+      ? {
+          normalizedUrl: latestPage.normalizedUrl!,
+          ...(latestPage.queryIdentityDigest ? { queryIdentityDigest: latestPage.queryIdentityDigest } : {}),
+        }
+      : null;
+    let urlOrigin = latestPage?.urlOrigin ?? 'null';
+    try {
+      const tab = await chrome.tabs.get(task.activeTabId);
+      if (tab.url) {
+        const currentIdentity = await redactedHttpUrlIdentity(tab.url);
+        if (currentIdentity) {
+          identity = currentIdentity;
+          urlOrigin = new URL(tab.url).origin;
+        }
+      }
+    } catch {
+      // The last redacted page identity is enough to invalidate stale evidence.
+    }
+    if (!identity) return;
+    const digest = await sha256(JSON.stringify({ tabId: task.activeTabId, ...identity, capture: 'failed' }));
+    await this.persistTarget(taskId, roundId, {
+      id: `page-failed-${digest.slice(0, 16)}`,
+      kind: 'page',
+      tabId: task.activeTabId,
+      frameId: 0,
+      urlOrigin,
+      ...identity,
+      observedAt: this.deps.now(),
+      digest,
     });
   }
 
@@ -1236,25 +1885,21 @@ export class TaskManager {
             continue;
           }
         }
-        if (
-          outcome.kind === 'failed' &&
-          researchQuotas &&
-          isRecoverableResearchFailure(outcome.category)
-        ) {
-            const evidenceSpace = await getEvidenceSpace(taskId);
-            const progress = evidenceSpaceProgress(evidenceSpace);
-            const workCycles = evidenceSpace?.workCycles ?? 0;
-            if (!researchQuotasMet(researchQuotas, progress) && workCycles < researchWorkCycleLimit - 1) {
-              await advanceEvidenceWorkCycle(taskId, this.deps.now());
-              driver.addFollowUp(
-                outcome.category === 'evidence_required'
-                  ? `${renderResearchCheckpoint(researchQuotas, progress)} The current page is substantive and unrecorded. Stay on it and call record_evidence again. raw_basis must be copied verbatim from visible page text; do not navigate or finish.`
-                  : outcome.category === 'source_required'
-                    ? `${renderResearchCheckpoint(researchQuotas, progress)} The current page is only search results or a community index. Do not call record_evidence and do not repeat the same search. Open one concrete unread result from this page.`
+        if (outcome.kind === 'failed' && researchQuotas && isRecoverableResearchFailure(outcome.category)) {
+          const evidenceSpace = await getEvidenceSpace(taskId);
+          const progress = evidenceSpaceProgress(evidenceSpace);
+          const workCycles = evidenceSpace?.workCycles ?? 0;
+          if (!researchQuotasMet(researchQuotas, progress) && workCycles < researchWorkCycleLimit - 1) {
+            await advanceEvidenceWorkCycle(taskId, this.deps.now());
+            driver.addFollowUp(
+              outcome.category === 'evidence_required'
+                ? `${renderResearchCheckpoint(researchQuotas, progress)} The current page is substantive and unrecorded. Stay on it and call record_evidence again. raw_basis must be copied verbatim from visible page text; do not navigate or finish.`
+                : outcome.category === 'source_required'
+                  ? `${renderResearchCheckpoint(researchQuotas, progress)} The current page is only search results or a community index. Do not call record_evidence and do not repeat the same search. Open one concrete unread result from this page.`
                   : `${renderResearchCheckpoint(researchQuotas, progress)} Previous cycle ended with ${outcome.category}; abandon the failing source or tactic and use an alternative.`,
-              );
-              continue;
-            }
+            );
+            continue;
+          }
         }
         let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
@@ -1351,7 +1996,8 @@ export class TaskManager {
             if (current.currentRoundId !== runRoundId) return;
             const currentRound = this.currentRound(current);
             const answer = outcome.summary.trim();
-            if (answer) currentRound.instructionSummary = answer.slice(0, 2000);
+            if (answer)
+              currentRound.instructionSummary = (await redactDeliverableUrlsForPersistence(answer)).slice(0, 2000);
             // The durable decision plus both reopened Feishu readbacks replace any
             // planner-generated user-confirmation criterion for this research contract.
             currentRound.criteria = currentRound.criteria.filter(criterion => criterion.kind !== 'user_confirmed');
@@ -1361,6 +2007,15 @@ export class TaskManager {
           });
           return;
         }
+      }
+
+      if (
+        outcome.kind === 'candidate_complete' &&
+        deriveInstructionDeliverableContract(this.instructions.get(taskId) ?? '').requiresPageContent
+      ) {
+        await this.captureCurrentPageEvidence(taskId, runRoundId);
+        const withPageEvidence = await getTask(taskId);
+        if (withPageEvidence && this.canApplyDriverOutcome(withPageEvidence, taskId, driver)) task = withPageEvidence;
       }
 
       let round = task.rounds.find(item => item.id === runRoundId);
@@ -1414,7 +2069,7 @@ export class TaskManager {
         // Understanding / open-ended goals often have no freezeable criteria.
         // Prefer complete with the model summary (answer) over hang or opaque fail.
         // product/022: when artifacts are present, Independent Verifier must pass first.
-        const answer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
+        const rawAnswer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
         const instructionForRound =
           this.instructions.get(taskId) ||
           task.goalSummary ||
@@ -1422,16 +2077,26 @@ export class TaskManager {
             ? round.instructionSummary
             : '') ||
           '';
-        const needsDeliverable = this.instructionRequestsUserDeliverable(instructionForRound);
-        const deliverableOk =
-          answer.length > 0 && (!needsDeliverable || this.hasSubstantiveDeliverableAnswer(answer, instructionForRound));
         const artifacts =
           outcome.kind === 'candidate_complete' && Array.isArray(outcome.artifacts) ? outcome.artifacts : [];
+        const answer = await this.selectCandidateDeliverableText(
+          rawAnswer,
+          artifacts,
+          instructionForRound,
+          this.visitedPageEvidence(task),
+        );
+        const needsDeliverable = this.instructionRequestsUserDeliverable(instructionForRound);
+        const deliverableOk =
+          answer.length > 0 &&
+          (!needsDeliverable ||
+            (await this.hasSubstantiveDeliverableAnswer(answer, instructionForRound, this.visitedPageEvidence(task))));
+        let artifactVerified = false;
         if (artifacts.length > 0) {
           const artifactGate = this.verifyArtifactsIndependently(
             artifacts,
             this.instructions.get(taskId) ?? task.goalSummary ?? '',
           );
+          artifactVerified = artifactGate.complete;
           const evidence = artifactGate.artifactEvidence ?? [];
           const passedN = evidence.filter(e => e.passed).length;
           const failedN = evidence.filter(e => !e.passed).length;
@@ -1453,31 +2118,6 @@ export class TaskManager {
             },
           });
           await traceStore.finishSpan(verifySpan, artifactGate.complete ? 'ok' : 'fail');
-          if (!artifactGate.complete) {
-            let handoffRoundId: string | undefined;
-            await this.queueTransition(async () => {
-              const current = await getTask(taskId);
-              if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
-              if (current.currentRoundId !== runRoundId) {
-                handoffRoundId = current.currentRoundId;
-                return;
-              }
-              const currentRound = this.currentRound(current);
-              current.status = 'failed';
-              currentRound.status = 'failed';
-              currentRound.failureCategory = 'artifact_verification_failed';
-              delete currentRound.waitReason;
-              current.revision += 1;
-              current.updatedAt = this.deps.now();
-              await this.persist(current);
-            });
-            if (handoffRoundId) {
-              runRoundId = handoffRoundId;
-              verificationRetries = 0;
-              continue;
-            }
-            return;
-          }
         }
         let retry = false;
         let handoffRoundId: string | undefined;
@@ -1489,12 +2129,18 @@ export class TaskManager {
             return;
           }
           const currentRound = this.currentRound(current);
-          if (deliverableOk) {
+          if (deliverableOk && artifactVerified) {
             // Surface the answer on the round for UI; keep goalSummary generic.
-            currentRound.instructionSummary = answer.slice(0, 2000);
+            currentRound.instructionSummary = (await redactDeliverableUrlsForPersistence(answer)).slice(0, 2000);
             delete currentRound.waitReason;
             delete currentRound.failureCategory;
-            await this.persistVerifiedReceipt(current, currentRound, []);
+            await this.persistVerifiedReceipt(
+              current,
+              currentRound,
+              [],
+              true,
+              artifacts.map(artifact => 'artifact:' + artifact.id),
+            );
             return;
           }
           if (verificationRetries < 1) {
@@ -1506,7 +2152,8 @@ export class TaskManager {
           // No deliverable after a bounded retry — fail honestly, never ask for confirmation.
           current.status = 'failed';
           currentRound.status = 'failed';
-          currentRound.failureCategory = needsDeliverable ? 'no_action' : 'no_completion_criteria';
+          currentRound.failureCategory =
+            artifacts.length > 0 ? 'artifact_verification_failed' : 'no_completion_criteria';
           delete currentRound.waitReason;
           current.revision += 1;
           current.updatedAt = this.deps.now();
@@ -1520,9 +2167,9 @@ export class TaskManager {
         if (retry) {
           verificationRetries += 1;
           driver.addFollowUp(
-            needsDeliverable
-              ? 'Return the requested page content as a substantive text answer before finishing. Do not ask the user to confirm.'
-              : 'No verifiable answer was returned. Inspect the current page and reply with the result before finishing.',
+            artifacts.length > 0
+              ? 'The artifact is not independently verified. Inspect the page, add required browser criteria, then return the requested deliverable.'
+              : 'No browser completion criterion was verified. Inspect the current page, propose a required observable criterion, and only then return the answer.',
           );
           continue;
         }
@@ -1535,56 +2182,66 @@ export class TaskManager {
         '';
       const candidateArtifacts =
         outcome.kind === 'candidate_complete' && Array.isArray(outcome.artifacts) ? outcome.artifacts : [];
-      if (candidateArtifacts.length === 0 && this.instructionRequestsReadOnlyPageDeliverable(instructionForCandidate)) {
-        const answer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
-        const deliverableOk = this.hasSubstantiveDeliverableAnswer(answer, instructionForCandidate);
-        let retry = false;
-        let handoffRoundId: string | undefined;
-        await this.queueTransition(async () => {
-          const current = await getTask(taskId);
-          if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
-          if (current.currentRoundId !== runRoundId) {
-            handoffRoundId = current.currentRoundId;
-            return;
+      if (candidateArtifacts.length > 0 && round.criteria.some(item => item.kind === 'user_confirmed')) {
+        const automaticCriteria = round.criteria.filter(item => item.kind !== 'user_confirmed');
+        let automaticObservations: ProbeObservation[] = [];
+        if (automaticCriteria.length > 0) {
+          try {
+            automaticObservations = await this.observeTaskCriteria(task, automaticCriteria);
+          } catch {
+            automaticObservations = [];
           }
-          const currentRound = this.currentRound(current);
-          if (deliverableOk) {
-            // Model-proposed page-state criteria are not proof of an answer-only deliverable.
-            currentRound.criteria = [];
-            currentRound.evidence = [];
-            currentRound.instructionSummary = answer.slice(0, 2000);
+        }
+        const artifactGate = this.verifyArtifactsIndependently(
+          candidateArtifacts,
+          instructionForCandidate,
+          automaticCriteria.length > 0
+            ? {
+                now: this.deps.now(),
+                currentRoundId: round.id,
+                criteria: automaticCriteria,
+                observations: automaticObservations,
+              }
+            : undefined,
+        );
+        if (!artifactGate.complete) {
+          let retryArtifact = false;
+          let artifactHandoffRoundId: string | undefined;
+          await this.queueTransition(async () => {
+            const current = await getTask(taskId);
+            if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+            if (current.currentRoundId !== runRoundId) {
+              artifactHandoffRoundId = current.currentRoundId;
+              return;
+            }
+            const currentRound = this.currentRound(current);
+            if (verificationRetries < 1) {
+              current.revision += 1;
+              await this.persist(current);
+              retryArtifact = true;
+              return;
+            }
+            current.status = 'failed';
+            currentRound.status = 'failed';
+            currentRound.failureCategory = 'artifact_verification_failed';
             delete currentRound.waitReason;
-            delete currentRound.failureCategory;
-            await this.persistVerifiedReceipt(current, currentRound, []);
-            return;
-          }
-          if (verificationRetries < 1) {
             current.revision += 1;
             await this.persist(current);
-            retry = true;
-            return;
+          });
+          if (artifactHandoffRoundId) {
+            runRoundId = artifactHandoffRoundId;
+            verificationRetries = 0;
+            continue;
           }
-          current.status = 'failed';
-          currentRound.status = 'failed';
-          currentRound.failureCategory = 'no_action';
-          delete currentRound.waitReason;
-          current.revision += 1;
-          current.updatedAt = this.deps.now();
-          await this.persist(current);
-        });
-        if (handoffRoundId) {
-          runRoundId = handoffRoundId;
-          verificationRetries = 0;
-          continue;
+          if (retryArtifact) {
+            verificationRetries += 1;
+            driver.addFollowUp(
+              'The text artifact is not browser-grounded. Inspect the page and add a required observable criterion before asking the user to confirm.',
+            );
+            continue;
+          }
+          return;
         }
-        if (retry) {
-          verificationRetries += 1;
-          driver.addFollowUp(
-            'Return a substantive summary of the current page now. Do not acknowledge, click, modify the page, or ask the user to confirm.',
-          );
-          continue;
-        }
-        return;
       }
       if (round.criteria.some(item => item.kind === 'user_confirmed')) {
         const automaticCriteria = round.criteria.filter(item => item.kind !== 'user_confirmed');
@@ -1636,7 +2293,7 @@ export class TaskManager {
         criteria: round.criteria,
         observations,
       });
-      const outcomeAnswer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
+      const rawOutcomeAnswer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
       // Multi-intent goals like "play + copy first comment" must not complete on media alone.
       const instructionForRound =
         this.instructions.get(taskId) ||
@@ -1644,8 +2301,29 @@ export class TaskManager {
         (round.instructionSummary && round.instructionSummary !== 'User instruction' ? round.instructionSummary : '') ||
         '';
       const needsDeliverable = this.instructionRequestsUserDeliverable(instructionForRound);
+      const outcomeAnswer = await this.selectCandidateDeliverableText(
+        rawOutcomeAnswer,
+        candidateArtifacts,
+        instructionForRound,
+        this.visitedPageEvidence(task),
+      );
       const deliverableOk =
-        !needsDeliverable || this.hasSubstantiveDeliverableAnswer(outcomeAnswer, instructionForRound);
+        !needsDeliverable ||
+        (await this.hasSubstantiveDeliverableAnswer(
+          outcomeAnswer,
+          instructionForRound,
+          this.visitedPageEvidence(task),
+        ));
+      const artifactGate =
+        candidateArtifacts.length > 0
+          ? this.verifyArtifactsIndependently(candidateArtifacts, instructionForRound, {
+              now: this.deps.now(),
+              currentRoundId: round.id,
+              criteria: round.criteria,
+              observations,
+            })
+          : null;
+      const artifactsVerified = artifactGate?.complete ?? true;
       let retry = false;
       let handoffRoundId: string | undefined;
       await this.queueTransition(async () => {
@@ -1664,12 +2342,19 @@ export class TaskManager {
             completionPassed: checked.passed,
             hasRequiredCriteria: currentRound.criteria.some(criterion => criterion.required),
           }) &&
-          deliverableOk
+          deliverableOk &&
+          artifactsVerified
         ) {
           if (outcomeAnswer.length > 0) {
-            currentRound.instructionSummary = outcomeAnswer.slice(0, 2000);
+            currentRound.instructionSummary = (await redactDeliverableUrlsForPersistence(outcomeAnswer)).slice(0, 2000);
           }
-          await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
+          await this.persistVerifiedReceipt(
+            current,
+            currentRound,
+            checked.evidence,
+            true,
+            candidateArtifacts.map(artifact => 'artifact:' + artifact.id),
+          );
           return;
         }
         // Criteria green but user still asked for text we never got — keep working, do not fake done.
@@ -1678,8 +2363,8 @@ export class TaskManager {
             completionPassed: checked.passed,
             hasRequiredCriteria: currentRound.criteria.some(criterion => criterion.required),
           }) &&
-          needsDeliverable &&
-          !deliverableOk
+          ((!deliverableOk && needsDeliverable) || !artifactsVerified) &&
+          verificationRetries < 1
         ) {
           current.revision += 1;
           await this.persist(current);
@@ -1687,11 +2372,15 @@ export class TaskManager {
           return;
         }
         if (verificationRetries >= 1) {
-          if (needsDeliverable && !deliverableOk) {
+          if (
+            (needsDeliverable && !deliverableOk) ||
+            !artifactsVerified ||
+            this.isReadOnlyCandidate(instructionForRound)
+          ) {
             // Missing requested text is not something the user can prove for us.
             current.status = 'failed';
             currentRound.status = 'failed';
-            currentRound.failureCategory = 'no_action';
+            currentRound.failureCategory = artifactsVerified ? 'no_action' : 'artifact_verification_failed';
             delete currentRound.waitReason;
             current.revision += 1;
             current.updatedAt = this.deps.now();
@@ -1720,8 +2409,13 @@ export class TaskManager {
       }
       verificationRetries += 1;
       if (needsDeliverable && !deliverableOk && checked.passed) {
+        const missing = (
+          await checkInstructionDeliverable(instructionForRound, outcomeAnswer, this.visitedPageEvidence(task))
+        ).reasons.join(', ');
         driver.addFollowUp(
-          'Page checks passed but the user also asked for extracted text (comment/copy/summary). Read the page, copy the requested content, and reply with that text before finishing.',
+          'Page checks passed but the requested deliverable is incomplete (' +
+            (missing || 'content') +
+            '). Return the requested body text, item count, and distinct full URLs before finishing.',
         );
       } else {
         driver.addFollowUp('Completion was not verified; inspect the current page and continue.');
@@ -1733,11 +2427,16 @@ export class TaskManager {
    * product/022 Independent Verifier for TaskArtifact deliverables.
    * Does not read Executor reasoning — only artifacts + instruction-derived criteria.
    */
-  private verifyArtifactsIndependently(artifacts: TaskArtifact[], instruction: string) {
+  private verifyArtifactsIndependently(
+    artifacts: TaskArtifact[],
+    instruction: string,
+    completion?: CompletionCheckInput,
+  ) {
     const artifactCriteria = this.deriveArtifactCriteria(instruction, artifacts);
     return verifyCandidateComplete({
       artifacts,
       artifactCriteria,
+      ...(completion ? { completion } : {}),
     });
   }
 
@@ -1749,15 +2448,15 @@ export class TaskManager {
       /表格|清单/.test(text) ||
       artifacts.some(a => a.type === 'table' || a.type === 'recordset');
     if (wantsTable) {
-      const cols = ['name', 'price', 'rating'];
-      const primary = artifacts[0];
-      const have = primary ? tableColumns(primary) : cols;
-      criteria.push({
-        kind: 'artifact_schema',
-        expected: have.length > 0 ? have : cols,
-      });
+      const explicitFields = extractExplicitTableFields(text);
+      if (explicitFields.length > 0) {
+        criteria.push({
+          kind: 'artifact_schema',
+          expected: explicitFields,
+        });
+      }
       const minRows = /\b(\d+)\b/.exec(text)?.[1];
-      const expectedRows = minRows ? Number(minRows) : Math.max(1, primary ? tableRowCount(primary) : 1);
+      const expectedRows = minRows ? Number(minRows) : 1;
       // For extract tasks require at least 1 row; if user said N, require N.
       criteria.push({
         kind: 'artifact_row_count',
@@ -1769,24 +2468,52 @@ export class TaskManager {
     return criteria;
   }
 
+  private textFromArtifact(artifact: TaskArtifact): string {
+    if (artifact.type !== 'text' || !artifact.data || typeof artifact.data !== 'object') return '';
+    const text = (artifact.data as { text?: unknown }).text;
+    return typeof text === 'string' ? text.trim() : '';
+  }
+
+  /**
+   * A text artifact is allowed to carry the chat deliverable, but mere artifact
+   * existence is not enough. Prefer the first candidate that satisfies the same
+   * instruction-derived contract used for ordinary model summaries.
+   */
+  private async selectCandidateDeliverableText(
+    summary: string,
+    artifacts: TaskArtifact[],
+    instruction: string,
+    pageEvidence?: Iterable<DeliverableEvidenceInput>,
+  ): Promise<string> {
+    const artifactTexts = artifacts.map(artifact => this.textFromArtifact(artifact)).filter(Boolean);
+    const candidates = [summary.trim(), ...artifactTexts];
+    if (artifactTexts.length > 1) candidates.push(artifactTexts.join('\n'));
+    for (const candidate of candidates) {
+      if ((await checkInstructionDeliverable(instruction, candidate, pageEvidence)).passed) return candidate;
+    }
+    return candidates.find(Boolean) ?? '';
+  }
+
+  private visitedPageEvidence(task: TaskSession): DeliverablePageEvidence[] {
+    return task.targetRefs.flatMap(target =>
+      target.kind === 'page' && target.normalizedUrl
+        ? [
+            {
+              normalizedUrl: target.normalizedUrl,
+              ...(target.queryIdentityDigest ? { queryIdentityDigest: target.queryIdentityDigest } : {}),
+              ...(target.textDigests?.length ? { textDigests: target.textDigests } : {}),
+              ...(target.pageRevision ? { pageRevision: target.pageRevision } : {}),
+              ...(target.visitSeq !== undefined ? { visitSeq: target.visitSeq } : {}),
+              ...(target.label ? { label: target.label } : {}),
+            },
+          ]
+        : [],
+    );
+  }
+
   /** User expects content returned in chat (comment, copy, summary), not only page side-effects. */
   private instructionRequestsUserDeliverable(instruction: string): boolean {
-    const text = instruction.replace(/\s+/g, ' ').trim();
-    if (!text) return false;
-    return (
-      /复制/.test(text) ||
-      /发给我|发我|告诉我|回复我|贴给我/.test(text) ||
-      /第一条评论|评论内容|热评/.test(text) ||
-      /摘录|摘要|总结/.test(text) ||
-      /(?:用|以).{0,16}说明/.test(text) ||
-      /说明.{0,24}(?:页面|内容|展示|是什么)/.test(text) ||
-      /把.{1,40}给(我|你)/.test(text) ||
-      /\b(copy|tell me|send me|first comment)\b/i.test(text) ||
-      // R1-class: table/CSV extract must land as chat deliverable, not page-only done.
-      /\bextract\b.+\b(csv|table)\b/i.test(text) ||
-      /\b(csv|table)\b.+\b(name|price|rating)\b/i.test(text) ||
-      /(?:抽取|提取|导出).{0,24}(?:表|CSV|csv)/i.test(text)
-    );
+    return deriveInstructionDeliverableContract(instruction).required;
   }
 
   private instructionRequestsReadOnlyPageDeliverable(instruction: string): boolean {
@@ -1801,25 +2528,20 @@ export class TaskManager {
     return referencesCurrentPage && requestsReading;
   }
 
-  private hasSubstantiveDeliverableAnswer(summary: string, goalText = ''): boolean {
-    const s = summary.replace(/\s+/g, ' ').trim();
-    if (s.length < 8) return false;
-    if (/^(?:好的|好[，,]|可以[，,]|收到|明白).{0,48}(?:我来|将|正在|马上|会)/.test(s)) return false;
-    if (/^(?:sure|okay|ok)[,.! ]{0,3}(?:i(?:'ll| will)|let me)/i.test(s)) return false;
-    if (/^Control loop candidate complete$/i.test(s)) return false;
-    if (/^(done|完成|ok|已完成|success|好了|opened|playing|paused)[.!。！]*$/i.test(s)) return false;
-    // Media/page status is evidence, not the comment/copy the user asked for.
-    if (/^(视频|媒体).{0,12}(播放|暂停|核对)/.test(s)) return false;
-    if (/^(目标)?标签已关闭/.test(s)) return false;
-    if (/^页面(地址|状态)已/.test(s)) return false;
-    if (/^下载已(开始|完成)/.test(s)) return false;
-    if (/^(Browser opened|Switched to|Playing video|Opened |Paused video)/i.test(s)) return false;
-    if (/User instruction/i.test(s)) return false;
-    const goal = goalText.replace(/\s+/g, ' ').trim();
-    if (goal && (s === goal || s.includes(goal) || (s.length <= goal.length + 4 && goal.includes(s)))) {
-      return false;
-    }
-    return true;
+  private isReadOnlyCandidate(instruction: string): boolean {
+    return this.instructionRequestsReadOnlyPageDeliverable(instruction) || isUnderstandingOnlyInstruction(instruction);
+  }
+
+  private instructionUsesReadOnlyBrowserEvidence(instruction: string): boolean {
+    return this.isReadOnlyCandidate(instruction);
+  }
+
+  private async hasSubstantiveDeliverableAnswer(
+    summary: string,
+    goalText = '',
+    pageEvidence?: Iterable<DeliverableEvidenceInput>,
+  ): Promise<boolean> {
+    return (await checkInstructionDeliverable(goalText, summary, pageEvidence)).passed;
   }
 
   private canApplyDriverOutcome(task: TaskSession | null, taskId: string, driver: ExecutorDriver): task is TaskSession {
@@ -1920,6 +2642,19 @@ export class TaskManager {
     expectedRoundId: string,
     drafts: CompletionCriterionDraft[],
   ): Promise<void> {
+    const instructionForFreeze = this.instructions.get(taskId) ?? '';
+    const readOnlyBrowserEvidence = this.instructionUsesReadOnlyBrowserEvidence(instructionForFreeze);
+    let boundPageTarget: TaskSession['targetRefs'][number] | undefined;
+    if (readOnlyBrowserEvidence && drafts.some(draft => draft.kind === 'page_text')) {
+      try {
+        const { browserContext } = await import('../agent/factory');
+        const page = await browserContext.getCurrentPage();
+        const observation = await page.observeActionTarget('read_page_text', {}, 'after');
+        if (observation.target.kind === 'page') boundPageTarget = observation.target;
+      } catch {
+        // Missing semantic capture intentionally keeps the deliverable unverified.
+      }
+    }
     await this.queueTransition(async () => {
       const task = await getTask(taskId);
       if (!task || task.status !== 'running' || task.currentRoundId !== expectedRoundId) return;
@@ -1961,10 +2696,28 @@ export class TaskManager {
       const observedTabTargets = new Set(
         pageObservations.map(observation => observation.targetRefId).filter(target => target.startsWith('tab-')),
       );
+      if (boundPageTarget) {
+        const index = task.targetRefs.findIndex(item => item.id === boundPageTarget.id);
+        const existing = index >= 0 ? task.targetRefs[index] : undefined;
+        const visitSeq = task.targetRefs.reduce((max, item) => Math.max(max, item.visitSeq ?? 0), 0) + 1;
+        const nextTarget = { ...existing, ...boundPageTarget, visitSeq };
+        if (!boundPageTarget.textDigests?.length) delete nextTarget.textDigests;
+        if (!boundPageTarget.bodyDigest) delete nextTarget.bodyDigest;
+        if (!boundPageTarget.pageRevision) delete nextTarget.pageRevision;
+        if (!boundPageTarget.queryIdentityDigest) delete nextTarget.queryIdentityDigest;
+        if (index >= 0) task.targetRefs[index] = nextTarget;
+        else task.targetRefs.push(nextTarget);
+      }
       for (const criterion of criteria) {
         const observation = pageObservations.find(item => item.criterionId === criterion.id);
-        if (observation) criterion.targetRefId = observation.targetRefId;
-        criterion.baseline = observation?.value ?? false;
+        if (boundPageTarget && criterion.kind === 'page_text') {
+          criterion.targetRefId = boundPageTarget.id;
+          criterion.pageRevision = boundPageTarget.pageRevision;
+        } else if (observation) criterion.targetRefId = observation.targetRefId;
+        criterion.baseline =
+          readOnlyBrowserEvidence && (criterion.kind === 'page_text' || criterion.kind === 'url')
+            ? false
+            : (observation?.value ?? false);
       }
       if (observedTabTargets.size === 1) {
         const observedTabId = Number([...observedTabTargets][0].slice(4));
@@ -1974,7 +2727,7 @@ export class TaskManager {
       round.criteria = criteria;
       // First freeze: bind criterion ids onto the active mission phase (if empty).
       if (task.plan) {
-        task.plan = attachCriteriaToActivePhase(
+        task.plan = attachCriteriaAcrossMissionPlan(
           task.plan,
           criteria.map(item => item.id),
           this.deps.now(),
@@ -2121,10 +2874,9 @@ export class TaskManager {
     };
     switch (draft.kind) {
       case 'url': {
-        const expected = this.normalizeUrl(draft.expected);
-        return expected
-          ? { ...base, kind: 'url', operator: draft.operator, expected }
-          : { ...base, kind: 'user_confirmed', operator: 'equals', expected: true };
+        const expected = await durableHttpCompletionUrl(draft.expected);
+        if (!expected) throw new Error('invalid_url_criterion');
+        return { ...base, kind: 'url', operator: draft.operator, expected };
       }
       case 'page_text': {
         const normalized = draft.expected.replace(/\s+/g, ' ').trim();
@@ -2151,16 +2903,6 @@ export class TaskManager {
     }
   }
 
-  private normalizeUrl(value: string): string | null {
-    try {
-      const url = new URL(value);
-      if (!['http:', 'https:'].includes(url.protocol)) return null;
-      return `${url.origin}${url.pathname}`;
-    } catch {
-      return null;
-    }
-  }
-
   /**
    * When the planner omits completion_criteria, recover observable success signals from the user goal.
    * - Open-site goals ("打开 YouTube" / "open youtube") → url starts_with origin
@@ -2177,7 +2919,7 @@ export class TaskManager {
       try {
         const parsed = new URL(match[0].replace(/[)\].,，。]+$/, ''));
         if (!['http:', 'https:'].includes(parsed.protocol)) continue;
-        const expected = `${parsed.origin}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+        const expected = `${parsed.origin}${parsed.pathname === '/' ? '' : parsed.pathname}${parsed.search}`;
         if (!seen.has(expected)) {
           seen.add(expected);
           drafts.push({ kind: 'url', operator: 'starts_with', expected, required: true });
@@ -2509,7 +3251,10 @@ export class TaskManager {
     const passedIds = evidence.filter(item => item.passed).map(item => item.criterionId);
     let plan = task.plan;
     if (passedIds.length > 0) {
-      plan = applyPassedCriteriaToMissionPlan(plan, passedIds, now);
+      plan =
+        plan.phases.length === 1
+          ? applySinglePhaseEvidence(plan, passedIds, now)
+          : applyPassedCriteriaToMissionPlan(plan, passedIds, now);
     }
     task.plan = plan;
   }
@@ -2519,22 +3264,58 @@ export class TaskManager {
     round: TaskRound,
     evidence: CompletionEvidence[],
     incrementRevision = true,
-  ): Promise<void> {
+    artifactProofIds: string[] = [],
+  ): Promise<boolean> {
+    const passedEvidence = evidence.filter(item => item.passed);
+    const visibleAnswer =
+      round.instructionSummary && !['User instruction', 'Direction changed'].includes(round.instructionSummary)
+        ? round.instructionSummary.trim()
+        : '';
+    let answerDigest: string | null = null;
+    if (visibleAnswer && isBasicSubstantiveAnswer(visibleAnswer, '')) {
+      answerDigest = await sha256(visibleAnswer);
+    }
+
+    if (task.plan) {
+      const deliverableProof =
+        artifactProofIds[0] ?? (answerDigest ? 'deliverable:' + answerDigest.slice(0, 16) : undefined);
+      if (deliverableProof) {
+        task.plan = applyFinalDeliverableToMissionPlan(task.plan, deliverableProof, this.deps.now());
+      }
+      // Every phase must carry its own criterion/evidence. A final answer may
+      // close only an explicit active deliverable phase.
+      const phaseWithoutOwnProof = task.plan.phases.some(
+        phase =>
+          phase.status !== 'done' ||
+          phase.criteriaIds.length === 0 ||
+          !phase.criteriaIds.every(id => phase.evidenceIds.includes(id)),
+      );
+      if (phaseWithoutOwnProof) {
+        task.status = 'failed';
+        round.status = 'failed';
+        round.failureCategory = 'mission_plan_unverified';
+        round.waitReason = undefined;
+        if (incrementRevision) task.revision += 1;
+        await this.persist(task);
+        return false;
+      }
+    }
+
     round.receipt = {
       id: crypto.randomUUID(),
       taskId: task.id,
       roundId: round.id,
       verifiedAt: this.deps.now(),
       criterionIds: round.criteria.filter(item => item.required).map(item => item.id),
-      evidenceDigests: await Promise.all(evidence.map(item => sha256(JSON.stringify(item)))),
+      evidenceDigests: [
+        ...(await Promise.all(passedEvidence.map(item => sha256(JSON.stringify(item))))),
+        ...(answerDigest ? [answerDigest] : []),
+        ...(await Promise.all(artifactProofIds.map(id => sha256(id)))),
+      ],
     };
     task.status = 'completed';
     round.status = 'completed';
     round.waitReason = undefined;
-    if (task.plan) {
-      // Preserve intermediate done/evidence; only mark remaining planned/active as done.
-      task.plan = markRemainingPhasesDone(task.plan, this.deps.now());
-    }
     this.lockedCriteriaRounds.delete(this.roundKey(task.id, round.id));
     if (incrementRevision) task.revision += 1;
     await this.persist(task);
@@ -2549,6 +3330,7 @@ export class TaskManager {
         snapshot,
       });
     }
+    return true;
   }
 
   private async persist(task: TaskSession): Promise<void> {

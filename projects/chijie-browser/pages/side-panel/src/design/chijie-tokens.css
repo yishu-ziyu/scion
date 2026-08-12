@@ -19,10 +19,10 @@
   --chijie-border-strong: #b8c3bc;
   --chijie-paper: #ffffff;
   --chijie-paper-ink: #1f2d2a;
-  --chijie-paper-muted: #dde4e0;
-  --chijie-warning: #e6a11a;
+  --chijie-paper-muted: #586863;
+  --chijie-warning: #855600;
   --chijie-warning-subtle: #fff6e5;
-  --chijie-danger: #d94a4a;
+  --chijie-danger: #a72f2f;
   --chijie-danger-subtle: #fbecea;
   --chijie-space-unit: 8px;
   /* S5: compact ladder for ~430px console (Notion spacing notes + 008 density). */

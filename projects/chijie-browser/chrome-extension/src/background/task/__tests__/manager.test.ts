@@ -1,15 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { TaskManager } from '../manager';
+import {
+  checkInstructionDeliverable,
+  deriveInstructionDeliverableContract,
+  type DeliverablePageEvidence,
+  extractExplicitTableFields,
+  normalizeProvenanceUrl,
+  queryIdentityDigestForUrl,
+  redactDeliverableUrlsForPersistence,
+  TaskManager,
+} from '../manager';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome, ObserveCriteria } from '../contracts';
 import { Action } from '../../agent/actions/builder';
 import {
   clickElementActionSchema,
   closeTabActionSchema,
   controlMediaActionSchema,
+  goToUrlActionSchema,
   waitActionSchema,
 } from '../../agent/actions/schemas';
 import { ActionResult } from '../../agent/types';
 import { sha256 } from '../digest';
+import { createTextArtifact } from '../artifact';
+import type { BrowserTargetRef } from '@extension/storage/lib/task';
 
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
@@ -121,6 +133,388 @@ async function taskRoundId(manager: TaskManager, taskId: string): Promise<string
   return task.currentRoundId;
 }
 
+describe('instruction deliverable contract', () => {
+  const longInstruction =
+    '先确认 IANA Example Domains 的标题和 URL，再打开 Wikipedia 的 Web_browser 条目，读取标题和首段定义，最终输出两条中文观察，每条都带 URL。';
+  const ianaQuote = '这些域名只用于文档中的说明性示例';
+  const wikipediaQuote = '网页浏览器是用于访问网站的软件应用';
+  const pageEvidence = async (visitOrder: 'requested' | 'reversed' = 'requested') => [
+    {
+      normalizedUrl: 'https://www.iana.org/help/example-domains',
+      textDigests: [await sha256('Example Domains'), await sha256(ianaQuote)],
+      pageRevision: 'iana-revision',
+      visitSeq: visitOrder === 'requested' ? 1 : 2,
+    },
+    {
+      normalizedUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      textDigests: [await sha256('Web browser'), await sha256(wikipediaQuote)],
+      pageRevision: 'wikipedia-revision',
+      visitSeq: visitOrder === 'requested' ? 2 : 1,
+    },
+  ];
+
+  it('derives explicit item, URL, language, and body-content requirements', () => {
+    expect(deriveInstructionDeliverableContract(longInstruction)).toMatchObject({
+      required: true,
+      requiresPageContent: true,
+      requiresChinese: true,
+      minimumItems: 2,
+      minimumItemsWithUrl: 2,
+      minimumDistinctUrls: 2,
+      eachItemNeedsUrl: true,
+    });
+  });
+
+  it('checks per-item URLs separately from distinct full-URL provenance', async () => {
+    const duplicateUrlAnswer = [
+      `1. IANA 页面写道“${ianaQuote}”：https://www.iana.org/help/example-domains`,
+      `2. 浏览器页面写道“${wikipediaQuote}”：https://www.iana.org/help/example-domains`,
+    ].join('\n');
+    expect(await checkInstructionDeliverable(longInstruction, duplicateUrlAnswer, await pageEvidence())).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['distinct_url_count']),
+    });
+
+    const exactAnswer = [
+      `1. IANA 页面写道“${ianaQuote}”：https://www.iana.org/help/example-domains`,
+      `2. Wikipedia 页面写道“${wikipediaQuote}”：https://en.wikipedia.org/wiki/Web_browser#lead`,
+    ].join('\n');
+    expect(await checkInstructionDeliverable(longInstruction, exactAnswer, await pageEvidence())).toEqual({
+      passed: true,
+      reasons: [],
+    });
+    expect(
+      await checkInstructionDeliverable(longInstruction, exactAnswer, [
+        'https://www.iana.org/',
+        'https://en.wikipedia.org/wiki/Artificial_intelligence',
+      ]),
+    ).toMatchObject({ passed: false, reasons: expect.arrayContaining(['url_not_visited']) });
+    expect(normalizeProvenanceUrl('https://www.iana.org/help/example-domains?secret=1#x')).toBe(
+      'https://www.iana.org/help/example-domains',
+    );
+  });
+
+  it('derives table schema only from fields explicit in the instruction', () => {
+    expect(extractExplicitTableFields('Extract products to a CSV table with name, price, rating')).toEqual([
+      'name',
+      'price',
+      'rating',
+    ]);
+    expect(extractExplicitTableFields('Extract products to a CSV table')).toEqual([]);
+  });
+
+  it('rejects final-page status and accepts a complete two-source deliverable', async () => {
+    expect(
+      await checkInstructionDeliverable(
+        longInstruction,
+        '页面地址已符合目标：https://en.wikipedia.org/wiki/Web_browser',
+      ),
+    ).toMatchObject({ passed: false });
+
+    expect(
+      await checkInstructionDeliverable(
+        longInstruction,
+        [
+          `1. IANA 页面写道“Example Domains”、“${ianaQuote}”：https://www.iana.org/help/example-domains`,
+          `2. Web browser 条目写道“Web browser”、“${wikipediaQuote}”：https://en.wikipedia.org/wiki/Web_browser`,
+        ].join('\n'),
+        await pageEvidence(),
+      ),
+    ).toEqual({ passed: true, reasons: [] });
+  });
+
+  it('rejects title/domain metadata and fabricated body text when page content was requested', async () => {
+    const instruction = '阅读当前飞书页面，用一句中文概括核心主题，并引用一个正文中可见的细节；不要修改页面。';
+    const actualQuote = '上下文工程会直接影响语言模型的表现';
+    const evidence: DeliverablePageEvidence[] = [
+      {
+        normalizedUrl: 'https://my.feishu.cn/docx/CaseSensitivePath',
+        textDigests: [await sha256(actualQuote)],
+        pageRevision: 'feishu-revision',
+        visitSeq: 1,
+      },
+    ];
+    expect(
+      await checkInstructionDeliverable(
+        instruction,
+        '标题：上下文工程（中文版） - Feishu Docs；域名：my.feishu.cn',
+        evidence,
+      ),
+    ).toMatchObject({ passed: false, reasons: expect.arrayContaining(['page_content']) });
+    expect(
+      await checkInstructionDeliverable(
+        instruction,
+        '文章核心是火星永久居民的登记制度，正文细节写道“火星居民都拥有三个月亮”。',
+        evidence,
+      ),
+    ).toMatchObject({ passed: false, reasons: expect.arrayContaining(['page_content_ungrounded']) });
+    expect(
+      await checkInstructionDeliverable(instruction, `文章核心与正文细节是：“${actualQuote}”。`, evidence),
+    ).toEqual({ passed: true, reasons: [] });
+  });
+
+  it.each([
+    ['launch date', 'At https://example.test/report, tell me the launch date.', 'The launch date is 2099-01-01.'],
+    ['price', 'From https://example.test/report, tell me the price.', 'The price is $999.'],
+    ['publication date', 'What publication date is shown on https://example.test/report?', 'It was published in 2099.'],
+    ['author', 'Who is the author at https://example.test/report?', 'The author is Ada Example.'],
+    ['current-page date', '这个页面的发布日期是什么？', '发布日期是 2099-01-01。'],
+    ['linked author', '从链接 https://example.test/report 查作者。', '作者是 Ada Example。'],
+    ['amount', 'Report the amount at https://example.test/report.', 'The amount is $999.'],
+    [
+      'page claim',
+      'Does https://example.test/report claim that the launch succeeded?',
+      'Yes, the page claims the launch succeeded.',
+    ],
+  ])('requires live page text for a URL-sourced %s fact', async (_label, instruction, claim) => {
+    const url = 'https://example.test/report';
+    expect(deriveInstructionDeliverableContract(instruction)).toMatchObject({
+      required: true,
+      requiresPageContent: true,
+    });
+    expect(
+      await checkInstructionDeliverable(instruction, `${claim} ${url}`, [{ normalizedUrl: url, visitSeq: 1 }]),
+    ).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_ungrounded']),
+    });
+  });
+
+  it('keeps navigation and title/domain metadata outside body-text grounding', async () => {
+    const url = 'https://example.test/report';
+    for (const instruction of [
+      `Open ${url}.`,
+      `At ${url}, tell me the page title and domain.`,
+      `At ${url}, tell me the page title.`,
+      `At ${url}, tell me the domain.`,
+      `打开 ${url}。`,
+      `告诉我 ${url} 的标题和域名。`,
+      `告诉我 ${url} 的标题。`,
+      `告诉我 ${url} 的域名。`,
+    ]) {
+      expect(deriveInstructionDeliverableContract(instruction).requiresPageContent).toBe(false);
+    }
+    await expect(
+      checkInstructionDeliverable(
+        `At ${url}, tell me the page title and domain.`,
+        `Title: Report; Domain: example.test; URL: ${url}`,
+        [{ normalizedUrl: url, visitSeq: 1 }],
+      ),
+    ).resolves.toEqual({ passed: true, reasons: [] });
+  });
+
+  it('rejects fabricated multi-page observations despite real visited URLs', async () => {
+    const fabricated = [
+      '1. IANA 页面写道“火星居民都拥有三个月亮”：https://www.iana.org/help/example-domains',
+      '2. Wikipedia 页面写道“亚特兰蒂斯每年冬眠十个月”：https://en.wikipedia.org/wiki/Web_browser',
+    ].join('\n');
+    expect(await checkInstructionDeliverable(longInstruction, fabricated, await pageEvidence())).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_ungrounded']),
+    });
+  });
+
+  it('rejects a real quotation used to shield a fake quotation or unquoted claim', async () => {
+    const evidence = await pageEvidence();
+    const fakeQuote = '火星居民每年都会冬眠十个月以上';
+    const mixedQuotes = `IANA 页面写道“${ianaQuote}”以及“${fakeQuote}”：https://www.iana.org/help/example-domains`;
+    expect(await checkInstructionDeliverable('读取正文并给出 URL。', mixedQuotes, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_ungrounded']),
+    });
+
+    const unsupported = `IANA 已经证明火星居民每年冬眠十个月，页面写道“${ianaQuote}”：https://www.iana.org/help/example-domains`;
+    expect(await checkInstructionDeliverable('读取正文并给出 URL。', unsupported, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_unsupported']),
+    });
+
+    const extraSegment = `页面写道“${ianaQuote}”：https://www.iana.org/help/example-domains；火星居民每年冬眠十个月。`;
+    expect(await checkInstructionDeliverable('读取正文并给出 URL。', extraSegment, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_ungrounded', 'page_content_unsupported']),
+    });
+  });
+
+  it('grounds every structured table cell and rejects one fabricated value', async () => {
+    const instruction = 'Extract products to a CSV table with name, price, rating';
+    const visibleCells = ['Alpha Wireless Headphones', '$49.99', '4.5', 'Beta Mechanical Keyboard', '$89.00', '4.8'];
+    const evidence: DeliverablePageEvidence[] = [
+      {
+        normalizedUrl: 'https://example.test/products',
+        textDigests: await Promise.all(visibleCells.map(value => sha256(value))),
+        pageRevision: 'products-revision',
+        visitSeq: 1,
+      },
+    ];
+    const valid = [
+      '已提取 2 件商品（CSV）：',
+      'name,price,rating',
+      'Alpha Wireless Headphones,$49.99,4.5',
+      'Beta Mechanical Keyboard,$89.00,4.8',
+    ].join('\n');
+    expect(await checkInstructionDeliverable(instruction, valid, evidence)).toEqual({ passed: true, reasons: [] });
+
+    const fabricated = valid.replace('$89.00', '$999.00');
+    expect(await checkInstructionDeliverable(instruction, fabricated, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_ungrounded']),
+    });
+  });
+
+  it('uses redacted query identity for distinct and per-segment provenance', async () => {
+    const quoteOne = '第一份查询结果展示了一个可见正文事实';
+    const quoteTwo = '第二份查询结果展示了另一个正文事实';
+    const urlOne = 'https://example.test/report?id=1&view=full';
+    const urlTwo = 'https://example.test/report?id=2&view=full';
+    const instruction = `先读取 ${urlOne}，再读取 ${urlTwo}，最终输出两条中文观察，每条都带 URL。`;
+    expect(deriveInstructionDeliverableContract(instruction).minimumDistinctUrls).toBe(2);
+    const evidence = [
+      {
+        normalizedUrl: normalizeProvenanceUrl(urlOne)!,
+        queryIdentityDigest: await queryIdentityDigestForUrl(urlOne),
+        textDigests: [await sha256(quoteOne)],
+        pageRevision: 'query-one',
+        visitSeq: 1,
+      },
+      {
+        normalizedUrl: normalizeProvenanceUrl(urlTwo)!,
+        queryIdentityDigest: await queryIdentityDigestForUrl(urlTwo),
+        textDigests: [await sha256(quoteTwo)],
+        pageRevision: 'query-two',
+        visitSeq: 2,
+      },
+    ];
+    const valid = [`1. 页面写道“${quoteOne}”：${urlOne}`, `2. 页面写道“${quoteTwo}”：${urlTwo}`].join('\n');
+    expect(await checkInstructionDeliverable(instruction, valid, evidence)).toEqual({ passed: true, reasons: [] });
+
+    const wrongQuery = valid.replace(urlTwo, 'https://example.test/report?id=3&view=full');
+    expect(await checkInstructionDeliverable(instruction, wrongQuery, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['url_not_visited', 'page_content_ungrounded']),
+    });
+    expect(JSON.stringify(evidence)).not.toContain('?id=');
+  });
+
+  it('redacts raw query values before a deliverable enters durable task state', async () => {
+    const first = await redactDeliverableUrlsForPersistence('结果：https://example.test/report?id=1&token=TOPSECRET。');
+    const second = await redactDeliverableUrlsForPersistence(
+      '结果：https://example.test/report?id=2&token=TOPSECRET。',
+    );
+    expect(first).toContain('https://example.test/report?__chijie_query_identity=');
+    expect(first).not.toContain('id=1');
+    expect(first).not.toContain('TOPSECRET');
+    expect(second).not.toBe(first);
+  });
+
+  it('rejects reversed source output and reversed visit order', async () => {
+    const reversedOutput = [
+      `1. Wikipedia 页面写道“${wikipediaQuote}”：https://en.wikipedia.org/wiki/Web_browser`,
+      `2. IANA 页面写道“${ianaQuote}”：https://www.iana.org/help/example-domains`,
+    ].join('\n');
+    expect(await checkInstructionDeliverable(longInstruction, reversedOutput, await pageEvidence())).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['source_order_unverified']),
+    });
+
+    const requestedOutput = [
+      `1. IANA 页面写道“${ianaQuote}”：https://www.iana.org/help/example-domains`,
+      `2. Wikipedia 页面写道“${wikipediaQuote}”：https://en.wikipedia.org/wiki/Web_browser`,
+    ].join('\n');
+    expect(
+      await checkInstructionDeliverable(longInstruction, requestedOutput, await pageEvidence('reversed')),
+    ).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['source_order_unverified']),
+    });
+  });
+
+  it('keeps URL path casing exact in provenance checks', async () => {
+    const instruction = '阅读页面正文并给出 URL。';
+    const quote = '大小写路径属于不同的页面资源';
+    expect(
+      await checkInstructionDeliverable(instruction, `正文写道“${quote}”：https://example.test/casepath`, [
+        {
+          normalizedUrl: 'https://example.test/CasePath',
+          textDigests: [await sha256(quote)],
+          pageRevision: 'case-revision',
+          visitSeq: 1,
+        },
+      ]),
+    ).toMatchObject({ passed: false, reasons: expect.arrayContaining(['url_not_visited']) });
+  });
+
+  it('grounds a current-page answer only in the latest page observation', async () => {
+    const instruction = '阅读当前页面并概括正文中的一个细节。';
+    const staleQuote = '旧页面曾经展示过这一段可见正文';
+    const currentQuote = '当前页面展示的是另一段可见正文';
+    const evidence = [
+      {
+        normalizedUrl: 'https://example.test/old',
+        textDigests: [await sha256(staleQuote)],
+        pageRevision: 'old-revision',
+        visitSeq: 1,
+      },
+      {
+        normalizedUrl: 'https://example.test/current',
+        textDigests: [await sha256(currentQuote)],
+        pageRevision: 'current-revision',
+        visitSeq: 2,
+      },
+    ];
+    expect(await checkInstructionDeliverable(instruction, `正文细节是：“${staleQuote}”。`, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_ungrounded']),
+    });
+    expect(await checkInstructionDeliverable(instruction, `正文细节是：“${currentQuote}”。`, evidence)).toEqual({
+      passed: true,
+      reasons: [],
+    });
+  });
+
+  it('uses only the latest revision for the same URL identity, including a failed-capture tombstone', async () => {
+    const instruction = '阅读 https://example.test/report?id=1 的正文并给出 URL。';
+    const url = 'https://example.test/report?id=1';
+    const queryIdentityDigest = await queryIdentityDigestForUrl(url);
+    const oldQuote = '旧版页面曾经展示的正文句子已经过期';
+    const newQuote = '新版页面现在展示的正文句子才有效';
+    const evidence: DeliverablePageEvidence[] = [
+      {
+        normalizedUrl: normalizeProvenanceUrl(url)!,
+        queryIdentityDigest,
+        textDigests: [await sha256(oldQuote)],
+        pageRevision: 'revision-old',
+        visitSeq: 1,
+      },
+      {
+        normalizedUrl: normalizeProvenanceUrl(url)!,
+        queryIdentityDigest,
+        textDigests: [await sha256(newQuote)],
+        pageRevision: 'revision-new',
+        visitSeq: 2,
+      },
+    ];
+    expect(await checkInstructionDeliverable(instruction, `页面写道“${oldQuote}”：${url}`, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_ungrounded']),
+    });
+    expect(await checkInstructionDeliverable(instruction, `页面写道“${newQuote}”：${url}`, evidence)).toEqual({
+      passed: true,
+      reasons: [],
+    });
+
+    evidence.push({
+      normalizedUrl: normalizeProvenanceUrl(url)!,
+      queryIdentityDigest,
+      visitSeq: 3,
+    });
+    expect(await checkInstructionDeliverable(instruction, `页面写道“${newQuote}”：${url}`, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_ungrounded']),
+    });
+  });
+});
+
 describe('TaskManager lifecycle', () => {
   beforeEach(() => {
     store.sessions.clear();
@@ -164,6 +558,123 @@ describe('TaskManager lifecycle', () => {
     expect(JSON.stringify(store.sessions.get('task-1'))).not.toContain('open the form');
   });
 
+  it('rejects malformed URL criteria instead of degrading them to user confirmation', async () => {
+    const manager = new TaskManager({
+      createExecutor: async () => fakeDriver(),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    const freezeCriterion = (
+      manager as unknown as {
+        freezeCriterion(
+          draft: {
+            kind: 'url';
+            operator: 'equals';
+            expected: string;
+            required: boolean;
+          },
+          roundId: string,
+          targetRefId: string,
+          frozenAt: number,
+          userFieldValues: Set<string>,
+        ): Promise<unknown>;
+      }
+    ).freezeCriterion.bind(manager);
+    await expect(
+      freezeCriterion(
+        { kind: 'url', operator: 'equals', expected: 'https://example.test/report?q=%ZZ', required: true },
+        'round-malformed',
+        'tab-7',
+        100,
+        new Set(),
+      ),
+    ).rejects.toThrow('invalid_url_criterion');
+  });
+
+  it('clears stale body evidence when a later fresh page capture fails', async () => {
+    const manager = new TaskManager({
+      createExecutor: async () => fakeDriver(),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-stale-capture',
+      taskId: 'task-stale-capture',
+      instruction: '读取当前页面正文',
+      chatSessionId: 'chat-stale-capture',
+      instructionMessageId: 'message-stale-capture',
+      tabId: 7,
+    });
+    const roundId = await taskRoundId(manager, 'task-stale-capture');
+    const persistTarget = (
+      manager as unknown as {
+        persistTarget(taskId: string, roundId: string, target: BrowserTargetRef): Promise<void>;
+      }
+    ).persistTarget.bind(manager);
+    const queryIdentityDigest = await queryIdentityDigestForUrl('https://example.test/report?id=1');
+    await persistTarget('task-stale-capture', roundId, {
+      id: 'page-stale-capture',
+      kind: 'page',
+      tabId: 7,
+      frameId: 0,
+      urlOrigin: 'https://example.test',
+      normalizedUrl: 'https://example.test/report',
+      queryIdentityDigest,
+      bodyDigest: 'old-body',
+      textDigests: ['old-text'],
+      pageRevision: 'old-revision',
+      digest: 'old-capture-digest',
+    });
+    const before = (await manager.snapshot('task-stale-capture'))?.targetRefs.find(
+      target => target.id === 'page-stale-capture',
+    );
+
+    await persistTarget('task-stale-capture', roundId, {
+      id: 'page-stale-capture',
+      kind: 'page',
+      tabId: 7,
+      frameId: 0,
+      urlOrigin: 'https://example.test',
+      normalizedUrl: 'https://example.test/report',
+      queryIdentityDigest,
+      digest: 'failed-fresh-capture',
+    });
+    const after = (await manager.snapshot('task-stale-capture'))?.targetRefs.find(
+      target => target.id === 'page-stale-capture',
+    );
+    expect(before).toMatchObject({ bodyDigest: 'old-body', textDigests: ['old-text'], pageRevision: 'old-revision' });
+    expect(after).toMatchObject({ digest: 'failed-fresh-capture' });
+    expect(after?.visitSeq).toBeGreaterThan(before?.visitSeq ?? 0);
+    expect(after).not.toHaveProperty('bodyDigest');
+    expect(after).not.toHaveProperty('textDigests');
+    expect(after).not.toHaveProperty('pageRevision');
+    expect(after).toMatchObject({ queryIdentityDigest });
+
+    store.observeActionTarget.mockRejectedValueOnce(new Error('execution context destroyed before capture'));
+    const captureCurrentPageEvidence = (
+      manager as unknown as {
+        captureCurrentPageEvidence(taskId: string, roundId: string): Promise<void>;
+      }
+    ).captureCurrentPageEvidence.bind(manager);
+    await captureCurrentPageEvidence('task-stale-capture', roundId);
+    const latest = [...((await manager.snapshot('task-stale-capture'))?.targetRefs ?? [])]
+      .filter(target => target.kind === 'page')
+      .sort((left, right) => (right.visitSeq ?? -1) - (left.visitSeq ?? -1))[0];
+    expect(latest?.visitSeq).toBeGreaterThan(after?.visitSeq ?? 0);
+    expect(latest).toMatchObject({
+      normalizedUrl: 'https://example.test/report',
+      digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(latest).not.toHaveProperty('bodyDigest');
+    expect(latest).not.toHaveProperty('textDigests');
+    expect(latest).not.toHaveProperty('pageRevision');
+  });
+
   it('persists a mission plan without raw instruction text', async () => {
     const manager = new TaskManager({
       createExecutor: async () => fakeDriver(),
@@ -186,7 +697,8 @@ describe('TaskManager lifecycle', () => {
     expect(snap?.plan?.phases[0]).toMatchObject({ id: 'phase-1', title: '调研', status: 'active' });
     expect(snap?.plan?.phases[1]?.title).toBe('输出');
     expect(snap?.plan?.phases[2]?.title).toBe('总结');
-    expect(snap?.plan?.goal).toBe('User task');
+    expect(snap?.plan?.goal).toBe('调研并总结');
+    expect(snap?.goalSummary).toBe('调研并总结');
     expect(JSON.stringify(snap)).not.toContain('竞品');
   });
 
@@ -267,7 +779,7 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(async () => expect((await manager.snapshot('task-research-premature'))?.status).toBe('failed'));
   });
 
-  it('completes structured research from durable decision and Feishu receipts without user confirmation', async () => {
+  it('does not mint a task receipt when structured research phases have no per-phase evidence', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     const driver = fakeDriver();
     driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
@@ -318,10 +830,11 @@ describe('TaskManager lifecycle', () => {
 
     await vi.waitFor(async () => {
       const snapshot = await manager.snapshot('task-research-delivered');
-      expect(snapshot?.status).toBe('completed');
-      expect(snapshot?.rounds[0]?.status).toBe('completed');
+      expect(snapshot?.status).toBe('failed');
+      expect(snapshot?.rounds[0]?.status).toBe('failed');
+      expect(snapshot?.rounds[0]?.failureCategory).toBe('mission_plan_unverified');
       expect(snapshot?.rounds[0]?.waitReason).toBeUndefined();
-      expect(snapshot?.rounds[0]?.receipt).toBeDefined();
+      expect(snapshot?.rounds[0]?.receipt).toBeUndefined();
       expect(snapshot?.rounds[0]?.criteria).toEqual([]);
     });
   });
@@ -388,8 +901,7 @@ describe('TaskManager lifecycle', () => {
       type: 'start',
       commandId: 'start-research-decision-retry',
       taskId: 'task-research-decision-retry',
-      instruction:
-        'Living Reader：至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最终恰好 3 个能力并完成飞书回读。',
+      instruction: 'Living Reader：至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最终恰好 3 个能力并完成飞书回读。',
       chatSessionId: 'chat-research-decision-retry',
       instructionMessageId: 'message-research-decision-retry',
       tabId: 7,
@@ -402,7 +914,9 @@ describe('TaskManager lifecycle', () => {
     expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('failed with action_failed'));
     expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('use these exact keys'));
     expect(store.evidenceSpaces.get('task-research-decision-retry')?.workCycles).toBe(0);
-    await vi.waitFor(async () => expect((await manager.snapshot('task-research-decision-retry'))?.status).toBe('failed'));
+    await vi.waitFor(async () =>
+      expect((await manager.snapshot('task-research-decision-retry'))?.status).toBe('failed'),
+    );
   });
 
   it('preserves mission plan across pause and resume', async () => {
@@ -528,7 +1042,7 @@ describe('TaskManager lifecycle', () => {
     expect(snap?.plan?.phases.map(p => p.status)).toEqual(['active', 'planned', 'planned']);
   });
 
-  it('marks remaining mission phases done on verified complete', async () => {
+  it('does not spread one criterion across remaining mission phases', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     let hooks!: ExecutorHooks;
     const driver = fakeDriver();
@@ -585,10 +1099,14 @@ describe('TaskManager lifecycle', () => {
     finish({ kind: 'candidate_complete', summary: 'all done' });
 
     await vi.waitFor(async () => {
-      expect(await manager.snapshot('task-plan-done')).toMatchObject({ status: 'completed' });
+      expect(await manager.snapshot('task-plan-done')).toMatchObject({
+        status: 'failed',
+        rounds: [{ failureCategory: 'mission_plan_unverified' }],
+      });
     });
     const done = await manager.snapshot('task-plan-done');
-    expect(done?.plan?.phases.map(p => p.status)).toEqual(['done', 'done', 'done']);
+    expect(done?.plan?.phases.map(p => p.status)).not.toEqual(['done', 'done', 'done']);
+    expect(done?.rounds[0]?.receipt).toBeUndefined();
     // Intermediate evidence preserved on the already-done phase.
     expect(done?.plan?.phases[0]?.evidenceIds).toContain('seed');
   });
@@ -1873,7 +2391,16 @@ describe('TaskManager lifecycle', () => {
         return fakeDriver();
       }),
       switchTab: vi.fn(),
-      observeCriteria: vi.fn(async () => []),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: true,
+        })),
+      ),
       now: () => 100,
       ...noPostCommitBackoff,
     });
@@ -2048,7 +2575,7 @@ describe('TaskManager lifecycle', () => {
             expect.objectContaining({
               kind: 'url',
               operator: 'starts_with',
-              expected: 'https://www.youtube.com/',
+              expected: 'https://www.youtube.com',
               targetRefId: 'tab-7',
             }),
           ],
@@ -2062,7 +2589,7 @@ describe('TaskManager lifecycle', () => {
     expect(snap?.rounds[0]?.criteria[0]).toMatchObject({
       kind: 'url',
       operator: 'starts_with',
-      expected: 'https://www.youtube.com/',
+      expected: 'https://www.youtube.com',
     });
   });
 
@@ -2280,15 +2807,67 @@ describe('TaskManager lifecycle', () => {
     expect(snap?.rounds[0]?.receipt).toBeTruthy();
     expect(snap?.rounds[0]?.criteria[0]).toMatchObject({
       kind: 'url',
-      expected: 'https://www.youtube.com/',
+      expected: 'https://www.youtube.com',
     });
   });
 
-  it('completes open-ended goals with a summary answer instead of hanging on proof_required', async () => {
+  it('does not mint a native receipt for a URL-sourced fact without page text evidence', async () => {
+    const url = 'https://example.test/report';
+    const instruction = `At ${url}, tell me the launch date.`;
+    const driver = fakeDriver();
+    driver.run = vi.fn().mockResolvedValue({
+      kind: 'candidate_complete',
+      summary: `The launch date is 2099-01-01. ${url}`,
+    });
+    let observeCall = 0;
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) => {
+        observeCall += 1;
+        return criteria.map(criterion => ({
+          criterionId: criterion.id,
+          roundId: criterion.roundId,
+          targetRefId: criterion.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: criterion.kind === 'url' ? (observeCall === 1 ? 'about:blank' : url) : false,
+        }));
+      }),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-url-fact-no-text',
+      taskId: 'task-url-fact-no-text',
+      instruction,
+      chatSessionId: 'chat-url-fact-no-text',
+      instructionMessageId: 'message-url-fact-no-text',
+      tabId: 7,
+    });
+
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-url-fact-no-text')).toMatchObject({
+        status: 'failed',
+        rounds: [{ status: 'failed', failureCategory: 'no_action' }],
+      });
+    });
+    const snapshot = await manager.snapshot('task-url-fact-no-text');
+    expect(snapshot?.rounds[0]?.receipt).toBeUndefined();
+    expect(snapshot?.rounds[0]?.evidence).toEqual(expect.arrayContaining([expect.objectContaining({ passed: true })]));
+    expect(driver.run).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails open-ended identity output without observable criteria', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     let hooks!: ExecutorHooks;
     const driver = fakeDriver();
-    driver.run = vi.fn().mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    driver.run = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)))
+      .mockResolvedValueOnce({ kind: 'candidate_complete', summary: '是。host=bilibili.com' });
     const manager = new TaskManager({
       createExecutor: vi.fn(async (_input, nextHooks) => {
         hooks = nextHooks;
@@ -2316,22 +2895,21 @@ describe('TaskManager lifecycle', () => {
     finish({ kind: 'candidate_complete', summary: '是。host=bilibili.com' });
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-open-ended')).toMatchObject({
-        status: 'completed',
+        status: 'failed',
         rounds: [
           {
-            status: 'completed',
-            instructionSummary: '是。host=bilibili.com',
-            receipt: expect.objectContaining({ taskId: 'task-open-ended' }),
+            status: 'failed',
+            failureCategory: 'no_completion_criteria',
           },
         ],
       });
     });
     const snap = await manager.snapshot('task-open-ended');
     expect(snap?.rounds[0]?.waitReason).toBeUndefined();
-    expect(snap?.rounds[0]?.failureCategory).toBeUndefined();
+    expect(snap?.rounds[0]?.receipt).toBeUndefined();
   });
 
-  it('retries an acknowledgement and completes only with the requested page summary', async () => {
+  it('fails a requested page summary without browser criteria even when prose looks substantive', async () => {
     const driver = fakeDriver();
     driver.run = vi
       .fn()
@@ -2363,17 +2941,17 @@ describe('TaskManager lifecycle', () => {
 
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-aicss-summary')).toMatchObject({
-        status: 'completed',
+        status: 'failed',
         rounds: [
           {
-            status: 'completed',
-            instructionSummary: '当前 AICSS 页面展示了一个已完成五项任务的 To-do List 组件及其 React 示例代码。',
+            status: 'failed',
+            failureCategory: 'no_completion_criteria',
           },
         ],
       });
     });
     expect(driver.run).toHaveBeenCalledTimes(2);
-    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('substantive text answer'));
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('browser completion criterion'));
     expect((await manager.snapshot('task-aicss-summary'))?.rounds[0]?.waitReason).toBeUndefined();
   });
 
@@ -2404,18 +2982,276 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-summary-missing')).toMatchObject({
         status: 'failed',
-        rounds: [{ status: 'failed', failureCategory: 'no_action' }],
+        rounds: [{ status: 'failed', failureCategory: 'no_completion_criteria' }],
       });
     });
     expect(driver.run).toHaveBeenCalledTimes(2);
     expect((await manager.snapshot('task-summary-missing'))?.rounds[0]?.waitReason).toBeUndefined();
   });
 
-  it('completes a read-only page summary with a substantive answer instead of proof_required', async () => {
+  it('fails closed when a page-theme request receives only title/domain metadata', async () => {
+    const artifact = createTextArtifact({
+      title: 'Understanding answer',
+      text: '标题：上下文工程（中文版） - Feishu Docs；域名：my.feishu.cn',
+      sources: [{ url: 'https://my.feishu.cn/wiki/example', title: '上下文工程（中文版）' }],
+    });
+    const driver = fakeDriver();
+    driver.run = vi.fn().mockResolvedValue({
+      kind: 'candidate_complete',
+      summary: '标题：上下文工程（中文版） - Feishu Docs；域名：my.feishu.cn',
+      artifacts: [artifact],
+    });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-feishu-theme',
+      taskId: 'task-feishu-theme',
+      instruction: '阅读当前飞书页面，用一句中文概括核心主题，并引用一个正文中可见的细节；不要修改页面。',
+      chatSessionId: 'chat-feishu-theme',
+      instructionMessageId: 'message-feishu-theme',
+      tabId: 7,
+    });
+
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-feishu-theme')).toMatchObject({
+        status: 'failed',
+        plan: { goal: '阅读并总结', phases: [{ status: 'active' }] },
+        rounds: [{ status: 'failed', failureCategory: 'artifact_verification_failed' }],
+      });
+    });
+    expect((await manager.snapshot('task-feishu-theme'))?.rounds[0]?.receipt).toBeUndefined();
+    expect(driver.run).toHaveBeenCalledTimes(2);
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('not independently verified'));
+  });
+
+  it('rejects a final-URL-only long-horizon answer, then accepts the complete two-source result', async () => {
+    const instruction =
+      '先确认 IANA Example Domains 的标题和 URL，再打开 Wikipedia 的 Web_browser 条目，读取标题和首段定义，最终输出两条中文观察，每条都带 URL。';
+    const ianaQuote = '这些域名只用于文档中的说明性示例';
+    const wikipediaQuote = '网页浏览器是用于访问网站的软件应用';
+    const completeAnswer = [
+      `1. IANA 页面写道“Example Domains”、“${ianaQuote}”：https://www.iana.org/help/example-domains`,
+      `2. Web browser 条目写道“Web browser”、“${wikipediaQuote}”：https://en.wikipedia.org/wiki/Web_browser`,
+    ].join('\n');
+    let hooks!: ExecutorHooks;
+    let finish!: (outcome: ExecutorOutcome) => void;
+    let criteriaFrozen = false;
+    const driver = fakeDriver();
+    driver.run = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)))
+      .mockResolvedValueOnce({ kind: 'candidate_complete', summary: completeAnswer });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: criteriaFrozen,
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-two-source',
+      taskId: 'task-two-source',
+      instruction,
+      chatSessionId: 'chat-two-source',
+      instructionMessageId: 'message-two-source',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-two-source');
+    await hooks.onPlan(roundId, [
+      { kind: 'page_text', operator: 'present', expected: 'Example Domains', required: true },
+      { kind: 'page_text', operator: 'present', expected: 'Web browser', required: true },
+      { kind: 'page_text', operator: 'present', expected: 'software application', required: true },
+      { kind: 'page_text', operator: 'present', expected: 'source detail', required: true },
+    ]);
+    criteriaFrozen = true;
+    for (const [url, title, quote, pageRevision] of [
+      ['https://www.iana.org/help/example-domains', 'Example Domains', ianaQuote, 'iana-revision'],
+      ['https://en.wikipedia.org/wiki/Web_browser', 'Web browser', wikipediaQuote, 'wikipedia-revision'],
+    ] as const) {
+      store.observeActionTarget.mockResolvedValue({
+        target: {
+          id: 'page-' + new URL(url).hostname,
+          kind: 'page',
+          tabId: 7,
+          frameId: 0,
+          urlOrigin: new URL(url).origin,
+          normalizedUrl: normalizeProvenanceUrl(url)!,
+          digest: 'digest-' + new URL(url).hostname,
+          label: title,
+          textDigests: [await sha256(title), await sha256(quote)],
+          pageRevision,
+          observedAt: 100,
+        },
+        tag: undefined,
+        type: undefined,
+        inForm: false,
+      });
+      await hooks.dispatchAction(
+        roundId,
+        new Action(async () => new ActionResult({ success: true }), goToUrlActionSchema),
+        { url, intent: 'visit source' },
+      );
+    }
+    finish({
+      kind: 'candidate_complete',
+      summary: '页面地址已符合目标：https://en.wikipedia.org/wiki/Web_browser',
+    });
+
+    await vi.waitFor(async () => {
+      const snapshot = await manager.snapshot('task-two-source');
+      expect(snapshot).toMatchObject({
+        status: 'completed',
+        rounds: [{ instructionSummary: completeAnswer, receipt: { taskId: 'task-two-source' } }],
+      });
+    });
+    expect(driver.run).toHaveBeenCalledTimes(2);
+    expect(driver.addFollowUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('never persists a raw query from a verified final answer or its visited page', async () => {
+    const rawUrl = 'https://example.test/report?id=1&token=TOPSECRET';
+    const visibleQuote = '当前报告页面展示了这一条可验证的正文事实';
+    const answer = `页面写道“${visibleQuote}”：${rawUrl}`;
+    let hooks!: ExecutorHooks;
+    let finish!: (outcome: ExecutorOutcome) => void;
+    let criteriaFrozen = false;
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          pageRevision: item.pageRevision,
+          observedAt: 100,
+          source: 'page' as const,
+          value: criteriaFrozen,
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-query-persistence',
+      taskId: 'task-query-persistence',
+      instruction: '输出当前页面正文引文和 URL。',
+      chatSessionId: 'chat-query-persistence',
+      instructionMessageId: 'message-query-persistence',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-query-persistence');
+    await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: visibleQuote, required: true }]);
+    criteriaFrozen = true;
+    store.observeActionTarget.mockResolvedValue({
+      target: {
+        id: 'page-query-persistence',
+        kind: 'page',
+        tabId: 7,
+        frameId: 0,
+        urlOrigin: 'https://example.test',
+        normalizedUrl: normalizeProvenanceUrl(rawUrl)!,
+        queryIdentityDigest: await queryIdentityDigestForUrl(rawUrl),
+        digest: 'query-persistence-digest',
+        textDigests: [await sha256(visibleQuote)],
+        pageRevision: 'query-persistence-revision',
+        observedAt: 100,
+      },
+      tag: 'body',
+      type: '',
+      inForm: false,
+    });
+    await hooks.dispatchAction(
+      roundId,
+      new Action(async () => new ActionResult({ success: true }), goToUrlActionSchema),
+      {
+        url: rawUrl,
+        intent: 'visit report',
+      },
+    );
+    finish({ kind: 'candidate_complete', summary: answer });
+
+    await vi.waitFor(async () => expect((await manager.snapshot('task-query-persistence'))?.status).toBe('completed'));
+    const snapshot = await manager.snapshot('task-query-persistence');
+    expect(snapshot?.rounds[0]?.instructionSummary).toBe(await redactDeliverableUrlsForPersistence(answer));
+    expect(JSON.stringify(snapshot)).not.toContain('TOPSECRET');
+    expect(JSON.stringify(snapshot)).not.toContain('?id=1');
+  });
+
+  it('does not receipt a complete-looking two-URL answer when those sources were never visited', async () => {
+    const instruction =
+      '先确认 IANA Example Domains 的标题和 URL，再打开 Wikipedia 的 Web_browser 条目，读取标题和首段定义，最终输出两条中文观察，每条都带 URL。';
+    const answer = [
+      '1. IANA 页面说明这些域名只用于文档示例：https://www.iana.org/help/example-domains',
+      '2. Web browser 条目定义浏览器是访问网站的软件：https://en.wikipedia.org/wiki/Web_browser',
+    ].join('\n');
+    const driver = fakeDriver();
+    driver.run = vi.fn().mockResolvedValue({ kind: 'candidate_complete', summary: answer });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-unvisited-sources',
+      taskId: 'task-unvisited-sources',
+      instruction,
+      chatSessionId: 'chat-unvisited',
+      instructionMessageId: 'message-unvisited',
+      tabId: 7,
+    });
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-unvisited-sources'))?.status).toBe('failed');
+    });
+    expect((await manager.snapshot('task-unvisited-sources'))?.rounds[0]?.receipt).toBeUndefined();
+    expect(driver.run).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not complete a read-only page summary when page_text evidence is false', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     let hooks!: ExecutorHooks;
     const driver = fakeDriver();
-    driver.run = vi.fn().mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    driver.run = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)))
+      .mockResolvedValueOnce({
+        kind: 'candidate_complete',
+        summary: 'The AICSS page presents a completed five-item To-do List component alongside its React example code.',
+      });
     const manager = new TaskManager({
       createExecutor: vi.fn(async (_input, nextHooks) => {
         hooks = nextHooks;
@@ -2430,6 +3266,7 @@ describe('TaskManager lifecycle', () => {
           observedAt: 100,
           source: 'page' as const,
           value: false,
+          ...(criterion.pageRevision ? { pageRevision: criterion.pageRevision } : {}),
         })),
       ),
       now: () => 100,
@@ -2447,27 +3284,119 @@ describe('TaskManager lifecycle', () => {
     });
     await vi.waitFor(() => expect(hooks).toBeDefined());
     const roundId = await taskRoundId(manager, 'task-summary-with-criterion');
+    const quote = 'A completed five-item To-do List appears next to its React example code';
+    store.observeActionTarget.mockResolvedValue({
+      target: {
+        id: 'page-summary',
+        kind: 'page',
+        tabId: 7,
+        frameId: 0,
+        urlOrigin: 'https://example.test',
+        normalizedUrl: 'https://example.test/watch',
+        digest: 'digest-summary',
+        textDigests: [await sha256(quote)],
+        pageRevision: 'summary-revision',
+        observedAt: 100,
+      },
+      inForm: false,
+    });
     await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: 'To-dos 5/5', required: true }]);
     finish({
       kind: 'candidate_complete',
-      summary: 'The AICSS page presents a completed five-item To-do List component alongside its React example code.',
+      summary: `The AICSS page shows: “${quote}”.`,
     });
 
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-summary-with-criterion')).toMatchObject({
-        status: 'completed',
+        status: 'failed',
         rounds: [
           {
-            status: 'completed',
-            instructionSummary:
-              'The AICSS page presents a completed five-item To-do List component alongside its React example code.',
-            criteria: [],
-            receipt: { criterionIds: [] },
+            status: 'failed',
+            failureCategory: 'no_action',
+            criteria: [expect.objectContaining({ kind: 'page_text', baseline: false })],
           },
         ],
       });
     });
     expect((await manager.snapshot('task-summary-with-criterion'))?.rounds[0]?.waitReason).toBeUndefined();
+    expect((await manager.snapshot('task-summary-with-criterion'))?.rounds[0]?.receipt).toBeUndefined();
+    expect(driver.run).toHaveBeenCalledTimes(2);
+  });
+
+  it('completes a read-only page summary only when page_text evidence is true', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    let hooks!: ExecutorHooks;
+    let pageTextPresent = false;
+    const driver = fakeDriver();
+    driver.run = vi.fn().mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(criterion => ({
+          criterionId: criterion.id,
+          roundId: criterion.roundId,
+          targetRefId: criterion.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: pageTextPresent,
+          ...(criterion.pageRevision ? { pageRevision: criterion.pageRevision } : {}),
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-summary-positive-proof',
+      taskId: 'task-summary-positive-proof',
+      instruction: '用一句话说明当前 AICSS 页面展示的内容。不要点击或修改页面。',
+      chatSessionId: 'chat-summary-positive-proof',
+      instructionMessageId: 'message-summary-positive-proof',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-summary-positive-proof');
+    const quote = 'A completed five-item To-do List appears next to its React example code';
+    store.observeActionTarget.mockResolvedValue({
+      target: {
+        id: 'page-summary-positive',
+        kind: 'page',
+        tabId: 7,
+        frameId: 0,
+        urlOrigin: 'https://example.test',
+        normalizedUrl: 'https://example.test/watch',
+        digest: 'digest-summary-positive',
+        textDigests: [await sha256(quote)],
+        pageRevision: 'summary-positive-revision',
+        observedAt: 100,
+      },
+      inForm: false,
+    });
+    await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: 'To-dos 5/5', required: true }]);
+    pageTextPresent = true;
+    finish({
+      kind: 'candidate_complete',
+      summary: `The AICSS page shows: “${quote}”.`,
+    });
+
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-summary-positive-proof')).toMatchObject({
+        status: 'completed',
+        rounds: [
+          {
+            status: 'completed',
+            criteria: [expect.objectContaining({ kind: 'page_text' })],
+            evidence: [expect.objectContaining({ passed: true, source: 'page' })],
+            receipt: { criterionIds: [expect.any(String)] },
+          },
+        ],
+      });
+    });
   });
 
   it('fails a criterion-bearing read-only summary without text instead of proof_required', async () => {

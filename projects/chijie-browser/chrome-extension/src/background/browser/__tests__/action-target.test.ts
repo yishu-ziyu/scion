@@ -11,7 +11,7 @@ import Page, { build_initial_state } from '../page';
 import { DOMElementNode, DOMTextNode } from '../dom/views';
 import { decideEffect } from '../../task/action-dispatcher';
 import { sha256 } from '../../task/digest';
-import { checkCompletion } from '../../task/completion';
+import { checkCompletion, durableHttpCompletionUrl } from '../../task/completion';
 
 function element(tagName: string, attributes: Record<string, string>, parent: DOMElementNode | null = null) {
   return new DOMElementNode({
@@ -114,6 +114,77 @@ describe('Page action target observation', () => {
 
     expect(observation.target).toMatchObject({ kind: 'page', urlOrigin: 'https://example.test' });
     expect(observation.target.digest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('captures case-sensitive page URL and body sentence digests after observation', async () => {
+    const page = new Page(7, 'https://EXAMPLE.test/CasePath?secret=redacted#fragment', 'Fixture');
+    const bodyText = 'First visible sentence. 第二条可见正文细节。';
+    const evaluate = vi.fn(async () => bodyText);
+    (page as unknown as { _puppeteerPage: { evaluate: typeof evaluate; url: () => string } })._puppeteerPage = {
+      evaluate,
+      url: () => 'https://EXAMPLE.test/CasePath?secret=redacted#fragment',
+    };
+
+    const observation = await page.observeActionTarget('read_page_text', {}, 'after');
+
+    expect(observation.target).toMatchObject({
+      kind: 'page',
+      normalizedUrl: 'https://example.test/CasePath',
+      queryIdentityDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      bodyDigest: await sha256(bodyText),
+      textDigests: expect.arrayContaining([
+        await sha256('First visible sentence.'),
+        await sha256('第二条可见正文细节。'),
+      ]),
+      pageRevision: expect.any(String),
+      observedAt: expect.any(Number),
+    });
+    expect(JSON.stringify(observation)).not.toContain('First visible sentence');
+    expect(JSON.stringify(observation)).not.toContain('secret=redacted');
+  });
+
+  it('fails a fresh body capture closed without reusing revision or digest', async () => {
+    const page = new Page(7, 'https://example.test/report?id=1', 'Fixture');
+    const evaluate = vi
+      .fn()
+      .mockResolvedValueOnce('Fresh visible body sentence.')
+      .mockRejectedValueOnce(new Error('execution context destroyed'));
+    (page as unknown as { _puppeteerPage: { evaluate: typeof evaluate; url: () => string } })._puppeteerPage = {
+      evaluate,
+      url: () => 'https://example.test/report?id=1',
+    };
+
+    const captured = await page.observeActionTarget('read_page_text', {}, 'after');
+    const failed = await page.observeActionTarget('read_page_text', {}, 'after');
+
+    expect(captured.target).toMatchObject({
+      bodyDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      textDigests: expect.any(Array),
+      pageRevision: expect.any(String),
+      queryIdentityDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(failed.target.digest).not.toBe(captured.target.digest);
+    expect(failed.target).not.toHaveProperty('bodyDigest');
+    expect(failed.target).not.toHaveProperty('textDigests');
+    expect(failed.target).not.toHaveProperty('pageRevision');
+    expect(JSON.stringify(failed.target)).not.toContain('?id=1');
+  });
+
+  it('does not ground or persist provenance for malformed query encoding', async () => {
+    const page = new Page(7, 'https://example.test/report?id=%ZZ', 'Fixture');
+    const evaluate = vi.fn(async () => 'This body must not become evidence.');
+    (page as unknown as { _puppeteerPage: { evaluate: typeof evaluate; url: () => string } })._puppeteerPage = {
+      evaluate,
+      url: () => 'https://example.test/report?id=%ZZ',
+    };
+
+    const observation = await page.observeActionTarget('read_page_text', {}, 'after');
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(observation.target).not.toHaveProperty('normalizedUrl');
+    expect(observation.target).not.toHaveProperty('queryIdentityDigest');
+    expect(observation.target).not.toHaveProperty('bodyDigest');
+    expect(observation.target).not.toHaveProperty('pageRevision');
+    expect(JSON.stringify(observation.target)).not.toContain('%ZZ');
   });
 
   it('binds Enter approval to the active element structure', async () => {
@@ -319,13 +390,19 @@ describe('Page action target observation', () => {
     const state = build_initial_state(7, 'https://example.test/success?token=SECRET#done', 'Fixture');
     state.elementTree.children.push(new DOMTextNode('Saved successfully', true, state.elementTree));
     vi.spyOn(page, 'getState').mockResolvedValue(state);
+    const evaluate = vi.fn(async () => 'Saved successfully');
+    (page as unknown as { _puppeteerPage: { evaluate: typeof evaluate; url: () => string } })._puppeteerPage = {
+      evaluate,
+      url: () => 'https://example.test/success?token=SECRET#done',
+    };
+    const durableUrl = await durableHttpCompletionUrl('https://example.test/success?token=SECRET#done');
 
     const observations = await page.observeCompletionCriteria([
       {
         id: 'url-1',
         kind: 'url',
         operator: 'equals',
-        expected: 'https://example.test/success',
+        expected: durableUrl!,
         required: true,
         roundId: 'round-1',
         targetRefId: 'tab-7',
@@ -350,7 +427,7 @@ describe('Page action target observation', () => {
     ]);
 
     expect(observations).toEqual([
-      expect.objectContaining({ criterionId: 'url-1', value: 'https://example.test/success' }),
+      expect.objectContaining({ criterionId: 'url-1', value: durableUrl }),
       expect.objectContaining({ criterionId: 'text-1', value: true }),
     ]);
     expect(JSON.stringify(observations)).not.toContain('SECRET');

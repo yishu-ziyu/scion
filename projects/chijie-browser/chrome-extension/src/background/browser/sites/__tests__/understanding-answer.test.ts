@@ -8,9 +8,7 @@ import {
 
 describe('isUnderstandingOnlyInstruction', () => {
   it('accepts A02-style identity questions', () => {
-    expect(
-      isUnderstandingOnlyInstruction('当前页是不是 bilibili 首页？只回答是或否并给出 URL host'),
-    ).toBe(true);
+    expect(isUnderstandingOnlyInstruction('当前页是不是 bilibili 首页？只回答是或否并给出 URL host')).toBe(true);
     expect(isUnderstandingOnlyInstruction('用一句话说明当前页标题和网站域名')).toBe(true);
     expect(isUnderstandingOnlyInstruction('识别当前页')).toBe(true);
   });
@@ -27,11 +25,19 @@ describe('isUnderstandingOnlyInstruction', () => {
         '这是一个多阶段任务：1) 进入英文维基；2) 搜索并打开 Artificial intelligence 条目；3) 在回复中写出当前页标题是否包含 Artificial intelligence，并带上 host。不要在搜索结果列表页就报完成。',
       ),
     ).toBe(false);
+    expect(isUnderstandingOnlyInstruction('调研 10 家竞品；输出对比表；写一份结论')).toBe(false);
+  });
+
+  it('never answers body-content requests from title and domain metadata', () => {
     expect(
       isUnderstandingOnlyInstruction(
-        '调研 10 家竞品；输出对比表；写一份结论',
+        '阅读当前飞书页面，用一句中文概括核心主题，并引用一个正文中可见的细节；不要修改页面。',
       ),
     ).toBe(false);
+    expect(isUnderstandingOnlyInstruction('读取标题和首段定义，输出两条中文观察，每条都带 URL')).toBe(false);
+    expect(isUnderstandingOnlyInstruction('当前页主题是什么？')).toBe(false);
+    expect(isUnderstandingOnlyInstruction('当前页面的主要内容是什么？')).toBe(false);
+    expect(isUnderstandingOnlyInstruction('用一句话说明当前页标题和网站域名')).toBe(true);
   });
 });
 

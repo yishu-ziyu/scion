@@ -23,6 +23,25 @@ export interface BrowserTargetRef {
   tabId: number;
   frameId: 0;
   urlOrigin: string;
+  /**
+   * Query/hash-free http(s) URL observed for this page. Used only for
+   * completion provenance; never persist query parameters or fragments.
+   */
+  normalizedUrl?: string;
+  /**
+   * Digest of the canonical query pair sequence. The query itself is never
+   * durable task state; ordering remains significant for exact provenance.
+   */
+  queryIdentityDigest?: string;
+  /** Digest of the normalized visible body captured on this exact page. */
+  bodyDigest?: string;
+  /** Digests of bounded visible sentences/lines; raw page text is never persisted. */
+  textDigests?: string[];
+  /** Immutable page revision associated with the captured body evidence. */
+  pageRevision?: string;
+  /** Latest durable page-observation order within the task. */
+  visitSeq?: number;
+  observedAt?: number;
   digest: string;
   /** Optional human page title at bind time (UI only; not used for act/observe matching). */
   label?: string;
@@ -32,6 +51,8 @@ type CriterionBase = {
   id: string;
   roundId: string;
   targetRefId: string;
+  /** Optional immutable page revision for read-only body evidence. */
+  pageRevision?: string;
   required: boolean;
   frozenAt: number;
   notBefore: number;

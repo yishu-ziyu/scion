@@ -18,6 +18,17 @@ export type BoundContentTab = {
   host: string;
 };
 
+type TaskBoundPage = {
+  activeTabId?: number;
+  targetRefs: Array<{
+    kind: string;
+    tabId: number;
+    urlOrigin: string;
+    normalizedUrl?: string;
+    label?: string;
+  }>;
+};
+
 const BLOCKED_URL_PREFIXES = [
   'chrome://',
   'chrome-extension://',
@@ -50,10 +61,13 @@ export function tabHost(url: string): string {
  * Pick the best content tab from a query result.
  * Prefer active usable tabs; otherwise first usable; never invent ids.
  */
-export function pickActiveContentTab(tabs: ContentTabCandidate[]): BoundContentTab | null {
+export function pickActiveContentTab(
+  tabs: ContentTabCandidate[],
+  options: { requireActive?: boolean } = {},
+): BoundContentTab | null {
   const withId = tabs.filter(tab => Number.isSafeInteger(tab.id) && (tab.id as number) >= 0);
   const usable = withId.filter(tab => isUsableContentTabUrl(tab.url));
-  const activeUsable = usable.find(tab => tab.active) ?? usable[0];
+  const activeUsable = usable.find(tab => tab.active) ?? (options.requireActive ? undefined : usable[0]);
   if (!activeUsable?.id || !activeUsable.url) return null;
   const title = (activeUsable.title ?? '').trim() || tabHost(activeUsable.url);
   return {
@@ -76,4 +90,16 @@ export function formatBindChip(bind: BoundContentTab | null, emptyLabel: string)
 export function formatBindDetail(bind: BoundContentTab | null): string {
   if (!bind) return '';
   return `${bind.title}\n${bind.url}`;
+}
+
+/** Keep the live-task chip bound to the task page, even when the user activates another tab. */
+export function taskBoundContentTab(task: TaskBoundPage, fallback: BoundContentTab | null): BoundContentTab | null {
+  if (!Number.isSafeInteger(task.activeTabId)) return null;
+  const tabId = task.activeTabId as number;
+  const ref = [...task.targetRefs].reverse().find(item => item.kind === 'page' && item.tabId === tabId);
+  if (!ref) return fallback?.tabId === tabId ? fallback : null;
+  const url = ref.normalizedUrl || ref.urlOrigin;
+  if (!isUsableContentTabUrl(url)) return fallback?.tabId === tabId ? fallback : null;
+  const title = ref.label?.trim() || tabHost(url);
+  return { tabId, url, title, host: tabHost(url) };
 }

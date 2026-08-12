@@ -24,7 +24,7 @@ import {
 import { t } from '@extension/i18n';
 import type { EvidenceSpace, TaskSnapshot } from '@extension/storage';
 import { canRetryResearchFailure, instructionToSkillTemplate } from '../../components/TaskStatusCard';
-import { commandRejectionMessage } from '../../SidePanel';
+import { commandRejectionMessage, confirmsNewChatCancellation, shouldAcceptTaskSignal } from '../../SidePanel';
 
 // Ready/dev i18n resolves via t.devLocale, not chrome.i18n. Pin zh_CN so
 // product-copy assertions stay stable on English host machines.
@@ -46,6 +46,9 @@ const taskStatusCardSource = readFileSync(resolve(here, '../../components/TaskSt
 const taskProgressOverviewSource = readFileSync(resolve(here, '../../components/TaskProgressOverview.tsx'), 'utf8');
 const thinkingReasoningSource = readFileSync(resolve(here, '../../components/ThinkingReasoning.tsx'), 'utf8');
 const sidePanelSource = readFileSync(resolve(here, '../../SidePanel.tsx'), 'utf8');
+const chatHistorySource = readFileSync(resolve(here, '../../components/ChatHistoryList.tsx'), 'utf8');
+const bookmarkListSource = readFileSync(resolve(here, '../../components/BookmarkList.tsx'), 'utf8');
+const messageListSource = readFileSync(resolve(here, '../../components/MessageList.tsx'), 'utf8');
 const sidePanelCss = readFileSync(resolve(here, '../../SidePanel.css'), 'utf8');
 const indexCss = readFileSync(resolve(here, '../../index.css'), 'utf8');
 const optionsRoot = resolve(here, '../../../../options/src');
@@ -58,6 +61,26 @@ const firewallSettings = readFileSync(resolve(optionsRoot, 'components/FirewallS
 const analyticsSettings = readFileSync(resolve(optionsRoot, 'components/AnalyticsSettings.tsx'), 'utf8');
 const modelSettings = readFileSync(resolve(optionsRoot, 'components/ModelSettings.tsx'), 'utf8');
 
+function tokenHex(name: string): string {
+  const match = tokensCss.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, 'i'));
+  if (!match?.[1]) throw new Error(`missing hex token ${name}`);
+  return match[1];
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const luminance = (hex: string) => {
+    const channels = hex
+      .slice(1)
+      .match(/.{2}/g)!
+      .map(channel => Number.parseInt(channel, 16) / 255)
+      .map(value => (value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+  };
+  const lighter = Math.max(luminance(foreground), luminance(background));
+  const darker = Math.min(luminance(foreground), luminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 describe('Feature: Side panel uses 持节 design system', () => {
   describe('Scenario: Design tokens are the only color source for the shell', () => {
     it('defines required CSS custom properties from DESIGN.md', () => {
@@ -69,7 +92,17 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(tokensCss).toMatch(/--chijie-accent:\s*#166f4e/i);
       expect(tokensCss).toMatch(/--chijie-surface:\s*#ffffff/i);
       expect(tokensCss).toMatch(/--chijie-foreground:\s*#1f2d2a/i);
-      expect(tokensCss).toMatch(/--chijie-warning:\s*#e6a11a/i);
+      expect(tokensCss).toMatch(/--chijie-warning:\s*#855600/i);
+    });
+
+    it('keeps small status copy at WCAG AA contrast on its subtle surfaces', () => {
+      expect(contrastRatio(tokenHex('--chijie-warning'), tokenHex('--chijie-warning-subtle'))).toBeGreaterThanOrEqual(
+        4.5,
+      );
+      expect(contrastRatio(tokenHex('--chijie-danger'), tokenHex('--chijie-danger-subtle'))).toBeGreaterThanOrEqual(
+        4.5,
+      );
+      expect(contrastRatio(tokenHex('--chijie-paper-muted'), tokenHex('--chijie-paper'))).toBeGreaterThanOrEqual(4.5);
     });
 
     it('exposes paper-card and pill-button class contracts', () => {
@@ -237,7 +270,7 @@ describe('Feature: Side panel uses 持节 design system', () => {
     });
 
     it('keeps the active composer available and demotes stop beside continuous controls', () => {
-      expect(sidePanelSource).toContain('const busy = false');
+      expect(sidePanelSource).toContain('const busy = shouldSuppressExecutionForSessionRecovery');
       expect(sidePanelSource).toContain('showStopButton={false}');
       expect(sidePanelSource).toContain('data-task-active={liveTaskConsole || showStopButton');
       expect(sidePanelSource).toContain('data-testid="composer-continuous-controls"');
@@ -249,7 +282,7 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(sidePanelSource).not.toContain('RxDiscordLogo');
       expect(sidePanelSource).not.toContain('discord.gg');
       expect(sidePanelSource).not.toContain('welcome_quickStart');
-      expect(sidePanelSource).toContain('favoritePrompts.length > 0');
+      expect(sidePanelSource).toContain('visibleFavoritePrompts.length > 0');
     });
   });
 });
@@ -331,25 +364,103 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).not.toMatch(/可看上方聊天里的失败说明/);
   });
 
-  it('waiting_user non-proof surface exposes wait-continue / wait-retry affordance', () => {
-    expect(taskStatusCardSource).toContain('waitUserActionTestId');
-    expect(taskStatusCardSource).toContain('wait-continue');
-    expect(taskStatusCardSource).toContain('wait-retry');
-    expect(taskStatusCardSource).toContain("type: 'resume'");
+  it('waiting_user controls follow the TaskManager transition contract', () => {
+    expect(taskStatusCardSource).toContain('waitUserAction');
+    expect(taskStatusCardSource).toContain('wait-compose-follow-up');
+    expect(taskStatusCardSource).not.toContain('data-testid="wait-continue"');
+    expect(taskStatusCardSource).not.toContain('data-testid="wait-retry"');
+    const recoveryStart = taskStatusCardSource.indexOf('One valid CTA');
+    const recoverySlice = taskStatusCardSource.slice(
+      recoveryStart,
+      taskStatusCardSource.indexOf('{canRetryResearchFailure', recoveryStart),
+    );
+    expect(recoverySlice).not.toContain("type: 'resume'");
     expect(taskStatusCardSource).toContain('criterion-confirm');
     expect(taskStatusCardSource).not.toContain('proof-deadend-escape');
     expect(taskStatusCardSource).not.toContain('task-cancel-deadend');
+    expect(sidePanelSource).toContain('onContinueInComposer');
+    expect(sidePanelSource).toContain("taskSnapshot!.status === 'waiting_user'");
+    expect(sidePanelSource).toContain("taskSnapshot!.status === 'inputs_required'");
+    expect(sidePanelSource).toContain('data-testid="composer-stop"');
   });
 
-  it('interrupted task uses one compact recovery status with stop demoted to the more menu', () => {
+  it('interrupted task keeps one compact status while resume and stop live only beside the composer', () => {
     expect(taskProgressOverviewSource).toContain('data-testid="task-interrupted-status"');
     expect(taskProgressOverviewSource).toContain('任务已中断，进度已经保存');
-    expect(taskStatusCardSource).toContain('data-testid="task-resume"');
-    expect(taskStatusCardSource).toContain('data-testid="task-stop-menu"');
-    expect(taskStatusCardSource).toContain("snapshot.status !== 'interrupted'");
+    expect(taskStatusCardSource).not.toContain('data-testid="task-resume"');
+    expect(taskStatusCardSource).not.toContain('data-testid="task-stop-menu"');
+    expect(sidePanelSource).toContain('data-testid="composer-resume"');
+    expect(sidePanelSource).toContain('data-testid="composer-stop"');
     expect(componentsCss).toContain('.chijie-interrupted-status');
-    expect(componentsCss).toContain('.chijie-interrupted-actions');
-    expect(componentsCss).toContain('.chijie-interrupted-menu');
+    expect(componentsCss).not.toContain('.chijie-interrupted-actions');
+    expect(componentsCss).not.toContain('.chijie-interrupted-menu');
+  });
+
+  it('new chat waits for a matching cancellation acknowledgement and ignores stale task identity', () => {
+    const pending = { taskId: 'task-1', commandId: 'cancel-1' };
+    expect(confirmsNewChatCancellation(pending, { taskId: 'task-1', status: 'cancelled' })).toBe(true);
+    expect(confirmsNewChatCancellation(pending, { taskId: 'task-1', commandId: 'cancel-1', accepted: true })).toBe(
+      true,
+    );
+    expect(
+      confirmsNewChatCancellation(pending, { taskId: 'task-1', commandId: 'another-command', accepted: true }),
+    ).toBe(false);
+    expect(confirmsNewChatCancellation(pending, { taskId: 'task-2', status: 'cancelled' })).toBe(false);
+    expect(confirmsNewChatCancellation(null, { taskId: 'task-1', accepted: true })).toBe(false);
+    expect(sidePanelSource).toContain('pendingNewChatCancellationRef');
+    expect(sidePanelSource).toContain('dismissedTaskIdsRef');
+    expect(sidePanelSource).toContain('sessionGenerationRef');
+    expect(sidePanelSource).toContain('let turnSessionId');
+    expect(sidePanelSource).toContain('turnGeneration !== sessionGenerationRef.current');
+    // TaskManager.cancel awaits persist (which emits task_event) before dispatch returns this exact command ack.
+    expect(sidePanelSource).toContain('persists + broadcasts cancel before dispatch resolves');
+    expect(sidePanelSource).toContain('newChatCancellationTarget({');
+    expect(sidePanelSource).toContain('requestNewChatCancellation(cancellationTaskId, known.revision)');
+    expect(sidePanelSource).not.toMatch(/const handleNewChat[\s\S]{0,700}stopConnection\(\)/);
+  });
+
+  it('never lets a late dismissed task reclaim the session after a new task snapshot', () => {
+    const dismissed = new Set(['task-a']);
+    const current = {
+      dismissedTaskIds: dismissed,
+      currentTaskId: 'task-b',
+      pendingTaskId: null,
+      currentSessionId: 'task-b',
+    };
+    expect(shouldAcceptTaskSignal({ ...current, taskId: 'task-b' })).toBe(true);
+    expect(shouldAcceptTaskSignal({ ...current, taskId: 'task-a' })).toBe(false);
+    expect(shouldAcceptTaskSignal({ ...current, taskId: 'task-c' })).toBe(false);
+    expect(sidePanelSource).not.toContain('dismissedTaskIdsRef.current.clear()');
+    expect(sidePanelSource).toContain('dismissedTaskIdsRef.current.delete(sessionId)');
+  });
+
+  it('keeps primary controls at least 40px and collapsed content out of the accessibility tree', () => {
+    expect(componentsCss).toMatch(/\.chijie-plan-head[\s\S]{0,160}min-height:\s*40px/);
+    expect(componentsCss).toMatch(/\.chijie-thinking-head[\s\S]{0,160}min-height:\s*40px/);
+    expect(componentsCss).toMatch(/\.chijie-prompt-icon-button[\s\S]{0,180}width:\s*40px[\s\S]{0,50}height:\s*40px/);
+    expect(componentsCss).toMatch(/\.chijie-prompt-chip-remove[\s\S]{0,160}width:\s*40px[\s\S]{0,50}height:\s*40px/);
+    expect(readFileSync(resolve(here, '../../components/MissionPlanList.tsx'), 'utf8')).toContain(
+      'aria-hidden={collapsed}',
+    );
+    expect(thinkingReasoningSource).toContain('aria-hidden={!open}');
+    expect(taskProgressOverviewSource).not.toContain('aria-live="polite"');
+  });
+
+  it('keeps history, bookmark, field, and disclosure targets keyboard-visible and at least 40px', () => {
+    expect(chatHistorySource).toContain('min-h-12 w-full rounded pr-20');
+    expect(chatHistorySource.match(/size-10/g)).toHaveLength(2);
+    expect(chatHistorySource).toContain('focus-visible:opacity-100');
+    expect(bookmarkListSource).toContain('min-h-10 w-full pr-20');
+    expect(bookmarkListSource.match(/size-10/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+    expect(bookmarkListSource).toContain('focus-visible:opacity-100');
+    expect(messageListSource).toContain('inline-flex min-h-10');
+    expect(componentsCss).toMatch(/\.chijie-field[\s\S]{0,100}min-height:\s*40px/);
+    expect(sidePanelCss).toMatch(/\.header-icon[\s\S]{0,100}flex:\s*none/);
+    expect(componentsCss).toMatch(/\.chijie-prompt-chip-remove[\s\S]{0,100}flex:\s*none/);
+    expect(componentsCss).toMatch(
+      /\.chijie-progress-direction-change[\s\S]{0,300}color:\s*var\(--chijie-paper-muted\)/,
+    );
+    expect(chatHistorySource).not.toMatch(/text-sky-/);
   });
 
   it('failed quota research exposes an explicit retry that preserves the task shell', () => {
@@ -361,6 +472,7 @@ describe('Feature: design/003 task main blocks', () => {
     } as TaskSnapshot;
     expect(canRetryResearchFailure(snapshot)).toBe(true);
     expect(canRetryResearchFailure({ ...snapshot, status: 'completed' })).toBe(false);
+    expect(canRetryResearchFailure({ ...snapshot, sourceSkillId: 7 })).toBe(false);
     expect(
       canRetryResearchFailure(
         {
@@ -375,7 +487,7 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).toContain('chat_task_retry_research');
     expect(sidePanelSource).toMatch(/command\.type === 'retry_research'[\s\S]{0,500}resolveActiveContentTab/);
     expect(sidePanelSource).toContain('resolveActiveContentTab({ allowLastFocused: false })');
-    expect(sidePanelSource).toContain('postCommand(bound ? { ...command, tabId: bound.tabId } : command)');
+    expect(sidePanelSource).toContain('postCommand(bound ? { ...command, tabId: bound.tabId } : command, true)');
     expect(sidePanelSource.indexOf('{ currentWindow: true }')).toBeLessThan(
       sidePanelSource.indexOf('{ active: true, lastFocusedWindow: true }'),
     );
@@ -410,7 +522,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
 
   it('TaskStatusCard has a collapsible public work stream and outcome rating after receipt', () => {
     expect(thinkingReasoningSource).toContain('aria-expanded={open}');
-    expect(thinkingReasoningSource).toContain('展开或收起任务处理过程');
+    expect(thinkingReasoningSource).toContain('任务处理过程，工作时长 ${elapsed}');
     expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
     expect(taskStatusCardSource).toContain('data-testid="task-outcome-rating"');
     expect(taskStatusCardSource).toContain('data-testid={`task-rate-${rating}`}');
@@ -483,8 +595,9 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(sidePanelSource).toContain("type: 'resume'");
     expect(componentsCss).toContain('.chijie-chat-fold');
     expect(componentsCss).toContain('.chijie-composer-controls');
-    expect(sidePanelSource).toMatch(/onAdjustDirection=\{\(\) => \{[\s\S]{0,600}setInputEnabled\(true\)/);
-    expect(sidePanelSource).toMatch(/onAdjustDirection=\{\(\) => \{[\s\S]{0,300}setIsHistoricalSession\(false\)/);
+    expect(sidePanelSource).toContain('taskAllowsDirectionChange(');
+    expect(sidePanelSource).toMatch(/onAdjustDirection=[\s\S]{0,800}setInputEnabled\(true\)/);
+    expect(sidePanelSource).toMatch(/onAdjustDirection=[\s\S]{0,500}setIsHistoricalSession\(false\)/);
     expect(sidePanelSource).toContain("setInputTextRef.current?.(t('chat_task_adjust_prompt'))");
     expect(sidePanelSource).toContain("changeType: isDirectionChange ? 'direction_change' : 'follow_up'");
     expect(taskProgressOverviewSource).toContain('data-testid="task-direction-change"');
