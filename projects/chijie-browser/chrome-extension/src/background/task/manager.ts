@@ -1344,6 +1344,23 @@ export class TaskManager {
           });
           return;
         }
+        if (requiresStructuredResearchDecision(instruction) && researchDeliveryReady(evidenceSpace)) {
+          await this.queueTransition(async () => {
+            const current = await getTask(taskId);
+            if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
+            if (current.currentRoundId !== runRoundId) return;
+            const currentRound = this.currentRound(current);
+            const answer = outcome.summary.trim();
+            if (answer) currentRound.instructionSummary = answer.slice(0, 2000);
+            // The durable decision plus both reopened Feishu readbacks replace any
+            // planner-generated user-confirmation criterion for this research contract.
+            currentRound.criteria = currentRound.criteria.filter(criterion => criterion.kind !== 'user_confirmed');
+            delete currentRound.waitReason;
+            delete currentRound.failureCategory;
+            await this.persistVerifiedReceipt(current, currentRound, []);
+          });
+          return;
+        }
       }
 
       let round = task.rounds.find(item => item.id === runRoundId);
