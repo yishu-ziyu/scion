@@ -326,6 +326,17 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).not.toContain('task-cancel-deadend');
   });
 
+  it('interrupted task uses one compact recovery status with stop demoted to the more menu', () => {
+    expect(taskProgressOverviewSource).toContain('data-testid="task-interrupted-status"');
+    expect(taskProgressOverviewSource).toContain('任务已中断，进度已经保存');
+    expect(taskStatusCardSource).toContain('data-testid="task-resume"');
+    expect(taskStatusCardSource).toContain('data-testid="task-stop-menu"');
+    expect(taskStatusCardSource).toContain('snapshot.status !== \'interrupted\'');
+    expect(componentsCss).toContain('.chijie-interrupted-status');
+    expect(componentsCss).toContain('.chijie-interrupted-actions');
+    expect(componentsCss).toContain('.chijie-interrupted-menu');
+  });
+
   it('failed quota research exposes an explicit retry that preserves the task shell', () => {
     const snapshot = {
       id: 'task-research',
