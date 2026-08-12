@@ -20,6 +20,7 @@ import {
   attestRuntimeExtension,
   resolveChromeForEval,
   resolveEvalIdentity,
+  resolveEvalProxyArgs,
   seedEvalLlm,
 } from './lib/eval-provider.mjs';
 import { buildScopedTraceEvidence } from './lib/eval-trace-evidence.mjs';
@@ -484,6 +485,7 @@ try {
       userDataDir: profilePath,
       ignoreDefaultArgs: ['--disable-extensions'],
       args: [
+        ...resolveEvalProxyArgs(),
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
         '--disable-features=DisableLoadExtensionCommandLineSwitch',
