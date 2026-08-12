@@ -746,16 +746,9 @@ export async function createLlmControlDriver(
                     });
                     await traceStore.finishSpan(artSpan, 'ok');
                   }
-                  if (!criteriaLocked && decision.criteria) {
+                  if (!criteriaLocked && decision.criteria && decision.criteria.length > 0) {
                     try {
                       await hooks.onPlan(roundId, decision.criteria);
-                      criteriaLocked = true;
-                    } catch {
-                      /* still complete */
-                    }
-                  } else if (!criteriaLocked) {
-                    try {
-                      await hooks.onPlan(roundId, []);
                       criteriaLocked = true;
                     } catch {
                       /* still complete */

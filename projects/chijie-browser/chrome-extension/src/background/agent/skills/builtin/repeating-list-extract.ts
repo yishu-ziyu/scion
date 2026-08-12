@@ -63,7 +63,14 @@ export const repeatingListExtractSkill: BrowserSkill = {
       decision: {
         kind: 'done',
         summary,
-        criteria: [],
+        criteria: [
+          {
+            kind: 'page_text',
+            operator: 'present',
+            expected: rows[0].name,
+            required: true,
+          },
+        ],
         artifact,
       },
       output: { rows, artifact },

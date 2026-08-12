@@ -465,6 +465,42 @@ describe('Page action target observation', () => {
     expect(observations).toEqual([expect.objectContaining({ criterionId: 'text-1', value: true })]);
   });
 
+  it('matches page_text present against a case-folded title or heading', async () => {
+    const page = new Page(7, 'https://en.wikipedia.org/wiki/Web_browser', 'Web browser - Wikipedia');
+    const state = build_initial_state(7, 'https://en.wikipedia.org/wiki/Web_browser', 'Web browser - Wikipedia');
+    vi.spyOn(page, 'getState').mockResolvedValue(state);
+    (
+      page as unknown as {
+        _puppeteerPage: { url: () => string; evaluate: (fn: () => unknown) => Promise<unknown> };
+      }
+    )._puppeteerPage = {
+      url: () => 'https://en.wikipedia.org/wiki/Web_browser',
+      evaluate: async () => ({
+        title: 'Web browser - Wikipedia',
+        bodyText: 'A web browser is an application for accessing websites.',
+        leafText: ['Web browser', 'A web browser is an application for accessing websites.'],
+      }),
+    };
+
+    const observations = await page.observeCompletionCriteria([
+      {
+        id: 'text-1',
+        kind: 'page_text',
+        operator: 'present',
+        expectedDigest: await sha256('web browser'),
+        required: true,
+        roundId: 'round-1',
+        targetRefId: 'tab-7',
+        baseline: false,
+        frozenAt: 100,
+        notBefore: 100,
+        timeoutMs: 5000,
+      },
+    ]);
+
+    expect(observations).toEqual([expect.objectContaining({ criterionId: 'text-1', value: true })]);
+  });
+
   it('bounds the number of body lines scanned for completion text', async () => {
     const page = new Page(7, 'https://example.test/success', 'Fixture');
     const state = build_initial_state(7, 'https://example.test/success', 'Fixture');

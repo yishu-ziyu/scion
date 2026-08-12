@@ -16,11 +16,7 @@ vi.mock('@extension/storage/lib/task', () => {
     saveTask: async (task: { id: string }) => {
       store.sessions.set(task.id, structuredClone(task));
     },
-    putSkillSaveMeta: async (
-      taskId: string,
-      roundId: string,
-      meta: { templates: unknown[]; unsafe: boolean },
-    ) => {
+    putSkillSaveMeta: async (taskId: string, roundId: string, meta: { templates: unknown[]; unsafe: boolean }) => {
       skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
     },
     getSkillSaveMeta: async (taskId: string, roundId: string) =>
@@ -360,7 +356,7 @@ describe('verified form journey', () => {
     expect(switchTab.mock.invocationCallOrder.some(order => order < freezeObserveOrder)).toBe(true);
     expect(criterion).toMatchObject({
       kind: 'page_text',
-      expectedDigest: await sha256('Saved once'),
+      expectedDigest: await sha256('Saved once'.toLocaleLowerCase()),
       targetRefId: 'tab-7',
       baseline: false,
       frozenAt: 100,

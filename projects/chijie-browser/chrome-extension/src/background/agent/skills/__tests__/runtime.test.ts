@@ -208,6 +208,9 @@ describe('Skill discovery + runtime', () => {
       expect(result.decision.summary).toContain('A,$1,5');
       expect(result.decision.summary).toContain('B,$2.00,4');
       expect(result.decision.summary).toContain('最贵商品是 B，价格为 $2.00。');
+      expect(result.decision.criteria).toEqual([
+        { kind: 'page_text', operator: 'present', expected: 'A', required: true },
+      ]);
     }
   });
 

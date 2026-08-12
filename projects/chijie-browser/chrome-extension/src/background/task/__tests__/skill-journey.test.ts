@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Favorites from '@extension/storage/lib/prompt/favorites';
 import { TaskManager } from '../manager';
+import { sha256 } from '../digest';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome, ObserveCriteria } from '../contracts';
 
 const state = vi.hoisted(() => ({
@@ -16,11 +17,7 @@ vi.mock('@extension/storage/lib/task', () => ({
   saveTask: async (task: { id: string }) => {
     state.sessions.set(task.id, structuredClone(task));
   },
-  putSkillSaveMeta: async (
-    taskId: string,
-    roundId: string,
-    meta: { templates: unknown[]; unsafe: boolean },
-  ) => {
+  putSkillSaveMeta: async (taskId: string, roundId: string, meta: { templates: unknown[]; unsafe: boolean }) => {
     state.skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
   },
   getSkillSaveMeta: async (taskId: string, roundId: string) =>
@@ -238,7 +235,7 @@ describe('local semantic Skill', () => {
               baseline: false,
               kind: 'page_text',
               operator: 'present',
-              expectedDigest: '75de35db68a4bca7acd4039f13855f1c447fc5c62caac4d981ed0d32e5c42729',
+              expectedDigest: await sha256('Saved successfully'.toLocaleLowerCase()),
             },
           ],
           attempts: [],
@@ -437,7 +434,7 @@ describe('local semantic Skill', () => {
       expect(snapshot?.rounds[0]?.criteria).toEqual([
         expect.objectContaining({
           kind: 'page_text',
-          expectedDigest: '75de35db68a4bca7acd4039f13855f1c447fc5c62caac4d981ed0d32e5c42729',
+          expectedDigest: await sha256('Saved successfully'.toLocaleLowerCase()),
         }),
       ]);
       expect(JSON.stringify(snapshot)).not.toContain(name);

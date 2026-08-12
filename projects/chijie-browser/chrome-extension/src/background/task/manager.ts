@@ -2870,8 +2870,12 @@ export class TaskManager {
       /(?:当前|这个|本)(?:[^。！？!?]{0,20})?(?:页面|网页|网站|标签页)|(?:页面|网页)(?:上|中|展示|内容)/.test(text) ||
       /\b(?:this|the|current)\s+(?:page|webpage|site|tab)\b/i.test(text);
     const requestsReading =
-      /说明|描述|总结|摘要|概括|读取|读一下|提取|摘录|展示的内容|是什么|有哪些/.test(text) ||
-      /\b(?:summari[sz]e|describe|read|extract|quote|tell me|what(?:'s| is)|what are)\b/i.test(text);
+      /说明|描述|总结|摘要|概括|读取|读一下|提取|摘录|展示的内容|是什么|有哪些|确认(?:页面|网页)?(?:的)?(?:正文|内容|文本)/.test(
+        text,
+      ) ||
+      /\b(?:summari[sz]e|describe|read|extract|quote|tell me|what(?:'s| is)|what are|confirm|verify|check)\b/i.test(
+        text,
+      );
     return referencesCurrentPage && requestsReading;
   }
 
@@ -3267,7 +3271,7 @@ export class TaskManager {
           ...base,
           kind: 'page_text',
           operator: draft.operator,
-          expectedDigest: await sha256(normalized),
+          expectedDigest: await sha256(normalized.toLocaleLowerCase()),
         };
       }
       case 'user_confirmed':
