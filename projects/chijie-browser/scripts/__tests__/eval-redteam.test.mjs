@@ -331,6 +331,20 @@ test('A01 rejects title and host tokens embedded in a negative claim', () => {
     }),
     true,
   );
+  assert.equal(
+    taskSpecificVerificationPass('013-A01', {
+      ...payload,
+      final_deliverable: '标题：Wikipedia；域名：wikipedia.org',
+    }),
+    true,
+  );
+  assert.equal(
+    taskSpecificVerificationPass('013-A01', {
+      ...payload,
+      final_deliverable: '标题：Wikipedia；域名：wikipedia.org.evil.example',
+    }),
+    false,
+  );
 });
 
 test('O1 accepts exactly one stable form task and rejects form plus skill composites', () => {

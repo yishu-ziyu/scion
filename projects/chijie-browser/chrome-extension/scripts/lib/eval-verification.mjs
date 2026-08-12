@@ -50,6 +50,10 @@ function cleanRoute(parsed) {
   return Boolean(parsed && parsed.search === '' && parsed.hash === '');
 }
 
+function containsWikipediaDomain(value) {
+  return /(?:^|[^\w.-])(?:www\.)?wikipedia\.org(?:[^\w.-]|$)/i.test(String(value || ''));
+}
+
 /** Commit-versioned URL oracle. Tokens in query/fragment never satisfy a host/path task. */
 export function taskUrlContractPass(taskId, value) {
   const parsed = parseHttpUrl(value);
@@ -139,7 +143,7 @@ export function taskSpecificVerificationPass(taskId, payload) {
         Boolean(finalNavigation) &&
         !containsGlobalContradiction(deliverable) &&
         !/(?:不是|并非|非|is\s+not|isn't|not)\s*(?:Wikipedia|www\.wikipedia\.org)/i.test(deliverable) &&
-        deliverable.includes(new URL(finalUrl).hostname) &&
+        containsWikipediaDomain(deliverable) &&
         deliverable.includes(normalizeEvidenceText(finalNavigation.title))
       );
     case '013-A02':
