@@ -1,7 +1,7 @@
 import type { ActionAttempt, EvidenceSpace, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
 import { t } from '@extension/i18n';
 import { useEffect, useState } from 'react';
-import { FiCheck, FiMoreHorizontal } from 'react-icons/fi';
+import { FiCheck } from 'react-icons/fi';
 import {
   actionStackClassName,
   completionVisibleText,
@@ -24,7 +24,7 @@ import { activityElapsedSeconds, formatActivityDuration, looksLikeActionName } f
 import { requiredCompletionResult } from '../presentation/completion-outcome';
 import { assessGoalCoverage, resolveDeliverableAnswer } from '../presentation/goal-coverage';
 import { productFailureLabel, toProductFailureCode } from '../presentation/failure-taxonomy';
-import { waitUserActionTestId } from '../presentation/wait-affordance';
+import { taskAllowsDirectionChange, waitUserAction } from '../presentation/wait-affordance';
 import { deriveTaskProgressView } from '../presentation/task-progress-view';
 import { TaskProgressOverview } from './TaskProgressOverview';
 import { ThinkingReasoning } from './ThinkingReasoning';
@@ -39,11 +39,17 @@ export interface TaskStatusCardProps {
   evidenceSpace?: EvidenceSpace | null;
   /** Focus the continuous-control composer without changing the stable mission. */
   onAdjustDirection?: () => void;
+  /** Focus the composer so waiting recovery becomes a valid TaskManager follow-up. */
+  onContinueInComposer?: () => void;
+  /** Task commands awaiting acknowledgement; matching controls stay single-shot. */
+  pendingCommandTypes?: ReadonlySet<TaskCommand['type']>;
+  /** Historical projections are inspect-only and may never dispatch task commands. */
+  readOnly?: boolean;
   isDarkMode?: boolean;
 }
 
 export function canRetryResearchFailure(snapshot: TaskSnapshot, evidenceSpace?: EvidenceSpace | null): boolean {
-  if (snapshot.status !== 'failed') return false;
+  if (snapshot.status !== 'failed' || snapshot.sourceSkillId !== undefined) return false;
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
   if (round?.failureCategory?.startsWith('research_')) return true;
   return evidenceSpace?.taskId === snapshot.id && evidenceSpace.records.length > 0;
@@ -59,13 +65,13 @@ function waitReasonHint(reason: WaitReason | undefined): string | null {
     case 'proof_required':
       return t('chat_task_hint_proof');
     case 'commit_outcome_uncertain':
-      return t('chat_task_hint_uncertain');
+      return '提交结果不确定。请先在网页确认；为避免重复提交，当前任务只能停止后重新委托。';
     case 'target_missing':
       return t('chat_task_hint_target_missing');
     case 'target_ambiguous':
       return t('chat_task_hint_target_ambiguous');
     case 'skill_inputs_required':
-      return t('chat_task_hint_skill_inputs');
+      return '当前任务不能直接补交模板参数。请停止后，从「可再运行」重新填写。';
   }
 }
 
@@ -132,6 +138,7 @@ function failureNextStep(snapshot: TaskSnapshot): string {
   }
   if (snapshot.status === 'cancelled') return t('chat_task_hint_cancelled');
   if (snapshot.status === 'interrupted') return t('chat_task_hint_interrupted');
+  if (snapshot.status === 'completed') return '完成信号缺少完整、匹配的验证回执；结果暂不可作为已完成交付。';
   return t('chat_task_hint_generic');
 }
 
@@ -269,6 +276,9 @@ export function TaskStatusCard({
   missionInstruction = '',
   evidenceSpace = null,
   onAdjustDirection,
+  onContinueInComposer,
+  pendingCommandTypes = new Set(),
+  readOnly = false,
 }: TaskStatusCardProps) {
   const [showSkillForm, setShowSkillForm] = useState(false);
   const [skillTitle, setSkillTitle] = useState('');
@@ -288,7 +298,7 @@ export function TaskStatusCard({
           evidence => evidence.criterionId === criterion.id && evidence.source === 'user' && evidence.passed,
         ),
     ) ?? [];
-  const waitAction = snapshot.status === 'waiting_user' ? waitUserActionTestId(round?.waitReason) : null;
+  const waitAction = snapshot.status === 'waiting_user' ? waitUserAction(round?.waitReason) : null;
 
   const isTerminal = ['completed', 'failed', 'cancelled'].includes(snapshot.status);
   const needsAttention =
@@ -369,7 +379,8 @@ export function TaskStatusCard({
         criterion: round.criteria.find(criterion => criterion.id === evidence.criterionId),
       })) ?? [];
   const showVerifiedDone = shouldShowVerifiedDone(snapshot, round?.receipt);
-  const showRating = shouldShowOutcomeRating(snapshot, round?.receipt);
+  const showUnverifiedComplete = snapshot.status === 'completed' && !showVerifiedDone;
+  const showRating = !readOnly && shouldShowOutcomeRating(snapshot, round?.receipt);
   const evidenceForUi = passedEvidence.map(item => ({
     kind: item.criterion?.kind,
     passed: item.passed,
@@ -392,6 +403,13 @@ export function TaskStatusCard({
     answerText: deliverableAnswer,
   });
   const showPartialComplete = showVerifiedDone && goalCoverage.coverage === 'partial';
+  const progressViewForUi = showPartialComplete
+    ? {
+        ...progressView,
+        status: 'needs_user' as const,
+        health: { state: 'needs_user' as const, summary: '部分完成，仍需补充未覆盖的要求' },
+      }
+    : progressView;
   const activityEndAt = round?.receipt?.verifiedAt ?? (isTerminal ? snapshot.updatedAt : undefined);
   const activitySeconds = activityElapsedSeconds({
     createdAt: snapshot.createdAt,
@@ -399,12 +417,16 @@ export function TaskStatusCard({
     now: nowTick,
   });
   // Feature-first primary organism (design/004+005): activity | completion | recovery.
-  const primaryOrganism = taskPrimaryOrganism({
-    status: snapshot.status,
-    showVerifiedDone,
-  });
+  const primaryOrganism = showUnverifiedComplete
+    ? ('recovery' as const)
+    : taskPrimaryOrganism({
+        status: snapshot.status,
+        showVerifiedDone,
+      });
 
   const showActivityPanel = snapshot.status === 'running' || showSteps;
+  const canAdjustDirection =
+    Boolean(onAdjustDirection) && taskAllowsDirectionChange(snapshot.status, round?.waitReason);
   const publicActivityItems = visibleAttempts.map(attempt => ({
     id: attempt.id,
     text: attemptDisplayTitle(attempt),
@@ -528,9 +550,9 @@ export function TaskStatusCard({
       </div>
     ) : null;
 
-  // S6: pause/resume/stop live beside the composer; card keeps adjust-direction only.
+  // S6: pause/resume/stop live only beside the composer; card keeps adjust-direction only.
   const taskControls =
-    !isTerminal && snapshot.status !== 'interrupted' && onAdjustDirection ? (
+    !readOnly && !isTerminal && canAdjustDirection && onAdjustDirection ? (
       <div className={`${actionStackClassName} chijie-task-controls`} data-testid="task-card-secondary-controls">
         <button type="button" className={secondaryButtonClassName} onClick={onAdjustDirection}>
           {t('chat_task_adjust_direction')}
@@ -538,59 +560,14 @@ export function TaskStatusCard({
       </div>
     ) : null;
 
-  const interruptedControls =
-    snapshot.status === 'interrupted' ? (
-      <div className="chijie-interrupted-actions" data-testid="task-continuous-controls">
-        <button
-          type="button"
-          data-testid="task-resume"
-          className="chijie-interrupted-resume"
-          onClick={() =>
-            send({
-              type: 'resume',
-              commandId: crypto.randomUUID(),
-              taskId: snapshot.id,
-              expectedRevision: snapshot.revision,
-            })
-          }>
-          继续任务
-        </button>
-        {onAdjustDirection && (
-          <button type="button" className="chijie-interrupted-adjust" onClick={onAdjustDirection}>
-            {t('chat_task_adjust_direction')}
-          </button>
-        )}
-        <details className="chijie-interrupted-more">
-          <summary aria-label="更多任务操作">
-            <FiMoreHorizontal aria-hidden />
-          </summary>
-          <div className="chijie-interrupted-menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              data-testid="task-stop-menu"
-              onClick={() =>
-                send({
-                  type: 'cancel',
-                  commandId: crypto.randomUUID(),
-                  taskId: snapshot.id,
-                  expectedRevision: snapshot.revision,
-                })
-              }>
-              {t('chat_task_stop')}
-            </button>
-          </div>
-        </details>
-      </div>
-    ) : null;
-
   return (
     <section
       data-testid="task-status"
-      data-status={showPartialComplete ? 'waiting_user' : snapshot.status}
+      data-status={showPartialComplete ? 'waiting_user' : showUnverifiedComplete ? 'failed' : snapshot.status}
       data-coverage={showVerifiedDone ? goalCoverage.coverage : undefined}
-      data-attention={needsAttention || showPartialComplete ? 'true' : 'false'}
+      data-attention={needsAttention || showPartialComplete || showUnverifiedComplete ? 'true' : 'false'}
       data-primary-organism={primaryOrganism}
+      data-readonly={readOnly ? 'true' : undefined}
       className={taskCardClassName}>
       {/* 1. Status strip: what phase + where (one glance) */}
       <header className="chijie-task-head" data-interrupted={snapshot.status === 'interrupted' ? 'true' : undefined}>
@@ -598,9 +575,13 @@ export function TaskStatusCard({
           <span
             className="chijie-task-status-pill"
             data-testid="task-status-label"
-            data-status={showPartialComplete ? 'waiting_user' : snapshot.status}
+            data-status={showPartialComplete ? 'waiting_user' : showUnverifiedComplete ? 'failed' : snapshot.status}
             data-partial={showPartialComplete ? 'true' : 'false'}>
-            {showPartialComplete ? t('chat_task_partial_title') : t(statusLabelKey(snapshot.status))}
+            {showPartialComplete
+              ? t('chat_task_partial_title')
+              : showUnverifiedComplete
+                ? '完成未验证'
+                : t(statusLabelKey(snapshot.status))}
           </span>
         )}
         {/* Site chip is live context for running work only; paused/interrupted use Health + composer bind. */}
@@ -613,9 +594,9 @@ export function TaskStatusCard({
 
       {/* 2. Stable mission + durable gates + health. Follow-ups never replace Mission. */}
       <TaskProgressOverview
-        view={progressView}
+        view={progressViewForUi}
         now={nowTick}
-        controls={snapshot.status === 'interrupted' ? interruptedControls : taskControls}
+        controls={taskControls}
         interrupted={snapshot.status === 'interrupted'}
       />
 
@@ -668,7 +649,8 @@ export function TaskStatusCard({
       {(snapshot.status === 'failed' ||
         snapshot.status === 'cancelled' ||
         snapshot.status === 'waiting_user' ||
-        snapshot.status === 'inputs_required') && (
+        snapshot.status === 'inputs_required' ||
+        showUnverifiedComplete) && (
         <div data-testid="task-next-step" className="chijie-next-step" data-primary-organism="recovery">
           <div className="font-medium">{t('chat_task_next_step_title')}</div>
           <div className="mt-1" data-testid="task-failure-reason">
@@ -684,8 +666,9 @@ export function TaskStatusCard({
             </div>
           )}
 
-          {/* One primary CTA: confirm (proof) | continue | retry. Stop stays in controls. */}
-          {snapshot.status === 'waiting_user' &&
+          {/* One valid CTA: proof command or a composer follow-up. Stop stays in composer controls. */}
+          {!readOnly &&
+            snapshot.status === 'waiting_user' &&
             round?.waitReason === 'proof_required' &&
             confirmations.map(confirmation => (
               <button
@@ -693,6 +676,8 @@ export function TaskStatusCard({
                 type="button"
                 data-testid="criterion-confirm"
                 className={`${primaryButtonClassName} mt-2`}
+                disabled={pendingCommandTypes.has('confirm_completion')}
+                aria-busy={pendingCommandTypes.has('confirm_completion')}
                 onClick={() =>
                   send({
                     type: 'confirm_completion',
@@ -707,43 +692,22 @@ export function TaskStatusCard({
               </button>
             ))}
 
-          {waitAction === 'wait-continue' && (
+          {!readOnly && waitAction && onContinueInComposer && (
             <button
               type="button"
-              data-testid="wait-continue"
+              data-testid="wait-compose-follow-up"
               className={`${primaryButtonClassName} mt-2`}
-              onClick={() =>
-                send({
-                  type: 'resume',
-                  commandId: crypto.randomUUID(),
-                  taskId: snapshot.id,
-                  expectedRevision: snapshot.revision,
-                })
-              }>
-              {t('chat_task_wait_continue')}
+              onClick={onContinueInComposer}>
+              {waitAction === 'clarify-in-composer' ? '补充指令' : '告诉持节继续'}
             </button>
           )}
-          {waitAction === 'wait-retry' && (
-            <button
-              type="button"
-              data-testid="wait-retry"
-              className={`${primaryButtonClassName} mt-2`}
-              onClick={() =>
-                send({
-                  type: 'resume',
-                  commandId: crypto.randomUUID(),
-                  taskId: snapshot.id,
-                  expectedRevision: snapshot.revision,
-                })
-              }>
-              {t('chat_task_wait_retry')}
-            </button>
-          )}
-          {canRetryResearchFailure(snapshot, evidenceSpace) && (
+          {!readOnly && canRetryResearchFailure(snapshot, evidenceSpace) && (
             <button
               type="button"
               data-testid="research-retry"
               className={`${primaryButtonClassName} mt-2`}
+              disabled={pendingCommandTypes.has('retry_research')}
+              aria-busy={pendingCommandTypes.has('retry_research')}
               onClick={() =>
                 send({
                   type: 'retry_research',
@@ -758,7 +722,15 @@ export function TaskStatusCard({
         </div>
       )}
 
-      {showVerifiedDone && !showSkillForm && (
+      {!readOnly && showPartialComplete && onContinueInComposer && (
+        <div className="chijie-next-step" data-testid="completion-partial-follow-up">
+          <button type="button" className={primaryButtonClassName} onClick={onContinueInComposer}>
+            补充未完成的要求
+          </button>
+        </div>
+      )}
+
+      {!readOnly && showVerifiedDone && !showSkillForm && (
         <div className="chijie-skill-save-row">
           <button type="button" data-testid="skill-save" className={secondaryButtonClassName} onClick={openSkillForm}>
             {t('chat_skills_save')}
@@ -767,7 +739,7 @@ export function TaskStatusCard({
         </div>
       )}
 
-      {round?.receipt && showSkillForm && (
+      {!readOnly && round?.receipt && showSkillForm && (
         <div className={actionStackClassName}>
           <label className="flex flex-col gap-1 text-xs">
             {t('chat_skills_titlePlaceholder')}

@@ -11,12 +11,163 @@
  *
  * Never hardcode keys. client.env is loaded as a fallback only.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { accessSync, closeSync, constants, existsSync, openSync, readFileSync, readSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export function discoverChromeForTesting(homeDir = os.homedir(), platform = process.platform) {
+  const roots = [path.join(homeDir, '.cache/puppeteer/chrome'), path.join(homeDir, 'Library/Caches/puppeteer/chrome')];
+  const matches = [];
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    try {
+      for (const entry of readdirSync(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const versionRoot = path.join(root, entry.name);
+        for (const bundle of readdirSync(versionRoot, { withFileTypes: true })) {
+          if (!bundle.isDirectory()) continue;
+          const executable =
+            platform === 'darwin'
+              ? path.join(
+                  versionRoot,
+                  bundle.name,
+                  'Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+                )
+              : platform === 'win32'
+                ? path.join(versionRoot, bundle.name, 'chrome.exe')
+                : path.join(versionRoot, bundle.name, 'chrome');
+          if (existsSync(executable)) matches.push(executable);
+        }
+      }
+    } catch {
+      // Cache discovery is optional; callers retain explicit candidates.
+    }
+  }
+  return matches.sort((left, right) => left.localeCompare(right, undefined, { numeric: true })).at(-1) || '';
+}
+
+function expectedBrowserProduct(executable, platform = process.platform) {
+  const normalized = String(executable || '').replaceAll('\\', '/');
+  if (platform === 'darwin') {
+    if (/\/Google Chrome for Testing\.app\/Contents\/MacOS\/Google Chrome for Testing$/.test(normalized)) {
+      return 'Google Chrome for Testing';
+    }
+    if (/\/Chromium\.app\/Contents\/MacOS\/Chromium$/.test(normalized)) return 'Chromium';
+    return '';
+  }
+  if (/\/chrome-(?:linux|win)[^/]*\/(?:chrome|chrome\.exe)$/i.test(normalized)) {
+    return 'Google Chrome for Testing';
+  }
+  if (/\/(?:chromium|chromium-browser)(?:\.exe)?$/i.test(normalized)) return 'Chromium';
+  return '';
+}
+
+function binaryFormat(executable, platform = process.platform) {
+  try {
+    const descriptor = openSync(executable, 'r');
+    const header = Buffer.alloc(4);
+    readSync(descriptor, header, 0, header.length, 0);
+    closeSync(descriptor);
+    const hex = header.toString('hex');
+    if (platform === 'darwin' && ['feedface', 'feedfacf', 'cefaedfe', 'cffaedfe', 'cafebabe'].includes(hex)) {
+      return 'mach-o';
+    }
+    if (platform === 'linux' && hex === '7f454c46') return 'elf';
+    if (platform === 'win32' && hex.startsWith('4d5a')) return 'pe';
+  } catch {
+    // Invalid or unreadable executables fail the product probe below.
+  }
+  return '';
+}
+
+function readMacBundleField(executable, field) {
+  const appRoot = String(executable).replace(/\/Contents\/MacOS\/[^/]+$/, '');
+  const plist = path.join(appRoot, 'Contents/Info.plist');
+  const result = spawnSync('/usr/bin/plutil', ['-extract', field, 'raw', '-o', '-', plist], {
+    encoding: 'utf8',
+    timeout: 5000,
+  });
+  return result.status === 0 ? String(result.stdout || '').trim() : '';
+}
+
+function probeBrowserExecutable(executable, platform = process.platform) {
+  const result = spawnSync(executable, ['--version'], {
+    encoding: 'utf8',
+    timeout: 5000,
+    windowsHide: true,
+  });
+  if (result.status !== 0 || result.error) return null;
+  const version = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
+  const match = /^(Google Chrome for Testing|Chromium) (\d+\.\d+\.\d+\.\d+)$/.exec(version);
+  if (!match) return null;
+  return {
+    product: match[1],
+    version: match[2],
+    binary_format: binaryFormat(executable, platform),
+    bundle_id: platform === 'darwin' ? readMacBundleField(executable, 'CFBundleIdentifier') : 'not_applicable',
+    bundle_version:
+      platform === 'darwin' ? readMacBundleField(executable, 'CFBundleShortVersionString') : 'not_applicable',
+  };
+}
+
+export function browserProbePass(executable, observed, platform = process.platform) {
+  const expected = expectedBrowserProduct(executable, platform);
+  if (!expected || observed?.product !== expected || !/^\d+\.\d+\.\d+\.\d+$/.test(observed?.version || '')) {
+    return false;
+  }
+  if (platform === 'darwin') {
+    const expectedBundleId =
+      expected === 'Google Chrome for Testing' ? 'com.google.chrome.for.testing' : 'org.chromium.Chromium';
+    return (
+      observed.binary_format === 'mach-o' &&
+      observed.bundle_id === expectedBundleId &&
+      observed.bundle_version === observed.version
+    );
+  }
+  if (platform === 'linux') return observed.binary_format === 'elf';
+  if (platform === 'win32') return observed.binary_format === 'pe';
+  return false;
+}
+
+function supportsUnpackedExtensionLaunch(executable, platform = process.platform) {
+  return browserProbePass(executable, probeBrowserExecutable(executable, platform), platform);
+}
+
+function isExecutable(filePath) {
+  try {
+    accessSync(filePath, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveChromeForEval(explicitPath = process.env.CHROME_PATH || '', homeDir = os.homedir()) {
+  if (explicitPath) {
+    if (!isExecutable(explicitPath)) throw new Error(`CHROME_PATH is not executable or missing: ${explicitPath}`);
+    if (!supportsUnpackedExtensionLaunch(explicitPath)) {
+      throw new Error(`CHROME_PATH must be Chrome for Testing or Chromium, not stable Chrome: ${explicitPath}`);
+    }
+    return explicitPath;
+  }
+  const candidates = [
+    discoverChromeForTesting(homeDir),
+    '/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  ].filter(Boolean);
+  const resolved = candidates.find(candidate => isExecutable(candidate) && supportsUnpackedExtensionLaunch(candidate));
+  if (!resolved) {
+    throw new Error(
+      'Chrome for Testing or Chromium is required; set CHROME_PATH to an unpacked-extension capable build',
+    );
+  }
+  return resolved;
+}
 
 export function parseEnvFile(filePath) {
   if (!existsSync(filePath)) return {};
@@ -69,11 +220,7 @@ const envFileCandidates = [
 ];
 
 export function resolveOpenAICompatApiKey() {
-  const fromEnv = firstNonEmpty(
-    process.env.EVAL_API_KEY,
-    process.env.GROK_EVAL_API_KEY,
-    process.env.OPENAI_API_KEY,
-  );
+  const fromEnv = firstNonEmpty(process.env.EVAL_API_KEY, process.env.GROK_EVAL_API_KEY, process.env.OPENAI_API_KEY);
   if (fromEnv) return fromEnv;
   return readKeyFromFiles(['EVAL_API_KEY', 'GROK_EVAL_API_KEY', 'OPENAI_API_KEY'], envFileCandidates);
 }
@@ -130,6 +277,17 @@ export function resolveEvalProvider() {
     apiKey: resolveMiniMaxApiKey(),
     baseUrl: firstNonEmpty(process.env.MINIMAX_BASE_URL, 'https://api.minimaxi.com/v1').replace(/\/+$/, ''),
     model: firstNonEmpty(process.env.MINIMAX_MODEL, process.env.MODEL, 'MiniMax-M3'),
+  };
+}
+
+export function resolveEvalIdentity() {
+  const config = resolveEvalProvider();
+  return {
+    provider: config.kind,
+    model: config.model,
+    provider_id: config.providerId,
+    base_url: config.baseUrl,
+    feature_flags: resolveEvalFeatureFlags(),
   };
 }
 
@@ -236,7 +394,104 @@ export async function seedEvalLlm(panel) {
     `[eval-provider] seed kind=${cfg.kind} providerId=${cfg.providerId} model=${cfg.model} baseUrl=${cfg.baseUrl} keyLen=${cfg.apiKey.length} flags=${JSON.stringify(payload['eval-settings'].featureFlags)}`,
   );
   await panel.evaluate(async storagePayload => chrome.storage.local.set(storagePayload), payload);
+  const observed = await panel.evaluate(async () => {
+    const stored = await chrome.storage.local.get(['llm-api-keys', 'agent-models', 'eval-settings']);
+    const planner = stored['agent-models']?.agents?.planner;
+    const navigator = stored['agent-models']?.agents?.navigator;
+    const provider = stored['llm-api-keys']?.providers?.[planner?.provider];
+    return {
+      planner_provider_id: planner?.provider || '',
+      planner_model: planner?.modelName || '',
+      navigator_provider_id: navigator?.provider || '',
+      navigator_model: navigator?.modelName || '',
+      provider_base_url: provider?.baseUrl || '',
+      provider_type: provider?.type || '',
+      feature_flags: stored['eval-settings']?.featureFlags || null,
+    };
+  });
+  const errors = validateEvalSeedReadback(cfg, observed, payload['eval-settings'].featureFlags);
+  if (errors.length > 0) throw new Error(`eval provider storage readback mismatch: ${errors.join(', ')}`);
+  cfg.observedIdentity = observed;
   return cfg;
+}
+
+export function validateEvalSeedReadback(cfg, observed, expectedFeatureFlags = resolveEvalFeatureFlags()) {
+  const errors = [];
+  if (observed?.planner_provider_id !== cfg.providerId) errors.push('planner provider');
+  if (observed?.navigator_provider_id !== cfg.providerId) errors.push('navigator provider');
+  if (observed?.planner_model !== cfg.model) errors.push('planner model');
+  if (observed?.navigator_model !== cfg.model) errors.push('navigator model');
+  if (String(observed?.provider_base_url || '').replace(/\/+$/, '') !== cfg.baseUrl) errors.push('provider base URL');
+  if (observed?.provider_type !== cfg.type) errors.push('provider type');
+  if (JSON.stringify(observed?.feature_flags) !== JSON.stringify(expectedFeatureFlags)) errors.push('feature flags');
+  return errors;
+}
+
+function runtimeCriticalFiles(extensionPath) {
+  const manifest = JSON.parse(readFileSync(path.join(extensionPath, 'manifest.json'), 'utf8'));
+  const files = new Set(['manifest.json']);
+  const add = value => {
+    if (!value) return;
+    const normalized = path.posix.normalize(String(value).replace(/^\.\//, ''));
+    if (path.posix.isAbsolute(normalized) || normalized.split('/').includes('..')) {
+      throw new Error(`runtime entry escapes extension: ${value}`);
+    }
+    files.add(normalized);
+  };
+  add(manifest?.background?.service_worker);
+  add(manifest?.side_panel?.default_path);
+  add(manifest?.options_page);
+  add(manifest?.options_ui?.page);
+  add(manifest?.action?.default_popup);
+  for (const entry of manifest?.content_scripts || []) {
+    for (const file of [...(entry?.js || []), ...(entry?.css || [])]) add(file);
+  }
+  const visitedHtml = new Set();
+  for (;;) {
+    const htmlPath = [...files].find(file => file.endsWith('.html') && !visitedHtml.has(file));
+    if (!htmlPath) break;
+    visitedHtml.add(htmlPath);
+    const html = readFileSync(path.join(extensionPath, htmlPath), 'utf8');
+    for (const match of html.matchAll(/(?:src|href)=["']([^"']+)["']/g)) {
+      if (/^(?:https?:|data:|#)/.test(match[1])) continue;
+      add(path.posix.join(path.posix.dirname(htmlPath), match[1]));
+    }
+  }
+  return [...files].sort();
+}
+
+export async function attestRuntimeExtension(panel, extensionPath) {
+  const files = runtimeCriticalFiles(extensionPath);
+  const local = files.map(file => ({
+    path: file,
+    sha256: createHash('sha256')
+      .update(readFileSync(path.join(extensionPath, file)))
+      .digest('hex'),
+  }));
+  const runtime = await panel.evaluate(async requestedFiles => {
+    const records = [];
+    for (const file of requestedFiles) {
+      const response = await fetch(chrome.runtime.getURL(file), { cache: 'no-store' });
+      if (!response.ok) throw new Error(`runtime extension file unavailable: ${file}`);
+      const digest = await crypto.subtle.digest('SHA-256', await response.arrayBuffer());
+      records.push({
+        path: file,
+        sha256: [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join(''),
+      });
+    }
+    return {
+      extension_id: chrome.runtime.id,
+      extension_version: chrome.runtime.getManifest().version,
+      files: records,
+    };
+  }, files);
+  if (JSON.stringify(runtime.files) !== JSON.stringify(local)) {
+    throw new Error('loaded extension bundle differs from local dist');
+  }
+  return {
+    ...runtime,
+    bundle_hash: createHash('sha256').update(JSON.stringify(runtime.files)).digest('hex'),
+  };
 }
 
 export function hasEvalApiKey() {

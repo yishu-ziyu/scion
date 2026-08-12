@@ -6,6 +6,7 @@ import {
   type MissionPhaseStatus,
   type TaskSnapshot,
 } from '@extension/storage';
+import { shouldShowVerifiedDone } from './task-loop-ui';
 
 export type ProgressViewStatus =
   | 'planning'
@@ -57,6 +58,7 @@ export type ProgressHealthState =
   | 'advancing'
   | 'recovering'
   | 'slow'
+  | 'stalled'
   | 'needs_user'
   | 'paused'
   | 'failed'
@@ -159,32 +161,34 @@ function genericMissionTitle(instruction: string): string {
 function viewStatus(snapshot: TaskSnapshot, evidenceSpace?: EvidenceSpace | null): ProgressViewStatus {
   if (snapshot.status === 'paused' || snapshot.status === 'interrupted') return 'paused';
   if (snapshot.status === 'waiting_user' || snapshot.status === 'inputs_required') return 'needs_user';
-  if (snapshot.status === 'completed') return 'completed';
+  if (snapshot.status === 'completed') {
+    const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
+    return shouldShowVerifiedDone(snapshot, round?.receipt) ? 'completed' : 'failed';
+  }
   if (snapshot.status === 'failed' || snapshot.status === 'cancelled') return 'failed';
   if (evidenceSpace?.researchDecision && !researchDeliveryComplete(evidenceSpace)) return 'delivering';
   return snapshot.rounds.some(round => round.evidence.length > 0) ? 'working' : 'planning';
 }
 
-function lastMeaningfulProgressAt(
-  snapshot: TaskSnapshot,
-  evidenceSpace?: EvidenceSpace | null,
-): number | undefined {
-  const evidenceAt = evidenceSpace?.updatedAt;
-  const recordAt = evidenceSpace?.records.reduce(
-    (max, record) => Math.max(max, record.capturedAt ?? 0),
+function lastMeaningfulProgressAt(snapshot: TaskSnapshot, evidenceSpace?: EvidenceSpace | null): number | undefined {
+  const recordAt = evidenceSpace?.records.reduce((max, record) => Math.max(max, record.capturedAt ?? 0), 0);
+  const decisionAt = evidenceSpace?.researchDecision?.createdAt;
+  const deliveryAt = Object.values(evidenceSpace?.researchDelivery ?? {}).reduce(
+    (max, artifact) => Math.max(max, artifact?.verifiedAt ?? 0),
     0,
   );
-  const candidates = [evidenceAt, recordAt, snapshot.updatedAt].filter(
+  const roundProgress = snapshot.rounds.flatMap(round => [
+    ...round.evidence.filter(evidence => evidence.passed).map(evidence => evidence.observedAt),
+    ...round.attempts.filter(attempt => attempt.state === 'observed').map(attempt => attempt.observedAt),
+  ]);
+  const candidates = [recordAt, decisionAt, deliveryAt, ...roundProgress].filter(
     (value): value is number => typeof value === 'number' && value > 0,
   );
   if (candidates.length === 0) return undefined;
   return Math.max(...candidates);
 }
 
-/**
- * S1 health projection: status-driven mutual exclusion only.
- * Does not use action counts. slow/recovering need more signals later.
- */
+/** S1 health uses observable evidence/attempt state; generic snapshot writes are not progress. */
 function activitySiteLabel(snapshot: TaskSnapshot): string | undefined {
   const page =
     [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page' && ref.tabId === snapshot.activeTabId) ??
@@ -216,29 +220,27 @@ export function deriveCurrentActivity(
 ): ProgressCurrentActivity | undefined {
   if (snapshot.status !== 'running') return undefined;
   const attempt = latestAttempt(snapshot);
+  if (attempt?.state !== 'executing' || !attempt.executingAt) return undefined;
   const active = milestones.find(milestone => milestone.status === 'active');
   const summaryRaw =
     attempt?.displaySummary?.replace(/\s+/g, ' ').trim() ||
     attempt?.targetLabel?.replace(/\s+/g, ' ').trim() ||
-    attempt?.actionName?.replace(/_/g, ' ').trim() ||
+    (attempt?.actionName ? '正在操作页面' : '') ||
     '正在推进任务';
   const summary = compact(summaryRaw, 80);
-  const purpose = active
-    ? `服务于「${active.title}」`
-    : snapshot.plan?.goal
-      ? '推进当前验收'
-      : '推进当前任务';
+  const purpose = active ? `服务于「${active.title}」` : snapshot.plan?.goal ? '推进当前验收' : '推进当前任务';
   return {
     summary,
     purpose,
     site: activitySiteLabel(snapshot),
-    startedAt: attempt?.executingAt ?? attempt?.authorizedAt ?? attempt?.proposedAt ?? snapshot.updatedAt,
+    startedAt: attempt.executingAt,
   };
 }
 
 export function deriveProgressHealth(
   snapshot: TaskSnapshot,
   evidenceSpace?: EvidenceSpace | null,
+  now = Date.now(),
 ): ProgressHealth {
   const lastAt = lastMeaningfulProgressAt(snapshot, evidenceSpace);
   switch (snapshot.status) {
@@ -265,18 +267,61 @@ export function deriveProgressHealth(
         lastMeaningfulProgressAt: lastAt,
       };
     case 'completed':
-      return {
-        state: 'complete',
-        summary: '已验证完成',
-        lastMeaningfulProgressAt: lastAt,
-      };
+      return shouldShowVerifiedDone(
+        snapshot,
+        snapshot.rounds.find(item => item.id === snapshot.currentRoundId)?.receipt,
+      )
+        ? {
+            state: 'complete',
+            summary: '已验证完成',
+            lastMeaningfulProgressAt: lastAt,
+          }
+        : {
+            state: 'recovering',
+            summary: '完成信号未通过验证，结果暂不可交付',
+            lastMeaningfulProgressAt: lastAt,
+          };
     case 'running':
-    default:
+    default: {
+      const attempt = latestAttempt(snapshot);
+      if (attempt?.state === 'uncertain' || attempt?.state === 'blocked') {
+        return {
+          state: 'recovering',
+          summary: '上一步未确认，正在恢复或换路',
+          lastMeaningfulProgressAt: lastAt,
+        };
+      }
+      const executingAge = attempt?.executingAt ? Math.max(0, now - attempt.executingAt) : Number.POSITIVE_INFINITY;
+      if (attempt?.state === 'executing' && executingAge <= 30_000) {
+        return {
+          state: 'advancing',
+          summary: '当前动作正在等待页面反馈',
+          lastMeaningfulProgressAt: lastAt,
+        };
+      }
+      if (lastAt) {
+        const idleFor = Math.max(0, now - lastAt);
+        if (idleFor <= 30_000) {
+          return { state: 'advancing', summary: '刚有可确认进展', lastMeaningfulProgressAt: lastAt };
+        }
+        return idleFor <= 90_000
+          ? {
+              state: 'slow',
+              summary: '暂无新的可确认进展',
+              lastMeaningfulProgressAt: lastAt,
+            }
+          : {
+              state: 'stalled',
+              summary: '进展停滞，可暂停或调整方向',
+              lastMeaningfulProgressAt: lastAt,
+            };
+      }
+      const taskAge = Math.max(0, now - snapshot.createdAt);
       return {
-        state: 'advancing',
-        summary: '正常推进',
-        lastMeaningfulProgressAt: lastAt,
+        state: taskAge <= 15_000 ? 'advancing' : 'slow',
+        summary: taskAge <= 15_000 ? '正在准备第一步' : '尚无可确认进展，可继续等待或调整方向',
       };
+    }
   }
 }
 
@@ -313,6 +358,8 @@ function milestoneStatuses(done: boolean[]): MissionPhaseStatus[] {
 
 function researchProgressView(input: DeriveTaskProgressViewInput): TaskProgressView {
   const { snapshot, evidenceSpace } = input;
+  const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
+  const verified = shouldShowVerifiedDone(snapshot, round?.receipt);
   const quotas = extractVisibleResearchTargets(input.missionInstruction) ?? { userDiscussions: 80, products: 30 };
   const progress = evidenceSpaceProgress(evidenceSpace);
   const rawUserDiscussionCount =
@@ -454,7 +501,7 @@ function researchProgressView(input: DeriveTaskProgressViewInput): TaskProgressV
   else if (!productDone) nextStep = `补足 ${Math.max(0, quotas.products - progress.products)} 个未记录合格产品`;
   else if (!decisionDone) nextStep = '交叉验证证据并收敛到恰好三个能力';
   else if (!deliveryDone) nextStep = '创建并回读飞书研究表与决策文档';
-  else if (snapshot.status === 'completed') nextStep = '任务已完成';
+  else if (snapshot.status === 'completed') nextStep = verified ? '任务已完成' : '补齐验收证据后再交付';
 
   const currentActivity = deriveCurrentActivity(snapshot, milestones);
   return {
@@ -465,7 +512,7 @@ function researchProgressView(input: DeriveTaskProgressViewInput): TaskProgressV
     },
     directionChange: latestDirectionChange(snapshot),
     status: viewStatus(snapshot, evidenceSpace),
-    health: deriveProgressHealth(snapshot, evidenceSpace),
+    health: deriveProgressHealth(snapshot, evidenceSpace, input.now),
     ...(currentActivity ? { currentActivity } : {}),
     milestones,
     findings,
@@ -502,16 +549,18 @@ function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressVi
     };
   });
   const active = milestones.find(milestone => milestone.status === 'active');
-  const artifacts: ProgressArtifact[] = round?.receipt
-    ? [
-        {
-          id: round.receipt.id,
-          title: '已验证任务回执',
-          kind: 'receipt',
-          status: 'verified',
-        },
-      ]
-    : [];
+  const verified = shouldShowVerifiedDone(snapshot, round?.receipt);
+  const artifacts: ProgressArtifact[] =
+    verified && round?.receipt
+      ? [
+          {
+            id: round.receipt.id,
+            title: '已验证任务回执',
+            kind: 'receipt',
+            status: 'verified',
+          },
+        ]
+      : [];
   const currentActivity = deriveCurrentActivity(snapshot, milestones);
   return {
     kind: 'generic',
@@ -521,7 +570,7 @@ function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressVi
     },
     directionChange: latestDirectionChange(snapshot),
     status: viewStatus(snapshot),
-    health: deriveProgressHealth(snapshot),
+    health: deriveProgressHealth(snapshot, undefined, input.now),
     ...(currentActivity ? { currentActivity } : {}),
     milestones,
     findings: [],
@@ -529,7 +578,9 @@ function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressVi
     nextStep: active
       ? `继续完成“${active.title}”`
       : snapshot.status === 'completed'
-        ? '任务已完成'
+        ? verified
+          ? '任务已完成'
+          : '补齐验收证据后再交付'
         : '继续推进当前任务',
     updatedAt: snapshot.updatedAt,
   };

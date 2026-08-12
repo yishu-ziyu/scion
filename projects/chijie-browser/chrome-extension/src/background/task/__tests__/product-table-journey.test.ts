@@ -5,10 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompletionCriterion } from '@extension/storage/lib/task';
 import { TaskManager } from '../manager';
-import {
-  createControlLoopDriver,
-  fixtureProductTableControlSteps,
-} from '../../agent/backends/control-loop';
+import { createControlLoopDriver, fixtureProductTableControlSteps } from '../../agent/backends/control-loop';
 import {
   extractProductsFromHtml,
   formatProductTableDeliverable,
@@ -49,39 +46,67 @@ vi.mock('../../agent/factory', () => ({
       url: () => 'http://127.0.0.1/products',
       tabId: 11,
       getContent: async () => '',
-      observeActionTarget: async () => ({
-        target: {
-          id: 'el-1',
-          kind: 'element' as const,
-          tabId: 11,
-          frameId: 0 as const,
-          urlOrigin: 'http://127.0.0.1',
-          digest: 'el-digest',
-        },
-        tag: 'li',
-        type: '',
-        inForm: false,
-        intent: 'product row',
-        semanticCommit: false,
-      }),
+      observeActionTarget: async () => {
+        const visibleCells = [
+          'Alpha Wireless Headphones',
+          '$49.99',
+          '4.5',
+          'Beta Mechanical Keyboard',
+          '$89.00',
+          '4.8',
+          'Gamma USB-C Hub',
+          '$34.50',
+          '4.2',
+          'Delta Desk Lamp',
+          '$27.99',
+          '4.0',
+          'Epsilon Notebook Stand',
+          '$19.95',
+          '4.6',
+          'Zeta Webcam Cover',
+          '$8.49',
+          '3.9',
+        ];
+        const textDigests = await Promise.all(
+          visibleCells.map(async value =>
+            Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))))
+              .map(byte => byte.toString(16).padStart(2, '0'))
+              .join(''),
+          ),
+        );
+        return {
+          target: {
+            id: 'page-products',
+            kind: 'page' as const,
+            tabId: 11,
+            frameId: 0 as const,
+            urlOrigin: 'http://127.0.0.1',
+            normalizedUrl: 'http://127.0.0.1/products',
+            bodyDigest: 'products-body',
+            textDigests,
+            pageRevision: 'products-revision',
+            digest: 'products-page-digest',
+          },
+          tag: 'body',
+          type: '',
+          inForm: false,
+          intent: 'product table',
+          semanticCommit: false,
+        };
+      },
       observeMedia: async () => ({ kind: 'none' as const }),
     }),
   },
 }));
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const fixtureHtml = readFileSync(
-  path.resolve(__dirname, '../../../../test/fixtures/products.html'),
-  'utf8',
-);
+const fixtureHtml = readFileSync(path.resolve(__dirname, '../../../../test/fixtures/products.html'), 'utf8');
 
 describe('R1 product-table journey (auto_proxy)', () => {
   beforeEach(() => store.sessions.clear());
 
   it('fixture HTML → CSV deliverable has ≥5 product rows', () => {
-    const goal = parseProductTableInstruction(
-      'Extract products to a CSV table with name, price, rating',
-    );
+    const goal = parseProductTableInstruction('Extract products to a CSV table with name, price, rating');
     expect(goal).not.toBeNull();
     const rows = extractProductsFromHtml(fixtureHtml);
     expect(rows.length).toBeGreaterThanOrEqual(5);
@@ -89,9 +114,7 @@ describe('R1 product-table journey (auto_proxy)', () => {
     expect(deliverable).toContain('name,price,rating');
     expect(deliverable).toContain('Alpha Wireless Headphones');
     // Data rows only (exclude header line after the result sentence)
-    const dataLines = deliverable
-      .split('\n')
-      .filter(line => line.includes(',') && !line.startsWith('name,'));
+    const dataLines = deliverable.split('\n').filter(line => line.includes(',') && !line.startsWith('name,'));
     expect(dataLines.length).toBeGreaterThanOrEqual(5);
   });
 
@@ -99,16 +122,19 @@ describe('R1 product-table journey (auto_proxy)', () => {
     const rows = extractProductsFromHtml(fixtureHtml);
     const csvSummary = formatProductTableDeliverable(rows, 'csv');
 
-    const observeCriteria = vi.fn(async (criteria: CompletionCriterion[]) =>
-      criteria.map(item => ({
+    let pageMarkerPresent = false;
+    const observeCriteria = vi.fn(async (criteria: CompletionCriterion[]) => {
+      const observations = criteria.map(item => ({
         criterionId: item.id,
         roundId: item.roundId,
         targetRefId: item.targetRefId,
         observedAt: 600,
         source: 'page' as const,
-        value: true,
-      })),
-    );
+        value: pageMarkerPresent,
+      }));
+      pageMarkerPresent = true;
+      return observations;
+    });
 
     const manager = new TaskManager({
       createExecutor: async (input, hooks) =>

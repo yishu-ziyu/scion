@@ -213,13 +213,11 @@ export function fixtureNavigateControlSteps(opts?: { url?: string; urlStartsWith
 }
 
 /**
- * R1 product-table script: empty plan (list fields already true at baseline) →
- * candidate_complete with CSV deliverable summary.
+ * R1 product-table script: required page marker → candidate_complete with CSV
+ * deliverable summary. The marker is independently observed from the fixture.
  * TaskManager stores summary as instructionSummary for side-panel deliverable.
  */
-export function fixtureProductTableControlSteps(opts?: {
-  csvSummary?: string;
-}): ControlScriptStep[] {
+export function fixtureProductTableControlSteps(opts?: { csvSummary?: string }): ControlScriptStep[] {
   const summary =
     opts?.csvSummary ??
     [
@@ -233,7 +231,10 @@ export function fixtureProductTableControlSteps(opts?: {
       'Zeta Webcam Cover,$8.49,3.9',
     ].join('\n');
   return [
-    { type: 'plan', criteria: [] },
+    {
+      type: 'plan',
+      criteria: [{ kind: 'page_text', operator: 'present', expected: 'Alpha Wireless Headphones', required: true }],
+    },
     { type: 'candidate_complete', summary },
   ];
 }

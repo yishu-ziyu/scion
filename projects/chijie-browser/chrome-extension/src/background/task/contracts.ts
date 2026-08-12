@@ -27,6 +27,7 @@ export interface ProbeObservation {
   criterionId: string;
   roundId: string;
   targetRefId: string;
+  pageRevision?: string;
   observedAt: number;
   source: 'page' | 'user';
   value: boolean | string;

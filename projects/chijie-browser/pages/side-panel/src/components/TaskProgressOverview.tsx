@@ -22,6 +22,10 @@ function relativeTime(timestamp: number | undefined, now: number): string | null
   return new Date(timestamp).toLocaleDateString();
 }
 
+export function healthAnnouncement(health: TaskProgressView['health']): string {
+  return `运行状态：${health.summary}`;
+}
+
 export function TaskProgressOverview({
   view,
   now = Date.now(),
@@ -73,11 +77,7 @@ export function TaskProgressOverview({
         </section>
       )}
 
-      <section
-        className="chijie-progress-health"
-        data-testid="task-progress-health"
-        data-health={view.health.state}
-        aria-live="polite">
+      <section className="chijie-progress-health" data-testid="task-progress-health" data-health={view.health.state}>
         <span className="chijie-progress-health-label">运行</span>
         <strong className="chijie-progress-health-summary">{view.health.summary}</strong>
         {view.health.lastMeaningfulProgressAt ? (
@@ -86,6 +86,14 @@ export function TaskProgressOverview({
           </time>
         ) : null}
       </section>
+      <span
+        key={`${view.health.state}:${view.health.summary}`}
+        className="chijie-visually-hidden"
+        data-testid="task-health-announcer"
+        role="status"
+        aria-atomic="true">
+        {healthAnnouncement(view.health)}
+      </span>
 
       {interrupted ? (
         <section className="chijie-interrupted-status" data-testid="task-interrupted-status">

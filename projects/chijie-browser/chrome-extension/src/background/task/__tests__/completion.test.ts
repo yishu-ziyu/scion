@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { checkCompletion } from '../completion';
 
 describe('CompletionChecker', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
   it('rejects url criterion when observation is empty (unavailable page sentinel)', () => {
     // observeCompletionCriteria sets value='' when pageLooksUnavailable — must not pass starts_with.
     const result = checkCompletion({
@@ -68,6 +71,139 @@ describe('CompletionChecker', () => {
       ],
     });
     expect(result.passed).toBe(true);
+  });
+
+  it('rejects cross-origin and path-prefix spoofing for url starts_with', () => {
+    const criterion = {
+      id: 'c-url-spoof',
+      kind: 'url' as const,
+      operator: 'starts_with' as const,
+      expected: 'https://github.com/Org/Repo',
+      required: true,
+      roundId: 'round-1',
+      targetRefId: 'tab-1',
+      baseline: '',
+      frozenAt: 100,
+      notBefore: 150,
+      timeoutMs: 5000,
+    };
+    const check = (value: string) =>
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: criterion.id,
+            roundId: criterion.roundId,
+            targetRefId: criterion.targetRefId,
+            observedAt: 200,
+            source: 'page',
+            value,
+          },
+        ],
+      }).passed;
+
+    expect(check('https://github.com.evil.example/Org/Repo')).toBe(false);
+    expect(check('https://github.com/Org/Repository')).toBe(false);
+    expect(check('https://github.com/org/Repo')).toBe(false);
+    expect(check('https://github.com/Org/Repo/issues?state=open')).toBe(true);
+  });
+
+  it('keeps URL equality query-aware and preserves pair order', () => {
+    const criterion = {
+      id: 'c-url-query',
+      kind: 'url' as const,
+      operator: 'equals' as const,
+      expected: 'https://example.test/CasePath?a=1&b=2',
+      required: true,
+      roundId: 'round-1',
+      targetRefId: 'tab-1',
+      baseline: '',
+      frozenAt: 100,
+      notBefore: 150,
+      timeoutMs: 5000,
+    };
+    const check = (value: string) =>
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: criterion.id,
+            roundId: criterion.roundId,
+            targetRefId: criterion.targetRefId,
+            observedAt: 200,
+            source: 'page',
+            value,
+          },
+        ],
+      }).passed;
+
+    expect(check('https://example.test/CasePath?a=1&b=2#ignored')).toBe(true);
+    expect(check('https://example.test/CasePath?b=2&a=1')).toBe(false);
+    expect(check('https://example.test/CasePath?a=1&b=3')).toBe(false);
+    expect(check('https://example.test/casepath?a=1&b=2')).toBe(false);
+    expect(check('https://example.test/CasePath?a=%ZZ&b=2')).toBe(false);
+  });
+
+  it('rejects a page_text observation from a different page revision', () => {
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'c-page-revision',
+          kind: 'page_text',
+          operator: 'present',
+          expectedDigest: 'saved-digest',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'page-bound',
+          pageRevision: 'revision-a',
+          baseline: false,
+          frozenAt: 100,
+          notBefore: 150,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [
+        {
+          criterionId: 'c-page-revision',
+          roundId: 'round-1',
+          targetRefId: 'page-bound',
+          pageRevision: 'revision-b',
+          observedAt: 200,
+          source: 'page',
+          value: true,
+        },
+      ],
+    });
+    expect(result.passed).toBe(false);
+    expect(result.evidence[0]?.reason).toBe('wrong_target');
+  });
+
+  it('keeps query identity stable across a simulated service-worker module restart', async () => {
+    const state: Record<string, unknown> = {};
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async (key: string) => ({ [key]: state[key] })),
+          set: vi.fn(async (items: Record<string, unknown>) => Object.assign(state, items)),
+        },
+      },
+    });
+    vi.resetModules();
+    const firstModule = await import('../completion');
+    const first = await firstModule.redactedHttpUrlIdentity('https://example.test/report?id=1&view=full');
+    vi.resetModules();
+    const restartedModule = await import('../completion');
+    const restarted = await restartedModule.redactedHttpUrlIdentity('https://example.test/report?id=1&view=full');
+
+    expect(restarted).toEqual(first);
+    expect(JSON.stringify(state)).not.toContain('id=1');
+    expect(JSON.stringify(state)).not.toContain('view=full');
   });
 
   it('rejects evidence already true at baseline', () => {

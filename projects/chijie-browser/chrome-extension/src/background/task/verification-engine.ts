@@ -4,13 +4,7 @@
  * Verifier does not read Executor reasoning.
  */
 import { checkCompletion, type CompletionCheckInput, type CompletionCheckResult } from './completion';
-import {
-  artifactContains,
-  artifactSourceCount,
-  tableColumns,
-  tableRowCount,
-  type TaskArtifact,
-} from './artifact';
+import { artifactContains, artifactSourceCount, tableColumns, tableRowCount, type TaskArtifact } from './artifact';
 
 export type ArtifactCriterion =
   | { kind: 'artifact_exists'; required?: boolean }
@@ -155,17 +149,6 @@ export function verifyCandidateComplete(input: VerificationInput): VerificationR
   const hasEnvCriteria = Boolean(input.completion && input.completion.criteria.length > 0);
   const hasArtifactCriteria = (input.artifactCriteria ?? []).length > 0;
   if (!hasEnvCriteria && !hasArtifactCriteria) {
-    // Open-ended goals may complete with non-empty artifact or explicit empty-criteria policy.
-    if ((input.artifacts ?? []).length > 0) {
-      // Artifact present without schema checks: still require existence as weak signal.
-      return {
-        verdict: 'PASS',
-        complete: true,
-        completion,
-        artifactEvidence,
-        reasons: ['artifact_present_open_ended'],
-      };
-    }
     return {
       verdict: 'INCONCLUSIVE',
       complete: false,
@@ -175,6 +158,20 @@ export function verifyCandidateComplete(input: VerificationInput): VerificationR
     };
   }
 
+  const hasRequiredEnvCriterion = Boolean(input.completion?.criteria.some(criterion => criterion.required));
+  const hasRequiredArtifactCriterion = (input.artifactCriteria ?? []).some(criterion => criterion.required !== false);
+  if (!hasRequiredEnvCriterion && !hasRequiredArtifactCriterion) {
+    return {
+      verdict: 'INCONCLUSIVE',
+      complete: false,
+      completion,
+      artifactEvidence,
+      reasons: ['no_required_criteria'],
+    };
+  }
+
+  // A failed required check is conclusive even for a text artifact. The
+  // browser-grounding rule below only handles otherwise-green self-evidence.
   if (reasons.length > 0) {
     return {
       verdict: 'FAIL',
@@ -182,6 +179,20 @@ export function verifyCandidateComplete(input: VerificationInput): VerificationR
       completion,
       artifactEvidence,
       reasons,
+    };
+  }
+
+  // Text/file deliverables always need required browser evidence. Their own
+  // text, source list, or contains checks cannot prove that the page was read.
+  const artifacts = input.artifacts ?? [];
+  const hasTextLikeArtifact = artifacts.some(artifact => artifact.type === 'text' || artifact.type === 'file');
+  if (!hasRequiredEnvCriterion && hasTextLikeArtifact) {
+    return {
+      verdict: 'INCONCLUSIVE',
+      complete: false,
+      completion,
+      artifactEvidence,
+      reasons: ['text_artifact_unverified'],
     };
   }
 

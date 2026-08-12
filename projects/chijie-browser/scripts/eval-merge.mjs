@@ -8,29 +8,18 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseEvalCsv, serializeEvalCsv, validateEvalRows } from './lib/eval-gate.mjs';
+import { uniqueEvalRows } from './lib/eval-harness.mjs';
+import { assertSafeCampaignStamp } from './lib/eval-provenance.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const reportDir = path.resolve(projectRoot, '../../reports/nanobrowser/eval');
-const stamp = process.env.MATRIX_STAMP || 'eval-final';
+const stamp = assertSafeCampaignStamp(process.env.MATRIX_STAMP || 'eval-final');
 const inputs = (process.env.EVAL_CSVS || '')
   .split(',')
   .map(item => item.trim())
   .filter(Boolean);
-
-function parseCsv(text) {
-  const lines = text.split(/\r?\n/).filter(Boolean);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(header => header.trim());
-  return lines.slice(1).map(line => {
-    const cells = line.split(',');
-    const row = {};
-    headers.forEach((header, index) => {
-      row[header] = (cells[index] ?? '').trim();
-    });
-    return row;
-  });
-}
 
 async function main() {
   if (inputs.length === 0) throw new Error('EVAL_CSVS is required');
@@ -38,22 +27,29 @@ async function main() {
   const rows = [];
   for (const input of inputs) {
     const text = await readFile(input, 'utf8');
-    rows.push(...parseCsv(text));
+    rows.push(...parseEvalCsv(text));
   }
-  const deduped = new Map();
-  for (const row of rows) {
-    deduped.set(`${row.task_id}-${row.attempt}`, row);
+  const finalRows = uniqueEvalRows(rows);
+  if (new Set(finalRows.map(row => row.campaign_stamp)).size !== 1 || finalRows[0]?.campaign_stamp !== stamp) {
+    throw new Error('merge cannot combine or rename campaigns');
   }
-  const finalRows = [...deduped.values()];
+  const validationErrors = validateEvalRows(finalRows, 'merge');
+  if (validationErrors.length > 0) throw new Error(`refuse invalid merge:\n${validationErrors.join('\n')}`);
   const csvPath = path.join(reportDir, `${stamp}-eval-matrix.csv`);
   const summaryPath = path.join(reportDir, `${stamp}-eval-summary.md`);
   const headers = [
     'date',
+    'campaign_stamp',
+    'arm_hash',
+    'run_id',
     'wave',
     'task_id',
     'attempt',
     'git_sha',
     'model',
+    'provider',
+    'provider_base_url',
+    'feature_flags_hash',
     'attach_mode',
     'prompt_version',
     'policy_tag',
@@ -66,10 +62,7 @@ async function main() {
     'evidence_path',
     'notes',
   ];
-  await writeFile(csvPath, headers.join(',') + '\n', 'utf8');
-  for (const row of finalRows) {
-    await writeFile(csvPath, headers.map(header => String(row[header] ?? '')).join(',') + '\n', { flag: 'a' });
-  }
+  await writeFile(csvPath, serializeEvalCsv(headers, finalRows), 'utf8');
   const pass = finalRows.filter(row => row.outcome === 'verified_pass').length;
   const fail = finalRows.filter(row => row.outcome === 'fail').length;
   const invalid = finalRows.filter(row => row.outcome === 'invalid_run').length;

@@ -13,7 +13,7 @@
 .chijie-mono-label {
   color: var(--chijie-muted);
   font-family: var(--chijie-font-mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -158,6 +158,17 @@ summary:focus-visible,
   outline-offset: 2px;
 }
 
+.chijie-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .chijie-task-head {
   display: flex;
   align-items: center;
@@ -177,7 +188,7 @@ summary:focus-visible,
   border-radius: var(--chijie-radius-pill);
   background: var(--chijie-surface-raised);
   color: var(--chijie-foreground);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   line-height: 1.2;
 }
@@ -207,7 +218,7 @@ summary:focus-visible,
   overflow: hidden;
   color: var(--chijie-muted);
   font-family: var(--chijie-font-mono);
-  font-size: 10px;
+  font-size: 11px;
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -221,6 +232,7 @@ summary:focus-visible,
 }
 
 .chijie-task-goal-toggle {
+  min-height: 40px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -279,7 +291,7 @@ summary:focus-visible,
 .chijie-progress-kicker,
 .chijie-progress-section-head {
   color: var(--chijie-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.03em;
 }
@@ -301,7 +313,7 @@ summary:focus-visible,
 .chijie-progress-mission > p:last-child {
   margin: 0;
   color: var(--chijie-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -349,7 +361,7 @@ summary:focus-visible,
 
 .chijie-progress-health-label {
   color: var(--chijie-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.03em;
 }
@@ -365,12 +377,28 @@ summary:focus-visible,
   margin-left: auto;
   color: var(--chijie-muted);
   font-family: var(--chijie-font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .chijie-progress-health[data-health='advancing'] {
   border-color: color-mix(in srgb, var(--chijie-accent) 28%, var(--chijie-border));
   background: color-mix(in srgb, var(--chijie-accent-subtle) 70%, var(--chijie-surface));
+}
+
+.chijie-progress-health[data-health='advancing'] .chijie-progress-health-label,
+.chijie-progress-health[data-health='advancing'] .chijie-progress-health-time {
+  color: var(--chijie-paper-muted);
+}
+
+.chijie-progress-health[data-health='recovering'],
+.chijie-progress-health[data-health='slow'] {
+  border-color: color-mix(in srgb, var(--chijie-warning) 38%, var(--chijie-border));
+  background: var(--chijie-warning-subtle);
+}
+
+.chijie-progress-health[data-health='stalled'] {
+  border-color: color-mix(in srgb, var(--chijie-danger) 35%, var(--chijie-border));
+  background: color-mix(in srgb, var(--chijie-danger-subtle) 80%, var(--chijie-surface));
 }
 
 .chijie-progress-health[data-health='paused'] {
@@ -397,8 +425,8 @@ summary:focus-visible,
   border: 1px solid var(--chijie-border);
   border-radius: 10px;
   background: var(--chijie-accent-subtle);
-  color: var(--chijie-muted);
-  font-size: 10px;
+  color: var(--chijie-paper-muted);
+  font-size: 11px;
   line-height: 1.35;
 }
 
@@ -443,8 +471,9 @@ summary:focus-visible,
 
 .chijie-plan-head {
   display: flex;
+  flex-wrap: wrap;
   width: 100%;
-  min-height: 22px;
+  min-height: 40px;
   align-items: center;
   gap: 8px;
   padding: 0;
@@ -459,7 +488,7 @@ summary:focus-visible,
 
 .chijie-plan-head:focus-visible {
   border-radius: var(--chijie-radius-sm);
-  outline: 2px solid color-mix(in srgb, var(--chijie-accent) 42%, transparent);
+  outline: 2px solid var(--chijie-accent);
   outline-offset: 3px;
 }
 
@@ -520,7 +549,17 @@ summary:focus-visible,
 }
 
 .chijie-plan-title {
+  min-width: 0;
   font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.chijie-plan-task-state {
+  min-width: 0;
+  color: var(--chijie-danger);
+  font-size: 11px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .chijie-plan-count {
@@ -528,8 +567,9 @@ summary:focus-visible,
   align-items: baseline;
   gap: 4px;
   margin-left: auto;
+  max-width: 100%;
   color: var(--chijie-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -726,7 +766,7 @@ summary:focus-visible,
 
 .chijie-plan-item-state-label {
   color: currentColor;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 650;
   line-height: 1.2;
 }
@@ -853,8 +893,9 @@ summary:focus-visible,
 
 .chijie-progress-milestone-summary {
   color: var(--chijie-muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .chijie-progress-gates {
@@ -876,7 +917,7 @@ summary:focus-visible,
   justify-content: space-between;
   gap: 8px;
   color: var(--chijie-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.3;
 }
 
@@ -886,7 +927,7 @@ summary:focus-visible,
   justify-content: flex-end;
   gap: 5px;
   color: var(--chijie-foreground);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -915,7 +956,7 @@ summary:focus-visible,
 
 .chijie-progress-gate-detail {
   color: var(--chijie-muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
@@ -942,14 +983,14 @@ summary:focus-visible,
 
 .chijie-progress-findings li strong {
   color: var(--chijie-foreground);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .chijie-progress-findings li span {
   display: -webkit-box;
   overflow: hidden;
   color: var(--chijie-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -960,12 +1001,13 @@ summary:focus-visible,
   grid-template-columns: 16px minmax(0, 1fr) auto;
   gap: 7px;
   align-items: center;
-  min-height: 30px;
+  min-height: 40px;
   color: var(--chijie-muted);
 }
 
 .chijie-progress-artifacts a {
   display: inline-flex;
+  min-height: 40px;
   min-width: 0;
   align-items: center;
   gap: 5px;
@@ -983,7 +1025,7 @@ summary:focus-visible,
 
 .chijie-progress-artifacts small {
   color: var(--chijie-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .chijie-progress-blocked {
@@ -991,7 +1033,7 @@ summary:focus-visible,
   padding: 8px 10px;
   background: var(--chijie-warning-subtle);
   color: var(--chijie-warning);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -1032,6 +1074,7 @@ summary:focus-visible,
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-height: 40px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -1175,7 +1218,7 @@ summary:focus-visible,
 
 .chijie-thinking-head {
   display: inline-flex;
-  min-height: 20px;
+  min-height: 40px;
   align-items: center;
   align-self: flex-start;
   gap: 6px;
@@ -1193,7 +1236,7 @@ summary:focus-visible,
 
 .chijie-thinking-head:focus-visible {
   border-radius: var(--chijie-radius-sm);
-  outline: 2px solid color-mix(in srgb, var(--chijie-accent) 42%, transparent);
+  outline: 2px solid var(--chijie-accent);
   outline-offset: 3px;
 }
 
@@ -1347,8 +1390,10 @@ summary:focus-visible,
 }
 
 .chijie-completion-deliverable-text {
-  display: block;
+  display: flex;
   width: 100%;
+  min-height: 40px;
+  align-items: center;
   margin: 0;
   padding: 0;
   border: 0;
@@ -1364,15 +1409,19 @@ summary:focus-visible,
   cursor: pointer;
 }
 
-.chijie-completion-deliverable-text:hover,
+.chijie-completion-deliverable-text:hover {
+  color: var(--chijie-accent);
+}
+
 .chijie-completion-deliverable-text:focus-visible {
   color: var(--chijie-accent);
-  outline: none;
+  outline: 2px solid var(--chijie-accent);
+  outline-offset: 2px;
 }
 
 .chijie-completion-deliverable-hint {
   color: var(--chijie-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
 }
 
@@ -1432,11 +1481,14 @@ summary:focus-visible,
   padding-top: 8px;
   border-top: 1px solid #c9ded5;
   color: var(--chijie-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .chijie-receipt-details summary {
+  display: inline-flex;
   width: fit-content;
+  min-height: 40px;
+  align-items: center;
   cursor: pointer;
   user-select: none;
 }
@@ -1446,7 +1498,7 @@ summary:focus-visible,
   flex-direction: column;
   gap: 6px;
   margin: 8px 0 0;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .chijie-receipt-meta > div {
@@ -1480,7 +1532,7 @@ summary:focus-visible,
   align-items: center;
   justify-content: center;
   min-width: 0;
-  min-height: 32px;
+  min-height: 40px;
   padding: 5px 6px;
   border: 0;
   border-left: 1px solid var(--chijie-border);
@@ -1528,8 +1580,14 @@ summary:focus-visible,
 
 .chijie-skill-save-row p {
   margin: 0;
-  color: var(--chijie-muted);
+  color: var(--chijie-paper-muted);
   line-height: 1.4;
+  opacity: 1 !important;
+}
+
+.chijie-action-stack > p.text-xs {
+  color: var(--chijie-paper-muted);
+  opacity: 1 !important;
 }
 
 .chijie-next-step {
@@ -1569,7 +1627,7 @@ summary:focus-visible,
   flex-direction: column;
   gap: 2px;
   color: var(--chijie-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.35;
 }
 
@@ -1577,102 +1635,6 @@ summary:focus-visible,
   color: var(--chijie-foreground);
   font-size: 12px;
   font-weight: 650;
-}
-
-.chijie-interrupted-actions {
-  position: relative;
-  display: flex;
-  grid-column: 1 / -1;
-  align-items: center;
-  gap: 8px;
-  padding-top: 2px;
-}
-
-.chijie-interrupted-resume,
-.chijie-interrupted-adjust,
-.chijie-interrupted-more summary {
-  min-height: 32px;
-  border: 0;
-  border-radius: var(--chijie-radius-pill);
-  font-family: var(--chijie-font-body);
-  font-size: 11px;
-  font-weight: 620;
-  cursor: pointer;
-}
-
-.chijie-interrupted-resume {
-  padding: 7px 14px;
-  background: var(--chijie-accent);
-  color: #ffffff;
-}
-
-.chijie-interrupted-resume:hover {
-  background: var(--chijie-accent-signal);
-}
-
-.chijie-interrupted-adjust {
-  padding: 7px 6px;
-  background: transparent;
-  color: var(--chijie-foreground);
-}
-
-.chijie-interrupted-adjust:hover {
-  color: var(--chijie-accent-signal);
-}
-
-.chijie-interrupted-more {
-  position: relative;
-  margin-left: auto;
-}
-
-.chijie-interrupted-more summary {
-  display: inline-flex;
-  width: 32px;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  color: var(--chijie-muted);
-  list-style: none;
-}
-
-.chijie-interrupted-more summary::-webkit-details-marker {
-  display: none;
-}
-
-.chijie-interrupted-more summary:hover,
-.chijie-interrupted-more[open] summary {
-  background: var(--chijie-surface);
-  color: var(--chijie-foreground);
-}
-
-.chijie-interrupted-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 5px);
-  z-index: 10;
-  width: 112px;
-  padding: 3px;
-  border: 1px solid var(--chijie-border);
-  border-radius: var(--chijie-radius-md);
-  background: var(--chijie-surface);
-}
-
-.chijie-interrupted-menu button {
-  width: 100%;
-  min-height: 30px;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--chijie-danger);
-  font-family: var(--chijie-font-body);
-  font-size: 11px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.chijie-interrupted-menu button:hover {
-  background: var(--chijie-danger-subtle);
 }
 
 .chijie-task-controls {
@@ -1685,6 +1647,8 @@ summary:focus-visible,
 
 .chijie-field {
   width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
   padding: 9px 11px;
   border: 1px solid var(--chijie-border-strong);
   border-radius: var(--chijie-radius-md);
@@ -1720,7 +1684,7 @@ summary:focus-visible,
 .chijie-header-brand-sub {
   color: var(--chijie-muted);
   font-family: var(--chijie-font-mono);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1766,6 +1730,7 @@ summary:focus-visible,
 .chijie-chat-fold {
   display: flex;
   width: 100%;
+  min-height: 40px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -1808,7 +1773,7 @@ summary:focus-visible,
 
 .chijie-composer-controls .chijie-btn-primary,
 .chijie-composer-controls .chijie-btn-secondary {
-  min-height: 36px;
+  min-height: 40px;
   padding: 6px 12px;
   font-size: var(--chijie-text-sm, 12px);
 }
@@ -1818,6 +1783,9 @@ summary:focus-visible,
 }
 
 .chijie-composer-controls .chijie-composer-stop summary {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
   list-style: none;
   cursor: pointer;
   padding: 6px 10px;
@@ -1846,6 +1814,7 @@ summary:focus-visible,
 .chijie-composer-controls .chijie-composer-stop-menu button {
   display: block;
   width: 100%;
+  min-height: 40px;
   padding: 8px 10px;
   border: 0;
   border-radius: var(--chijie-radius-sm);
@@ -1886,7 +1855,7 @@ summary:focus-visible,
 
 .chijie-prompt-field {
   width: 100%;
-  min-height: 36px;
+  min-height: 40px;
   max-height: 112px;
   padding: 1px 2px;
   overflow-y: auto;
@@ -1900,10 +1869,9 @@ summary:focus-visible,
   resize: none;
 }
 
-/* The composer itself already has a persistent hairline boundary. Avoid the
-   nested green focus rings that visually box both the frame and textarea. */
 .chijie-composer .chijie-prompt-field:focus-visible {
-  outline: none;
+  outline: 2px solid var(--chijie-accent);
+  outline-offset: 2px;
 }
 
 .chijie-prompt-field::placeholder {
@@ -1921,6 +1889,8 @@ summary:focus-visible,
   align-items: center;
   gap: 5px;
   max-width: 100%;
+  min-width: 0;
+  min-height: 40px;
   padding: 3px 4px 3px 7px;
   border: 1px solid var(--chijie-border);
   border-radius: var(--chijie-radius-pill);
@@ -1947,10 +1917,12 @@ summary:focus-visible,
 
 .chijie-prompt-chip-remove {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 40px;
+  height: 40px;
+  flex-basis: 40px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -1989,8 +1961,8 @@ summary:focus-visible,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   flex: none;
   padding: 0;
   border: 0;
@@ -2069,7 +2041,7 @@ summary:focus-visible,
   bottom: calc(100% + 6px);
   left: 0;
   z-index: 25;
-  width: 190px;
+  width: min(190px, calc(100vw - 40px));
   padding: 4px;
   border: 1px solid var(--chijie-border);
   border-radius: 11px;
@@ -2082,7 +2054,7 @@ summary:focus-visible,
   align-items: center;
   gap: 7px;
   width: 100%;
-  min-height: 30px;
+  min-height: 40px;
   padding: 0 8px;
   border: 0;
   border-radius: 8px;
@@ -2107,8 +2079,8 @@ summary:focus-visible,
 .chijie-prompt-menu small {
   display: block;
   padding: 3px 8px 4px;
-  color: var(--chijie-muted);
-  font-size: 10px;
+  color: var(--chijie-paper-muted);
+  font-size: 11px;
 }
 
 .chijie-prompt-spinner {
@@ -2225,6 +2197,11 @@ summary:focus-visible,
   border-color: var(--chijie-accent);
 }
 
+.chijie-first-setup-control:focus-visible {
+  outline: 2px solid var(--chijie-accent);
+  outline-offset: 2px;
+}
+
 .chijie-first-setup-control:disabled {
   opacity: 0.65;
 }
@@ -2234,6 +2211,9 @@ summary:focus-visible,
 }
 
 .chijie-first-setup-advanced-toggle {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
   padding: 4px 0;
   border: 0;
   background: transparent;

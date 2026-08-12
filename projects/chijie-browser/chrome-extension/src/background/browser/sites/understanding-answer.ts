@@ -28,11 +28,26 @@ export function isUnderstandingOnlyInstruction(instruction: string): boolean {
     return false;
   }
 
-  return (
-    /当前页|当前打开|是不是|是否|哪个网站|什么网站|说明|总结|识别|标题|域名|\bhost\b|\burl\b/i.test(
+  // URL/title can only prove page identity. Any request for body meaning or a
+  // visible detail must go through the observe/control loop so the answer is
+  // grounded in page text instead of being fabricated from metadata.
+  if (
+    /主题|主旨|主要内容|讲什么|文章|正文|可见.{0,8}细节|细节|首段|第一段|定义|概括|摘要|总结|观察|引用|页面内容|展示的内容/.test(
       text,
-    ) || /用一句话说明/.test(text)
-  );
+    ) ||
+    /\b(?:body|content|detail|definition|first paragraph|quote|summari[sz]e|observation)\b/i.test(text)
+  ) {
+    return false;
+  }
+
+  const asksHomeIdentity =
+    /是不是|是否|\byes\s*or\s*no\b/i.test(text) && /首页|主页|\bhome\b/i.test(text) && /bilibili|哔哩|b站/i.test(text);
+  const asksSiteIdentity =
+    /(?:当前(?:打开)?(?:的)?|这是)(?:哪|什么|哪个)(?:个)?(?:网站|站点)|(?:哪个|什么)(?:网站|站点)/.test(text) ||
+    /识别当前(?:页|页面|网站|站点)$/.test(text);
+  const asksTitleAndLocation = /标题/.test(text) && /域名|网站域名|\bhost\b|\burl\b|网址/i.test(text);
+
+  return asksHomeIdentity || asksSiteIdentity || asksTitleAndLocation;
 }
 
 export function pageHost(url: string): string {
@@ -60,10 +75,7 @@ export function isBilibiliHomeUrl(url: string): boolean {
  * Build a short user-facing answer from live page url/title when possible.
  * Falls back to a title+host line for open-ended “what is this page”.
  */
-export function answerUnderstandingFromPage(
-  instruction: string,
-  page: { url: string; title: string },
-): string {
+export function answerUnderstandingFromPage(instruction: string, page: { url: string; title: string }): string {
   const host = pageHost(page.url);
   const title = (page.title || '').replace(/\s+/g, ' ').trim();
   const text = instruction.replace(/\s+/g, ' ').trim();

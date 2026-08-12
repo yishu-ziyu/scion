@@ -1,15 +1,8 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { FiAlertCircle, FiList, FiPauseCircle } from 'react-icons/fi';
 import type { ProgressMilestone, ProgressViewStatus } from '../presentation/task-progress-view';
 
-export type MissionPlanItemStatus =
-  | 'planned'
-  | 'active'
-  | 'done'
-  | 'blocked'
-  | 'paused'
-  | 'waiting_user'
-  | 'failed';
+export type MissionPlanItemStatus = 'planned' | 'active' | 'done' | 'blocked' | 'paused' | 'waiting_user' | 'failed';
 
 interface MissionPlanListProps {
   milestones: ProgressMilestone[];
@@ -133,7 +126,12 @@ export function missionPlanItemStatus(
   milestoneStatus: ProgressMilestone['status'],
   taskStatus: ProgressViewStatus,
 ): MissionPlanItemStatus {
-  if (taskStatus === 'completed') return 'done';
+  // A generic terminal status cannot promote planned/blocked work to done.
+  // Only persisted milestone evidence owns the green state.
+  if (taskStatus === 'completed') {
+    if (milestoneStatus === 'done' || milestoneStatus === 'blocked') return milestoneStatus;
+    return 'planned';
+  }
   if (milestoneStatus !== 'active') return milestoneStatus;
   if (taskStatus === 'paused') return 'paused';
   if (taskStatus === 'needs_user') return 'waiting_user';
@@ -147,6 +145,13 @@ function statusLabel(status: MissionPlanItemStatus): string | null {
   if (status === 'failed') return '未完成';
   if (status === 'blocked') return '受阻';
   return null;
+}
+
+function semanticStatusLabel(status: MissionPlanItemStatus): string {
+  if (status === 'planned') return '待开始';
+  if (status === 'active') return '进行中';
+  if (status === 'done') return '已完成';
+  return statusLabel(status) ?? status;
 }
 
 function HeadIcon({
@@ -204,14 +209,27 @@ function ItemIcon({ status }: { status: MissionPlanItemStatus }) {
 }
 
 export function MissionPlanList({ milestones, status, durableProgress }: MissionPlanListProps) {
+  const contentId = useId();
   const [collapsed, setCollapsed] = useState(false);
+  const collapsibleRef = useRef<HTMLDivElement>(null);
   const itemStatuses = milestones.map(milestone => missionPlanItemStatus(milestone.status, status));
   const doneCount = itemStatuses.filter(itemStatus => itemStatus === 'done').length;
-  const complete = milestones.length > 0 && doneCount === milestones.length;
+  const allPhasesDone = milestones.length > 0 && doneCount === milestones.length;
+  const complete = status === 'completed' && allPhasesDone;
   const hasDurableGates =
     durableProgress ??
     milestones.some(milestone => milestone.gates.some(gate => gate.target !== undefined && gate.target > 0));
   const progress = milestones.length > 0 ? Math.round((doneCount / milestones.length) * 100) : 0;
+  const countLabel = hasDurableGates ? `${doneCount}/${milestones.length} 阶段` : `${milestones.length} 个里程碑`;
+  const deliveryLabel = allPhasesDone && !complete ? '，任务未交付' : '';
+  const planToggleLabel = `任务计划，${countLabel}${deliveryLabel}，当前${collapsed ? '已收起，按下展开' : '已展开，按下收起'}`;
+
+  useEffect(() => {
+    const element = collapsibleRef.current;
+    if (!element) return;
+    if (collapsed) element.setAttribute('inert', '');
+    else element.removeAttribute('inert');
+  }, [collapsed]);
 
   return (
     <section
@@ -222,7 +240,8 @@ export function MissionPlanList({ milestones, status, durableProgress }: Mission
         type="button"
         className="chijie-plan-head"
         aria-expanded={!collapsed}
-        aria-label="展开或收起任务计划"
+        aria-controls={contentId}
+        aria-label={planToggleLabel}
         onClick={() => setCollapsed(current => !current)}>
         <span className="chijie-plan-head-icon" data-state={status}>
           <HeadIcon status={status} complete={complete} progress={progress} showPie={hasDurableGates} />
@@ -238,6 +257,11 @@ export function MissionPlanList({ milestones, status, durableProgress }: Mission
           </svg>
         </span>
         <span className="chijie-plan-title">任务计划</span>
+        {allPhasesDone && !complete && (
+          <span className="chijie-plan-task-state" data-testid="mission-plan-task-state">
+            任务未交付
+          </span>
+        )}
         <span className="chijie-plan-count" data-testid="mission-plan-count">
           {hasDurableGates ? (
             <>
@@ -253,7 +277,11 @@ export function MissionPlanList({ milestones, status, durableProgress }: Mission
         </span>
       </button>
 
-      <div className={`chijie-plan-collapsible${collapsed ? ' is-collapsed' : ''}`}>
+      <div
+        id={contentId}
+        ref={collapsibleRef}
+        className={`chijie-plan-collapsible${collapsed ? ' is-collapsed' : ''}`}
+        aria-hidden={collapsed}>
         <div className="chijie-plan-inner">
           <ol className="chijie-plan-list">
             {milestones.map((milestone, index) => {
@@ -270,6 +298,7 @@ export function MissionPlanList({ milestones, status, durableProgress }: Mission
                     <span className="chijie-progress-milestone-title" data-label={milestone.title}>
                       {milestone.title}
                     </span>
+                    <span className="chijie-visually-hidden">状态：{semanticStatusLabel(itemStatus)}</span>
                     {label && <span className="chijie-plan-item-state-label">{label}</span>}
                     {(itemStatus === 'active' ||
                       itemStatus === 'blocked' ||
@@ -299,10 +328,10 @@ export function MissionPlanList({ milestones, status, durableProgress }: Mission
                                   <strong>
                                     {gate.current}/{gate.target}
                                     {gate.unit ? ` ${gate.unit}` : ''}
-                                    {gate.status === 'passed' && (
-                                      <span className="chijie-progress-gate-passed">已达标</span>
-                                    )}
                                   </strong>
+                                )}
+                                {gate.status === 'passed' && (
+                                  <span className="chijie-progress-gate-passed">已达标</span>
                                 )}
                               </span>
                               {gate.current !== undefined && gate.target !== undefined && gate.target > 0 && (

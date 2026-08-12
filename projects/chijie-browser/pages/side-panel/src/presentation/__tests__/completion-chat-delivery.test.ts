@@ -27,16 +27,40 @@ function completedSnapshot(instructionSummary: string): TaskSnapshot {
         instructionSummary,
         status: 'completed',
         commandAcks: {},
-        criteria: [],
+        criteria: [
+          {
+            id: 'criterion-1',
+            roundId: 'round-1',
+            targetRefId: 'target-1',
+            kind: 'page_text',
+            operator: 'present',
+            expectedDigest: 'expected-1',
+            required: true,
+            frozenAt: 1,
+            notBefore: 1,
+            timeoutMs: 1_000,
+            baseline: false,
+          },
+        ],
         attempts: [],
-        evidence: [],
+        evidence: [
+          {
+            criterionId: 'criterion-1',
+            roundId: 'round-1',
+            targetRefId: 'target-1',
+            observedAt: 19,
+            source: 'page',
+            value: true,
+            passed: true,
+          },
+        ],
         receipt: {
           id: 'receipt-1',
           taskId: 'task-1',
           roundId: 'round-1',
           verifiedAt: 20,
-          criterionIds: [],
-          evidenceDigests: [],
+          criterionIds: ['criterion-1'],
+          evidenceDigests: ['evidence-1'],
         },
       },
     ],
@@ -47,9 +71,7 @@ function completedSnapshot(instructionSummary: string): TaskSnapshot {
 
 describe('completion chat delivery', () => {
   it('surfaces a completed text deliverable once in the current chat', () => {
-    const snapshot = completedSnapshot(
-      '当前页面是 AICSS 的 To-do List 组件文档页，并提供 React、Vue 和 Svelte 示例。',
-    );
+    const snapshot = completedSnapshot('当前页面是 AICSS 的 To-do List 组件文档页，并提供 React、Vue 和 Svelte 示例。');
     const delivery = completionChatDelivery({
       snapshot,
       currentSessionId: 'chat-1',
@@ -100,6 +122,36 @@ describe('completion chat delivery', () => {
         snapshot: completedSnapshot('YouTube 已打开。'),
         currentSessionId: 'chat-1',
         messages: [actionMessage],
+      }),
+    ).toBeNull();
+  });
+
+  it('never backfills completion into a selected historical projection', () => {
+    expect(
+      completionChatDelivery({
+        snapshot: completedSnapshot('页面内容摘要。'),
+        currentSessionId: 'chat-1',
+        messages: [userMessage],
+        isHistoricalSession: true,
+      }),
+    ).toBeNull();
+  });
+
+  it('rejects a completed signal whose receipt is incomplete or mismatched', () => {
+    const snapshot = completedSnapshot('页面内容摘要。');
+    const round = snapshot.rounds[0]!;
+    expect(
+      completionChatDelivery({
+        snapshot: { ...snapshot, rounds: [{ ...round, receipt: { ...round.receipt!, taskId: 'other-task' } }] },
+        currentSessionId: 'chat-1',
+        messages: [userMessage],
+      }),
+    ).toBeNull();
+    expect(
+      completionChatDelivery({
+        snapshot: { ...snapshot, rounds: [{ ...round, evidence: [] }] },
+        currentSessionId: 'chat-1',
+        messages: [userMessage],
       }),
     ).toBeNull();
   });

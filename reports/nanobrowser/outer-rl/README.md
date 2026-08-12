@@ -1,7 +1,10 @@
 # Outer-loop RL（外环）证据目录
 
+> **QUARANTINED：** 2026-08-06 生成的 run、summary 与 candidate 全部依赖 pre-harden、non-gateable evaluator 记录，不得进入 `skills/accepted/` 或作为当前能力证据。只有在新 020 协议的冻结失败集上重放后才能重新生成候选。
+
 规格：`docs/product/006-outer-loop-rl-min-plan.md`（**draft · 暂不执行**）  
-北极星：`docs/product/003-north-star.md`  
+历史规格来源：`docs/product/003-north-star.md`（historical only）
+当前北极星：`docs/product/021-long-horizon-task-agent.md`
 正式分模型：**MiniMax-M3 only**
 
 **当前：** 只预留目录与模板；Owner 未授权前不要跑矩阵、不要当会话默认任务。
@@ -55,16 +58,16 @@ optional: -0.05*min(steps,40) - latency_ms/60000 (cap 120s)
 
 ## policy_tag 示例
 
-| tag | 含义 |
-|-----|------|
-| `baseline` | 当前 control 默认行为 |
+| tag               | 含义                                   |
+| ----------------- | -------------------------------------- |
+| `baseline`        | 当前 control 默认行为                  |
 | `media_api_first` | 媒体优先 element API，不赌 shadow 点击 |
-| `retry_cap_3` | 同一步失败最多 3 次再中止 |
+| `retry_cap_3`     | 同一步失败最多 3 次再中止              |
 
 一次对比只改一个 tag。
 
 ## 禁止
 
-- 旗舰模型行写入「正式成功率」叙述  
-- 真实站 AUTO_APPROVE  
+- 旗舰模型行写入「正式成功率」叙述
+- 真实站 AUTO_APPROVE
 - Skill 里写表单值 / Cookie / 完整 URL query

@@ -16,28 +16,22 @@ import {
   removeHighlights as _removeHighlights,
   getScrollInfo as _getScrollInfo,
 } from './dom/service';
-import { DOMElementNode, DOMTextNode, type DOMBaseNode, type DOMState } from './dom/views';
+import { DOMElementNode, type DOMState } from './dom/views';
 import { type BrowserContextConfig, DEFAULT_BROWSER_CONTEXT_CONFIG, type PageState, URLNotAllowedError } from './views';
 import { createLogger } from '@src/background/log';
 import { ClickableElementProcessor } from './dom/clickable/service';
 import { isUrlAllowed } from './util';
 import { sha256 } from '../task/digest';
-import type { CompletionCriterion } from '@extension/storage/lib/task';
+import type { BrowserTargetRef, CompletionCriterion } from '@extension/storage/lib/task';
 import type { ProbeObservation } from '../task/contracts';
 import { pageLooksUnavailable } from './page-availability';
 import { captureActionFrame } from '../task/action-frame';
+import { durableHttpCompletionUrl, redactedHttpUrlIdentity } from '../task/completion';
 
 const logger = createLogger('Page');
 
 export interface ActionTargetObservation {
-  target: {
-    id: string;
-    kind: 'page' | 'element';
-    tabId: number;
-    frameId: 0;
-    urlOrigin: string;
-    digest: string;
-  };
+  target: BrowserTargetRef;
   tag?: string;
   type?: string;
   role?: string;
@@ -1441,23 +1435,14 @@ export default class Page {
     phase: 'before' | 'after',
   ): Promise<ActionTargetObservation> {
     if (phase === 'after') {
-      const urlOrigin = this.urlOrigin();
-      const digest = await sha256(JSON.stringify({ tabId: this._tabId, urlOrigin, page: await sha256(this.url()) }));
-      const pageRevision = await this.currentActionFrameRevision();
+      const target = await this.observePageEvidenceTarget();
       return {
-        target: {
-          id: `target-${digest.slice(0, 16)}`,
-          kind: 'page',
-          tabId: this._tabId,
-          frameId: 0,
-          urlOrigin,
-          digest,
-        },
+        target,
         inForm: false,
         hasSemanticName: false,
         semanticCommit: false,
         semanticNavigation: false,
-        pageRevision,
+        pageRevision: target.pageRevision,
       };
     }
     const args = parsedArgs && typeof parsedArgs === 'object' ? (parsedArgs as Record<string, unknown>) : {};
@@ -1593,6 +1578,7 @@ export default class Page {
     if (attributes.autocomplete?.toLowerCase() === 'current-password') type = 'password';
     const nameDigest = semanticName ? await sha256(semanticName) : undefined;
     const urlOrigin = this.urlOrigin();
+    const urlIdentity = await redactedHttpUrlIdentity(this.url());
     const kind = index !== undefined || actionName === 'send_keys' ? 'element' : 'page';
     const pageDigest = await sha256(this.url());
     const structureDigest = structureSource ? await sha256(structureSource) : undefined;
@@ -1623,6 +1609,7 @@ export default class Page {
         tabId: this._tabId,
         frameId: 0,
         urlOrigin,
+        ...(urlIdentity ?? {}),
         digest,
       },
       tag,
@@ -1635,6 +1622,75 @@ export default class Page {
       semanticCommit,
       semanticNavigation,
       pageRevision,
+    };
+  }
+
+  private async observePageEvidenceTarget(): Promise<BrowserTargetRef> {
+    const urlOrigin = this.urlOrigin();
+    const urlIdentity = await redactedHttpUrlIdentity(this.url());
+    const normalizedUrl = urlIdentity?.normalizedUrl;
+    let bodyDigest: string | undefined;
+    let textDigests: string[] | undefined;
+    let pageRevision: string | undefined;
+    if (this._puppeteerPage && urlIdentity) {
+      try {
+        const capture = await this._puppeteerPage.evaluate(() => ({
+          bodyText: document.body?.innerText || '',
+          leafText:
+            typeof document.querySelectorAll === 'function'
+              ? Array.from(document.querySelectorAll('body *'))
+                  .filter(element => element.children.length === 0)
+                  .map(element => (element as HTMLElement).innerText || element.textContent || '')
+              : [],
+        }));
+        const bodyText = typeof capture === 'string' ? capture : capture.bodyText;
+        const leafText = typeof capture === 'string' ? [] : capture.leafText;
+        const bounded = bodyText.slice(0, 200_000);
+        const normalizedBody = bounded.replace(/\s+/g, ' ').trim();
+        if (normalizedBody) bodyDigest = await sha256(normalizedBody);
+        const candidates = [
+          ...new Set(
+            [bounded, ...leafText.slice(0, 1_024)]
+              .flatMap(part => part.split(/(?<=[.!?。！？])\s+|\n+/))
+              .map(part => part.replace(/\s+/g, ' ').trim())
+              .filter(part => part.length > 0 && part.length <= 240)
+              .slice(0, 512),
+          ),
+        ];
+        if (candidates.length > 0) textDigests = await Promise.all(candidates.map(candidate => sha256(candidate)));
+        const revisionDigest = await sha256(
+          JSON.stringify({
+            normalizedUrl,
+            queryIdentityDigest: urlIdentity?.queryIdentityDigest ?? null,
+            bodyDigest: bodyDigest ?? null,
+            textDigests: textDigests ?? [],
+          }),
+        );
+        pageRevision = `${this._tabId}|${urlOrigin}|${revisionDigest}`;
+      } catch {
+        // URL-only evidence remains useful; body-grounded delivery will fail closed.
+      }
+    }
+    const digest = await sha256(
+      JSON.stringify({
+        tabId: this._tabId,
+        normalizedUrl,
+        queryIdentityDigest: urlIdentity?.queryIdentityDigest ?? null,
+        pageRevision: pageRevision ?? null,
+      }),
+    );
+    return {
+      id: `page-${digest.slice(0, 16)}`,
+      kind: 'page',
+      tabId: this._tabId,
+      frameId: 0,
+      urlOrigin,
+      ...(urlIdentity ?? {}),
+      ...(bodyDigest ? { bodyDigest } : {}),
+      ...(textDigests?.length ? { textDigests } : {}),
+      ...(pageRevision ? { pageRevision } : {}),
+      observedAt: Date.now(),
+      digest,
     };
   }
 
@@ -1651,7 +1707,13 @@ export default class Page {
     const textDigests = criteria
       .filter((item): item is Extract<CompletionCriterion, { kind: 'page_text' }> => item.kind === 'page_text')
       .map(item => item.expectedDigest);
-    let textMatches: Record<string, boolean> = {};
+    const freshPageTarget = textDigests.length > 0 ? await this.observePageEvidenceTarget() : null;
+    const pageRevision = freshPageTarget?.pageRevision;
+    const actualPageTargetRefId = freshPageTarget?.id ?? actualTargetRefId;
+    const capturedTextDigests = new Set(freshPageTarget?.textDigests ?? []);
+    const textMatches: Record<string, boolean> = Object.fromEntries(
+      textDigests.map(digest => [digest, capturedTextDigests.has(digest)]),
+    );
     // URL criteria must not pass on soft/hard 404 shells (YouTube playlist?list=FL etc.).
     let pageUnavailable = false;
     if (criteria.some(item => item.kind === 'url') && this._puppeteerPage) {
@@ -1676,42 +1738,17 @@ export default class Page {
       }
     }
 
-    if (textDigests.length > 0) {
-      textMatches = Object.fromEntries(textDigests.map(digest => [digest, false]));
-      const state = await this.getState();
-      for (const value of this.completionTextCandidates(state.elementTree)) {
-        const digest = await sha256(value);
-        if (digest in textMatches) textMatches[digest] = true;
-      }
-      // Fallback: plain text can be missing from the interactive tree after form
-      // submit rewrites (e.g. <p>Saved successfully</p>).
-      if (Object.values(textMatches).some(matched => !matched) && this._puppeteerPage) {
-        const bodyText = await this._puppeteerPage.evaluate(() => document.body?.innerText || '');
-        if (bodyText) {
-          const boundedBodyText = bodyText.slice(0, 200_000);
-          const candidates = boundedBodyText
-            .split(/(?<=[.!?。！？])\s+|\n+/)
-            .map(part => part.replace(/\s+/g, ' ').trim())
-            .filter(part => part.length > 0 && part.length <= 160)
-            .slice(0, 2000);
-          const normalizedBodyText = boundedBodyText.replace(/\s+/g, ' ').trim();
-          if (normalizedBodyText.length <= 160) candidates.push(normalizedBodyText);
-          for (const candidate of candidates) {
-            const digest = await sha256(candidate);
-            if (digest in textMatches) textMatches[digest] = true;
-          }
-        }
-      }
-    }
-
     const observations: Array<ProbeObservation | null> = await Promise.all(
       criteria.map(async criterion => {
         let value: boolean | string;
-        let targetRefId = actualTargetRefId;
+        let targetRefId =
+          criterion.kind === 'page_text' && criterion.targetRefId.startsWith('page-')
+            ? actualPageTargetRefId
+            : actualTargetRefId;
         switch (criterion.kind) {
           case 'url':
             // Empty string never equals/startsWith a real goal URL → completion stays open.
-            value = pageUnavailable ? '' : normalizedUrl;
+            value = pageUnavailable ? '' : ((await durableHttpCompletionUrl(this.url())) ?? '');
             break;
           case 'page_text':
             value = textMatches[criterion.expectedDigest] ?? false;
@@ -1740,6 +1777,7 @@ export default class Page {
           observedAt,
           source: 'page' as const,
           value,
+          ...(pageRevision ? { pageRevision } : {}),
         };
       }),
     );
@@ -1865,36 +1903,10 @@ export default class Page {
   private normalizedUrl(value: string): string {
     try {
       const url = new URL(value);
-      return `${url.origin}${url.pathname}`;
+      return (url.origin + url.pathname).replace(/\/+$/, '') || url.origin;
     } catch {
       return value;
     }
-  }
-
-  private completionTextCandidates(root: DOMBaseNode): string[] {
-    const values = new Set<string>();
-    const pending: DOMBaseNode[] = [root];
-    for (let visited = 0; pending.length > 0 && visited < 2000; visited += 1) {
-      const node = pending.shift();
-      if (!node || !node.isVisible) continue;
-      if (node instanceof DOMTextNode) {
-        const normalized = node.text.replace(/\s+/g, ' ').trim();
-        if (normalized.length > 0 && normalized.length <= 160) values.add(normalized);
-        continue;
-      }
-      if (node instanceof DOMElementNode) {
-        for (const value of [
-          node.attributes['aria-label'],
-          node.attributes.title,
-          node.getAllTextTillNextClickableElement(3),
-        ]) {
-          const normalized = value?.replace(/\s+/g, ' ').trim();
-          if (normalized && normalized.length <= 160) values.add(normalized);
-        }
-        pending.push(...node.children);
-      }
-    }
-    return [...values];
   }
 
   isFileUploader(elementNode: DOMElementNode, maxDepth = 3, currentDepth = 0): boolean {

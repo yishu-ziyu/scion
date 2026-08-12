@@ -89,7 +89,9 @@ function MessageBlock({ display, isSameGroup, showActions, onRetry, onRephrase }
 
           {isFailure && display.detail ? (
             <details className="mt-1 text-xs text-[var(--chijie-muted)]">
-              <summary className="cursor-pointer select-none text-[var(--chijie-paper-muted)]">详情</summary>
+              <summary className="inline-flex min-h-10 min-w-10 cursor-pointer select-none items-center justify-center text-[var(--chijie-paper-muted)]">
+                详情
+              </summary>
               <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--chijie-border)] bg-[var(--chijie-surface-raised)] p-2 font-mono text-[10px] text-[var(--chijie-muted)]">
                 {display.detail}
               </pre>

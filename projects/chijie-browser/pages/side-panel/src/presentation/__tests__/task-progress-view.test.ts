@@ -237,12 +237,27 @@ describe('deriveTaskProgressView', () => {
     });
   });
 
+  it('never exposes a raw action name when the attempt lacks public copy', () => {
+    const task = snapshot('running');
+    task.rounds[0]!.attempts[0] = {
+      ...task.rounds[0]!.attempts[0]!,
+      actionName: 'click_element',
+      displaySummary: undefined,
+      targetLabel: undefined,
+    };
+
+    const view = deriveTaskProgressView({ snapshot: task, missionInstruction: originalInstruction, now: 12_000 });
+
+    expect(view.currentActivity?.summary).toBe('正在操作页面');
+    expect(view.currentActivity?.summary).not.toMatch(/click|element|_/i);
+  });
+
   it.each([
     ['waiting_user', 'needs_user', 'needs_user'],
     ['inputs_required', 'needs_user', 'needs_user'],
     ['failed', 'failed', 'failed'],
     ['cancelled', 'failed', 'failed'],
-    ['completed', 'completed', 'complete'],
+    ['completed', 'failed', 'recovering'],
     // running without round.evidence stays planning; health still advances.
     ['running', 'planning', 'advancing'],
     ['interrupted', 'paused', 'paused'],
@@ -375,8 +390,43 @@ describe('deriveTaskProgressView', () => {
     expect(document.accepted).toBe(true);
     expect(researchDeliveryReady(document.space)).toBe(true);
 
+    const completedTask = snapshot('completed');
+    completedTask.rounds[0]!.criteria = [
+      {
+        id: 'criterion-1',
+        roundId: 'round-1',
+        targetRefId: 'page-1',
+        kind: 'page_text',
+        operator: 'present',
+        expectedDigest: 'expected',
+        required: true,
+        frozenAt: 1,
+        notBefore: 1,
+        timeoutMs: 1_000,
+        baseline: false,
+      },
+    ];
+    completedTask.rounds[0]!.evidence = [
+      {
+        criterionId: 'criterion-1',
+        roundId: 'round-1',
+        targetRefId: 'page-1',
+        observedAt: 11_500,
+        source: 'page',
+        value: true,
+        passed: true,
+      },
+    ];
+    completedTask.rounds[0]!.receipt = {
+      id: 'receipt-1',
+      taskId: completedTask.id,
+      roundId: 'round-1',
+      verifiedAt: 11_500,
+      criterionIds: ['criterion-1'],
+      evidenceDigests: ['evidence-1'],
+    };
     const view = deriveTaskProgressView({
-      snapshot: snapshot('completed'),
+      snapshot: completedTask,
       missionInstruction: 'User task',
       evidenceSpace: document.space,
       now: 12_000,
@@ -406,6 +456,18 @@ describe('deriveTaskProgressView', () => {
     expect(view.nextStep).toBe('任务已完成');
   });
 
+  it('does not label a generic completed signal as verified or render a receipt artifact', () => {
+    const view = deriveTaskProgressView({
+      snapshot: snapshot('completed'),
+      missionInstruction: '读取当前页面并给出摘要',
+      evidenceSpace: null,
+      now: 12_000,
+    });
+    expect(view.status).toBe('failed');
+    expect(view.health).toMatchObject({ state: 'recovering', summary: '完成信号未通过验证，结果暂不可交付' });
+    expect(view.artifacts).toEqual([]);
+  });
+
   it('uses the original instruction as the stable generic mission', () => {
     const view = deriveTaskProgressView({
       snapshot: snapshot('running'),
@@ -417,5 +479,96 @@ describe('deriveTaskProgressView', () => {
     expect(view.kind).toBe('generic');
     expect(view.mission.title).toBe('调研十家浏览器产品并输出一张对比表');
     expect(view.milestones.every(milestone => milestone.gates.length === 0)).toBe(true);
+  });
+
+  it('does not treat a generic snapshot update as meaningful progress', () => {
+    const task = snapshot('running');
+    task.createdAt = 1_000;
+    task.updatedAt = 19_900;
+    task.rounds[0]!.attempts = [];
+
+    const view = deriveTaskProgressView({
+      snapshot: task,
+      missionInstruction: '读取当前页面并给出摘要',
+      evidenceSpace: null,
+      now: 20_000,
+    });
+
+    expect(view.health).toEqual({
+      state: 'slow',
+      summary: '尚无可确认进展，可继续等待或调整方向',
+    });
+    expect(view).not.toHaveProperty('currentActivity');
+  });
+
+  it.each([
+    { idleFor: 30_000, state: 'advancing', summary: '刚有可确认进展' },
+    { idleFor: 30_001, state: 'slow', summary: '暂无新的可确认进展' },
+    { idleFor: 90_000, state: 'slow', summary: '暂无新的可确认进展' },
+    { idleFor: 90_001, state: 'stalled', summary: '进展停滞，可暂停或调整方向' },
+  ] as const)('maps $idleFor ms without meaningful progress to $state', ({ idleFor, state, summary }) => {
+    const task = snapshot('running');
+    task.rounds[0]!.attempts[0] = {
+      ...task.rounds[0]!.attempts[0]!,
+      state: 'observed',
+      executingAt: 9_100,
+      observedAt: 10_000,
+    };
+
+    const view = deriveTaskProgressView({
+      snapshot: task,
+      missionInstruction: '读取当前页面并给出摘要',
+      evidenceSpace: null,
+      now: 10_000 + idleFor,
+    });
+
+    expect(view.health).toEqual({
+      state,
+      summary,
+      lastMeaningfulProgressAt: 10_000,
+    });
+  });
+
+  it('shows Now only for the currently executing attempt, never a stale observed attempt', () => {
+    const task = snapshot('running');
+    task.rounds[0]!.attempts[0] = {
+      ...task.rounds[0]!.attempts[0]!,
+      state: 'observed',
+      observedAt: 9_200,
+    };
+    task.updatedAt = 19_900;
+
+    const view = deriveTaskProgressView({
+      snapshot: task,
+      missionInstruction: '读取当前页面并给出摘要',
+      evidenceSpace: null,
+      now: 20_000,
+    });
+
+    expect(view).not.toHaveProperty('currentActivity');
+    expect(view.health).toMatchObject({
+      state: 'advancing',
+      summary: '刚有可确认进展',
+      lastMeaningfulProgressAt: 9_200,
+    });
+  });
+
+  it('surfaces uncertain action state as recovery instead of normal progress', () => {
+    const task = snapshot('running');
+    task.rounds[0]!.attempts[0] = {
+      ...task.rounds[0]!.attempts[0]!,
+      state: 'uncertain',
+      observedAt: undefined,
+    };
+
+    const view = deriveTaskProgressView({
+      snapshot: task,
+      missionInstruction: '读取当前页面并给出摘要',
+      evidenceSpace: null,
+      now: 20_000,
+    });
+
+    expect(view.health).toMatchObject({ state: 'recovering', summary: '上一步未确认，正在恢复或换路' });
+    expect(view).not.toHaveProperty('currentActivity');
   });
 });
