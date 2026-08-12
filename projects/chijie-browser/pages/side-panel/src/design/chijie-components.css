@@ -1803,10 +1803,6 @@ summary:focus-visible,
   transition: border-color 160ms ease, background 160ms ease;
 }
 
-.chijie-prompt-frame:focus-within {
-  border-color: color-mix(in srgb, var(--chijie-accent) 48%, var(--chijie-border-strong));
-}
-
 .chijie-prompt-field {
   width: 100%;
   min-height: 36px;
@@ -1821,6 +1817,12 @@ summary:focus-visible,
   font-size: 13px;
   line-height: 18px;
   resize: none;
+}
+
+/* The composer itself already has a persistent hairline boundary. Avoid the
+   nested green focus rings that visually box both the frame and textarea. */
+.chijie-composer .chijie-prompt-field:focus-visible {
+  outline: none;
 }
 
 .chijie-prompt-field::placeholder {
