@@ -236,10 +236,12 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(messageList).toContain('chijie-current-activity');
     });
 
-    it('keeps the active composer available and renders one stop control', () => {
+    it('keeps the active composer available and demotes stop beside continuous controls', () => {
       expect(sidePanelSource).toContain('const busy = false');
       expect(sidePanelSource).toContain('showStopButton={false}');
-      expect(sidePanelSource).toContain('data-task-active={showStopButton');
+      expect(sidePanelSource).toContain('data-task-active={liveTaskConsole || showStopButton');
+      expect(sidePanelSource).toContain('data-testid="composer-continuous-controls"');
+      expect(sidePanelSource).toContain('data-testid="composer-stop"');
       expect(sidePanelSource).toContain('data-testid="empty-composer-spacer"');
     });
 
@@ -266,11 +268,15 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).not.toContain('批准一次');
   });
 
-  it('removes the duplicated current-action and normal-health blocks completely', () => {
-    expect(taskProgressOverviewSource).not.toContain('task-progress-current-activity');
-    expect(taskProgressOverviewSource).not.toContain('task-progress-health');
-    expect(componentsCss).not.toContain('.chijie-progress-now');
-    expect(componentsCss).not.toContain('.chijie-progress-health');
+  it('keeps fixed health + Now lines and collapses audit by default (design/008 S1–S2)', () => {
+    expect(taskProgressOverviewSource).toContain('task-progress-health');
+    expect(taskProgressOverviewSource).toContain('task-progress-current-activity');
+    expect(taskProgressOverviewSource).toContain('task-now-summary');
+    expect(taskProgressOverviewSource).toContain('task-now-purpose');
+    expect(componentsCss).toContain('.chijie-progress-health');
+    expect(componentsCss).toContain('.chijie-progress-now');
+    expect(thinkingReasoningSource).not.toContain('思考中');
+    expect(thinkingReasoningSource).not.toContain('is-shimmer');
   });
 
   it('mission plan is collapsible and driven by truthful runtime status rather than demo timers', () => {
@@ -403,7 +409,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
   });
 
   it('TaskStatusCard has a collapsible public work stream and outcome rating after receipt', () => {
-    expect(thinkingReasoningSource).toContain('aria-expanded={expanded}');
+    expect(thinkingReasoningSource).toContain('aria-expanded={open}');
     expect(thinkingReasoningSource).toContain('展开或收起任务处理过程');
     expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
     expect(taskStatusCardSource).toContain('data-testid="task-outcome-rating"');
@@ -453,12 +459,12 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(tree.indexOf("primaryOrganism === 'completion' && completionBlock")).toBeLessThan(
       tree.indexOf("primaryOrganism !== 'activity' && showActivityPanel"),
     );
-    // Running action summaries stay visible without restoring either deleted status card.
+    // Running action summaries stay secondary; health + Now are the fixed live-status lines.
     expect(tree).toContain("primaryOrganism === 'activity' && showActivityPanel");
     expect(tree).toContain('data-secondary="true"');
     expect(tree).toContain('{thinkingReasoning}');
-    expect(taskProgressOverviewSource).not.toContain('task-progress-current-activity');
-    expect(taskProgressOverviewSource).not.toContain('task-progress-health');
+    expect(taskProgressOverviewSource).toContain('task-progress-current-activity');
+    expect(taskProgressOverviewSource).toContain('task-progress-health');
     // The progress workspace gets meaningful height while chat and the fixed composer remain usable.
     expect(componentsCss).toMatch(/\.chijie-chat-log[\s\S]{0,120}min-height:\s*8\.5rem/);
     expect(componentsCss).toMatch(/\.chijie-paper-card[\s\S]{0,200}max-height:\s*min\(58vh,\s*560px\)/);
@@ -466,6 +472,17 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(sidePanelSource).toContain('chijie-workspace');
     expect(sidePanelSource).toContain('chijie-chat-log');
     expect(sidePanelSource).toContain('chijie-composer');
+    // S4: live-task chat folds by default; S6: pause/resume beside composer, stop demoted.
+    expect(sidePanelSource).toContain('data-testid="chat-log-fold"');
+    expect(sidePanelSource).toContain("data-collapsed={chatCollapsed ? 'true' : 'false'}");
+    expect(sidePanelSource).toContain('data-testid="composer-continuous-controls"');
+    expect(sidePanelSource).toContain('data-testid="composer-pause"');
+    expect(sidePanelSource).toContain('data-testid="composer-resume"');
+    expect(sidePanelSource).toContain('data-testid="composer-stop"');
+    expect(sidePanelSource).toContain("type: 'pause'");
+    expect(sidePanelSource).toContain("type: 'resume'");
+    expect(componentsCss).toContain('.chijie-chat-fold');
+    expect(componentsCss).toContain('.chijie-composer-controls');
     expect(sidePanelSource).toMatch(/onAdjustDirection=\{\(\) => \{[\s\S]{0,600}setInputEnabled\(true\)/);
     expect(sidePanelSource).toMatch(/onAdjustDirection=\{\(\) => \{[\s\S]{0,300}setIsHistoricalSession\(false\)/);
     expect(sidePanelSource).toContain("setInputTextRef.current?.(t('chat_task_adjust_prompt'))");
@@ -473,6 +490,25 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskProgressOverviewSource).toContain('data-testid="task-direction-change"');
     expect(t('chat_task_adjust_prompt')).toBe('我想调整：');
     expect(t('chat_task_bind_kicker')).toBe('当前页面');
+  });
+
+  it('generic mission plan hides phase-ratio pie without durable gates (design/008 S3)', () => {
+    const missionPlanListSource = readFileSync(resolve(here, '../../components/MissionPlanList.tsx'), 'utf8');
+    expect(missionPlanListSource).toContain('data-durable-progress');
+    expect(missionPlanListSource).toContain('showPie={hasDurableGates}');
+    expect(missionPlanListSource).toContain('里程碑');
+    expect(missionPlanListSource).toContain('no phase-count pie');
+  });
+
+  it('side-panel tokens expose a compact type + space ladder (design/008 S5)', () => {
+    const tokensCss = readFileSync(resolve(here, '../chijie-tokens.css'), 'utf8');
+    expect(tokensCss).toContain('--chijie-text-xs');
+    expect(tokensCss).toContain('--chijie-text-sm');
+    expect(tokensCss).toContain('--chijie-text-md');
+    expect(tokensCss).toContain('--chijie-text-lg');
+    expect(tokensCss).toContain('--chijie-space-1');
+    expect(tokensCss).toContain('--chijie-space-section');
+    expect(tokensCss).toContain('--chijie-weight-semibold');
   });
 
   it('keeps Skill form input until the save command is acknowledged', () => {

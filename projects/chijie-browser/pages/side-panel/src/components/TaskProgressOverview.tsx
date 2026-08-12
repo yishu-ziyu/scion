@@ -50,7 +50,42 @@ export function TaskProgressOverview({
         </section>
       )}
 
-      {view.milestones.length > 0 && <MissionPlanList milestones={view.milestones} status={view.status} />}
+      {view.milestones.length > 0 && (
+        <MissionPlanList
+          milestones={view.milestones}
+          status={view.status}
+          durableProgress={view.milestones.some(milestone =>
+            milestone.gates.some(gate => gate.target !== undefined && gate.target > 0),
+          )}
+        />
+      )}
+
+      {view.currentActivity && (
+        <section className="chijie-progress-now" data-testid="task-progress-current-activity">
+          <span className="chijie-progress-kicker">现在</span>
+          <strong data-testid="task-now-summary">{view.currentActivity.summary}</strong>
+          <span data-testid="task-now-purpose">{view.currentActivity.purpose}</span>
+          {view.currentActivity.site && (
+            <span className="chijie-progress-now-site" data-testid="task-now-site">
+              {view.currentActivity.site}
+            </span>
+          )}
+        </section>
+      )}
+
+      <section
+        className="chijie-progress-health"
+        data-testid="task-progress-health"
+        data-health={view.health.state}
+        aria-live="polite">
+        <span className="chijie-progress-health-label">运行</span>
+        <strong className="chijie-progress-health-summary">{view.health.summary}</strong>
+        {view.health.lastMeaningfulProgressAt ? (
+          <time className="chijie-progress-health-time">
+            最近进展 {relativeTime(view.health.lastMeaningfulProgressAt, now) ?? ''}
+          </time>
+        ) : null}
+      </section>
 
       {interrupted ? (
         <section className="chijie-interrupted-status" data-testid="task-interrupted-status">

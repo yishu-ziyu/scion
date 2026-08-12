@@ -108,6 +108,8 @@ const SidePanel = () => {
   const [taskSnapshotLoaded, setTaskSnapshotLoaded] = useState(false);
   /** Live preview of the content tab that will receive the next task (Phase 1 S1). */
   const [bindPreview, setBindPreview] = useState<BoundContentTab | null>(null);
+  /** S4: while a live task owns the console, chat stays folded unless the user expands it. */
+  const [chatLogExpanded, setChatLogExpanded] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
@@ -136,6 +138,13 @@ const SidePanel = () => {
     const bound = await resolveActiveContentTab();
     setBindPreview(bound);
   }, []);
+
+  const activeTaskId = taskSnapshot && isActiveTaskStatus(taskSnapshot.status) ? taskSnapshot.id : null;
+
+  // New live task (or task id change) starts with chat folded so Mission/Now/Health stay first.
+  useEffect(() => {
+    if (activeTaskId) setChatLogExpanded(false);
+  }, [activeTaskId]);
 
   useEffect(() => {
     void refreshBindPreview();
@@ -893,6 +902,26 @@ const SidePanel = () => {
     setShowStopButton(false);
   };
 
+  const handlePauseTask = useCallback(() => {
+    if (!taskSnapshot) return;
+    sendTaskCommand({
+      type: 'pause',
+      commandId: crypto.randomUUID(),
+      taskId: taskSnapshot.id,
+      expectedRevision: taskSnapshot.revision,
+    });
+  }, [sendTaskCommand, taskSnapshot]);
+
+  const handleResumeTask = useCallback(() => {
+    if (!taskSnapshot) return;
+    sendTaskCommand({
+      type: 'resume',
+      commandId: crypto.randomUUID(),
+      taskId: taskSnapshot.id,
+      expectedRevision: taskSnapshot.revision,
+    });
+  }, [sendTaskCommand, taskSnapshot]);
+
   const handleNewChat = () => {
     // Clear messages and start a new chat
     setMessages([]);
@@ -1303,6 +1332,17 @@ const SidePanel = () => {
   // Idle home still shows this session's chat (replies/clarifications); only task card needs active status.
   const showLiveMessages = messages.length > 0;
   const showIdleHint = !showLiveMessages && favoritePrompts.length === 0;
+  const liveTaskConsole =
+    Boolean(taskSnapshot) && showTaskCard && isActiveTaskStatus(taskSnapshot.status);
+  // S4: progress console first; chat is a foldable log while the task is live.
+  const chatCollapsed = liveTaskConsole && showLiveMessages && !chatLogExpanded;
+  // S6: continuous pause/resume stay beside the fixed composer; stop is demoted.
+  const showComposerContinuousControls =
+    liveTaskConsole &&
+    !isHistoricalSession &&
+    (taskSnapshot!.status === 'running' ||
+      taskSnapshot!.status === 'paused' ||
+      taskSnapshot!.status === 'interrupted');
 
   return (
     <div className="chijie-shell">
@@ -1461,33 +1501,57 @@ const SidePanel = () => {
                   <div
                     className="chijie-chat-log scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3"
                     data-testid="sidepanel-chat-log"
+                    data-collapsed={chatCollapsed ? 'true' : 'false'}
                     data-idle={!showMainTaskSurface ? 'true' : 'false'}>
                     {showLiveMessages ? (
-                      <>
-                        <MessageList
-                          messages={
-                            taskSnapshot?.status === 'running'
-                              ? messages
-                              : messages.filter(message => message.content !== progressMessage)
-                          }
-                          isDarkMode={false}
-                          onRetry={() => {
-                            const lastUser = [...messages].reverse().find(m => m.actor === Actors.USER);
-                            if (lastUser?.content) {
-                              void handleSendMessage(lastUser.content);
-                            } else {
-                              setInputTextRef.current?.('');
+                      chatCollapsed ? (
+                        <button
+                          type="button"
+                          className="chijie-chat-fold"
+                          data-testid="chat-log-fold"
+                          aria-expanded="false"
+                          onClick={() => setChatLogExpanded(true)}>
+                          <span>对话 {messages.length} 条</span>
+                          <span className="chijie-chat-fold-meta">展开查看委托与追问</span>
+                        </button>
+                      ) : (
+                        <>
+                          {liveTaskConsole && (
+                            <button
+                              type="button"
+                              className="chijie-chat-fold"
+                              data-testid="chat-log-fold"
+                              aria-expanded="true"
+                              onClick={() => setChatLogExpanded(false)}>
+                              <span>对话 {messages.length} 条</span>
+                              <span className="chijie-chat-fold-meta">收起</span>
+                            </button>
+                          )}
+                          <MessageList
+                            messages={
+                              taskSnapshot?.status === 'running'
+                                ? messages
+                                : messages.filter(message => message.content !== progressMessage)
                             }
-                          }}
-                          onRephrase={() => {
-                            const el = document.querySelector(
-                              '.chijie-composer textarea',
-                            ) as HTMLTextAreaElement | null;
-                            el?.focus();
-                          }}
-                        />
-                        <div ref={messagesEndRef} />
-                      </>
+                            isDarkMode={false}
+                            onRetry={() => {
+                              const lastUser = [...messages].reverse().find(m => m.actor === Actors.USER);
+                              if (lastUser?.content) {
+                                void handleSendMessage(lastUser.content);
+                              } else {
+                                setInputTextRef.current?.('');
+                              }
+                            }}
+                            onRephrase={() => {
+                              const el = document.querySelector(
+                                '.chijie-composer textarea',
+                              ) as HTMLTextAreaElement | null;
+                              el?.focus();
+                            }}
+                          />
+                          <div ref={messagesEndRef} />
+                        </>
+                      )
                     ) : showIdleHint ? (
                       <div
                         className="flex h-full min-h-[8.5rem] items-center justify-center px-2"
@@ -1520,7 +1584,9 @@ const SidePanel = () => {
                       </div>
                     )}
                 </div>
-                <div className="chijie-composer" data-task-active={showStopButton ? 'true' : 'false'}>
+                <div
+                  className="chijie-composer"
+                  data-task-active={liveTaskConsole || showStopButton ? 'true' : 'false'}>
                   <div
                     className="chijie-bind-chip"
                     data-testid="active-tab-bind"
@@ -1533,6 +1599,46 @@ const SidePanel = () => {
                       {formatBindChip(bindPreview, t('chat_task_bind_missing'))}
                     </span>
                   </div>
+                  {showComposerContinuousControls && taskSnapshot && (
+                    <div
+                      className="chijie-composer-controls"
+                      data-testid="composer-continuous-controls"
+                      data-status={taskSnapshot.status}>
+                      {taskSnapshot.status === 'running' ? (
+                        <button
+                          type="button"
+                          className="chijie-btn-secondary"
+                          data-testid="composer-pause"
+                          onClick={handlePauseTask}>
+                          {t('chat_task_pause')}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="chijie-btn-primary"
+                          data-testid="composer-resume"
+                          onClick={handleResumeTask}>
+                          {t('chat_task_resume')}
+                        </button>
+                      )}
+                      <div className="chijie-composer-stop">
+                        <details>
+                          <summary aria-label="更多任务操作">更多</summary>
+                          <div className="chijie-composer-stop-menu" role="menu">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              data-testid="composer-stop"
+                              onClick={() => {
+                                void handleStopTask();
+                              }}>
+                              {t('chat_task_stop')}
+                            </button>
+                          </div>
+                        </details>
+                      </div>
+                    </div>
+                  )}
                   <ChatInput
                     onSendMessage={handleSendMessage}
                     onStopTask={handleStopTask}

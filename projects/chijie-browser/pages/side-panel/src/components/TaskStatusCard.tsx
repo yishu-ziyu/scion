@@ -5,7 +5,6 @@ import { FiCheck, FiMoreHorizontal } from 'react-icons/fi';
 import {
   actionStackClassName,
   completionVisibleText,
-  dangerButtonClassName,
   monoLabelClassName,
   primaryButtonClassName,
   secondaryButtonClassName,
@@ -529,58 +528,15 @@ export function TaskStatusCard({
       </div>
     ) : null;
 
-  const taskControls = !isTerminal ? (
-    <div className={`${actionStackClassName} chijie-task-controls`} data-testid="task-continuous-controls">
-      {snapshot.status === 'running' && (
-        <button
-          type="button"
-          className={secondaryButtonClassName}
-          onClick={() =>
-            send({
-              type: 'pause',
-              commandId: crypto.randomUUID(),
-              taskId: snapshot.id,
-              expectedRevision: snapshot.revision,
-            })
-          }>
-          {t('chat_task_pause')}
-        </button>
-      )}
-      {snapshot.status === 'paused' && (
-        <button
-          type="button"
-          className={primaryButtonClassName}
-          onClick={() =>
-            send({
-              type: 'resume',
-              commandId: crypto.randomUUID(),
-              taskId: snapshot.id,
-              expectedRevision: snapshot.revision,
-            })
-          }>
-          {t('chat_task_resume')}
-        </button>
-      )}
-      {onAdjustDirection && (
+  // S6: pause/resume/stop live beside the composer; card keeps adjust-direction only.
+  const taskControls =
+    !isTerminal && snapshot.status !== 'interrupted' && onAdjustDirection ? (
+      <div className={`${actionStackClassName} chijie-task-controls`} data-testid="task-card-secondary-controls">
         <button type="button" className={secondaryButtonClassName} onClick={onAdjustDirection}>
           {t('chat_task_adjust_direction')}
         </button>
-      )}
-      <button
-        type="button"
-        className={dangerButtonClassName}
-        onClick={() =>
-          send({
-            type: 'cancel',
-            commandId: crypto.randomUUID(),
-            taskId: snapshot.id,
-            expectedRevision: snapshot.revision,
-          })
-        }>
-        {t('chat_task_stop')}
-      </button>
-    </div>
-  ) : null;
+      </div>
+    ) : null;
 
   const interruptedControls =
     snapshot.status === 'interrupted' ? (
@@ -647,9 +603,12 @@ export function TaskStatusCard({
             {showPartialComplete ? t('chat_task_partial_title') : t(statusLabelKey(snapshot.status))}
           </span>
         )}
-        <span className="chijie-task-site-chip" data-testid="task-site" title={siteLabel(snapshot)}>
-          {siteHostLabel(snapshot)}
-        </span>
+        {/* Site chip is live context for running work only; paused/interrupted use Health + composer bind. */}
+        {snapshot.status === 'running' && (
+          <span className="chijie-task-site-chip" data-testid="task-site" title={siteLabel(snapshot)}>
+            {siteHostLabel(snapshot)}
+          </span>
+        )}
       </header>
 
       {/* 2. Stable mission + durable gates + health. Follow-ups never replace Mission. */}

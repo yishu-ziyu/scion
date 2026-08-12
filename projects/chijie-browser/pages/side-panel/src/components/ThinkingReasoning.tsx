@@ -17,53 +17,54 @@ interface ThinkingReasoningProps {
  * from the task snapshot, never model chain-of-thought, selectors, or raw input.
  */
 export function ThinkingReasoning({ items, running, elapsed }: ThinkingReasoningProps) {
-  const [open, setOpen] = useState(running);
+  // Default collapsed: audit trail must not pretend to be live progress (design/008 S1).
+  const [open, setOpen] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setOpen(running);
+    if (!running) setOpen(false);
   }, [running]);
 
   useEffect(() => {
-    if (!running || !open) return;
+    if (!open) return;
     const viewport = viewportRef.current;
     if (viewport) viewport.scrollTop = viewport.scrollHeight;
-  }, [items.length, open, running]);
+  }, [items.length, open]);
 
+  // Non-running with no steps: hide entirely (no fake activity chrome).
   if (items.length === 0 && !running) return null;
-
-  const expanded = running || open;
 
   return (
     <section className="chijie-thinking" data-testid="task-thinking-reasoning" data-running={running || undefined}>
       <button
         type="button"
         className="chijie-thinking-head"
-        aria-expanded={expanded}
-        aria-label={running ? '任务处理过程' : '展开或收起任务处理过程'}
-        disabled={running}
-        onClick={running ? undefined : () => setOpen(value => !value)}>
+        aria-expanded={open}
+        aria-label="展开或收起任务处理过程"
+        onClick={() => setOpen(value => !value)}>
         {running ? (
-          <span className="chijie-thinking-label is-shimmer" role="status" aria-live="polite">
-            思考中…
+          <span className="chijie-thinking-label" role="status" aria-live="polite">
+            处理过程
           </span>
         ) : (
           <span className="chijie-thinking-label">
             <strong>工作了</strong> {elapsed}
           </span>
         )}
-        {!running && <FiChevronDown className="chijie-thinking-chevron" aria-hidden />}
+        <FiChevronDown className="chijie-thinking-chevron" aria-hidden />
       </button>
 
-      <div className={expanded ? 'chijie-thinking-collapsible' : 'chijie-thinking-collapsible is-collapsed'}>
+      <div className={open ? 'chijie-thinking-collapsible' : 'chijie-thinking-collapsible is-collapsed'}>
         <div className="chijie-thinking-inner">
           <div ref={viewportRef} className="chijie-thinking-viewport">
-            {items.length > 0 && (
+            {items.length > 0 ? (
               <ol className="chijie-thinking-stream">
                 {items.map(item => (
                   <li key={item.id}>{item.text}</li>
                 ))}
               </ol>
+            ) : (
+              running && <p className="m-0 text-xs text-[var(--chijie-muted)]">暂无新的可展示动作</p>
             )}
           </div>
         </div>
