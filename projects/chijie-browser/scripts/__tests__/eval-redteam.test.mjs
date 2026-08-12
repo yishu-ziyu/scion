@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -15,6 +16,7 @@ import {
   classifyWorkspaceStatus,
   evaluatorPrefixes,
   expectedEvaluatorContract,
+  readWorkspaceStatus,
 } from '../lib/eval-provenance.mjs';
 import {
   browserProbePass,
@@ -446,6 +448,22 @@ test('untracked source blocks formal provenance while explicit root artifacts do
   ]);
   assert.deepEqual(classified.allowedUntracked, ['.omo/state.json', 'clicky/session.json', 'reports/eval/run.json']);
   assert.deepEqual(classified.blocking, [{ code: '??', path: 'projects/chijie-browser/scripts/attack.mjs' }]);
+});
+
+test('empty directories do not make a committed checkout look dirty', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'eval-empty-directories-'));
+  try {
+    const initialized = spawnSync('git', ['init', '--quiet'], { cwd: root, encoding: 'utf8' });
+    assert.equal(initialized.status, 0, initialized.stderr);
+    await mkdir(path.join(root, 'empty', 'nested'), { recursive: true });
+    assert.deepEqual(readWorkspaceStatus(root), { allowedUntracked: [], blocking: [] });
+
+    await mkdir(path.join(root, 'src'), { recursive: true });
+    await writeFile(path.join(root, 'src', 'untracked.ts'), 'export {}\n');
+    assert.deepEqual(readWorkspaceStatus(root).blocking, [{ code: '??', path: 'src/untracked.ts' }]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('realpath containment rejects an in-workspace symlink to outside evidence', async () => {
