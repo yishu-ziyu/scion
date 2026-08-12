@@ -431,7 +431,7 @@ describe('deriveTaskProgressView', () => {
         url: document.space.researchDelivery?.decision_document?.url,
       }),
     ]);
-    expect(view.nextStep).toBe('核对全部验收门并生成最终回执');
+    expect(view.nextStep).toBe('任务已完成');
   });
 
   it('uses the original instruction as the stable generic mission', () => {

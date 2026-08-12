@@ -424,6 +424,7 @@ function researchProgressView(input: DeriveTaskProgressViewInput): TaskProgressV
   else if (!productDone) nextStep = `补足 ${Math.max(0, quotas.products - progress.products)} 个未记录合格产品`;
   else if (!decisionDone) nextStep = '交叉验证证据并收敛到恰好三个能力';
   else if (!deliveryDone) nextStep = '创建并回读飞书研究表与决策文档';
+  else if (snapshot.status === 'completed') nextStep = '任务已完成';
 
   return {
     kind: 'research',
