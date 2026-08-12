@@ -9,7 +9,9 @@ import {
   buildMissionPlan,
   countMissionPhases,
   derivePhaseTitle,
+  extendReconciledMissionProof,
   markActivePhase,
+  reconcileMissionPlanWithFrozenContract,
   refineMissionPlanFromInstruction,
   renderMissionPlanForAgent,
   restoreMissionPlan,
@@ -247,6 +249,72 @@ describe('mission plan', () => {
     plan = applyFinalDeliverableToMissionPlan(plan, 'deliverable:d1', 2504);
     expect(plan.phases.map(p => p.status)).toEqual(['done', 'done', 'done']);
     expect(plan.phases[2]?.evidenceIds).toEqual(['deliverable:d1']);
+  });
+
+  it('reconciles a virgin narrative plan into one proof phase and an optional delivery phase', () => {
+    const narrative = refineMissionPlanFromInstruction('离开当前页面；打开目标条目；确认正文', 2550);
+    const proofOnly = reconcileMissionPlanWithFrozenContract(
+      narrative,
+      [
+        { id: 'url', required: true },
+        { id: 'text', required: true },
+      ],
+      false,
+      2551,
+    );
+    expect(proofOnly.phases).toEqual([
+      expect.objectContaining({
+        id: 'phase-1',
+        title: '验证',
+        status: 'active',
+        criteriaIds: ['url', 'text'],
+        evidenceIds: [],
+      }),
+    ]);
+
+    const withDelivery = reconcileMissionPlanWithFrozenContract(
+      narrative,
+      [{ id: 'page', required: true }],
+      true,
+      2552,
+    );
+    expect(withDelivery.phases).toEqual([
+      expect.objectContaining({ title: '验证', status: 'active', criteriaIds: ['page'] }),
+      expect.objectContaining({ title: '输出', status: 'planned', criteriaIds: [], evidenceIds: [] }),
+    ]);
+  });
+
+  it('does not reconcile zero, optional, or already-progressed criteria ownership', () => {
+    const narrative = refineMissionPlanFromInstruction('调研；验证；输出', 2570);
+    expect(reconcileMissionPlanWithFrozenContract(narrative, [], true, 2571)).toBe(narrative);
+    expect(reconcileMissionPlanWithFrozenContract(narrative, [{ id: 'optional', required: false }], true, 2572)).toBe(
+      narrative,
+    );
+    const mixed = reconcileMissionPlanWithFrozenContract(
+      narrative,
+      [
+        { id: 'required', required: true },
+        { id: 'optional', required: false },
+      ],
+      false,
+      2573,
+    );
+    expect(mixed.phases).toEqual([expect.objectContaining({ title: '验证', criteriaIds: ['required'] })]);
+
+    const progressed = attachCriteriaToActivePhase(narrative, ['existing'], 2574);
+    expect(reconcileMissionPlanWithFrozenContract(progressed, [{ id: 'new', required: true }], true, 2575)).toBe(
+      progressed,
+    );
+  });
+
+  it('extends only an untouched reconciled proof frontier with later required criteria', () => {
+    const narrative = refineMissionPlanFromInstruction('打开；验证；输出', 2580);
+    const reconciled = reconcileMissionPlanWithFrozenContract(narrative, [{ id: 'url', required: true }], true, 2581);
+    const extended = extendReconciledMissionProof(reconciled, ['url', 'text'], 2582);
+    expect(extended.phases[0]?.criteriaIds).toEqual(['url', 'text']);
+
+    const progressed = applyPassedCriteriaToMissionPlan(reconciled, ['url'], 2583);
+    expect(extendReconciledMissionProof(progressed, ['late'], 2584)).toBe(progressed);
   });
 
   it('never assigns unowned evidence or closes a non-delivery phase from a final digest', () => {

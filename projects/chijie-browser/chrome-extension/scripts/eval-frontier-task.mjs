@@ -29,10 +29,15 @@ import {
 } from './lib/eval-provider.mjs';
 import { buildScopedTraceEvidence } from './lib/eval-trace-evidence.mjs';
 import {
+  completionProtocolErrors,
+  COMPLETION_RESULT_SELECTOR,
   deliverableContainsAll,
   expectedParts,
   FINAL_DELIVERABLE_SELECTOR,
+  navigateInitialTargetWithRetry,
+  scopedCompletionSnapshot,
   tabProvenanceWrongTab,
+  verifierRequiresTextDeliverable,
   wrongTabFromIds,
 } from './lib/eval-verification.mjs';
 
@@ -78,12 +83,18 @@ let targetPage;
 let boundTab;
 let latestResult;
 let rowEmitted = false;
+let emittedOutcome = '';
 let runStartedAt = 0;
 let browserVersion = '';
 const tabProvenance = [];
 let priorTaskIds = [];
+let priorReceiptIds = [];
 let runtimeTaskId = '';
+let runtimeTaskSnapshot = null;
 let terminalEvidence = null;
+let runtimeExtensionAttestation = null;
+let initialNavigationState = { attempts: 0, errorCategories: [] };
+const deliverableRequired = verifierRequiresTextDeliverable(verify);
 
 function resolveChromePath() {
   return resolveChromeForEval();
@@ -265,7 +276,10 @@ async function captureTabProvenance(panel, label) {
         task => task && !new Set(priorIds).has(task.id),
       );
       const scopedTask = task.length === 1 ? task[0] : null;
-      const round = scopedTask?.rounds?.at?.(-1) || null;
+      const round =
+        scopedTask?.rounds?.find(item => item?.id === scopedTask?.currentRoundId) ||
+        scopedTask?.rounds?.at?.(-1) ||
+        null;
       const targetTabIds = [
         ...(scopedTask?.targetRefs || []).map(ref => ref?.id),
         ...(round?.criteria || []).map(item => item?.targetRefId),
@@ -281,13 +295,34 @@ async function captureTabProvenance(panel, label) {
         target_tab_ids: [...new Set(targetTabIds)],
         task_id: scopedTask?.id ?? null,
         candidate_count: task.length,
+        runtime_task: scopedTask
+          ? {
+              id: scopedTask.id,
+              status: scopedTask.status,
+              roundId: round?.id ?? null,
+              receipt: round?.receipt
+                ? {
+                    id: round.receipt.id,
+                    taskId: round.receipt.taskId,
+                    roundId: round.receipt.roundId,
+                  }
+                : null,
+            }
+          : null,
       };
     }, priorTaskIds);
+    if (observed.candidate_count === 1 && observed.runtime_task?.id) {
+      if (runtimeTaskId && runtimeTaskId !== observed.runtime_task.id) observed.scope_invalid = true;
+      else {
+        runtimeTaskId = observed.runtime_task.id;
+        runtimeTaskSnapshot = observed.runtime_task;
+      }
+    }
     tabProvenance.push({
       captured_at: new Date().toISOString(),
       label,
       ...observed,
-      scope_invalid: observed.candidate_count > 1,
+      scope_invalid: observed.candidate_count > 1 || observed.scope_invalid === true,
     });
   } catch {
     tabProvenance.push({ captured_at: new Date().toISOString(), label, unavailable: true });
@@ -296,45 +331,61 @@ async function captureTabProvenance(panel, label) {
 
 async function waitCompleted(panel, target) {
   const start = Date.now();
-  let seenRunning = false;
   let completedSince = 0;
   while (Date.now() - start < timeout) {
     await maybeStress(panel, target, start);
     await captureTabProvenance(panel, 'poll');
-    const snap = await panel.evaluate(deliverableSelector => {
-      const deliverables = [...document.querySelectorAll(deliverableSelector)];
-      const receipts = [...document.querySelectorAll('[data-testid="completion-receipt"]')];
-      return {
-        status: document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status') || null,
-        receipt: receipts.length === 1,
-        receiptCount: receipts.length,
-        deliverableCount: deliverables.length,
-        answer: deliverables[0]?.textContent?.trim() || '',
-        body: document.body?.innerText || '',
-        stepsHint: (document.body?.innerText || '').match(/操作记录\s*(\d+)/)?.[1] || '',
-      };
-    }, FINAL_DELIVERABLE_SELECTOR);
+    const observed = await panel.evaluate(
+      ({ deliverableSelector, completionResultSelector }) => {
+        return {
+          cards: [...document.querySelectorAll('[data-testid="task-status"]')].map(card => ({
+            taskId: card.getAttribute('data-task-id') || '',
+            roundId: card.getAttribute('data-round-id') || '',
+            status: card.getAttribute('data-status') || null,
+            receiptIds: [...card.querySelectorAll('[data-testid="completion-receipt"]')].map(
+              receipt => receipt.getAttribute('data-receipt-id') || '',
+            ),
+            resultTexts: [...card.querySelectorAll(completionResultSelector)].map(result => result.textContent || ''),
+            deliverableTexts: [...card.querySelectorAll(deliverableSelector)].map(
+              deliverable => deliverable.textContent || '',
+            ),
+          })),
+          body: document.body?.innerText || '',
+          stepsHint: (document.body?.innerText || '').match(/操作记录\s*(\d+)/)?.[1] || '',
+        };
+      },
+      { deliverableSelector: FINAL_DELIVERABLE_SELECTOR, completionResultSelector: COMPLETION_RESULT_SELECTOR },
+    );
+    const snap = {
+      ...scopedCompletionSnapshot(observed.cards, runtimeTaskSnapshot),
+      body: observed.body,
+      stepsHint: observed.stepsHint,
+    };
+    latestResult = snap;
     if ((Date.now() - start) % 10_000 < 1200) {
       console.log(
         `[frontier] wait status=${snap.status} url=${target.url()} interrupt=${interruptFired} wrongTab=${distractorOpened}`,
       );
     }
-    if (snap.status === 'running' || snap.status === 'waiting_user') seenRunning = true;
     if (snap.status === 'waiting_user') throw new Error(`login_wall: ${snap.body.slice(0, 200)}`);
-    if (seenRunning && snap.status === 'completed' && snap.receiptCount === 1 && snap.deliverableCount === 1)
-      return snap;
-    if (snap.status === 'completed') {
+    const terminalObserved = [snap.status, runtimeTaskSnapshot?.status].some(status =>
+      ['completed', 'failed', 'cancelled'].includes(status),
+    );
+    if (terminalObserved && runtimeTaskSnapshot) {
+      const protocolErrors = completionProtocolErrors({
+        ...snap,
+        deliverableText: snap.answer,
+        deliverableRequired,
+        runtimeTask: runtimeTaskSnapshot,
+        priorReceiptIds,
+      });
+      if (protocolErrors.length === 0) return snap;
       completedSince ||= Date.now();
       if (Date.now() - completedSince > 5000) {
-        throw new Error(
-          `invalid_evidence_selector: receipt_count=${snap.receiptCount} deliverable_count=${snap.deliverableCount}`,
-        );
+        throw new Error(`invalid_evidence_selector: ${protocolErrors.join('; ')}`);
       }
     } else {
       completedSince = 0;
-    }
-    if (['failed', 'cancelled'].includes(snap.status) && seenRunning) {
-      throw new Error(`${snap.status}: ${snap.body.slice(0, 300)}`);
     }
     await new Promise(resolve => setTimeout(resolve, 1200));
   }
@@ -439,6 +490,7 @@ async function verifyResult(target, panel) {
 
 function emitRow(partial) {
   rowEmitted = true;
+  emittedOutcome = partial.outcome || 'fail';
   console.log(
     `matrix_row ${JSON.stringify({
       task_id: taskId,
@@ -522,17 +574,27 @@ try {
     const rel = targetUrl.replace('fixture://frontier', '').replace(/^\//, '') || 'hub.html';
     effectiveUrl = `${fixtureOrigin}/${rel}`;
   }
-  await target.goto(effectiveUrl, { waitUntil: 'domcontentloaded' });
+  await navigateInitialTargetWithRetry({
+    url: effectiveUrl,
+    navigate: url => target.goto(url, { waitUntil: 'domcontentloaded' }),
+    onState: state => {
+      initialNavigationState = state;
+    },
+  });
   console.log('[frontier] target=', target.url());
 
   const panel = await openPanelForTarget(extensionId, target);
   panelPage = panel;
-  const runtimeExtensionAttestation = await attestRuntimeExtension(panel, extensionPath);
+  runtimeExtensionAttestation = await attestRuntimeExtension(panel, extensionPath);
   boundTab = await readActiveTab(panel);
-  priorTaskIds = await panel.evaluate(async () => {
+  ({ taskIds: priorTaskIds, receiptIds: priorReceiptIds } = await panel.evaluate(async () => {
     const stored = await chrome.storage.local.get(['task-runtime-v1']);
-    return Object.keys(stored['task-runtime-v1'] || {});
-  });
+    const tasks = Object.values(stored['task-runtime-v1'] || {});
+    return {
+      taskIds: tasks.map(task => task?.id).filter(Boolean),
+      receiptIds: tasks.flatMap(task => (task?.rounds || []).map(round => round?.receipt?.id).filter(Boolean)),
+    };
+  }));
   const startedAt = Date.now();
   runStartedAt = startedAt;
   await sendGoal(panel, target);
@@ -558,15 +620,28 @@ try {
     terminal_status: result.status,
     receipt: result.receipt,
     receipt_count: result.receiptCount,
+    scoped_card_count: result.scopedCardCount,
+    ui_task_id: result.uiTaskId,
+    ui_round_id: result.uiRoundId,
+    visible_receipt_id: result.visibleReceiptId,
+    completion_result_count: result.resultCount,
+    completion_result: result.resultText,
     deliverable_count: result.deliverableCount,
+    deliverable_required: deliverableRequired,
     final_deliverable: result.answer,
     runtime_task_id: runtimeTaskId,
+    runtime_round_id: runtimeTaskSnapshot?.roundId ?? '',
+    has_runtime_receipt: Boolean(runtimeTaskSnapshot?.receipt),
+    runtime_receipt_id: runtimeTaskSnapshot?.receipt?.id ?? '',
     target_url: target.url(),
     bound_tab: boundTab ?? null,
     active_tab: activeTab ?? null,
     interrupt_fired: interruptFired,
     wrong_tab_stress: distractorOpened,
     tab_provenance: tabProvenance,
+    initial_navigation_attempts: initialNavigationState.attempts,
+    initial_navigation_error_category: initialNavigationState.errorCategories.at(-1) || '',
+    initial_navigation_error_categories: initialNavigationState.errorCategories,
     attach_attestation: {
       mode: attachMode,
       connect_url_present: Boolean(connectUrl),
@@ -586,6 +661,19 @@ try {
       notes: 'could not establish bound/active tab ids',
     });
     throw new Error('tab provenance unavailable');
+  }
+
+  if (['failed', 'cancelled'].includes(result.status)) {
+    emitRow({
+      outcome: 'fail',
+      false_complete: 0,
+      wrong_tab: wrongTab,
+      latency_ms: latencyMs,
+      failure_class: result.status === 'cancelled' ? 'agent_cancelled' : 'agent_failed',
+      evidence_path: writeEvidence({ ...baseEvidence, outcome: 'fail', wrong_tab: wrongTab }),
+      notes: `${result.status}: task ended without claiming completion`,
+    });
+    throw new Error(`${result.status}: task ended without claiming completion`);
   }
 
   const ok = await verifyResult(target, { ...result, body: result.body });
@@ -621,6 +709,7 @@ try {
 } catch (error) {
   console.error(`[frontier] FAIL ${taskId}`, error);
   if (!rowEmitted) {
+    if (panelPage) await captureTabProvenance(panelPage, 'failure');
     const activeTab = panelPage ? await readActiveTab(panelPage) : null;
     const wrongTab = wrongTabFromIds(boundTab?.id, activeTab?.id);
     const failureClass = /invalid_evidence_selector/i.test(String(error?.message || error))
@@ -628,25 +717,54 @@ try {
       : /login_wall/i.test(String(error?.message || error))
         ? 'login_wall'
         : 'other';
+    const failureOutcome = failureClass === 'evidence_protocol' ? 'invalid_run' : 'fail';
+    const failureEvidence = {
+      outcome: failureOutcome,
+      status: latestResult?.status ?? runtimeTaskSnapshot?.status ?? null,
+      terminal_status: latestResult?.status ?? runtimeTaskSnapshot?.status ?? null,
+      receipt_count: latestResult?.receiptCount ?? 0,
+      scoped_card_count: latestResult?.scopedCardCount ?? 0,
+      ui_task_id: latestResult?.uiTaskId ?? '',
+      ui_round_id: latestResult?.uiRoundId ?? '',
+      visible_receipt_id: latestResult?.visibleReceiptId ?? '',
+      completion_result_count: latestResult?.resultCount ?? 0,
+      completion_result: latestResult?.resultText ?? '',
+      deliverable_count: latestResult?.deliverableCount ?? 0,
+      deliverable_required: deliverableRequired,
+      final_deliverable: latestResult?.answer ?? '',
+      runtime_task_id: runtimeTaskId,
+      runtime_round_id: runtimeTaskSnapshot?.roundId ?? '',
+      has_runtime_receipt: Boolean(runtimeTaskSnapshot?.receipt),
+      runtime_receipt_id: runtimeTaskSnapshot?.receipt?.id ?? '',
+      target_url: targetPage?.url?.() ?? '',
+      bound_tab: boundTab ?? null,
+      active_tab: activeTab,
+      wrong_tab: wrongTab,
+      interrupt_fired: interruptFired,
+      wrong_tab_stress: distractorOpened,
+      tab_provenance: tabProvenance,
+      initial_navigation_attempts: initialNavigationState.attempts,
+      initial_navigation_error_category: initialNavigationState.errorCategories.at(-1) || '',
+      initial_navigation_error_categories: initialNavigationState.errorCategories,
+      attach_attestation: runtimeExtensionAttestation
+        ? {
+            mode: attachMode,
+            connect_url_present: Boolean(connectUrl),
+            owns_browser: ownsBrowser,
+            ...runtimeExtensionAttestation,
+          }
+        : null,
+      error: String(error?.message || error)
+        .replace(/\s+/g, ' ')
+        .slice(0, 240),
+    };
+    terminalEvidence = failureEvidence;
     emitRow({
-      outcome: failureClass === 'evidence_protocol' ? 'invalid_run' : 'fail',
-      wrong_tab: wrongTab ?? 0,
+      outcome: failureOutcome,
+      wrong_tab: wrongTab ?? '',
       latency_ms: runStartedAt ? Date.now() - runStartedAt : 0,
       failure_class: failureClass,
-      evidence_path: writeEvidence({
-        outcome: 'fail',
-        status: latestResult?.status ?? null,
-        final_deliverable: latestResult?.answer ?? '',
-        target_url: targetPage?.url?.() ?? '',
-        bound_tab: boundTab ?? null,
-        active_tab: activeTab,
-        wrong_tab: wrongTab,
-        interrupt_fired: interruptFired,
-        wrong_tab_stress: distractorOpened,
-        error: String(error?.message || error)
-          .replace(/\s+/g, ' ')
-          .slice(0, 240),
-      }),
+      evidence_path: writeEvidence(failureEvidence),
       notes: String(error?.message || error)
         .replace(/\s+/g, ' ')
         .slice(0, 240),
@@ -670,10 +788,20 @@ try {
         armHash,
         runId,
         runtimeTaskId,
+        runtimeRoundId: terminalEvidence?.runtime_round_id,
         boundTabId: boundTab?.id,
         terminalStatus: terminalEvidence?.terminal_status,
+        scopedCardCount: terminalEvidence?.scoped_card_count,
+        uiTaskId: terminalEvidence?.ui_task_id,
+        uiRoundId: terminalEvidence?.ui_round_id,
+        visibleReceiptId: terminalEvidence?.visible_receipt_id,
+        hasRuntimeReceipt: terminalEvidence?.has_runtime_receipt,
+        runtimeReceiptId: terminalEvidence?.runtime_receipt_id,
         receiptCount: terminalEvidence?.receipt_count,
+        completionResultCount: terminalEvidence?.completion_result_count,
         deliverableCount: terminalEvidence?.deliverable_count,
+        deliverableRequired,
+        outcome: emittedOutcome,
         tabSamples: tabProvenance,
       });
       const outPath = path.join(traceDumpDir, `${taskId}-attempt-${attempt}-trace.json`);

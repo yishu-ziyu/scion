@@ -1,3 +1,5 @@
+import { honestFailureStatus } from './eval-verification.mjs';
+
 function timestamp(value) {
   const parsed = typeof value === 'number' ? value : Date.parse(String(value || ''));
   return Number.isFinite(parsed) ? parsed : null;
@@ -26,12 +28,25 @@ export function buildScopedTraceEvidence({
   armHash,
   runId,
   runtimeTaskId,
+  runtimeRoundId,
   boundTabId,
   terminalStatus,
+  scopedCardCount,
+  uiTaskId,
+  uiRoundId,
+  visibleReceiptId,
+  hasRuntimeReceipt,
+  runtimeReceiptId,
   receiptCount,
+  completionResultCount,
   deliverableCount,
+  deliverableRequired,
+  outcome,
   tabSamples,
 }) {
+  const resolvedOutcome = outcome || 'verified_pass';
+  const resolvedCompletionResultCount = completionResultCount ?? receiptCount;
+  const resolvedDeliverableRequired = deliverableRequired ?? true;
   const trace = rawTraces?.[runtimeTaskId];
   if (!runtimeTaskId || !trace || trace.taskId !== runtimeTaskId) {
     throw new Error('trace identity missing or ambiguous');
@@ -54,18 +69,28 @@ export function buildScopedTraceEvidence({
     };
   });
   return {
-    schema_version: 'chijie-eval-trace-v2',
+    schema_version: 'chijie-eval-trace-v3',
     eval_task_id: evalTaskId,
     attempt,
     campaign_stamp: campaignStamp,
     arm_hash: armHash,
     run_id: runId,
     runtime_task_id: runtimeTaskId,
+    runtime_round_id: runtimeRoundId,
     trace_task_id: trace.taskId,
     bound_tab_id: boundTabId,
     terminal_status: terminalStatus,
+    outcome: resolvedOutcome,
+    scoped_card_count: scopedCardCount,
+    ui_task_id: uiTaskId,
+    ui_round_id: uiRoundId,
+    visible_receipt_id: visibleReceiptId || '',
+    has_runtime_receipt: hasRuntimeReceipt === true,
+    runtime_receipt_id: runtimeReceiptId || '',
     receipt_count: receiptCount,
+    completion_result_count: resolvedCompletionResultCount,
     deliverable_count: deliverableCount,
+    deliverable_required: resolvedDeliverableRequired,
     trace_terminal_status: trace.terminalStatus ?? null,
     spans,
     tab_events: samples
@@ -82,11 +107,11 @@ export function buildScopedTraceEvidence({
 
 export function validateScopedTraceEvidence(
   trace,
-  { evalTaskId, attempt, runtimeTaskId, allowedTabIds, campaignStamp, armHash, runId },
+  { evalTaskId, attempt, runtimeTaskId, allowedTabIds, campaignStamp, armHash, runId, outcome, deliverableRequired },
 ) {
   const errors = [];
   const allowed = new Set((allowedTabIds || []).filter(Number.isInteger));
-  if (trace?.schema_version !== 'chijie-eval-trace-v2') errors.push('invalid trace schema');
+  if (trace?.schema_version !== 'chijie-eval-trace-v3') errors.push('invalid trace schema');
   if (trace?.eval_task_id !== evalTaskId) errors.push('trace eval_task_id mismatch');
   if (Number(trace?.attempt) !== Number(attempt)) errors.push('trace attempt mismatch');
   if (campaignStamp && trace?.campaign_stamp !== campaignStamp) errors.push('trace campaign_stamp mismatch');
@@ -95,11 +120,49 @@ export function validateScopedTraceEvidence(
   if (!runtimeTaskId || trace?.runtime_task_id !== runtimeTaskId || trace?.trace_task_id !== runtimeTaskId) {
     errors.push('trace runtime identity mismatch');
   }
-  if (trace?.terminal_status !== 'completed' || trace?.trace_terminal_status !== 'completed') {
-    errors.push('trace terminal status is not completed');
+  if (
+    !trace?.runtime_round_id ||
+    trace?.scoped_card_count !== 1 ||
+    trace?.ui_task_id !== runtimeTaskId ||
+    trace?.ui_round_id !== trace.runtime_round_id
+  ) {
+    errors.push('trace UI task/round ownership mismatch');
   }
-  if (trace?.receipt_count !== 1 || trace?.deliverable_count !== 1) {
-    errors.push('trace receipt/deliverable cardinality invalid');
+  if (trace?.outcome !== outcome) errors.push('trace outcome mismatch');
+  if (trace?.deliverable_required !== deliverableRequired) errors.push('trace deliverable requirement mismatch');
+  const terminalStatusMatches =
+    trace?.trace_terminal_status === trace?.terminal_status ||
+    (outcome !== 'verified_pass' &&
+      honestFailureStatus(trace?.terminal_status) &&
+      trace?.trace_terminal_status == null);
+  if (
+    (!['completed', 'failed', 'cancelled'].includes(trace?.terminal_status) &&
+      !honestFailureStatus(trace?.terminal_status)) ||
+    !terminalStatusMatches
+  ) {
+    errors.push('trace terminal status mismatch');
+  }
+  if (outcome === 'verified_pass') {
+    if (
+      trace?.terminal_status !== 'completed' ||
+      trace?.has_runtime_receipt !== true ||
+      !trace?.runtime_receipt_id ||
+      trace?.visible_receipt_id !== trace.runtime_receipt_id ||
+      trace?.receipt_count !== 1 ||
+      trace?.completion_result_count !== 1 ||
+      !Number.isInteger(trace?.deliverable_count) ||
+      trace.deliverable_count < (deliverableRequired ? 1 : 0) ||
+      trace.deliverable_count > 1
+    ) {
+      errors.push('trace completion cardinality invalid');
+    }
+  } else {
+    if (trace?.has_runtime_receipt !== false || trace?.runtime_receipt_id || trace?.visible_receipt_id) {
+      errors.push('trace honest failure retains receipt');
+    }
+    if (trace?.receipt_count !== 0 || trace?.completion_result_count !== 0 || trace?.deliverable_count !== 0) {
+      errors.push('trace honest failure exposes completion nodes');
+    }
   }
   if (!Number.isInteger(trace?.bound_tab_id) || !allowed.has(trace.bound_tab_id)) {
     errors.push('trace bound tab invalid');
@@ -109,18 +172,19 @@ export function validateScopedTraceEvidence(
     return errors;
   }
   const observedOrActions = trace.spans.filter(isObservedOrActionSpan);
-  if (observedOrActions.length === 0) errors.push('trace has no observe/action spans');
+  if (outcome === 'verified_pass' && observedOrActions.length === 0) errors.push('trace has no observe/action spans');
   const observeSpans = trace.spans.filter(
     span => ['observe', 'reobserve'].includes(span?.kind) || /(?:^|\.)observe/.test(span?.name || ''),
   );
   const actSpans = trace.spans.filter(span => span?.kind === 'act' || /(?:^|\.)act/.test(span?.name || ''));
   if (
+    outcome === 'verified_pass' &&
     ['013-A03', '013-B01', '013-B04', '013-B05', '013-B06', '013-B07', '018-O1', '013-C01'].includes(evalTaskId) &&
     actSpans.length < 1
   ) {
     errors.push('task trace lacks required action span');
   }
-  if (evalTaskId === '021-LH-04' && (observeSpans.length < 2 || actSpans.length < 2)) {
+  if (outcome === 'verified_pass' && evalTaskId === '021-LH-04' && (observeSpans.length < 2 || actSpans.length < 2)) {
     errors.push('LH04 trace lacks multi-source observe/action sequence');
   }
   const ids = trace.spans.map(span => String(span?.id || ''));

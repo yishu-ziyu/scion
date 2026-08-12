@@ -27,8 +27,11 @@ import {
 } from './lib/eval-provider.mjs';
 import { buildScopedTraceEvidence } from './lib/eval-trace-evidence.mjs';
 import {
+  completionProtocolErrors,
+  COMPLETION_RESULT_SELECTOR,
   FINAL_DELIVERABLE_SELECTOR,
-  productDeliverablePass,
+  r1ProductDeliverablePass,
+  scopedCompletionSnapshot,
   tabProvenanceWrongTab,
   wrongTabFromIds,
 } from './lib/eval-verification.mjs';
@@ -64,9 +67,12 @@ let ownsBrowser = false;
 let panelPage;
 let boundTab;
 let rowEmitted = false;
+let emittedOutcome = '';
 let runStartedAt = 0;
 let browserVersion = '';
 let runtimeTaskId = '';
+let runtimeTaskSnapshot = null;
+let latestResult = null;
 let terminalEvidence = null;
 const tabSamples = [];
 
@@ -167,6 +173,7 @@ function writeRunnerEvidence(partial) {
 
 function emitRow(partial) {
   rowEmitted = true;
+  emittedOutcome = partial.outcome || 'fail';
   console.log(
     `matrix_row ${JSON.stringify({
       task_id: evalTaskId,
@@ -307,24 +314,27 @@ function scoreCsvText(text) {
   return { ok: hasHeader && dataRows.length >= 5, dataRows: dataRows.length, hasHeader };
 }
 
-async function readTaskIds(panel) {
+async function readTaskScope(panel) {
   return panel.evaluate(async () => {
     const all = await chrome.storage.local.get(['task-runtime-v1']);
-    return Object.keys(all['task-runtime-v1'] || {});
+    const tasks = Object.values(all['task-runtime-v1'] || {});
+    return {
+      taskIds: tasks.map(task => task?.id).filter(Boolean),
+      receiptIds: tasks.flatMap(task => (task?.rounds || []).map(round => round?.receipt?.id).filter(Boolean)),
+    };
   });
 }
 
-async function readScopedTask(panel, priorTaskIds, expectedTabId) {
+async function readScopedTask(panel, priorTaskIds, priorReceiptIds) {
   return panel.evaluate(
-    async ({ priorIds, tabId }) => {
+    async ({ priorIds, priorReceipts }) => {
       const all = await chrome.storage.local.get(['task-runtime-v1']);
       const prior = new Set(priorIds);
-      const candidates = Object.values(all['task-runtime-v1'] || {}).filter(
-        task => task && !prior.has(task.id) && task.activeTabId === tabId,
-      );
+      const receiptsBeforeRun = new Set(priorReceipts);
+      const candidates = Object.values(all['task-runtime-v1'] || {}).filter(task => task && !prior.has(task.id));
       return candidates.map(task => {
         const rounds = task.rounds || [];
-        const last = rounds[rounds.length - 1];
+        const last = rounds.find(round => round?.id === task.currentRoundId) || rounds[rounds.length - 1];
         const targetTabIds = [
           ...(task.targetRefs || []).map(ref => ref?.id),
           ...(last?.criteria || []).map(item => item?.targetRefId),
@@ -337,42 +347,75 @@ async function readScopedTask(panel, priorTaskIds, expectedTabId) {
         return {
           taskId: task.id,
           status: task.status,
+          roundId: last?.id || null,
           activeTabId: task.activeTabId,
-          receiptId: last?.receipt?.id || null,
+          receipt: last?.receipt
+            ? {
+                id: last.receipt.id,
+                taskId: last.receipt.taskId,
+                roundId: last.receipt.roundId,
+              }
+            : null,
+          newReceiptIds: rounds
+            .map(round => round?.receipt?.id)
+            .filter(receiptId => receiptId && !receiptsBeforeRun.has(receiptId)),
           targetTabIds: [...new Set(targetTabIds)],
-          updatedAt: task.updatedAt || last?.receipt?.verifiedAt || 0,
         };
       });
     },
-    { priorIds: priorTaskIds, tabId: expectedTabId },
+    { priorIds: priorTaskIds, priorReceipts: priorReceiptIds },
   );
 }
 
-async function waitExtractCompleted(panel, { priorTaskIds, expectedTabId, products }) {
+async function waitExtractCompleted(panel, { priorTaskIds, priorReceiptIds, products }) {
   const start = Date.now();
-  let seenRunning = false;
   let completedSince = 0;
   while (Date.now() - start < timeout) {
-    const snap = await panel.evaluate(deliverableSelector => {
-      const status = document.querySelector('[data-testid="task-status"]')?.getAttribute('data-status');
-      const body = document.body?.innerText || '';
-      const deliverables = [...document.querySelectorAll(deliverableSelector)];
-      const receipts = [...document.querySelectorAll('[data-testid="completion-receipt"]')];
-      return {
-        status,
-        body,
-        deliverable: deliverables[0]?.textContent?.trim() || '',
-        deliverableCount: deliverables.length,
-        receiptCount: receipts.length,
-      };
-    }, FINAL_DELIVERABLE_SELECTOR);
-    if (snap.status === 'running' || snap.status === 'waiting_user') {
-      seenRunning = true;
+    const observed = await panel.evaluate(
+      ({ deliverableSelector, completionResultSelector }) => {
+        return {
+          cards: [...document.querySelectorAll('[data-testid="task-status"]')].map(card => ({
+            taskId: card.getAttribute('data-task-id') || '',
+            roundId: card.getAttribute('data-round-id') || '',
+            status: card.getAttribute('data-status') || null,
+            receiptIds: [...card.querySelectorAll('[data-testid="completion-receipt"]')].map(
+              receipt => receipt.getAttribute('data-receipt-id') || '',
+            ),
+            resultTexts: [...card.querySelectorAll(completionResultSelector)].map(result => result.textContent || ''),
+            deliverableTexts: [...card.querySelectorAll(deliverableSelector)].map(
+              deliverable => deliverable.textContent || '',
+            ),
+          })),
+          body: document.body?.innerText || '',
+        };
+      },
+      { deliverableSelector: FINAL_DELIVERABLE_SELECTOR, completionResultSelector: COMPLETION_RESULT_SELECTOR },
+    );
+    const scopedTasks = await readScopedTask(panel, priorTaskIds, priorReceiptIds);
+    if (scopedTasks.length > 1) {
+      throw new Error(`eval_invalid: new runtime task count=${scopedTasks.length}`);
     }
-
-    const scopedTasks = await readScopedTask(panel, priorTaskIds, expectedTabId);
     const scopedTask = scopedTasks[0] || null;
-    if (scopedTask) {
+    const runtimeTask =
+      scopedTasks.length === 1
+        ? {
+            id: scopedTask.taskId,
+            status: scopedTask.status,
+            roundId: scopedTask.roundId,
+            receipt: scopedTask.receipt,
+          }
+        : null;
+    const snap = {
+      ...scopedCompletionSnapshot(observed.cards, runtimeTask),
+      body: observed.body,
+    };
+    latestResult = snap;
+    if (runtimeTask) runtimeTaskSnapshot = runtimeTask;
+    if (scopedTasks.length === 1) {
+      if (runtimeTaskId && runtimeTaskId !== scopedTask.taskId) {
+        throw new Error('eval_invalid: runtime task identity changed');
+      }
+      runtimeTaskId = scopedTask.taskId;
       const activeTab = await readActiveTab(panel);
       tabSamples.push({
         captured_at: new Date().toISOString(),
@@ -382,48 +425,53 @@ async function waitExtractCompleted(panel, { priorTaskIds, expectedTabId, produc
         target_tab_ids: scopedTask.targetTabIds,
       });
     }
-    const scored = scoreCsvText(snap.deliverable);
-    const oraclePass = productDeliverablePass(snap.deliverable, products);
+    const scored = scoreCsvText(snap.answer);
+    const oraclePass = r1ProductDeliverablePass(snap.answer, products);
 
     if ((Date.now() - start) % 8000 < 1600) {
       console.log(
-        `[r1-e2e] poll status=${snap.status} header=${scored.hasHeader} rows=${scored.dataRows} scoped=${scopedTasks.length} seenRunning=${seenRunning}`,
+        `[r1-e2e] poll status=${snap.status} header=${scored.hasHeader} rows=${scored.dataRows} scoped=${scopedTasks.length}`,
       );
     }
 
-    if (['failed', 'cancelled'].includes(snap.status) && seenRunning) {
-      await dumpPanel(panel, `task-${snap.status}`);
-      throw new Error(`task ${snap.status}: ${snap.body.slice(0, 300)}`);
-    }
-
-    if (
-      snap.status === 'completed' &&
-      seenRunning &&
-      snap.deliverableCount === 1 &&
-      snap.receiptCount === 1 &&
-      scopedTasks.length === 1 &&
-      scopedTask.status === 'completed' &&
-      scopedTask.receiptId &&
-      oraclePass
-    ) {
-      return {
-        status: snap.status,
-        receipt: true,
-        scored,
-        deliverable: snap.deliverable,
-        receiptCount: snap.receiptCount,
-        deliverableCount: snap.deliverableCount,
-        storage: scopedTask,
-      };
-    }
-
-    if (snap.status === 'completed' && seenRunning) {
+    const terminalObserved = [snap.status, runtimeTask?.status].some(status =>
+      ['completed', 'failed', 'cancelled'].includes(status),
+    );
+    if (terminalObserved && runtimeTask) {
+      const protocolErrors = completionProtocolErrors({
+        ...snap,
+        deliverableText: snap.answer,
+        deliverableRequired: true,
+        runtimeTask,
+        priorReceiptIds,
+      });
+      if (
+        runtimeTask.status === 'completed' &&
+        (scopedTask.newReceiptIds.length !== 1 || scopedTask.newReceiptIds[0] !== runtimeTask.receipt?.id)
+      ) {
+        protocolErrors.push(`new receipt count=${scopedTask.newReceiptIds.length} or current receipt mismatch`);
+      }
+      if (protocolErrors.length === 0 && ['failed', 'cancelled'].includes(snap.status)) {
+        await dumpPanel(panel, `task-${snap.status}`);
+        throw new Error(`task ${snap.status}: ${snap.body.slice(0, 300)}`);
+      }
+      if (protocolErrors.length === 0 && oraclePass) {
+        return {
+          status: snap.status,
+          receipt: true,
+          scored,
+          deliverable: snap.answer,
+          receiptCount: snap.receiptCount,
+          completionResultCount: snap.resultCount,
+          completionResult: snap.resultText,
+          deliverableCount: snap.deliverableCount,
+          storage: scopedTask,
+        };
+      }
       completedSince ||= Date.now();
       if (Date.now() - completedSince > 5000) {
-        if (snap.deliverableCount !== 1 || snap.receiptCount !== 1 || scopedTasks.length !== 1) {
-          throw new Error(
-            `eval_invalid: task-scoped evidence count deliverable=${snap.deliverableCount} receipt=${snap.receiptCount} tasks=${scopedTasks.length}`,
-          );
+        if (protocolErrors.length > 0) {
+          throw new Error(`eval_invalid: ${protocolErrors.join('; ')}`);
         }
         throw new Error(
           `completed but CSV missing (header=${scored.hasHeader} rows=${scored.dataRows} oracle=${oraclePass})`,
@@ -526,12 +574,16 @@ try {
 
   boundTab = await readActiveTab(panel);
   if (!Number.isInteger(boundTab?.id)) throw new Error('tab provenance unavailable');
-  const priorTaskIds = await readTaskIds(panel);
+  const { taskIds: priorTaskIds, receiptIds: priorReceiptIds } = await readTaskScope(panel);
   runStartedAt = Date.now();
   await sendGoal(panel, target, GOAL);
   await dumpPanel(panel, 'after-send');
 
-  const result = await waitExtractCompleted(panel, { priorTaskIds, expectedTabId: boundTab.id, products });
+  const result = await waitExtractCompleted(panel, {
+    priorTaskIds,
+    priorReceiptIds,
+    products,
+  });
   runtimeTaskId = result.storage?.taskId || '';
   if (!runtimeTaskId) throw new Error('task provenance unavailable');
   const activeTab = await readActiveTab(panel);
@@ -572,10 +624,20 @@ try {
     rows: result.scored.dataRows,
     receipt: result.receipt,
     receipt_count: result.receiptCount,
+    completion_result_count: result.completionResultCount,
+    completion_result: result.completionResult,
     deliverable_count: result.deliverableCount,
+    deliverable_required: true,
     final_deliverable: result.deliverable,
     source_products: products,
     runtime_task_id: runtimeTaskId,
+    runtime_round_id: runtimeTaskSnapshot?.roundId ?? '',
+    scoped_card_count: latestResult?.scopedCardCount ?? 0,
+    ui_task_id: latestResult?.uiTaskId ?? '',
+    ui_round_id: latestResult?.uiRoundId ?? '',
+    visible_receipt_id: latestResult?.visibleReceiptId ?? '',
+    has_runtime_receipt: Boolean(runtimeTaskSnapshot?.receipt),
+    runtime_receipt_id: runtimeTaskSnapshot?.receipt?.id ?? '',
     tab_provenance: tabSamples,
     bound_tab: boundTab,
     active_tab: activeTab,
@@ -591,7 +653,15 @@ try {
   terminalEvidence = {
     terminal_status: result.status,
     receipt_count: result.receiptCount,
+    completion_result_count: result.completionResultCount,
     deliverable_count: result.deliverableCount,
+    runtime_round_id: runtimeTaskSnapshot?.roundId ?? '',
+    scoped_card_count: latestResult?.scopedCardCount ?? 0,
+    ui_task_id: latestResult?.uiTaskId ?? '',
+    ui_round_id: latestResult?.uiRoundId ?? '',
+    visible_receipt_id: latestResult?.visibleReceiptId ?? '',
+    has_runtime_receipt: Boolean(runtimeTaskSnapshot?.receipt),
+    runtime_receipt_id: runtimeTaskSnapshot?.receipt?.id ?? '',
   };
   emitRow({
     outcome: wrongTab ? 'fail' : 'verified_pass',
@@ -610,15 +680,43 @@ try {
   const wrongTab = wrongTabFromIds(boundTab?.id, activeTab?.id);
   const errorText = String(error?.stack || error).slice(0, 200);
   const falseComplete = /completed but CSV missing/i.test(errorText) ? 1 : 0;
-  const failureClass = /eval_invalid:/i.test(errorText)
-    ? 'evidence_protocol'
-    : /tab provenance/i.test(errorText)
-      ? 'tab_provenance'
-      : /wrong active tab/i.test(errorText)
-        ? 'wrong_tab'
-        : falseComplete
-          ? 'verify_fail'
-          : 'other';
+  const failureClass =
+    /eval_invalid:/i.test(errorText) || (runStartedAt && !runtimeTaskId)
+      ? 'evidence_protocol'
+      : /tab provenance/i.test(errorText)
+        ? 'tab_provenance'
+        : /wrong active tab/i.test(errorText)
+          ? 'wrong_tab'
+          : falseComplete
+            ? 'verify_fail'
+            : 'other';
+  const failureOutcome = ['tab_provenance', 'evidence_protocol'].includes(failureClass) ? 'invalid_run' : 'fail';
+  const failureEvidence = {
+    outcome: failureOutcome,
+    status: latestResult?.status ?? runtimeTaskSnapshot?.status ?? null,
+    terminal_status: latestResult?.status ?? runtimeTaskSnapshot?.status ?? null,
+    receipt_count: latestResult?.receiptCount ?? 0,
+    scoped_card_count: latestResult?.scopedCardCount ?? 0,
+    ui_task_id: latestResult?.uiTaskId ?? '',
+    ui_round_id: latestResult?.uiRoundId ?? '',
+    visible_receipt_id: latestResult?.visibleReceiptId ?? '',
+    completion_result_count: latestResult?.resultCount ?? 0,
+    completion_result: latestResult?.resultText ?? '',
+    deliverable_count: latestResult?.deliverableCount ?? 0,
+    deliverable_required: true,
+    final_deliverable: latestResult?.answer ?? '',
+    runtime_task_id: runtimeTaskId,
+    runtime_round_id: runtimeTaskSnapshot?.roundId ?? '',
+    has_runtime_receipt: Boolean(runtimeTaskSnapshot?.receipt),
+    runtime_receipt_id: runtimeTaskSnapshot?.receipt?.id ?? '',
+    bound_tab: boundTab ?? null,
+    active_tab: activeTab,
+    tab_provenance: tabSamples,
+    wrong_tab: wrongTab,
+    false_complete: falseComplete,
+    error: errorText,
+  };
+  terminalEvidence = failureEvidence;
   let reportPath = '';
   try {
     reportPath = writeReport({
@@ -626,11 +724,8 @@ try {
       attempt,
       attachMode,
       goal: GOAL,
+      ...failureEvidence,
       error: String(error?.stack || error),
-      boundTab: boundTab ?? null,
-      activeTab,
-      wrongTab,
-      falseComplete,
       at: new Date().toISOString(),
     });
   } catch {
@@ -638,16 +733,11 @@ try {
   }
   if (!rowEmitted) {
     const runnerEvidencePath = writeRunnerEvidence({
-      outcome: ['tab_provenance', 'evidence_protocol'].includes(failureClass) ? 'invalid_run' : 'fail',
-      bound_tab: boundTab ?? null,
-      active_tab: activeTab,
-      wrong_tab: wrongTab,
-      false_complete: falseComplete,
+      ...failureEvidence,
       report_path: reportPath ? relativeEvidencePath(reportPath) : '',
-      error: errorText,
     });
     emitRow({
-      outcome: ['tab_provenance', 'evidence_protocol'].includes(failureClass) ? 'invalid_run' : 'fail',
+      outcome: failureOutcome,
       false_complete: falseComplete,
       wrong_tab: wrongTab ?? '',
       failure_class: failureClass,
@@ -671,10 +761,20 @@ try {
         armHash,
         runId,
         runtimeTaskId,
+        runtimeRoundId: terminalEvidence?.runtime_round_id,
         boundTabId: boundTab?.id,
         terminalStatus: terminalEvidence?.terminal_status,
         receiptCount: terminalEvidence?.receipt_count,
+        completionResultCount: terminalEvidence?.completion_result_count,
         deliverableCount: terminalEvidence?.deliverable_count,
+        deliverableRequired: true,
+        outcome: emittedOutcome,
+        scopedCardCount: terminalEvidence?.scoped_card_count,
+        uiTaskId: terminalEvidence?.ui_task_id,
+        uiRoundId: terminalEvidence?.ui_round_id,
+        visibleReceiptId: terminalEvidence?.visible_receipt_id,
+        hasRuntimeReceipt: terminalEvidence?.has_runtime_receipt,
+        runtimeReceiptId: terminalEvidence?.runtime_receipt_id,
         tabSamples,
       });
       mkdirSync(traceDumpDir, { recursive: true });

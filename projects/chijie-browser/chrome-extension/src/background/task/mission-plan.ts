@@ -360,6 +360,81 @@ export function attachCriteriaAcrossMissionPlan(plan: MissionPlan, criterionIds:
 }
 
 /**
+ * Align a untouched narrative plan with the first frozen verification contract.
+ * Frozen criteria have no phase ownership, so splitting them across inferred
+ * prose phases would invent an ordering the verifier cannot prove. Keep one
+ * proof frontier and, only when required, one explicit delivery frontier.
+ */
+export function reconcileMissionPlanWithFrozenContract(
+  plan: MissionPlan,
+  criteria: ReadonlyArray<{ id: string; required: boolean }>,
+  needsDeliverable: boolean,
+  now: number,
+): MissionPlan {
+  const unique = [
+    ...new Set(
+      criteria
+        .filter(criterion => criterion.required)
+        .map(criterion => criterion.id)
+        .filter(Boolean),
+    ),
+  ];
+  if (unique.length === 0) return plan;
+
+  const virgin = plan.phases.every(
+    (phase, index) =>
+      phase.status === (index === 0 ? 'active' : 'planned') &&
+      phase.criteriaIds.length === 0 &&
+      phase.evidenceIds.length === 0 &&
+      phase.notes.length === 0,
+  );
+  if (!virgin) return plan;
+
+  const first = plan.phases[0];
+  if (!first) return plan;
+  const proof: MissionPhase = {
+    ...first,
+    title: '验证',
+    status: 'active',
+    criteriaIds: unique,
+    evidenceIds: [],
+    notes: [],
+  };
+  if (!needsDeliverable) return { ...plan, phases: [proof], updatedAt: now };
+
+  const existingDelivery = plan.phases.slice(1).find(phase => isDeliveryPhaseTitle(phase.title));
+  const fallbackDelivery = plan.phases[1];
+  const delivery: MissionPhase = {
+    ...(existingDelivery ?? fallbackDelivery ?? first),
+    id: existingDelivery?.id ?? fallbackDelivery?.id ?? `${first.id}-output`,
+    title: '输出',
+    status: 'planned',
+    criteriaIds: [],
+    evidenceIds: [],
+    notes: [],
+  };
+  return { ...plan, phases: [proof, delivery], updatedAt: now };
+}
+
+/** Add later, safely deduplicated required criteria to an already reconciled proof frontier. */
+export function extendReconciledMissionProof(
+  plan: MissionPlan,
+  requiredCriterionIds: string[],
+  now: number,
+): MissionPlan {
+  const proof = plan.phases[0];
+  if (!proof || proof.title !== '验证' || proof.status !== 'active' || proof.evidenceIds.length > 0) return plan;
+  if (plan.phases.length > 2 || (plan.phases[1] && !isDeliveryPhaseTitle(plan.phases[1].title))) return plan;
+  const unique = [...new Set([...proof.criteriaIds, ...requiredCriterionIds.filter(Boolean)])];
+  if (unique.length === proof.criteriaIds.length) return plan;
+  return {
+    ...plan,
+    phases: [{ ...proof, criteriaIds: unique }, ...plan.phases.slice(1)],
+    updatedAt: now,
+  };
+}
+
+/**
  * Record passed criterion ids onto their owning phases only,
  * then mark the active phase done and promote the next while its criteria are met.
  * Returns the same plan reference when nothing changes.

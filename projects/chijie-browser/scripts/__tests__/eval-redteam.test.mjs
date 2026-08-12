@@ -6,8 +6,15 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { validateScopedTraceEvidence } from '../../chrome-extension/scripts/lib/eval-trace-evidence.mjs';
-import { runtimeBundleAttestationPass, validateEvalRows, vitestMachineReportPass } from '../lib/eval-gate.mjs';
 import {
+  runtimeBundleAttestationPass,
+  validateEvalRows,
+  verificationEvidenceProtocolErrors,
+  vitestMachineReportPass,
+} from '../lib/eval-gate.mjs';
+import {
+  multiSourceDeliveryPass,
+  productDeliverablePass,
   taskSpecificVerificationPass,
   taskUrlContractPass,
 } from '../../chrome-extension/scripts/lib/eval-verification.mjs';
@@ -48,15 +55,25 @@ function row(overrides = {}) {
 
 function validTrace() {
   return {
-    schema_version: 'chijie-eval-trace-v2',
+    schema_version: 'chijie-eval-trace-v3',
     eval_task_id: '021-LH-04',
     attempt: 1,
     runtime_task_id: 'runtime-1',
+    runtime_round_id: 'round-1',
     trace_task_id: 'runtime-1',
     bound_tab_id: 7,
     terminal_status: 'completed',
+    outcome: 'verified_pass',
+    scoped_card_count: 1,
+    ui_task_id: 'runtime-1',
+    ui_round_id: 'round-1',
+    visible_receipt_id: 'receipt-1',
+    has_runtime_receipt: true,
+    runtime_receipt_id: 'receipt-1',
     receipt_count: 1,
+    completion_result_count: 1,
     deliverable_count: 1,
+    deliverable_required: true,
     trace_terminal_status: 'completed',
     spans: [
       {
@@ -109,6 +126,8 @@ const traceContext = {
   attempt: 1,
   runtimeTaskId: 'runtime-1',
   allowedTabIds: [7],
+  outcome: 'verified_pass',
+  deliverableRequired: true,
 };
 
 test('empty row sets and mixed global arms are never gateable', () => {
@@ -320,6 +339,13 @@ test('A01 rejects title and host tokens embedded in a negative claim', () => {
   assert.equal(
     taskSpecificVerificationPass('013-A01', {
       ...payload,
+      final_deliverable: '',
+    }),
+    false,
+  );
+  assert.equal(
+    taskSpecificVerificationPass('013-A01', {
+      ...payload,
       final_deliverable: '标题不是 Wikipedia，域名不是 www.wikipedia.org。',
     }),
     false,
@@ -347,13 +373,186 @@ test('A01 rejects title and host tokens embedded in a negative claim', () => {
   );
 });
 
-test('O1 accepts exactly one stable form task and rejects form plus skill composites', () => {
+test('B07 navigation completion does not invent a text deliverable', () => {
+  const payload = {
+    task_id: '013-B07',
+    outcome: 'verified_pass',
+    target_url: 'https://www.iana.org/help/example-domains',
+    final_deliverable: '',
+    navigation_evidence: [{ url: 'https://www.iana.org/help/example-domains', title: 'Example Domains' }],
+  };
+  assert.equal(taskSpecificVerificationPass('013-B07', payload), true);
+});
+
+test('O1 requires one scoped UI delivery cross-checked against the page effect', () => {
+  const form = {
+    label: 'form',
+    terminal_status: 'completed',
+    runtime_status: 'completed',
+    ui_status: 'completed',
+    receipt_id: 'receipt-1',
+    receipt_count: 1,
+    completion_result: 'Saved successfully',
+    completion_result_count: 1,
+    deliverable: 'Saved successfully',
+    deliverable_count: 1,
+    page_evidence: 'Saved successfully',
+    expected_effect: 'Saved successfully',
+    runtime_task_id: 'runtime-1',
+    runtime_round_id: 'round-1',
+    scoped_card_count: 1,
+    ui_task_id: 'runtime-1',
+    ui_round_id: 'round-1',
+    visible_receipt_id: 'receipt-1',
+    has_runtime_receipt: true,
+    runtime_receipt_id: 'receipt-1',
+    runtime_receipt_task_id: 'runtime-1',
+    runtime_receipt_round_id: 'round-1',
+    submit_count: 1,
+    quiescence_ms: 2500,
+    quiescence_confirmations: 3,
+  };
+  const payload = {
+    task_id: '018-O1',
+    outcome: 'verified_pass',
+    terminal_status: 'completed',
+    runtime_status: 'completed',
+    ui_status: 'completed',
+    runtime_task_id: 'runtime-1',
+    runtime_round_id: 'round-1',
+    scoped_card_count: 1,
+    ui_task_id: 'runtime-1',
+    ui_round_id: 'round-1',
+    visible_receipt_id: 'receipt-1',
+    has_runtime_receipt: true,
+    runtime_receipt_id: 'receipt-1',
+    runtime_receipt_task_id: 'runtime-1',
+    runtime_receipt_round_id: 'round-1',
+    receipt_count: 1,
+    completion_result: 'Saved successfully',
+    completion_result_count: 1,
+    deliverable_count: 1,
+    final_deliverable: 'Saved successfully',
+    privacy_pass: true,
+    scenario_evidence: [form],
+  };
+  assert.equal(taskSpecificVerificationPass('018-O1', payload), true);
+  assert.deepEqual(
+    [
+      taskSpecificVerificationPass('018-O1', {
+        ...payload,
+        runtime_status: 'failed',
+        ui_status: 'completed',
+        scenario_evidence: [{ ...form, runtime_status: 'failed', ui_status: 'completed' }],
+      }),
+      taskSpecificVerificationPass('018-O1', {
+        ...payload,
+        runtime_receipt_task_id: 'old-task',
+        runtime_receipt_round_id: 'old-round',
+        scenario_evidence: [
+          {
+            ...form,
+            runtime_receipt_task_id: 'old-task',
+            runtime_receipt_round_id: 'old-round',
+          },
+        ],
+      }),
+    ],
+    [false, false],
+  );
+  assert.deepEqual(
+    verificationEvidenceProtocolErrors(payload, {
+      outcome: 'verified_pass',
+      runtimeTaskId: 'runtime-1',
+      deliverableRequired: true,
+    }),
+    [],
+  );
+  assert.equal(
+    taskSpecificVerificationPass('018-O1', {
+      ...payload,
+      receipt_count: 2,
+      deliverable_count: 2,
+      scenario_evidence: [form, { ...form, label: 'skill', receipt_id: 'receipt-2' }],
+    }),
+    false,
+  );
+});
+
+test('O1 rejects page success when the scoped UI card has no deliverable', () => {
   const form = {
     label: 'form',
     terminal_status: 'completed',
     receipt_id: 'receipt-1',
-    deliverable: 'Saved successfully',
+    receipt_count: 1,
+    completion_result: 'Saved successfully',
+    completion_result_count: 1,
+    deliverable: '',
+    deliverable_count: 0,
+    page_evidence: 'Saved successfully',
+    expected_effect: 'Saved successfully',
     runtime_task_id: 'runtime-1',
+    runtime_round_id: 'round-1',
+    scoped_card_count: 1,
+    ui_task_id: 'runtime-1',
+    ui_round_id: 'round-1',
+    visible_receipt_id: 'receipt-1',
+    has_runtime_receipt: true,
+    runtime_receipt_id: 'receipt-1',
+    submit_count: 1,
+    quiescence_ms: 2500,
+    quiescence_confirmations: 3,
+  };
+  const payload = {
+    task_id: '018-O1',
+    outcome: 'verified_pass',
+    runtime_task_id: 'runtime-1',
+    runtime_round_id: 'round-1',
+    scoped_card_count: 1,
+    ui_task_id: 'runtime-1',
+    ui_round_id: 'round-1',
+    visible_receipt_id: 'receipt-1',
+    has_runtime_receipt: true,
+    runtime_receipt_id: 'receipt-1',
+    receipt_count: 1,
+    completion_result: 'Saved successfully',
+    completion_result_count: 1,
+    deliverable_count: 0,
+    final_deliverable: '',
+    privacy_pass: true,
+    scenario_evidence: [form],
+  };
+
+  assert.equal(taskSpecificVerificationPass('018-O1', payload), false);
+  assert(
+    verificationEvidenceProtocolErrors(payload, {
+      outcome: 'verified_pass',
+      runtimeTaskId: 'runtime-1',
+      deliverableRequired: true,
+    }).length > 0,
+  );
+});
+
+test('O1 rejects a real UI deliverable when page evidence misses the expected effect', () => {
+  const form = {
+    label: 'form',
+    terminal_status: 'completed',
+    receipt_id: 'receipt-1',
+    receipt_count: 1,
+    completion_result: 'Saved successfully',
+    completion_result_count: 1,
+    deliverable: 'Saved successfully',
+    deliverable_count: 1,
+    page_evidence: 'Not saved',
+    expected_effect: 'Saved successfully',
+    runtime_task_id: 'runtime-1',
+    runtime_round_id: 'round-1',
+    scoped_card_count: 1,
+    ui_task_id: 'runtime-1',
+    ui_round_id: 'round-1',
+    visible_receipt_id: 'receipt-1',
+    has_runtime_receipt: true,
+    runtime_receipt_id: 'receipt-1',
     submit_count: 1,
     quiescence_ms: 2500,
     quiescence_confirmations: 3,
@@ -368,13 +567,533 @@ test('O1 accepts exactly one stable form task and rejects form plus skill compos
     privacy_pass: true,
     scenario_evidence: [form],
   };
-  assert.equal(taskSpecificVerificationPass('018-O1', payload), true);
+
+  assert.equal(taskSpecificVerificationPass('018-O1', payload), false);
+});
+
+test('product delivery rejects every contradictory highest-price claim regardless of order', () => {
+  const products = [
+    { name: 'Alpha Mouse', price: '$10', rating: '4.1' },
+    { name: 'Beta Keyboard', price: '$25', rating: '4.8' },
+    { name: 'Gamma Stand', price: '$18', rating: '4.4' },
+    { name: 'Delta Hub', price: '$15', rating: '4.2' },
+    { name: 'Epsilon Cable', price: '$8', rating: '4.0' },
+  ];
+  const table = ['name,price,rating', ...products.map(item => `${item.name},${item.price},${item.rating}`)].join('\n');
+  const correct = '最贵商品是 Beta Keyboard，价格为 $25。';
+  const wrong = '最贵商品是 Alpha Mouse，价格为 $10。';
+
+  assert.equal(productDeliverablePass(`${table}\n${correct}`, products), true);
+  assert.equal(productDeliverablePass(`${table}\n${correct}\n${wrong}`, products), false);
+  assert.equal(productDeliverablePass(`${table}\n${wrong}\n${correct}`, products), false);
+  assert.equal(productDeliverablePass(`${table}\n${correct}\n但 Beta Keyboard 不是最贵商品。`, products), false);
+});
+
+test('product delivery rejects every non-empty line outside the exact table and one conclusion', () => {
+  const products = [
+    { name: 'Alpha Mouse', price: '$10', rating: '4.1' },
+    { name: 'Beta Keyboard', price: '$25', rating: '4.8' },
+    { name: 'Gamma Stand', price: '$18', rating: '4.4' },
+    { name: 'Delta Hub', price: '$15', rating: '4.2' },
+    { name: 'Epsilon Cable', price: '$8', rating: '4.0' },
+  ];
+  const table = ['name,price,rating', ...products.map(item => `${item.name},${item.price},${item.rating}`)].join('\n');
+  const correct = '最贵商品是 Beta Keyboard，价格为 $25。';
+
+  assert.equal(productDeliverablePass(`${table}\n\n${correct}`, products), true);
+  assert.equal(productDeliverablePass(`${table}\n${correct}\n实际上 Beta Keyboard 的价格只有 $1。`, products), false);
+  assert.equal(productDeliverablePass(`${table}\n${correct}\n补充：Alpha Mouse 评分0。`, products), false);
+});
+
+test('product delivery rejects self-retraction or fabrication inside the sole highest-price conclusion', () => {
+  const products = [
+    { name: 'Alpha Mouse', price: '$10', rating: '4.1' },
+    { name: 'Beta Keyboard', price: '$25', rating: '4.8' },
+    { name: 'Gamma Stand', price: '$18', rating: '4.4' },
+    { name: 'Delta Hub', price: '$15', rating: '4.2' },
+    { name: 'Epsilon Cable', price: '$8', rating: '4.0' },
+  ];
+  const table = ['name,price,rating', ...products.map(item => `${item.name},${item.price},${item.rating}`)].join('\n');
+  const retractedConclusions = [
+    '最贵商品是 Beta Keyboard，价格为 $25。上述判断纯属编造。',
+    '最贵商品是 Beta Keyboard，价格为 $25。这个结论我收回。',
+    '最贵商品是 Beta Keyboard，价格为 $25。整份答案作废。',
+    'The most expensive item is Beta Keyboard at $25; this claim was made up.',
+  ];
+
+  for (const conclusion of retractedConclusions) {
+    assert.equal(productDeliverablePass(`${table}\n${conclusion}`, products), false, conclusion);
+  }
+});
+
+test('product delivery applies uncertainty polarity within its conclusion clause', () => {
+  const products = [
+    { name: 'Alpha Mouse', price: '$10', rating: '4.1' },
+    { name: 'Beta Keyboard', price: '$25', rating: '4.8' },
+    { name: 'Gamma Stand', price: '$18', rating: '4.4' },
+    { name: 'Delta Hub', price: '$15', rating: '4.2' },
+    { name: 'Epsilon Cable', price: '$8', rating: '4.0' },
+  ];
+  const table = ['name,price,rating', ...products.map(item => `${item.name},${item.price},${item.rating}`)];
+  const verify = conclusion => productDeliverablePass([...table, conclusion].join('\n'), products);
+  const negativeCases = [
+    '最贵商品是 Beta Keyboard，价格为 $25；该结论只是猜测。',
+    'The most expensive item is Beta Keyboard at $25; this claim is bogus speculation.',
+    '最贵商品是 Beta Keyboard，价格为 $25；该判断仅为推测。',
+    'This is an uncorroborated assumption; the most expensive item is Beta Keyboard at $25; sourced.',
+    '最贵商品是 Beta Keyboard，价格为 $25；该结论仍不确定。',
+    '最贵商品是 Beta Keyboard，价格为 $25；以上内容都是瞎说。',
+    '最贵商品是 Beta Keyboard，价格为 $25；我推翻这个结论。',
+    '最贵商品是 Beta Keyboard，价格为 $25；我改口。',
+    'The most expensive item is Beta Keyboard at $25; I rescind this conclusion.',
+    'The most expensive item is Beta Keyboard at $25; I renounce this conclusion.',
+    'The most expensive item is Beta Keyboard at $25; this is merely a theory.',
+    '最贵商品是 Beta Keyboard，价格为 $25；这只是主观判断。',
+    '最贵商品是 Beta Keyboard，价格为 $25；该结论未经核实。',
+  ];
+  const positiveControls = [
+    '不要编造；以下来自页面：最贵商品是 Beta Keyboard，价格为 $25。',
+    '以上数据并非错误；最贵商品是 Beta Keyboard，价格为 $25。',
+    '不要说上述结论是编造的；最贵商品是 Beta Keyboard，价格为 $25。',
+    '以上判断并非推测；最贵商品是 Beta Keyboard，价格为 $25。',
+    'This is not an assumption: the most expensive item is Beta Keyboard at $25; sourced.',
+    '该结论并非不确定；最贵商品是 Beta Keyboard，价格为 $25。',
+    '以上内容没有错误；最贵商品是 Beta Keyboard，价格为 $25。',
+    '我没有猜测；最贵商品是 Beta Keyboard，价格为 $25。',
+    'I did not guess; the most expensive item is Beta Keyboard at $25.',
+    'This is definitely not a guess; the most expensive item is Beta Keyboard at $25.',
+  ];
+
+  for (const conclusion of negativeCases) assert.equal(verify(conclusion), false, conclusion);
+  for (const conclusion of positiveControls) assert.equal(verify(conclusion), true, conclusion);
+});
+
+test('product delivery scopes negation at commas and resolves highest-price denial by parity', () => {
+  const products = [
+    { name: 'Alpha Mouse', price: '$10', rating: '4.1' },
+    { name: 'Beta Keyboard', price: '$25', rating: '4.8' },
+    { name: 'Gamma Stand', price: '$18', rating: '4.4' },
+    { name: 'Delta Hub', price: '$15', rating: '4.2' },
+    { name: 'Epsilon Cable', price: '$8', rating: '4.0' },
+  ];
+  const table = ['name,price,rating', ...products.map(item => `${item.name},${item.price},${item.rating}`)];
+  const verify = conclusion => productDeliverablePass([...table, conclusion].join('\n'), products);
+
+  assert.equal(verify('没有读取折扣，以上结论错误；最贵商品是 Beta Keyboard，价格为 $25。'), false);
+  assert.equal(verify('没有读取折扣；最贵商品是 Beta Keyboard，价格为 $25。'), true);
+  assert.equal(verify('没有读取折扣并认为以上结论错误；最贵商品是 Beta Keyboard，价格为 $25。'), false);
+  assert.equal(verify('没有读取折扣并报告最贵商品是 Beta Keyboard，价格为 $25。'), true);
+  assert.equal(verify('Beta Keyboard 不是最贵商品，价格为 $25。'), false);
+  assert.equal(verify('Beta Keyboard 并非不是最贵商品，价格为 $25。'), true);
+});
+
+test('product delivery permits only its bounded display title outside the exact tuple structure', () => {
+  const products = [
+    { name: 'Alpha Mouse', price: '$10', rating: '4.1' },
+    { name: 'Beta Keyboard', price: '$25', rating: '4.8' },
+    { name: 'Gamma Stand', price: '$18', rating: '4.4' },
+    { name: 'Delta Hub', price: '$15', rating: '4.2' },
+    { name: 'Epsilon Cable', price: '$8', rating: '4.0' },
+  ];
+  const table = ['name,price,rating', ...products.map(item => `${item.name},${item.price},${item.rating}`)].join('\n');
+  const conclusion = '最贵商品是 Beta Keyboard，价格为 $25。';
+
+  assert.equal(productDeliverablePass(`商品提取结果：\n${table}\n${conclusion}`, products), true);
+  assert.equal(productDeliverablePass(`商品提取结果：\n${table}\n${conclusion}\nBeta 的折扣最大。`, products), false);
+});
+
+test('LH04 rejects extra contradictory source claims instead of ignoring observation three', () => {
+  const definition = 'A web browser, often shortened to browser, is an application for accessing websites.';
+  const navigationEvidence = [
+    {
+      url: 'https://www.iana.org/help/example-domains',
+      title: 'Example Domains',
+      captured_at: '2026-08-13T01:00:00.000Z',
+    },
+    {
+      url: 'https://en.wikipedia.org/wiki/Web_browser',
+      title: 'Web browser - Wikipedia',
+      first_paragraph: definition,
+      captured_at: '2026-08-13T01:00:01.000Z',
+    },
+  ];
+  const deliverable = [
+    'Example Domains https://www.iana.org/help/example-domains',
+    'Web browser https://en.wikipedia.org/wiki/Web_browser',
+    definition,
+    '观察一：IANA 解释了示例域名用于文档和测试。',
+    '观察二：Wikipedia 将浏览器定义为访问网站的应用软件。',
+  ].join('\n');
+
   assert.equal(
-    taskSpecificVerificationPass('018-O1', {
-      ...payload,
-      receipt_count: 2,
-      deliverable_count: 2,
-      scenario_evidence: [form, { ...form, label: 'skill', receipt_id: 'receipt-2' }],
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable,
+      navigationEvidence,
+    }),
+    true,
+  );
+  assert.equal(
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable: `${deliverable}\n观察三：IANA 的示例域名不是用于文档或测试用途。`,
+      navigationEvidence,
+    }),
+    false,
+  );
+});
+
+test('LH04 rejects every free-form line outside its fixed five-line delivery', () => {
+  const definition = 'A web browser, often shortened to browser, is an application for accessing websites.';
+  const navigationEvidence = [
+    {
+      url: 'https://www.iana.org/help/example-domains',
+      title: 'Example Domains',
+      captured_at: '2026-08-13T01:00:00.000Z',
+    },
+    {
+      url: 'https://en.wikipedia.org/wiki/Web_browser',
+      title: 'Web browser - Wikipedia',
+      first_paragraph: definition,
+      captured_at: '2026-08-13T01:00:01.000Z',
+    },
+  ];
+  const deliverable = [
+    'Example Domains https://www.iana.org/help/example-domains',
+    'Web browser https://en.wikipedia.org/wiki/Web_browser',
+    definition,
+    '观察一：IANA 解释了示例域名用于文档和测试。',
+    '观察二：Wikipedia 将浏览器定义为访问网站的应用软件。',
+  ].join('\n');
+  const verify = candidate =>
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable: candidate,
+      navigationEvidence,
+    });
+
+  assert.equal(verify(deliverable), true);
+  assert.equal(
+    verify(
+      [
+        'IANA 标题：Example Domains；完整URL：https://www.iana.org/help/example-domains',
+        'Wikipedia 标题：Web browser；完整URL：https://en.wikipedia.org/wiki/Web_browser',
+        `Wikipedia 首段第一句：${definition}`,
+        '',
+        '观察一：IANA 解释了示例域名用于文档和测试。',
+        '观察二：Wikipedia 将浏览器定义为访问网站的应用软件。',
+      ].join('\n'),
+    ),
+    true,
+  );
+  assert.equal(verify(`${deliverable}\n实际上网页浏览器是一种纸质书，与软件和网络无关。`), false);
+  assert.equal(verify(`${deliverable}\n补充：今天阳光很好。`), false);
+});
+
+test('LH04 rejects self-fabrication appended inside either required observation', () => {
+  const definition = 'A web browser, often shortened to browser, is an application for accessing websites.';
+  const navigationEvidence = [
+    {
+      url: 'https://www.iana.org/help/example-domains',
+      title: 'Example Domains',
+      captured_at: '2026-08-13T01:00:00.000Z',
+    },
+    {
+      url: 'https://en.wikipedia.org/wiki/Web_browser',
+      title: 'Web browser - Wikipedia',
+      first_paragraph: definition,
+      captured_at: '2026-08-13T01:00:01.000Z',
+    },
+  ];
+  const lines = [
+    'Example Domains https://www.iana.org/help/example-domains',
+    'Web browser https://en.wikipedia.org/wiki/Web_browser',
+    definition,
+    '观察一：IANA 解释了示例域名用于文档和测试。',
+    '观察二：Wikipedia 将浏览器定义为访问网站的应用软件。',
+  ];
+  const verify = candidate =>
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable: candidate.join('\n'),
+      navigationEvidence,
+    });
+
+  assert.equal(verify(lines), true);
+  assert.equal(verify(lines.with(3, `${lines[3]}这段话纯属虚构。`)), false);
+  assert.equal(verify(lines.with(4, `${lines[4]}这只是我编的。`)), false);
+});
+
+test('LH04 applies uncertainty polarity to both required observation fields', () => {
+  const definition = 'A web browser, often shortened to browser, is an application for accessing websites.';
+  const navigationEvidence = [
+    {
+      url: 'https://www.iana.org/help/example-domains',
+      title: 'Example Domains',
+      captured_at: '2026-08-13T01:00:00.000Z',
+    },
+    {
+      url: 'https://en.wikipedia.org/wiki/Web_browser',
+      title: 'Web browser - Wikipedia',
+      first_paragraph: definition,
+      captured_at: '2026-08-13T01:00:01.000Z',
+    },
+  ];
+  const base = [
+    'Example Domains https://www.iana.org/help/example-domains',
+    'Web browser https://en.wikipedia.org/wiki/Web_browser',
+    definition,
+    '观察一：IANA 解释了示例域名保留用于文档和测试。',
+    '观察二：Wikipedia 将浏览器定义为访问网站的应用软件。',
+  ];
+  const verify = lines =>
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable: lines.join('\n'),
+      navigationEvidence,
+    });
+  const negativeCases = [
+    base.with(3, `${base[3]}该观察未经核实。`),
+    base.with(4, `${base[4]}This observation is just a guess.`),
+    base.with(3, `${base[3]}此说法纯属臆测。`),
+    base.with(4, `${base[4]}以上内容是胡编乱造的。`),
+    base.with(3, `${base[3]}我撤回这个观察。`),
+    base.with(4, `${base[4]}该观察待查证。`),
+    base.with(3, `${base[3]}This observation is an unconfirmed conjecture.`),
+  ];
+  const positiveControls = [
+    base.with(3, `观察一：不要编造；以下来自页面：IANA 解释了示例域名保留用于文档和测试。`),
+    base.with(4, `观察二：以上数据并非错误；Wikipedia 将浏览器定义为访问网站的应用软件。`),
+    base.with(4, `观察二：不要说上述结论是编造的；Wikipedia 将浏览器定义为访问网站的应用软件。`),
+    base.with(3, `观察一：该观察并非推测；IANA 解释了示例域名保留用于文档和测试。`),
+    base.with(4, `观察二：This is not a conjecture; Wikipedia 将浏览器定义为访问网站的应用软件。`),
+  ];
+
+  for (const lines of negativeCases) assert.equal(verify(lines), false, lines.join(' | '));
+  for (const lines of positiveControls) assert.equal(verify(lines), true, lines.join(' | '));
+});
+
+test('LH04 scopes an unrelated negation away from a later global observation retraction', () => {
+  const definition = 'A web browser, often shortened to browser, is an application for accessing websites.';
+  const navigationEvidence = [
+    {
+      url: 'https://www.iana.org/help/example-domains',
+      title: 'Example Domains',
+      captured_at: '2026-08-13T01:00:00.000Z',
+    },
+    {
+      url: 'https://en.wikipedia.org/wiki/Web_browser',
+      title: 'Web browser - Wikipedia',
+      first_paragraph: definition,
+      captured_at: '2026-08-13T01:00:01.000Z',
+    },
+  ];
+  const base = [
+    'Example Domains https://www.iana.org/help/example-domains',
+    'Web browser https://en.wikipedia.org/wiki/Web_browser',
+    definition,
+    '观察一：IANA 解释了示例域名保留用于文档和测试。',
+    '观察二：Wikipedia 将浏览器定义为访问网站的应用软件。',
+  ];
+  const verify = lines =>
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable: lines.join('\n'),
+      navigationEvidence,
+    });
+
+  assert.equal(verify(base.with(3, `观察一：没有读取折扣；${base[3].slice(4)}`)), true);
+  assert.equal(verify(base.with(3, `观察一：没有读取折扣，以上观察错误；${base[3].slice(4)}`)), false);
+  assert.equal(verify(base.with(3, `观察一：没有读取折扣并认为以上观察错误；${base[3].slice(4)}`)), false);
+  assert.equal(verify(base.with(3, `观察一：没有读取折扣并报告${base[3].slice(4)}`)), true);
+  assert.equal(verify(base.with(4, `观察二：没有读取折扣；${base[4].slice(4)}`)), true);
+  assert.equal(verify(base.with(4, `观察二：没有读取折扣，以上观察错误；${base[4].slice(4)}`)), false);
+});
+
+test('LH04 distinguishes forbidden IANA disposition facts from their explicit negation', () => {
+  const definition = 'A web browser, often shortened to browser, is an application for accessing websites.';
+  const navigationEvidence = [
+    {
+      url: 'https://www.iana.org/help/example-domains',
+      title: 'Example Domains',
+      captured_at: '2026-08-13T01:00:00.000Z',
+    },
+    {
+      url: 'https://en.wikipedia.org/wiki/Web_browser',
+      title: 'Web browser - Wikipedia',
+      first_paragraph: definition,
+      captured_at: '2026-08-13T01:00:01.000Z',
+    },
+  ];
+  const base = [
+    'Example Domains https://www.iana.org/help/example-domains',
+    'Web browser https://en.wikipedia.org/wiki/Web_browser',
+    definition,
+    '观察一：IANA 解释了示例域名保留用于文档和测试。',
+    '观察二：Wikipedia 将浏览器定义为访问网站的应用软件。',
+  ];
+  const verify = ianaObservation =>
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable: base.with(3, `观察一：${ianaObservation}`).join('\n'),
+      navigationEvidence,
+    });
+
+  assert.equal(verify('IANA 说明示例域名用于注册分配，也用于文档和测试。'), false);
+  assert.equal(verify('IANA 说明示例域名保留用于文档测试，也可以转让。'), false);
+  assert.equal(verify('IANA 说明示例域名保留用于文档和测试，不可注册或转让。'), true);
+  assert.equal(verify('IANA 说明示例域名不用于注册或分配，只保留供文档测试。'), true);
+  assert.equal(verify('IANA 说明示例域名不能被注册、分配或转让，只保留供文档测试。'), true);
+  assert.equal(verify('IANA 说明示例域名用于文档测试，不能注册，但可以转让。'), false);
+  assert.equal(verify('IANA 说明示例域名用于文档，但不用于测试，且不可注册。'), true);
+  assert.equal(verify('IANA 说明示例域名不用于文档，只用于测试，且不可分配。'), true);
+  assert.equal(verify('IANA 将示例域名保留作产品文档中的占位示例，而且这些域名不可注册。'), true);
+  assert.equal(verify('IANA 把示例域名供自动化测试使用，并明确禁止分配。'), true);
+  assert.equal(verify('文档示例所需的域名由 IANA 作为示例域名保留，不可注册。'), true);
+  assert.equal(verify('IANA 说明示例域名不是不用于文档，且不可注册。'), true);
+  assert.equal(verify('IANA 说明示例域名保留用于文档，并非不能注册。'), false);
+  assert.equal(verify('IANA 说明示例域名保留用于测试，不是不得转让。'), false);
+  assert.equal(verify('IANA 说明示例域名未禁止用于文档，且不可注册。'), false);
+});
+
+test('LH04 permits only a bounded title and URL-only source footer around five unique facts', () => {
+  const definition = 'A web browser, often shortened to browser, is an application for accessing websites.';
+  const navigationEvidence = [
+    {
+      url: 'https://www.iana.org/help/example-domains',
+      title: 'Example Domains',
+      captured_at: '2026-08-13T01:00:00.000Z',
+    },
+    {
+      url: 'https://en.wikipedia.org/wiki/Web_browser',
+      title: 'Web browser - Wikipedia',
+      first_paragraph: definition,
+      captured_at: '2026-08-13T01:00:01.000Z',
+    },
+  ];
+  const core = [
+    '观察一：IANA 解释了示例域名保留用于文档和测试。',
+    '观察二：Wikipedia 将浏览器定义为访问网站的应用软件。',
+    'Example Domains https://www.iana.org/help/example-domains',
+    'Web browser https://en.wikipedia.org/wiki/Web_browser',
+    definition,
+  ];
+  const verify = lines =>
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable: lines.join('\n'),
+      navigationEvidence,
+    });
+
+  assert.equal(
+    verify([
+      '双来源交付：',
+      ...core,
+      '来源：https://www.iana.org/help/example-domains；https://en.wikipedia.org/wiki/Web_browser',
+    ]),
+    true,
+  );
+  assert.equal(verify(['双来源交付：IANA 与 Wikipedia 均可信', ...core]), false);
+  assert.equal(verify([...core, '来源：https://www.iana.org/help/example-domains']), false);
+  assert.equal(
+    verify([
+      ...core,
+      '来源：https://www.iana.org/help/example-domains；https://en.wikipedia.org/wiki/Web_browser；均已核实',
+    ]),
+    false,
+  );
+});
+
+test('LH04 classifies its five required lines uniquely without imposing presentation order', () => {
+  const definition = 'A web browser, often shortened to browser, is an application for accessing websites.';
+  const ianaLine = 'Example Domains https://www.iana.org/help/example-domains';
+  const wikipediaLine = 'Web browser https://en.wikipedia.org/wiki/Web_browser';
+  const firstObservation = '观察一：IANA 解释了示例域名用于文档和测试。';
+  const secondObservation = '观察二：Wikipedia 将浏览器定义为访问网站的应用软件。';
+  const navigationEvidence = [
+    {
+      url: 'https://www.iana.org/help/example-domains',
+      title: 'Example Domains',
+      captured_at: '2026-08-13T01:00:00.000Z',
+    },
+    {
+      url: 'https://en.wikipedia.org/wiki/Web_browser',
+      title: 'Web browser - Wikipedia',
+      first_paragraph: definition,
+      captured_at: '2026-08-13T01:00:01.000Z',
+    },
+  ];
+  const verify = lines =>
+    multiSourceDeliveryPass({
+      finalUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+      deliverable: lines.join('\n'),
+      navigationEvidence,
+    });
+
+  assert.equal(verify([firstObservation, secondObservation, ianaLine, wikipediaLine, definition]), true);
+  assert.equal(verify([firstObservation, secondObservation, ianaLine, ianaLine, definition]), false);
+  assert.equal(verify([firstObservation, secondObservation, ianaLine, definition]), false);
+  assert.equal(verify([firstObservation, firstObservation, ianaLine, wikipediaLine, definition]), false);
+});
+
+test('LH04 accepts a corrected IANA-to-Wikipedia subsequence but not Wiki-to-IANA only', () => {
+  const definition = 'A web browser, often shortened to browser, is an application for accessing websites.';
+  const wiki = {
+    url: 'https://en.wikipedia.org/wiki/Web_browser',
+    title: 'Web browser - Wikipedia',
+    first_paragraph: definition,
+  };
+  const iana = {
+    url: 'https://www.iana.org/help/example-domains',
+    title: 'Example Domains',
+  };
+  const deliverable = [
+    'Example Domains https://www.iana.org/help/example-domains',
+    'Web browser https://en.wikipedia.org/wiki/Web_browser',
+    definition,
+    '观察一：IANA 解释了示例域名用于文档和测试。',
+    '观察二：Wikipedia 将浏览器定义为访问网站的应用软件。',
+  ].join('\n');
+  const correctedSequence = [
+    { ...wiki, captured_at: '2026-08-13T01:00:00.000Z' },
+    { ...iana, captured_at: '2026-08-13T01:00:01.000Z' },
+    { ...wiki, captured_at: '2026-08-13T01:00:02.000Z' },
+  ];
+
+  assert.equal(
+    multiSourceDeliveryPass({
+      finalUrl: wiki.url,
+      deliverable,
+      navigationEvidence: correctedSequence,
+    }),
+    true,
+  );
+  assert.equal(
+    multiSourceDeliveryPass({
+      finalUrl: wiki.url,
+      deliverable,
+      navigationEvidence: correctedSequence.slice(0, 2),
+    }),
+    false,
+  );
+  assert.equal(
+    multiSourceDeliveryPass({
+      finalUrl: wiki.url,
+      deliverable: deliverable.replace(definition, 'A web browser is a musical instrument.'),
+      navigationEvidence: correctedSequence,
+    }),
+    false,
+  );
+  const contradictoryDefinition = 'A web browser is a musical instrument used for performing songs in a concert hall.';
+  assert.equal(
+    multiSourceDeliveryPass({
+      finalUrl: wiki.url,
+      deliverable: deliverable.replace(definition, contradictoryDefinition),
+      navigationEvidence: [
+        correctedSequence[0],
+        correctedSequence[1],
+        { ...correctedSequence[2], first_paragraph: contradictoryDefinition },
+      ],
     }),
     false,
   );
@@ -439,8 +1158,85 @@ test('an empty or receipt-less trace cannot certify completion', () => {
   trace.spans = [];
   trace.receipt_count = 0;
   const errors = validateScopedTraceEvidence(trace, traceContext);
-  assert(errors.some(error => error.includes('receipt/deliverable')));
+  assert(errors.some(error => error.includes('completion cardinality')));
   assert(errors.some(error => error.includes('trace is empty')));
+});
+
+test('an honest failed task keeps strict identity without pretending it completed', () => {
+  const trace = validTrace();
+  Object.assign(trace, {
+    terminal_status: 'failed',
+    trace_terminal_status: 'failed',
+    outcome: 'fail',
+    visible_receipt_id: '',
+    has_runtime_receipt: false,
+    runtime_receipt_id: '',
+    receipt_count: 0,
+    completion_result_count: 0,
+    deliverable_count: 0,
+  });
+  trace.spans = trace.spans.slice(0, 1);
+  assert.deepEqual(validateScopedTraceEvidence(trace, { ...traceContext, outcome: 'fail' }), []);
+  trace.has_runtime_receipt = true;
+  trace.runtime_receipt_id = 'hidden-receipt';
+  assert(
+    validateScopedTraceEvidence(trace, { ...traceContext, outcome: 'fail' }).some(error =>
+      error.includes('retains receipt'),
+    ),
+  );
+  trace.has_runtime_receipt = false;
+  trace.runtime_receipt_id = '';
+  trace.runtime_task_id = 'other-task';
+  assert(
+    validateScopedTraceEvidence(trace, { ...traceContext, outcome: 'fail' }).some(error =>
+      error.includes('runtime identity'),
+    ),
+  );
+});
+
+test('a timed-out running task remains attributable failure evidence', () => {
+  const trace = validTrace();
+  Object.assign(trace, {
+    terminal_status: 'running',
+    trace_terminal_status: null,
+    outcome: 'fail',
+    visible_receipt_id: '',
+    has_runtime_receipt: false,
+    runtime_receipt_id: '',
+    receipt_count: 0,
+    completion_result_count: 0,
+    deliverable_count: 0,
+  });
+  trace.spans = trace.spans.slice(0, 1);
+  assert.deepEqual(validateScopedTraceEvidence(trace, { ...traceContext, outcome: 'fail' }), []);
+});
+
+test('gate rejects contradictory or unscoped honest-failure verification evidence', () => {
+  const payload = {
+    terminal_status: 'failed',
+    runtime_round_id: 'round-1',
+    scoped_card_count: 1,
+    ui_task_id: 'runtime-1',
+    ui_round_id: 'round-1',
+    visible_receipt_id: '',
+    has_runtime_receipt: false,
+    runtime_receipt_id: '',
+    receipt_count: 0,
+    completion_result_count: 0,
+    deliverable_count: 0,
+  };
+  const context = { outcome: 'fail', runtimeTaskId: 'runtime-1', deliverableRequired: true };
+  assert.deepEqual(verificationEvidenceProtocolErrors(payload, context), []);
+  for (const forged of [
+    { ...payload, has_runtime_receipt: true, runtime_receipt_id: 'hidden-receipt' },
+    { ...payload, visible_receipt_id: 'old-receipt' },
+    { ...payload, scoped_card_count: 0 },
+    { ...payload, scoped_card_count: 2 },
+    { ...payload, ui_task_id: 'old-task' },
+    { ...payload, ui_round_id: 'old-round' },
+  ]) {
+    assert(verificationEvidenceProtocolErrors(forged, context).length > 0);
+  }
 });
 
 test('one handwritten observe span cannot certify a multi-source LH04 run', () => {

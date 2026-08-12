@@ -35,6 +35,7 @@ import type {
   ExecutorDriver,
   ExecutorHooks,
   ExecutorInput,
+  ExecutorMissionPlan,
   ExecutorOutcome,
   ObserveCriteria,
   ProbeObservation,
@@ -59,10 +60,19 @@ import {
   applyPassedCriteriaToMissionPlan,
   applySinglePhaseEvidence,
   attachCriteriaAcrossMissionPlan,
+  extendReconciledMissionProof,
+  reconcileMissionPlanWithFrozenContract,
   refineMissionPlanFromInstruction,
 } from './mission-plan';
 import { ActionResult } from '../agent/types';
 import { isUnderstandingOnlyInstruction } from '../browser/sites/understanding-answer';
+import {
+  extractProductsFromHtml,
+  formatMostExpensiveProductConclusion,
+  instructionRequestsMostExpensive,
+  parseProductTableInstruction,
+  productRowEvidenceText,
+} from '../browser/sites/product-table';
 import {
   extractResearchQuotas,
   isRecoverableResearchDecisionFailure,
@@ -72,6 +82,12 @@ import {
   researchQuotasMet,
   requiresStructuredResearchDecision,
 } from './research-checkpoint';
+import {
+  analyzeInstructionLanguage,
+  extractInstructionUrlOccurrences,
+  instructionAffirmedTargetValue,
+  instructionAffirmsTarget,
+} from '../instruction-language';
 
 export type { ExecutorDriver } from './contracts';
 
@@ -105,6 +121,10 @@ export interface InstructionDeliverableContract {
   minimumDistinctUrls: number;
   eachItemNeedsUrl: boolean;
   requiresSourceOrder: boolean;
+  minimumSourceCount: number;
+  requiresStructuredTable: boolean;
+  requiresConclusion: boolean;
+  requiredItemPrefixes: string[];
   minimumContentChars: number;
 }
 
@@ -149,19 +169,14 @@ export async function queryIdentityDigestForUrl(value: string): Promise<string |
 }
 
 export async function redactDeliverableUrlsForPersistence(value: string): Promise<string> {
-  const matches = [...value.matchAll(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi)];
-  if (matches.length === 0) return value;
+  const occurrences = extractInstructionUrlOccurrences(value);
+  if (occurrences.length === 0) return value;
   let cursor = 0;
   const chunks: string[] = [];
-  for (const match of matches) {
-    const index = match.index;
-    if (index === undefined) continue;
-    const raw = match[0].replace(/[.,，。!?！？]+$/, '');
-    const trailing = match[0].slice(raw.length);
-    chunks.push(value.slice(cursor, index));
-    chunks.push((await durableHttpCompletionUrl(raw)) ?? '[invalid-url]');
-    chunks.push(trailing);
-    cursor = index + match[0].length;
+  for (const occurrence of occurrences) {
+    chunks.push(value.slice(cursor, occurrence.start));
+    chunks.push((await durableHttpCompletionUrl(occurrence.value)) ?? '[invalid-url]');
+    cursor = occurrence.end;
   }
   chunks.push(value.slice(cursor));
   return chunks.join('');
@@ -189,6 +204,34 @@ function transientUrlIdentityKey(value: string): string | null {
   }
 }
 
+export interface InstructionUrlPlan {
+  /** Literal source URLs in the user's requested order. */
+  sourceUrls: string[];
+  /** URL checks that can truthfully describe the current tab at completion. */
+  currentPageUrls: string[];
+  /** Earlier sources must be proven by ordered page captures, not current-tab state. */
+  requiresOrderedSourceProof: boolean;
+}
+
+/**
+ * Separate visit history from final-page state for ordered multi-source work.
+ * A single tab cannot simultaneously satisfy two URL criteria. When the user
+ * explicitly asks to visit sources in order and return a result, only the last
+ * literal URL is a current-page criterion; every earlier URL remains part of
+ * the source sequence that the deliverable verifier must prove from captures.
+ */
+export function deriveInstructionUrlPlan(instruction: string): InstructionUrlPlan {
+  const analysis = analyzeInstructionLanguage(instruction);
+  const sourceUrls = analysis.urls.map(occurrence => occurrence.value);
+  const requiresOrderedSourceProof = instructionAffirmsTarget(analysis, 'ordered_sources');
+
+  return {
+    sourceUrls,
+    currentPageUrls: requiresOrderedSourceProof ? sourceUrls.slice(-1) : sourceUrls,
+    requiresOrderedSourceProof,
+  };
+}
+
 /**
  * Deterministic, instruction-derived delivery contract. It deliberately checks
  * only explicit, falsifiable output shape (body content, count, full URLs);
@@ -196,33 +239,75 @@ function transientUrlIdentityKey(value: string): string | null {
  */
 export function deriveInstructionDeliverableContract(instruction: string): InstructionDeliverableContract {
   const text = instruction.replace(/\s+/g, ' ').trim();
+  const language = analyzeInstructionLanguage(instruction);
+  const requestsReturnedDeliverable = instructionAffirmsTarget(language, 'returned_deliverable');
+  const requiresStructuredTable = instructionAffirmsTarget(language, 'structured_table');
+  const requiresConclusion = instructionAffirmsTarget(language, 'conclusion');
+  const requestsMostExpensive = instructionAffirmsTarget(language, 'most_expensive');
+  const requestedProductRowCount = instructionAffirmedTargetValue(language, 'product_row_count');
+  const affirmsDeliverableShape =
+    requestsReturnedDeliverable || requiresStructuredTable || requiresConclusion || requestsMostExpensive;
+  const urlOccurrences = extractInstructionUrlOccurrences(text);
   const itemMatch =
     /([一二两三四五六七八九十]|\d{1,2})\s*(?:条|项|个)\s*(?:中文|英文)?\s*(?:观察|结论|发现|要点|摘要|说明|回答|结果)/i.exec(
       text,
     ) ?? /\b(\d{1,2})\s+(?:observations?|findings?|items?|points?|results?)\b/i.exec(text);
-  const minimumItems = parseRequestedCount(itemMatch?.[1]) ?? 1;
+  const objectMatches = [
+    ...text.matchAll(
+      /([一二两三四五六七八九十]|\d{1,2})\s*(?:家|个|项|种|条)?\s*(竞品|产品|商品|来源|网站|站点|页面|sources?|sites?|competitors?|products?|items?)/gi,
+    ),
+  ];
+  const requestedObjectCount = objectMatches.reduce(
+    (maximum, match) => Math.max(maximum, parseRequestedCount(match[1]) ?? 0),
+    0,
+  );
+  const sourceMatches = objectMatches.filter(match => /^(?:来源|网站|站点|sources?|sites?)$/i.test(match[2]));
+  const explicitSourceCount = sourceMatches.reduce(
+    (maximum, match) => Math.max(maximum, parseRequestedCount(match[1]) ?? 0),
+    0,
+  );
+  const pairedSourceCount = /(?:双来源|两站|两个来源|\btwo\s+(?:sources|sites)\b)/i.test(text) ? 2 : 0;
+  const minimumItems = affirmsDeliverableShape
+    ? Math.max(
+        parseRequestedCount(itemMatch?.[1]) ?? 1,
+        requestedObjectCount || 1,
+        typeof requestedProductRowCount === 'number' ? requestedProductRowCount : 1,
+      )
+    : 1;
   const eachItemNeedsUrl =
-    /(?:每|各)(?:条|项|个|一条|一个)?.{0,12}(?:带|附|包含|给出).{0,8}(?:完整)?\s*(?:URL|链接|网址)/i.test(text) ||
-    /\beach\b.{0,16}\b(?:url|link)\b/i.test(text);
+    affirmsDeliverableShape &&
+    (/(?:每|各)(?:条|项|个|一条|一个)?.{0,12}(?:带|附|包含|给出).{0,8}(?:完整)?\s*(?:URL|链接|网址)/i.test(text) ||
+      /\beach\b.{0,16}\b(?:url|link)\b/i.test(text));
+  const orderedSourceLanguage = instructionAffirmsTarget(language, 'ordered_sources');
+  const minimumSourceCount = affirmsDeliverableShape
+    ? Math.max(explicitSourceCount, pairedSourceCount, orderedSourceLanguage && eachItemNeedsUrl ? minimumItems : 0)
+    : 0;
   const explicitUrlCount =
     parseRequestedCount(
       /([一二两三四五六七八九十]|\d{1,2})\s*(?:个|条)?\s*(?:完整)?\s*(?:URL|链接|网址)/i.exec(text)?.[1],
     ) ?? 0;
   const literalUrlCount = new Set(
-    [...text.matchAll(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi)]
-      .map(match => transientUrlIdentityKey(match[0].replace(/[.,，。!?！？]+$/, '')))
+    urlOccurrences
+      .map(occurrence => transientUrlIdentityKey(occurrence.value))
       .filter((key): key is string => Boolean(key)),
   ).size;
-  const intentText = text.replace(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi, ' ');
+  let intentCursor = 0;
+  const intentChunks: string[] = [];
+  for (const occurrence of urlOccurrences) {
+    intentChunks.push(text.slice(intentCursor, occurrence.start), ' URL ');
+    intentCursor = occurrence.end;
+  }
+  intentChunks.push(text.slice(intentCursor));
+  const intentText = intentChunks.join('');
   const requestsUrl =
+    affirmsDeliverableShape &&
     !/\bURL\s*host\b/i.test(text) &&
     (/(?:最终|完整|页面|当前|目标).{0,8}(?:URL|链接|网址)|(?:带上|给出|包含|附上|写出|列出|回复|输出).{0,16}(?:URL|链接|网址)|标题.{0,8}(?:URL|链接|网址)/i.test(
       text,
     ) ||
       /\b(?:include|provide|return|show|with)\b.{0,20}\b(?:url|link)\b/i.test(text));
   const minimumItemsWithUrl = eachItemNeedsUrl ? minimumItems : requestsUrl ? 1 : 0;
-  const hasDistinctSourceSequence =
-    eachItemNeedsUrl && /(?:先|首先).{0,160}(?:再|然后|随后).{0,160}(?:最终|最后|输出|回复)/.test(text);
+  const hasDistinctSourceSequence = minimumSourceCount > 1 && orderedSourceLanguage;
   const minimumDistinctUrls = Math.max(
     explicitUrlCount,
     literalUrlCount,
@@ -261,20 +346,16 @@ export function deriveInstructionDeliverableContract(instruction: string): Instr
     !/\b(?:date|price|cost|amount|number|count|author|writer|creator|release|launch|publication|published|version|fact|claim|state|say|show|mention|report)\b/i.test(
       intentText,
     );
+  const requiredItemPrefixes = [
+    ...new Set([...text.matchAll(/观察([一二两三四五六七八九十]|\d{1,2})\s*[:：]/g)].map(match => `观察${match[1]}：`)),
+  ];
   const requiresPageContent =
-    explicitlyRequestsPageContent || (referencesPageSource && requestsFactAnswer && !asksMetadataIdentity);
-  const required =
-    requiresPageContent ||
-    minimumItems > 1 ||
-    minimumItemsWithUrl > 0 ||
-    minimumDistinctUrls > 0 ||
-    /复制|发给我|发我|告诉我|回复我|贴给我|第一条评论|评论内容|热评|摘录|回答|写出|列出|输出.{0,16}(?:观察|结论|发现|要点|结果)/.test(
-      text,
-    ) ||
-    /\b(?:copy|tell me|send me|return|answer|output)\b/i.test(text) ||
-    /\bextract\b.+\b(?:csv|table)\b/i.test(text) ||
-    /\b(?:csv|table)\b.+\b(?:name|price|rating)\b/i.test(text) ||
-    /(?:抽取|提取|导出).{0,24}(?:表|CSV|csv)/i.test(text);
+    affirmsDeliverableShape &&
+    (explicitlyRequestsPageContent ||
+      (referencesPageSource && requestsFactAnswer && !asksMetadataIdentity) ||
+      minimumSourceCount > 1 ||
+      (requestsMostExpensive && /(?:商品|产品|列表)|\b(?:product|item|listing)s?\b/i.test(text)));
+  const required = affirmsDeliverableShape;
   const minimumContentChars =
     /核心主题.{0,20}细节|细节.{0,20}核心主题|首段|第一段|定义|\bfirst paragraph\b|\bdefinition\b/i.test(text) ? 18 : 10;
 
@@ -287,8 +368,16 @@ export function deriveInstructionDeliverableContract(instruction: string): Instr
     minimumDistinctUrls,
     eachItemNeedsUrl,
     requiresSourceOrder: hasDistinctSourceSequence,
+    minimumSourceCount,
+    requiresStructuredTable,
+    requiresConclusion,
+    requiredItemPrefixes,
     minimumContentChars,
   };
+}
+
+export function instructionRequestsReturnedDeliverable(instruction: string): boolean {
+  return instructionAffirmsTarget(analyzeInstructionLanguage(instruction), 'returned_deliverable');
 }
 
 function answerSegments(answer: string): string[] {
@@ -341,16 +430,140 @@ function structuredTableCells(segment: string): string[] {
   return quoted ? [] : cells.filter(Boolean);
 }
 
+function canonicalTableField(value: string): string {
+  const field = value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (/^(?:name|title|名称|名字|商品)$/.test(field)) return 'name';
+  if (/^(?:price|cost|价格|价钱)$/.test(field)) return 'price';
+  if (/^(?:rating|score|评分|星级)$/.test(field)) return 'rating';
+  return field;
+}
+
+function tableHeaderMatches(segment: string, explicitFields: string[]): boolean {
+  const cells = structuredTableCells(segment).map(canonicalTableField);
+  const fields = explicitFields.map(canonicalTableField);
+  return fields.length > 0 && cells.length === fields.length && cells.every((cell, index) => cell === fields[index]);
+}
+
+function productRowFromTableSegment(segment: string, explicitFields: string[]) {
+  const cells = structuredTableCells(segment);
+  if (cells.length !== explicitFields.length) return null;
+  const fields = explicitFields.map(canonicalTableField);
+  const nameIndex = fields.indexOf('name');
+  const priceIndex = fields.indexOf('price');
+  const ratingIndex = fields.indexOf('rating');
+  if (nameIndex < 0 || priceIndex < 0 || ratingIndex < 0) return null;
+  return { name: cells[nameIndex], price: cells[priceIndex], rating: cells[ratingIndex] };
+}
+
+async function productRowSetEvidenceDigest(rows: Array<{ name: string; price: string; rating: string }>) {
+  const rowDigests = await Promise.all(rows.map(row => sha256(productRowEvidenceText(row))));
+  return sha256(`product-row-set-v1:${JSON.stringify([...new Set(rowDigests)].sort())}`);
+}
+
+function instructionRequestsCompleteProductTable(instruction: string): boolean {
+  return instructionAffirmsTarget(analyzeInstructionLanguage(instruction), 'complete_product_table');
+}
+
 function isStructuredTableMetadata(segment: string, explicitFields: string[]): boolean {
   if (/^已提取\s*\d+\s*件商品（(?:CSV|Markdown)）：?$/i.test(segment.trim())) return true;
   const cells = structuredTableCells(segment).map(cell => cell.toLowerCase());
   if (cells.length === 0) return false;
   if (cells.every(cell => /^:?-{3,}:?$/.test(cell))) return true;
+  return explicitFields.length > 0 ? tableHeaderMatches(segment, explicitFields) : looksLikeGenericTableHeader(segment);
+}
+
+function isMostExpensiveConclusionSegment(segment: string): boolean {
   return (
-    explicitFields.length > 0 &&
-    cells.length === explicitFields.length &&
-    cells.every((cell, i) => cell === explicitFields[i])
+    /(?:最贵|价格最高|最高价(?:格)?)|\b(?:most\s+expensive|highest[-\s]+priced|highest\s+price)\b/i.test(segment) &&
+    !/(?:不是|并非|非最贵)|\b(?:not|isn't)\b/i.test(segment)
   );
+}
+
+function isStructuredTableConclusionMetadata(segment: string): boolean {
+  return /^(?:最贵商品是\s+.+?，价格为\s+.+。|.+?\s+is\s+the\s+most\s+expensive\s+(?:product|item)(?:\s+(?:at|for)\s+.+)?[.!]?)$/i.test(
+    segment.trim(),
+  );
+}
+
+function normalizeConclusionText(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s*•-]+/, '')
+    .trim();
+}
+
+function matchesDerivedMostExpensiveConclusion(
+  conclusion: string,
+  tableSegments: string[],
+  explicitFields: string[],
+): boolean {
+  if (!isStructuredTableConclusionMetadata(conclusion)) return false;
+  const normalizedFields = explicitFields.map(canonicalTableField);
+  const nameIndex = normalizedFields.indexOf('name');
+  const priceIndex = normalizedFields.indexOf('price');
+  const ratingIndex = normalizedFields.indexOf('rating');
+  if (nameIndex < 0 || priceIndex < 0) return false;
+  const rows = tableSegments.flatMap(segment => {
+    const cells = structuredTableCells(segment);
+    if (cells.length !== explicitFields.length) return [];
+    return [
+      {
+        name: cells[nameIndex],
+        price: cells[priceIndex],
+        rating: ratingIndex >= 0 ? cells[ratingIndex] : '',
+      },
+    ];
+  });
+  const expected = formatMostExpensiveProductConclusion(rows);
+  return expected !== null && normalizeConclusionText(conclusion) === normalizeConclusionText(expected);
+}
+
+function isTableSeparator(segment: string): boolean {
+  const cells = structuredTableCells(segment);
+  return cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
+}
+
+function looksLikeGenericTableHeader(segment: string): boolean {
+  const cells = structuredTableCells(segment).map(canonicalTableField);
+  if (cells.length < 2) return false;
+  return cells.every(cell =>
+    /^(?:name|price|rating|source|result|competitor|product|feature|strength|weakness|url|名称|价格|评分|来源|结果|竞品|产品|商品|功能|优点|缺点|网址|链接|指标|维度)$/.test(
+      cell,
+    ),
+  );
+}
+
+function structuredTableShape(segments: string[], explicitFields: string[]) {
+  const headerIndex = segments.findIndex(segment =>
+    explicitFields.length > 0 ? tableHeaderMatches(segment, explicitFields) : looksLikeGenericTableHeader(segment),
+  );
+  if (headerIndex < 0) return { headerIndex, dataSegments: [] as string[] };
+  const width = structuredTableCells(segments[headerIndex]).length;
+  const dataSegments = segments
+    .slice(headerIndex + 1)
+    .filter(segment => !isTableSeparator(segment) && structuredTableCells(segment).length === width);
+  return { headerIndex, dataSegments };
+}
+
+function isCompletionBoilerplate(segment: string): boolean {
+  const value = segment.replace(/\s+/g, ' ').trim();
+  return (
+    /(?:相关工作|任务|调研|内容).{0,12}(?:已经|已)?(?:全部)?完成|请查看(?:以上|上述)信息|^这是最终结果[:：]?$/i.test(
+      value,
+    ) ||
+    /\b(?:all|the)\s+(?:work|task|research)\s+(?:is\s+)?(?:now\s+)?complete(?:d)?\b|\bsee\s+(?:the\s+)?(?:above|previous)\s+information\b/i.test(
+      value,
+    )
+  );
+}
+
+function isSubstantiveConclusion(segment: string): boolean {
+  if (isCompletionBoilerplate(segment)) return false;
+  const match = /(?:结论|建议|综合来看|总体而言|因此|conclusion|recommendation|overall|therefore)\s*[:：,]?(.*)/i.exec(
+    segment,
+  );
+  return Boolean(match?.[1]?.replace(/\s+/g, '').length && match[1].replace(/\s+/g, '').length >= 4);
 }
 
 function isBasicSubstantiveAnswer(summary: string, goalText: string): boolean {
@@ -366,6 +579,7 @@ function isBasicSubstantiveAnswer(summary: string, goalText: string): boolean {
   if (/^下载已(开始|完成)/.test(s)) return false;
   if (/^(Browser opened|Switched to|Playing video|Opened |Paused video)/i.test(s)) return false;
   if (/User instruction/i.test(s)) return false;
+  if (isCompletionBoilerplate(s)) return false;
   const goal = goalText.replace(/\s+/g, ' ').trim();
   if (goal && (s === goal || s.includes(goal) || (s.length <= goal.length + 4 && goal.includes(s)))) return false;
   return true;
@@ -405,6 +619,31 @@ async function pageEvidence(inputs?: Iterable<DeliverableEvidenceInput>): Promis
   return results.filter((item): item is DeliverablePageEvidence => item !== null);
 }
 
+export async function checkOrderedSourceVisitProof(
+  instruction: string,
+  evidenceInputs?: Iterable<DeliverableEvidenceInput>,
+): Promise<boolean> {
+  const plan = deriveInstructionUrlPlan(instruction);
+  if (!plan.requiresOrderedSourceProof) return true;
+  const expected = (await Promise.all(plan.sourceUrls.map(source => redactedHttpUrlIdentity(source)))).filter(
+    (identity): identity is DeliverablePageEvidence => identity !== null,
+  );
+  if (expected.length !== plan.sourceUrls.length) return false;
+  const evidence = (await pageEvidence(evidenceInputs)).filter(item => Number.isSafeInteger(item.visitSeq));
+  let previousVisitSeq = -1;
+  for (const identity of expected) {
+    const next = evidence
+      .filter(
+        item =>
+          provenanceIdentityKey(item) === provenanceIdentityKey(identity) && (item.visitSeq ?? -1) > previousVisitSeq,
+      )
+      .sort((left, right) => (left.visitSeq ?? -1) - (right.visitSeq ?? -1))[0];
+    if (!next?.visitSeq) return false;
+    previousVisitSeq = next.visitSeq;
+  }
+  return true;
+}
+
 function quotedPassages(segment: string): string[] {
   return [...segment.matchAll(/[“"「『]([^”"」』]{8,240})[”"」』]/g)]
     .map(match => match[1]?.replace(/\s+/g, ' ').trim() ?? '')
@@ -412,8 +651,8 @@ function quotedPassages(segment: string): string[] {
 }
 
 async function firstSegmentIdentity(segment: string): Promise<DeliverablePageEvidence | null> {
-  const raw = /https?:\/\/[^\s<>"'，。；;）)\]}]+/i.exec(segment)?.[0];
-  return raw ? redactedHttpUrlIdentity(raw.replace(/[.,，。!?！？]+$/, '')) : null;
+  const occurrence = extractInstructionUrlOccurrences(segment)[0];
+  return occurrence ? redactedHttpUrlIdentity(occurrence.value) : null;
 }
 
 function provenanceIdentityKey(identity: DeliverablePageEvidence): string {
@@ -433,6 +672,7 @@ function hasUnsupportedUnquotedClaim(segment: string): boolean {
     .replace(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi, '')
     .replace(/[“"「『][^”"」』]{8,240}[”"」』]/g, '')
     .replace(/^\s*(?:[-*•]|\d{1,2}[.)、]|[一二两三四五六七八九十][、.])\s*/, '')
+    .replace(/^观察(?:[一二两三四五六七八九十]|\d{1,2})\s*[:：]\s*/, '')
     .replace(/[：:。.!！?？]/g, ' ')
     .trim();
   if (!residue) return false;
@@ -452,9 +692,9 @@ function hasUnsupportedUnquotedClaim(segment: string): boolean {
 
 async function instructionSourcePosition(instruction: string, evidence: DeliverablePageEvidence): Promise<number> {
   const lower = instruction.toLowerCase();
-  for (const match of instruction.matchAll(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi)) {
-    const identity = await redactedHttpUrlIdentity(match[0].replace(/[.,，。!?！？]+$/, ''));
-    if (identity && provenanceIdentityKey(identity) === provenanceIdentityKey(evidence)) return match.index;
+  for (const occurrence of extractInstructionUrlOccurrences(instruction)) {
+    const identity = await redactedHttpUrlIdentity(occurrence.value);
+    if (identity && provenanceIdentityKey(identity) === provenanceIdentityKey(evidence)) return occurrence.start;
   }
   if (evidence.queryIdentityDigest) return -1;
   const exact = lower.indexOf(evidence.normalizedUrl.toLowerCase());
@@ -487,9 +727,7 @@ export async function checkInstructionDeliverable(
   const reasons: string[] = [];
   if (!isBasicSubstantiveAnswer(answer, instruction)) reasons.push('non_substantive');
 
-  const rawAnswerUrls = [...answer.matchAll(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi)].map(match =>
-    match[0].replace(/[.,，。!?！？]+$/, ''),
-  );
+  const rawAnswerUrls = extractInstructionUrlOccurrences(answer).map(occurrence => occurrence.value);
   const orderedIdentities = (await Promise.all(rawAnswerUrls.map(value => redactedHttpUrlIdentity(value)))).filter(
     (identity): identity is DeliverablePageEvidence => identity !== null,
   );
@@ -505,23 +743,48 @@ export async function checkInstructionDeliverable(
   }
 
   const segments = answerSegments(answer);
+  const structuredTable = contract.requiresStructuredTable;
+  const explicitTableFields = structuredTable ? extractExplicitTableFields(instruction) : [];
+  const tableShape = structuredTableShape(segments, explicitTableFields);
+  if (contract.requiresStructuredTable && (tableShape.headerIndex < 0 || tableShape.dataSegments.length === 0)) {
+    reasons.push('table_structure');
+  }
   if (contract.minimumItems > 1) {
-    const itemCount = segments.filter(segment => !isMetadataOnlySegment(segment)).length;
+    const itemCount = contract.requiresStructuredTable
+      ? tableShape.dataSegments.length
+      : segments.filter(
+          segment =>
+            !isMetadataOnlySegment(segment) &&
+            !isCompletionBoilerplate(segment) &&
+            !(contract.requiresConclusion && isSubstantiveConclusion(segment)),
+        ).length;
     if (itemCount < contract.minimumItems) reasons.push('item_count');
   }
+  if (contract.requiresConclusion && !segments.some(isSubstantiveConclusion)) reasons.push('conclusion_missing');
+  if (
+    contract.requiredItemPrefixes.some(
+      prefix => !segments.some(segment => segment.startsWith(prefix) || segment.startsWith(prefix.replace('：', ':'))),
+    )
+  ) {
+    reasons.push('item_label');
+  }
+  const distinctVisitedSources = new Set(evidence.map(provenanceIdentityKey));
+  if (distinctVisitedSources.size < contract.minimumSourceCount) reasons.push('source_count');
   if (contract.minimumItemsWithUrl > 0) {
     const itemsWithUrl = segments.filter(segment => /https?:\/\//i.test(segment)).length;
     if (itemsWithUrl < contract.minimumItemsWithUrl) reasons.push('item_url_count');
   }
 
   if (contract.requiresPageContent) {
-    const structuredTable =
-      /\b(?:csv|table)\b/i.test(instruction) || /(?:表格|表|清单).{0,16}(?:字段|列|商品|产品)/.test(instruction);
-    const explicitTableFields = structuredTable
-      ? extractExplicitTableFields(instruction).map(field => field.toLowerCase())
-      : [];
+    const requiresMostExpensive = structuredTable && instructionRequestsMostExpensive(instruction);
+    const mostExpensiveConclusions = requiresMostExpensive ? segments.filter(isMostExpensiveConclusionSegment) : [];
+    if (explicitTableFields.length > 0 && tableShape.headerIndex < 0) reasons.push('page_content_unsupported');
     const bodySegments = segments.filter(
-      segment => !isMetadataOnlySegment(segment) && !isStructuredTableMetadata(segment, explicitTableFields),
+      segment =>
+        !isMetadataOnlySegment(segment) &&
+        !isStructuredTableMetadata(segment, explicitTableFields) &&
+        !(contract.requiresConclusion && isSubstantiveConclusion(segment)) &&
+        !(mostExpensiveConclusions.includes(segment) && isStructuredTableConclusionMetadata(segment)),
     );
     const declaredTableRows = structuredTable
       ? Number(/^已提取\s*(\d+)\s*件商品（(?:CSV|Markdown)）/i.exec(segments[0] ?? '')?.[1])
@@ -535,10 +798,24 @@ export async function checkInstructionDeliverable(
       .replace(/\s+/g, '');
     if (bodyText.length < contract.minimumContentChars) reasons.push('page_content');
 
-    const grounded: Array<{ target: DeliverablePageEvidence; segment: string }> = [];
+    const grounded: Array<{ target: DeliverablePageEvidence; segment: string; hasSourceDetail: boolean }> = [];
     const requiredSegments = bodySegments;
     const currentPage = latestPageEvidence(evidence);
     const currentPageEvidence = currentPage?.pageRevision && currentPage.textDigests?.length ? [currentPage] : [];
+    if (structuredTable && explicitTableFields.length > 0) {
+      const productRows = tableShape.dataSegments.flatMap(segment => {
+        const row = productRowFromTableSegment(segment, explicitTableFields);
+        return row ? [row] : [];
+      });
+      const rowDigests = await Promise.all(productRows.map(row => sha256(productRowEvidenceText(row))));
+      if (new Set(rowDigests).size !== rowDigests.length) reasons.push('table_row_duplicate');
+      if (
+        instructionRequestsCompleteProductTable(instruction) &&
+        (!currentPage || !currentPage.textDigests?.includes(await productRowSetEvidenceDigest(productRows)))
+      ) {
+        reasons.push('page_content_incomplete');
+      }
+    }
     let ungroundedSegment = false;
     for (const segment of requiredSegments) {
       const segmentIdentity = await firstSegmentIdentity(segment);
@@ -553,36 +830,66 @@ export async function checkInstructionDeliverable(
           : []
         : /https?:\/\//i.test(segment)
           ? []
-          : currentPageEvidence;
+          : contract.minimumSourceCount > 1
+            ? evidence.filter(item => item.pageRevision && item.textDigests?.length)
+            : currentPageEvidence;
       if (contract.eachItemNeedsUrl && !segmentIdentity) {
         ungroundedSegment = true;
         reasons.push('item_url_count');
       }
       const quotes = quotedPassages(segment);
       let matched: DeliverablePageEvidence | undefined;
+      let hasSourceDetail = false;
       for (const target of targets) {
         const tableCells = structuredTable ? structuredTableCells(segment) : [];
-        if (
+        const productRow = productRowFromTableSegment(segment, explicitTableFields);
+        if (productRow && (await quoteMatchesEvidence(productRowEvidenceText(productRow), target))) {
+          matched = target;
+          hasSourceDetail = true;
+        } else if (
           tableCells.length > 1 &&
+          !productRow &&
           (await Promise.all(tableCells.map(cell => quoteMatchesEvidence(cell, target)))).every(Boolean)
         ) {
           matched = target;
+          hasSourceDetail = true;
         } else if (
           quotes.length > 0 &&
           (await Promise.all(quotes.map(quote => quoteMatchesEvidence(quote, target)))).every(Boolean)
         ) {
           matched = target;
+          const normalizedLabel = target.label?.replace(/\s+/g, ' ').trim().toLowerCase();
+          hasSourceDetail = quotes.some(quote => quote.replace(/\s+/g, ' ').trim().toLowerCase() !== normalizedLabel);
         }
         if (matched) break;
       }
-      if (matched) grounded.push({ target: matched, segment });
+      if (matched) grounded.push({ target: matched, segment, hasSourceDetail });
       else ungroundedSegment = true;
       if (!structuredTable && hasUnsupportedUnquotedClaim(segment)) reasons.push('page_content_unsupported');
     }
     if (grounded.length < contract.minimumItems || ungroundedSegment) reasons.push('page_content_ungrounded');
+    const substantiveGrounded = grounded.filter(item => item.hasSourceDetail);
+    if (
+      contract.minimumSourceCount > 1 &&
+      new Set(substantiveGrounded.map(item => provenanceIdentityKey(item.target))).size < contract.minimumSourceCount
+    ) {
+      reasons.push('source_content_coverage');
+    }
+    if (
+      requiresMostExpensive &&
+      (ungroundedSegment ||
+        mostExpensiveConclusions.length !== 1 ||
+        !matchesDerivedMostExpensiveConclusion(
+          mostExpensiveConclusions[0] ?? '',
+          grounded.map(item => item.segment),
+          explicitTableFields,
+        ))
+    ) {
+      reasons.push('page_content_unsupported');
+    }
 
     if (contract.requiresSourceOrder && grounded.length >= contract.minimumItems) {
-      const orderedTargets = grounded.slice(0, contract.minimumItems).map(item => item.target);
+      const orderedTargets = substantiveGrounded.slice(0, contract.minimumItems).map(item => item.target);
       const visitOrder = orderedTargets.map(item => item.visitSeq);
       const instructionOrder = await Promise.all(
         orderedTargets.map(item => instructionSourcePosition(instruction, item)),
@@ -609,10 +916,12 @@ export function extractExplicitTableFields(instruction: string): string[] {
   const english = /\bwith\s+([a-z][a-z0-9 _-]*(?:\s*,\s*[a-z][a-z0-9 _-]*)+(?:\s*,?\s+and\s+[a-z][a-z0-9 _-]*)?)/i.exec(
     text,
   )?.[1];
+  const beforeCsv = /\b([a-z][a-z0-9_-]*(?:\s*[,，]\s*[a-z][a-z0-9_-]*)+)\s+csv\b/i.exec(text)?.[1];
   const chinese =
-    /(?:字段|列)(?:为|是|包含|包括)?\s*[:：]?\s*([A-Za-z\u4e00-\u9fff][^。；;]{1,100})/.exec(text)?.[1] ??
-    /[（(]([A-Za-z\u4e00-\u9fff][^）)]{1,100})[）)]/.exec(text)?.[1];
-  for (const group of [english, chinese]) {
+    /(?:字段|(?:表格|数据表)\s*列)(?:为|是|包含|包括)?\s*[:：]?\s*([A-Za-z\u4e00-\u9fff][^。；;]{1,100})/.exec(
+      text,
+    )?.[1] ?? /[（(]([A-Za-z\u4e00-\u9fff][^）)]{1,100})[）)]/.exec(text)?.[1];
+  for (const group of [english, beforeCsv, chinese]) {
     if (!group) continue;
     candidates.push(
       ...group
@@ -1314,6 +1623,13 @@ export class TaskManager {
     });
     this.dispatchers.set(taskId, dispatcher);
     return {
+      getMissionPlan: async roundId => {
+        const task = await getTask(taskId);
+        if (!task || task.status !== 'running' || task.currentRoundId !== roundId) {
+          throw new StaleTaskRoundError();
+        }
+        return this.executorMissionPlan(task);
+      },
       onPlan: async (roundId, criteria) => {
         let task = await getTask(taskId);
         if (!task || task.status !== 'running' || task.currentRoundId !== roundId) {
@@ -1453,8 +1769,9 @@ export class TaskManager {
         instructionForRound,
         this.visitedPageEvidence(task),
       ));
+    const orderedSourceProof = await checkOrderedSourceVisitProof(instructionForRound, this.visitedPageEvidence(task));
 
-    if (!canComplete || deliverableBlocks) {
+    if (!canComplete || deliverableBlocks || !orderedSourceProof) {
       // Partial evidence still advances mission phases before full task complete.
       const passedIds = checked.evidence.filter(item => item.passed).map(item => item.criterionId);
       if (task.plan && passedIds.length > 0) {
@@ -1673,7 +1990,21 @@ export class TaskManager {
       const page = await browserContext.getCurrentPage();
       const observation = await page.observeActionTarget('read_page_text', {}, 'after');
       if (observation.target.kind !== 'page') return;
-      await this.persistTarget(taskId, roundId, observation.target);
+      let target = observation.target;
+      if (parseProductTableInstruction(this.instructions.get(taskId) ?? '')) {
+        try {
+          const rows = extractProductsFromHtml(await page.getContent());
+          const rowDigests = await Promise.all(rows.map(row => sha256(productRowEvidenceText(row))));
+          const rowSetDigest = await productRowSetEvidenceDigest(rows);
+          target = {
+            ...target,
+            textDigests: [...new Set([...(target.textDigests ?? []), ...rowDigests, rowSetDigest])],
+          };
+        } catch {
+          // Cell-only evidence cannot prove row relationships; delivery will fail closed.
+        }
+      }
+      await this.persistTarget(taskId, roundId, target);
     } catch {
       await this.persistPageCaptureFailure(taskId, roundId);
     }
@@ -2324,6 +2655,10 @@ export class TaskManager {
             })
           : null;
       const artifactsVerified = artifactGate?.complete ?? true;
+      const orderedSourceProof = await checkOrderedSourceVisitProof(
+        instructionForRound,
+        this.visitedPageEvidence(task),
+      );
       let retry = false;
       let handoffRoundId: string | undefined;
       await this.queueTransition(async () => {
@@ -2343,6 +2678,7 @@ export class TaskManager {
             hasRequiredCriteria: currentRound.criteria.some(criterion => criterion.required),
           }) &&
           deliverableOk &&
+          orderedSourceProof &&
           artifactsVerified
         ) {
           if (outcomeAnswer.length > 0) {
@@ -2444,8 +2780,7 @@ export class TaskManager {
     const text = instruction.replace(/\s+/g, ' ').trim();
     const criteria: ArtifactCriterion[] = [{ kind: 'artifact_exists' }];
     const wantsTable =
-      /\b(csv|table)\b/i.test(text) ||
-      /表格|清单/.test(text) ||
+      instructionAffirmsTarget(analyzeInstructionLanguage(instruction), 'structured_table') ||
       artifacts.some(a => a.type === 'table' || a.type === 'recordset');
     if (wantsTable) {
       const explicitFields = extractExplicitTableFields(text);
@@ -2455,13 +2790,12 @@ export class TaskManager {
           expected: explicitFields,
         });
       }
-      const minRows = /\b(\d+)\b/.exec(text)?.[1];
-      const expectedRows = minRows ? Number(minRows) : 1;
+      const expectedRows = instructionAffirmedTargetValue(analyzeInstructionLanguage(instruction), 'product_row_count');
       // For extract tasks require at least 1 row; if user said N, require N.
       criteria.push({
         kind: 'artifact_row_count',
         operator: '>=',
-        expected: Number.isFinite(expectedRows) && expectedRows > 0 ? expectedRows : 1,
+        expected: typeof expectedRows === 'number' ? expectedRows : 1,
       });
       criteria.push({ kind: 'artifact_source_count', operator: '>=', expected: 1 });
     }
@@ -2513,7 +2847,20 @@ export class TaskManager {
 
   /** User expects content returned in chat (comment, copy, summary), not only page side-effects. */
   private instructionRequestsUserDeliverable(instruction: string): boolean {
-    return deriveInstructionDeliverableContract(instruction).required;
+    return instructionRequestsReturnedDeliverable(instruction);
+  }
+
+  private executorMissionPlan(task: TaskSession): ExecutorMissionPlan | undefined {
+    if (!task.plan) return undefined;
+    return {
+      id: task.plan.id,
+      goal: task.plan.goal,
+      phases: task.plan.phases.map(phase => ({
+        id: phase.id,
+        title: phase.title,
+        status: phase.status,
+      })),
+    };
   }
 
   private instructionRequestsReadOnlyPageDeliverable(instruction: string): boolean {
@@ -2659,30 +3006,43 @@ export class TaskManager {
       const task = await getTask(taskId);
       if (!task || task.status !== 'running' || task.currentRoundId !== expectedRoundId) return;
       const round = this.currentRound(task);
-      if (round.criteria.length > 0 || drafts.length === 0) return;
+      if (drafts.length === 0) return;
+      const key = this.roundKey(task.id, round.id);
+      const existingTemplates = this.criterionTemplates.get(key) ?? [];
+      const isFirstFreeze = round.criteria.length === 0;
+      const existingKinds = new Set(round.criteria.map(criterion => criterion.kind));
+      const seenDrafts = new Set(
+        existingTemplates.map(template => this.criterionDraftKey(this.skillTemplateDraft(template))),
+      );
+      const additions = drafts
+        .filter(draft => {
+          if (!isFirstFreeze && existingKinds.has(draft.kind)) return false;
+          const identity = this.criterionDraftKey(draft);
+          return !seenDrafts.has(identity);
+        })
+        .slice(0, Math.max(0, 8 - round.criteria.length));
+      if (additions.length === 0) return;
       const frozenAt = this.deps.now();
       const tabTargetRefId = `tab-${task.activeTabId}`;
       const latestMediaTarget = [...task.targetRefs].reverse().find(target => target.kind === 'media');
       const userFieldValues = this.extractUserFieldValues(this.instructions.get(taskId) ?? '');
-      const copiedFieldCriterion = drafts.some(
+      const copiedFieldCriterion = additions.some(
         draft => draft.kind === 'page_text' && userFieldValues.has(draft.expected.replace(/\s+/g, ' ').trim()),
       );
       const criteria = await Promise.all(
-        drafts
-          .slice(0, 8)
-          .map(draft =>
-            this.freezeCriterion(
-              draft,
-              round.id,
-              draft.kind === 'media_state' && latestMediaTarget
-                ? latestMediaTarget.id
-                : draft.kind === 'download_state'
-                  ? 'download:session'
-                  : tabTargetRefId,
-              frozenAt,
-              userFieldValues,
-            ),
+        additions.map(draft =>
+          this.freezeCriterion(
+            draft,
+            round.id,
+            draft.kind === 'media_state' && latestMediaTarget
+              ? latestMediaTarget.id
+              : draft.kind === 'download_state'
+                ? 'download:session'
+                : tabTargetRefId,
+            frozenAt,
+            userFieldValues,
           ),
+        ),
       );
       // Baseline must probe the task tab. Side-panel / e2e focus would otherwise
       // rewrite targetRefId + activeTabId to the wrong page and break post-commit verify.
@@ -2724,23 +3084,29 @@ export class TaskManager {
         if (Number.isSafeInteger(observedTabId)) task.activeTabId = observedTabId;
       }
       if (task.currentRoundId !== expectedRoundId) return;
-      round.criteria = criteria;
-      // First freeze: bind criterion ids onto the active mission phase (if empty).
+      round.criteria = [...round.criteria, ...criteria];
       if (task.plan) {
-        task.plan = attachCriteriaAcrossMissionPlan(
-          task.plan,
-          criteria.map(item => item.id),
-          this.deps.now(),
-        );
+        const now = this.deps.now();
+        task.plan = isFirstFreeze
+          ? reconcileMissionPlanWithFrozenContract(
+              task.plan,
+              round.criteria,
+              instructionRequestsReturnedDeliverable(instructionForFreeze),
+              now,
+            )
+          : extendReconciledMissionProof(
+              task.plan,
+              criteria.filter(item => item.required).map(item => item.id),
+              now,
+            );
       }
-      const key = this.roundKey(task.id, round.id);
-      const templates = this.templatesFromCriteria(drafts, criteria);
+      const templates = [...existingTemplates, ...this.templatesFromCriteria(additions, criteria)];
       this.criterionTemplates.set(key, templates);
       if (copiedFieldCriterion) this.unsafeSkillCriteriaRounds.add(key);
-      else this.unsafeSkillCriteriaRounds.delete(key);
+      else if (isFirstFreeze) this.unsafeSkillCriteriaRounds.delete(key);
       await putSkillSaveMeta(task.id, round.id, {
         templates: structuredClone(templates),
-        unsafe: copiedFieldCriterion,
+        unsafe: this.unsafeSkillCriteriaRounds.has(key),
       });
       task.revision += 1;
       await this.persist(task);
@@ -2854,6 +3220,20 @@ export class TaskManager {
     return `${taskId}:${roundId}`;
   }
 
+  private criterionDraftKey(draft: CompletionCriterionDraft): string {
+    switch (draft.kind) {
+      case 'url':
+      case 'page_text':
+        return `${draft.kind}:${draft.operator}:${draft.expected.replace(/\s+/g, ' ').trim()}:${draft.required}`;
+      case 'element_state':
+      case 'media_state':
+      case 'tab_state':
+      case 'download_state':
+      case 'user_confirmed':
+        return `${draft.kind}:${draft.operator}:${String(draft.expected)}:${draft.required}`;
+    }
+  }
+
   private async freezeCriterion(
     draft: CompletionCriterionDraft,
     roundId: string,
@@ -2914,18 +3294,12 @@ export class TaskManager {
     const seen = new Set<string>();
     const fieldValues = this.extractUserFieldValues(instruction);
 
-    // Explicit absolute URLs in the goal (long-horizon: "打开 https://en.wikipedia.org/wiki/…").
-    for (const match of instruction.matchAll(/https?:\/\/[^\s"'<>，。；;]+/gi)) {
-      try {
-        const parsed = new URL(match[0].replace(/[)\].,，。]+$/, ''));
-        if (!['http:', 'https:'].includes(parsed.protocol)) continue;
-        const expected = `${parsed.origin}${parsed.pathname === '/' ? '' : parsed.pathname}${parsed.search}`;
-        if (!seen.has(expected)) {
-          seen.add(expected);
-          drafts.push({ kind: 'url', operator: 'starts_with', expected, required: true });
-        }
-      } catch {
-        /* ignore bad URL */
+    // Current-tab URL is instantaneous state. Earlier URLs in an ordered
+    // multi-source delivery are instead proven by persisted page captures.
+    for (const expected of deriveInstructionUrlPlan(instruction).currentPageUrls) {
+      if (!seen.has(expected)) {
+        seen.add(expected);
+        drafts.push({ kind: 'url', operator: 'starts_with', expected, required: true });
       }
     }
     // Wikipedia article path without full host: wiki/Artificial_intelligence
@@ -2952,6 +3326,19 @@ export class TaskManager {
         required: true,
       });
     }
+    if (
+      /Artificial\s+intelligence/i.test(instruction) &&
+      /条目|wiki|维基/i.test(instruction) &&
+      !seen.has('Artificial intelligence')
+    ) {
+      seen.add('Artificial intelligence');
+      drafts.push({
+        kind: 'page_text',
+        operator: 'present',
+        expected: 'Artificial intelligence',
+        required: true,
+      });
+    }
 
     let completionUrl = this.extractOpenSiteCompletionUrl(instruction);
     // Already on bilibili/youtube + "open first video" (no "打开 bilibili" in text).
@@ -2964,9 +3351,29 @@ export class TaskManager {
         completionUrl = null;
       }
     }
-    if (completionUrl && !seen.has(completionUrl)) {
+    const completionAlreadyCovered = completionUrl
+      ? drafts.some(
+          draft =>
+            draft.kind === 'url' &&
+            (draft.expected === completionUrl || draft.expected.startsWith(completionUrl.replace(/\/$/, '') + '/')),
+        )
+      : false;
+    if (completionUrl && !completionAlreadyCovered && !seen.has(completionUrl)) {
       seen.add(completionUrl);
       drafts.push({ kind: 'url', operator: 'starts_with', expected: completionUrl, required: true });
+    }
+
+    const pageTextPatterns = [
+      /(?:确认|验证|核对)(?:页面|网页)?(?:的)?(?:正文|内容|文本)(?:中)?(?:出现|包含|含有|含)\s*["'“「]?(.{2,80}?)(?=\s*["'”」]?\s*(?:相关内容)?\s*后(?:再|才)?(?:完成|结束)|[；;。\n]|$)/gi,
+      /\b(?:confirm|verify|check)\s+(?:the\s+)?(?:page|body)(?:\s+(?:text|content))?\s+(?:contains?|includes?|shows?)\s+["'“]?(.{2,80}?)(?=\s*["'”]?\s+(?:before|then)\s+(?:complet\w*|finish\w*)|[.;\n]|$)/gi,
+    ];
+    for (const pattern of pageTextPatterns) {
+      for (const match of instruction.matchAll(pattern)) {
+        const expected = match[1]?.replace(/\s+/g, ' ').trim();
+        if (!expected || expected.length > 160 || seen.has(expected) || fieldValues.has(expected)) continue;
+        seen.add(expected);
+        drafts.push({ kind: 'page_text', operator: 'present', expected, required: true });
+      }
     }
 
     const patterns = [
@@ -3004,7 +3411,7 @@ export class TaskManager {
       }
     }
 
-    return drafts.slice(0, 3);
+    return drafts.slice(0, 8);
   }
 
   private instructionRequestsCloseTab(instruction: string): boolean {
@@ -3129,7 +3536,9 @@ export class TaskManager {
     }
     // Bare host / URL fragment: "open example.com" or "打开 https://example.com/foo"
     try {
-      const asUrl = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
+      const rawAbsoluteUrl = extractInstructionUrlOccurrences(raw)[0]?.value;
+      const asUrl =
+        rawAbsoluteUrl ?? (raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`);
       const parsed = new URL(asUrl);
       if (!['http:', 'https:'].includes(parsed.protocol)) return null;
       if (!parsed.hostname.includes('.')) return null;

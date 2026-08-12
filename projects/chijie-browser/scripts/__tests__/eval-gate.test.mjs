@@ -74,6 +74,14 @@ test('gate fails closed on false complete, wrong tab, or missing provenance', ()
   );
 });
 
+test('an honest fail row remains scoreable evidence instead of invalidating the campaign', () => {
+  assert.deepEqual(validateEvalRows([row({ outcome: 'fail' })]), []);
+  const metrics = evalMetrics([row({ outcome: 'fail' })], 1);
+  assert.equal(metrics.total, 1);
+  assert.equal(metrics.passes, 0);
+  assert.equal(metrics.tsr, 0);
+});
+
 test('matrix validation accepts a non-formal debug arm while the formal gate rejects it', () => {
   const debug = row({
     model: 'grok-4.5',

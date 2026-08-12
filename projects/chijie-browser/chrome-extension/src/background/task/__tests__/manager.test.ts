@@ -1,15 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  checkOrderedSourceVisitProof,
   checkInstructionDeliverable,
   deriveInstructionDeliverableContract,
+  deriveInstructionUrlPlan,
   type DeliverablePageEvidence,
   extractExplicitTableFields,
+  instructionRequestsReturnedDeliverable,
   normalizeProvenanceUrl,
   queryIdentityDigestForUrl,
   redactDeliverableUrlsForPersistence,
   TaskManager,
 } from '../manager';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome, ObserveCriteria } from '../contracts';
+import { StaleTaskRoundError } from '../contracts';
 import { Action } from '../../agent/actions/builder';
 import {
   clickElementActionSchema,
@@ -22,6 +26,7 @@ import { ActionResult } from '../../agent/types';
 import { sha256 } from '../digest';
 import { createTextArtifact } from '../artifact';
 import type { BrowserTargetRef } from '@extension/storage/lib/task';
+import { productRowEvidenceText } from '../../browser/sites/product-table';
 
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
@@ -133,6 +138,16 @@ async function taskRoundId(manager: TaskManager, taskId: string): Promise<string
   return task.currentRoundId;
 }
 
+async function productTableEvidenceDigests(rows: Array<{ name: string; price: string; rating: string }>) {
+  const rowDigests = await Promise.all(rows.map(row => sha256(productRowEvidenceText(row))));
+  const rowSetDigest = await sha256(`product-row-set-v1:${JSON.stringify([...new Set(rowDigests)].sort())}`);
+  return Promise.all([
+    ...rows.flatMap(row => [row.name, row.price, row.rating]).map(sha256),
+    ...rowDigests,
+    rowSetDigest,
+  ]);
+}
+
 describe('instruction deliverable contract', () => {
   const longInstruction =
     '先确认 IANA Example Domains 的标题和 URL，再打开 Wikipedia 的 Web_browser 条目，读取标题和首段定义，最终输出两条中文观察，每条都带 URL。';
@@ -153,6 +168,73 @@ describe('instruction deliverable contract', () => {
     },
   ];
 
+  it('treats only the final URL as current state for an ordered multi-source delivery', () => {
+    expect(
+      deriveInstructionUrlPlan(
+        '先访问 https://www.iana.org/help/example-domains，再打开 https://en.wikipedia.org/wiki/Web_browser，最后输出比较。',
+      ),
+    ).toEqual({
+      sourceUrls: ['https://www.iana.org/help/example-domains', 'https://en.wikipedia.org/wiki/Web_browser'],
+      currentPageUrls: ['https://en.wikipedia.org/wiki/Web_browser'],
+      requiresOrderedSourceProof: true,
+    });
+    expect(
+      deriveInstructionUrlPlan(
+        'Open https://one.test/source first, then https://two.test/result, and finally return a comparison.',
+      ),
+    ).toMatchObject({
+      currentPageUrls: ['https://two.test/result'],
+      requiresOrderedSourceProof: true,
+    });
+    expect(deriveInstructionUrlPlan('打开 https://example.test/report 后完成。')).toMatchObject({
+      currentPageUrls: ['https://example.test/report'],
+      requiresOrderedSourceProof: false,
+    });
+    expect(
+      deriveInstructionUrlPlan('先访问 https://one.test/source，再访问 https://two.test/result，确认最终 URL 后完成。'),
+    ).toMatchObject({
+      currentPageUrls: ['https://two.test/result'],
+      requiresOrderedSourceProof: true,
+    });
+    expect(deriveInstructionUrlPlan('访问 https://one.test/source，随后访问 https://two.test/result。')).toMatchObject({
+      currentPageUrls: ['https://two.test/result'],
+      requiresOrderedSourceProof: true,
+    });
+    expect(
+      deriveInstructionUrlPlan(
+        `先访问 https://one.test/source，${'记录页面可见信息。'.repeat(70)}然后访问 https://two.test/result。`,
+      ),
+    ).toMatchObject({
+      currentPageUrls: ['https://two.test/result'],
+      requiresOrderedSourceProof: true,
+    });
+    expect(deriveInstructionUrlPlan('比较 https://one.test/source 与 https://two.test/result。')).toMatchObject({
+      currentPageUrls: ['https://one.test/source', 'https://two.test/result'],
+      requiresOrderedSourceProof: false,
+    });
+    expect(
+      deriveInstructionUrlPlan('1) 访问 https://one.test/source；2) 访问 https://two.test/result。'),
+    ).toMatchObject({
+      currentPageUrls: ['https://two.test/result'],
+      requiresOrderedSourceProof: true,
+    });
+  });
+
+  it('requires every ordered URL visit in sequence even when no text deliverable was requested', async () => {
+    const instruction = '先访问 https://one.test/source，再访问 https://two.test/result，确认最终 URL 后完成。';
+    const first = { normalizedUrl: 'https://one.test/source', visitSeq: 1 };
+    const second = { normalizedUrl: 'https://two.test/result', visitSeq: 2 };
+
+    await expect(checkOrderedSourceVisitProof(instruction, [second])).resolves.toBe(false);
+    await expect(
+      checkOrderedSourceVisitProof(instruction, [
+        { ...second, visitSeq: 1 },
+        { ...first, visitSeq: 2 },
+      ]),
+    ).resolves.toBe(false);
+    await expect(checkOrderedSourceVisitProof(instruction, [first, second])).resolves.toBe(true);
+  });
+
   it('derives explicit item, URL, language, and body-content requirements', () => {
     expect(deriveInstructionDeliverableContract(longInstruction)).toMatchObject({
       required: true,
@@ -163,6 +245,212 @@ describe('instruction deliverable contract', () => {
       minimumDistinctUrls: 2,
       eachItemNeedsUrl: true,
     });
+  });
+
+  it.each([
+    ['列出三个竞品并给出结论', { minimumItems: 3, requiresConclusion: true }],
+    ['输出一个竞品对比表格并写结论', { requiresStructuredTable: true, requiresConclusion: true }],
+    ['调研两个来源后写结论', { required: true, minimumItems: 2, minimumSourceCount: 2 }],
+    ['合并两个来源做表格', { required: true, requiresStructuredTable: true, minimumSourceCount: 2 }],
+  ])('derives object, source, table, and conclusion output requirements: %s', (instruction, expected) => {
+    expect(deriveInstructionDeliverableContract(instruction)).toMatchObject(expected);
+  });
+
+  it.each([
+    ['不要导出商品CSV表格', { requiresStructuredTable: false }],
+    ['返回页面标题，但不要输出表格', { required: true, requiresStructuredTable: false }],
+    ['返回页面标题，但不要给出结论', { required: true, requiresConclusion: false }],
+    ['不要修改页面并输出表格', { required: true, requiresStructuredTable: true }],
+    ['Do not modify the page and provide a conclusion', { required: true, requiresConclusion: true }],
+  ])('derives output shape only from affirmed helper predicates: %s', (instruction, expected) => {
+    expect(deriveInstructionDeliverableContract(instruction)).toMatchObject(expected);
+  });
+
+  it.each([
+    ['返回上一页', false],
+    ['返回首页', false],
+    ['返回列表', false],
+    ['返回商品页', false],
+    ['Return to the previous page', false],
+    ['Return to the product page', false],
+    ['不要输出表格但请输出表格', true],
+    ['请输出表格但不要输出表格', false],
+  ])('uses the resolved final predicate for returned output: %s', (instruction, expected) => {
+    expect(instructionRequestsReturnedDeliverable(instruction)).toBe(expected);
+  });
+
+  it('uses affirmed product count instead of a negated complete-set phrase', () => {
+    expect(deriveInstructionDeliverableContract('不要全部商品，只前5并CSV')).toMatchObject({
+      required: true,
+      requiresStructuredTable: true,
+      minimumItems: 5,
+    });
+    expect(deriveInstructionDeliverableContract('Do not export all products; export the first 5 as CSV')).toMatchObject(
+      {
+        required: true,
+        requiresStructuredTable: true,
+        minimumItems: 5,
+      },
+    );
+  });
+
+  it('rejects completion boilerplate for a requested three-competitor table and conclusion', async () => {
+    const instruction = '调研三家竞品；输出表格；写出结论。';
+    expect(
+      await checkInstructionDeliverable(instruction, '这是最终结果：相关工作已经全部完成，请查看以上信息。'),
+    ).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['table_structure', 'item_count', 'conclusion_missing']),
+    });
+  });
+
+  it('requires distinct visited sources for source-count deliverables', async () => {
+    const instruction = '合并两个来源做表格';
+    const firstFact = '第一来源的可见事实';
+    const secondFact = '第二来源的可见事实';
+    const answer = ['来源,结果', `来源一,"${firstFact}"`, `来源二,"${secondFact}"`].join('\n');
+    const oneSource = [
+      { normalizedUrl: 'https://a.test/report', pageRevision: 'a1', textDigests: [], visitSeq: 1 },
+      { normalizedUrl: 'https://a.test/report', pageRevision: 'a2', textDigests: [], visitSeq: 2 },
+    ];
+    expect(await checkInstructionDeliverable(instruction, answer, oneSource)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['source_count']),
+    });
+    await expect(
+      checkInstructionDeliverable(instruction, answer, [
+        {
+          normalizedUrl: 'https://a.test/report',
+          pageRevision: 'a1',
+          textDigests: await Promise.all(['来源一', firstFact].map(sha256)),
+          visitSeq: 1,
+        },
+        {
+          normalizedUrl: 'https://b.test/report',
+          pageRevision: 'b1',
+          textDigests: await Promise.all(['来源二', secondFact].map(sha256)),
+          visitSeq: 2,
+        },
+      ]),
+    ).resolves.toEqual({ passed: true, reasons: [] });
+  });
+
+  it('separates returned deliverables from page-state verification for long-horizon tasks', () => {
+    expect(
+      instructionRequestsReturnedDeliverable(
+        '进入英文维基；搜索并打开 Artificial intelligence 条目；确认 URL 在 wiki/Artificial_intelligence 后再完成。',
+      ),
+    ).toBe(false);
+    expect(
+      instructionRequestsReturnedDeliverable(
+        '离开 example.com；打开 https://en.wikipedia.org/wiki/Web_browser；确认页面正文含 web browser 后再完成。',
+      ),
+    ).toBe(false);
+    expect(
+      instructionRequestsReturnedDeliverable(
+        '读取 Wikipedia 标题和首段定义。最终交付包含两个完整 URL，以及“观察一：”和“观察二：”开头的两条中文观察。',
+      ),
+    ).toBe(true);
+    expect(
+      instructionRequestsReturnedDeliverable(
+        '阅读当前产品列表页；提取所有行为 name,price,rating CSV；在回复中写出最贵商品的名称与价格。',
+      ),
+    ).toBe(true);
+    expect(instructionRequestsReturnedDeliverable('用一句话说明当前页标题和网站域名')).toBe(true);
+    expect(instructionRequestsReturnedDeliverable('如果页面给出错误提示就停止')).toBe(false);
+    expect(instructionRequestsReturnedDeliverable('页面返回404时停止')).toBe(false);
+    expect(instructionRequestsReturnedDeliverable('请给出当前页标题')).toBe(true);
+    expect(instructionRequestsReturnedDeliverable('返回结果给我')).toBe(true);
+  });
+
+  it.each([
+    ['不要复制页面内容，只打开 https://example.com 后完成', false],
+    ['Do not answer with page content; just open https://example.com and finish', false],
+    ['请说明当前页面的标题', true],
+    ['State the current page title', true],
+    ['页面返回404', false],
+    ['页面给出错误', false],
+    ['不要猜；请写出结果', true],
+    ['把404内容返回给我', true],
+    ['确认接口返回结果后完成', false],
+    ['接口返回404后完成', false],
+    ['不要猜测而要输出最终结果', true],
+    ['不要总结但要列出两点', true],
+    ['Do not explain but return the final result', true],
+    ['别忘了返回最终结果', true],
+    ["Don't forget to return the final result", true],
+    ['请勿省略最终答案', true],
+    ['请勿省略验证步骤', false],
+    ["Don't forget that the API returns 404", false],
+    ['不要返回最终结果', false],
+    ['Do not return the final result', false],
+    ['不要输出任何内容', false],
+    ['不要不输出最终结果', true],
+    ['不可不返回最终结果', true],
+    ['不得不提供最终结果', true],
+    ['Do not fail to return the final result', true],
+    ['Never fail to provide the final result', true],
+    ['绝不能漏掉最终结果', true],
+    ['不要输出任何内容，等接口返回结果后完成', false],
+    ['等接口返回结果后完成', false],
+    ['待 API 给出结果后完成', false],
+    ['确认服务报告结果后完成', false],
+    ['等系统返回结果后完成', false],
+    ['待页面给出结果后完成', false],
+    ['确认网站报告结果后完成', false],
+    ['Once the page returns the result, finish', false],
+    ['Wait for the API to return the result, then finish', false],
+    ['把接口返回内容告诉我', true],
+    ['把接口返回内容返回给我', true],
+    ['等接口返回内容后，把它告诉我', true],
+  ])('detects clause-aware returned deliverable intent: %s', (instruction, expected) => {
+    expect(instructionRequestsReturnedDeliverable(instruction)).toBe(expected);
+  });
+
+  it.each([
+    ['先访问 https://a.test，再访问 https://b.test', true],
+    ['访问 https://a.test，然后访问 https://b.test', true],
+    ['访问 https://a.test，随后访问 https://b.test', true],
+    ['访问 https://a.test，接下来访问 https://b.test', true],
+    ['访问 https://a.test，之后访问 https://b.test', true],
+    ['先访问 https://a.test，最后访问 https://b.test', true],
+    ['Visit https://a.test; after that visit https://b.test', true],
+    ['Visit https://a.test before https://b.test', true],
+    ['Visit https://a.test; later visit https://b.test', true],
+    ['Visit https://a.test; next visit https://b.test', true],
+    ['无需依次访问 https://a.test 和 https://b.test', false],
+    ['不要按顺序访问 https://a.test 和 https://b.test', false],
+    ['Do not visit https://a.test then https://b.test', false],
+    ['Never open https://a.test before https://b.test', false],
+    ['不要随意打开页面，但按顺序访问 https://a.test 和 https://b.test', true],
+    ['Do not open random pages, but visit https://a.test then https://b.test', true],
+    ['1. Visit https://a.test; 2. Visit https://b.test', true],
+    ['比较 https://a.test 与 https://b.test', false],
+  ])('recognizes explicit URL ordering connectors without inventing order: %s', (instruction, expected) => {
+    expect(deriveInstructionUrlPlan(instruction).requiresOrderedSourceProof).toBe(expected);
+  });
+
+  it('keeps A→B→A as three ordered occurrences and requires the final return to A', async () => {
+    const instruction = '先打开 https://a.test，然后打开 https://b.test，最后回到 https://a.test。';
+    expect(deriveInstructionUrlPlan(instruction)).toEqual({
+      sourceUrls: ['https://a.test', 'https://b.test', 'https://a.test'],
+      currentPageUrls: ['https://a.test'],
+      requiresOrderedSourceProof: true,
+    });
+    await expect(
+      checkOrderedSourceVisitProof(instruction, [
+        { normalizedUrl: 'https://a.test', visitSeq: 1 },
+        { normalizedUrl: 'https://b.test', visitSeq: 2 },
+      ]),
+    ).resolves.toBe(false);
+    await expect(
+      checkOrderedSourceVisitProof(instruction, [
+        { normalizedUrl: 'https://a.test', visitSeq: 1 },
+        { normalizedUrl: 'https://b.test', visitSeq: 2 },
+        { normalizedUrl: 'https://a.test', visitSeq: 3 },
+      ]),
+    ).resolves.toBe(true);
+    expect(deriveInstructionDeliverableContract(instruction).minimumDistinctUrls).toBe(2);
   });
 
   it('checks per-item URLs separately from distinct full-URL provenance', async () => {
@@ -201,6 +489,16 @@ describe('instruction deliverable contract', () => {
       'rating',
     ]);
     expect(extractExplicitTableFields('Extract products to a CSV table')).toEqual([]);
+    expect(
+      extractExplicitTableFields(
+        '这是一个多阶段任务：1) 阅读当前产品列表页；2) 提取所有行为 name,price,rating CSV；3) 根据页面数据在回复中写出最贵商品的名称与价格。',
+      ),
+    ).toEqual(['name', 'price', 'rating']);
+    expect(extractExplicitTableFields('把结果导出为表格，表格列为名称、价格、评分。')).toEqual([
+      '名称',
+      '价格',
+      '评分',
+    ]);
   });
 
   it('rejects final-page status and accepts a complete two-source deliverable', async () => {
@@ -221,6 +519,85 @@ describe('instruction deliverable contract', () => {
         await pageEvidence(),
       ),
     ).toEqual({ passed: true, reasons: [] });
+  });
+
+  it('requires a unique, complete row set and the exact row-derived highest-price conclusion for LH-03', async () => {
+    const instruction =
+      '这是一个多阶段任务：1) 阅读当前产品列表页；2) 提取所有行为 name,price,rating CSV；3) 根据页面数据在回复中写出最贵商品的名称与价格。';
+    const rows = [
+      { name: 'Alpha', price: '¥10', rating: '4.1' },
+      { name: 'Beta', price: '¥25', rating: '4.5' },
+      { name: 'Gamma', price: '¥15', rating: '4.3' },
+    ];
+    const evidence: DeliverablePageEvidence[] = [
+      {
+        normalizedUrl: 'https://shop.test/list',
+        textDigests: await productTableEvidenceDigests(rows),
+        pageRevision: 'products-revision',
+        visitSeq: 1,
+      },
+    ];
+    const table = ['已提取 3 件商品（CSV）：', 'name,price,rating', 'Alpha,¥10,4.1', 'Beta,¥25,4.5', 'Gamma,¥15,4.3'];
+
+    expect(deriveInstructionDeliverableContract(instruction).requiresPageContent).toBe(true);
+
+    expect(
+      await checkInstructionDeliverable(instruction, [...table, '最贵商品是 Beta，价格为 ¥25。'].join('\n'), evidence),
+    ).toEqual({
+      passed: true,
+      reasons: [],
+    });
+
+    const duplicateAndOmit = [
+      '已提取 3 件商品（CSV）：',
+      'name,price,rating',
+      'Alpha,¥10,4.1',
+      'Beta,¥25,4.5',
+      'Beta,¥25,4.5',
+      '最贵商品是 Beta，价格为 ¥25。',
+    ].join('\n');
+    expect(await checkInstructionDeliverable(instruction, duplicateAndOmit, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['table_row_duplicate', 'page_content_incomplete']),
+    });
+
+    const duplicateOnly = [
+      ...table.slice(0, 2),
+      'Alpha,¥10,4.1',
+      'Beta,¥25,4.5',
+      'Beta,¥25,4.5',
+      'Gamma,¥15,4.3',
+      '最贵商品是 Beta，价格为 ¥25。',
+    ].join('\n');
+    expect(await checkInstructionDeliverable(instruction, duplicateOnly, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['table_row_duplicate']),
+    });
+
+    const extraFake = [...table, 'Delta,¥30,5.0', '最贵商品是 Delta，价格为 ¥30。'].join('\n');
+    expect(await checkInstructionDeliverable(instruction, extraFake, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_ungrounded', 'page_content_incomplete']),
+    });
+
+    expect(
+      await checkInstructionDeliverable(instruction, [...table, '最贵商品是 Alpha，价格为 ¥10。'].join('\n'), evidence),
+    ).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_unsupported']),
+    });
+
+    const recombinedRows = [
+      '已提取 2 件商品（CSV）：',
+      'name,price,rating',
+      'Alpha,¥25,4.1',
+      'Beta,¥10,4.5',
+      '最贵商品是 Alpha，价格为 ¥25。',
+    ].join('\n');
+    expect(await checkInstructionDeliverable(instruction, recombinedRows, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_ungrounded']),
+    });
   });
 
   it('rejects title/domain metadata and fabricated body text when page content was requested', async () => {
@@ -338,11 +715,15 @@ describe('instruction deliverable contract', () => {
 
   it('grounds every structured table cell and rejects one fabricated value', async () => {
     const instruction = 'Extract products to a CSV table with name, price, rating';
-    const visibleCells = ['Alpha Wireless Headphones', '$49.99', '4.5', 'Beta Mechanical Keyboard', '$89.00', '4.8'];
+    const rows = [
+      { name: 'Alpha Wireless Headphones', price: '$49.99', rating: '4.5' },
+      { name: 'Beta Mechanical Keyboard', price: '$89.00', rating: '4.8' },
+    ];
+    const visibleCells = rows.flatMap(row => [row.name, row.price, row.rating]);
     const evidence: DeliverablePageEvidence[] = [
       {
         normalizedUrl: 'https://example.test/products',
-        textDigests: await Promise.all(visibleCells.map(value => sha256(value))),
+        textDigests: await Promise.all([...visibleCells, ...rows.map(productRowEvidenceText)].map(sha256)),
         pageRevision: 'products-revision',
         visitSeq: 1,
       },
@@ -359,6 +740,15 @@ describe('instruction deliverable contract', () => {
     expect(await checkInstructionDeliverable(instruction, fabricated, evidence)).toMatchObject({
       passed: false,
       reasons: expect.arrayContaining(['page_content_ungrounded']),
+    });
+
+    const missingHeader = valid
+      .split('\n')
+      .filter(line => line !== 'name,price,rating')
+      .join('\n');
+    expect(await checkInstructionDeliverable(instruction, missingHeader, evidence)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_unsupported']),
     });
   });
 
@@ -426,6 +816,87 @@ describe('instruction deliverable contract', () => {
     ).toMatchObject({
       passed: false,
       reasons: expect.arrayContaining(['source_order_unverified']),
+    });
+  });
+
+  it('enforces the exact two-site delivery labels, source coverage, and visit order', async () => {
+    const instruction =
+      '这是一个双来源交付任务，请在当前任务绑定标签页中依次完成：1) 点击 More information 访问 IANA Example Domains；2) 记录 IANA 页面标题和完整 URL；3) 再打开 https://en.wikipedia.org/wiki/Web_browser；4) 读取 Wikipedia 标题和首段定义的第一句。最终交付必须只在完成两站后输出，包含两个完整 URL、IANA 标题 Example Domains、Wikipedia 标题 Web browser、Wikipedia 首段第一句英文原文，以及“观察一：”和“观察二：”开头的两条中文观察。任一项缺失都不得完成。';
+    const ianaDetail = '这些域名供文档中的示例使用';
+    const wikiDetail = 'A web browser is an application for accessing websites.';
+    const evidenceFor = async (reversed = false) => {
+      const values: DeliverablePageEvidence[] = [
+        {
+          normalizedUrl: 'https://www.iana.org/help/example-domains',
+          textDigests: await Promise.all(['Example Domains', ianaDetail].map(sha256)),
+          pageRevision: 'iana-lh04',
+          label: 'Example Domains',
+          visitSeq: reversed ? 2 : 1,
+        },
+        {
+          normalizedUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+          textDigests: await Promise.all(['Web browser', wikiDetail].map(sha256)),
+          pageRevision: 'wiki-lh04',
+          label: 'Web browser',
+          visitSeq: reversed ? 1 : 2,
+        },
+      ];
+      return values;
+    };
+    const valid = [
+      `观察一：IANA 页面写道“Example Domains”、“${ianaDetail}”：https://www.iana.org/help/example-domains`,
+      `观察二：Wikipedia 页面写道“Web browser”、“${wikiDetail}”：https://en.wikipedia.org/wiki/Web_browser`,
+    ].join('\n');
+    expect(await checkInstructionDeliverable(instruction, valid, await evidenceFor())).toEqual({
+      passed: true,
+      reasons: [],
+    });
+    expect(await checkInstructionDeliverable(instruction, valid, await evidenceFor(true))).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['source_order_unverified']),
+    });
+    const completeEvidence = await evidenceFor();
+    expect(await checkInstructionDeliverable(instruction, valid, completeEvidence.slice(1))).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['source_count', 'url_not_visited', 'source_content_coverage']),
+    });
+    expect(
+      await checkInstructionDeliverable(instruction, valid, [
+        completeEvidence[1],
+        { ...completeEvidence[1], pageRevision: 'wiki-lh04-repeat', visitSeq: 3 },
+      ]),
+    ).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['source_count', 'url_not_visited', 'source_content_coverage']),
+    });
+    expect(
+      await checkInstructionDeliverable(
+        instruction,
+        valid,
+        completeEvidence.map(item => ({
+          normalizedUrl: item.normalizedUrl,
+          visitSeq: item.visitSeq,
+          label: item.label,
+        })),
+      ),
+    ).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['page_content_ungrounded', 'source_content_coverage']),
+    });
+    expect(
+      await checkInstructionDeliverable(instruction, valid.replace(/观察一：|观察二：/g, ''), await evidenceFor()),
+    ).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['item_label']),
+    });
+    const bothFromWiki = [
+      '观察一：IANA 标题“Example Domains”：https://www.iana.org/help/example-domains',
+      `观察二：Wikipedia 写道“${wikiDetail}”：https://en.wikipedia.org/wiki/Web_browser`,
+      `观察三：Wikipedia 仍写道“${wikiDetail}”：https://en.wikipedia.org/wiki/Web_browser`,
+    ].join('\n');
+    expect(await checkInstructionDeliverable(instruction, bothFromWiki, await evidenceFor())).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['source_content_coverage']),
     });
   });
 
@@ -959,7 +1430,7 @@ describe('TaskManager lifecycle', () => {
     expect(JSON.stringify(after?.plan)).not.toContain('竞品');
   });
 
-  it('attaches freeze criteria to the active mission phase', async () => {
+  it('reconciles first frozen criteria into one proof phase and a requested output phase', async () => {
     let hooks!: ExecutorHooks;
     const manager = new TaskManager({
       createExecutor: async (_input, nextHooks) => {
@@ -995,11 +1466,281 @@ describe('TaskManager lifecycle', () => {
     const snap = await manager.snapshot('task-plan-attach');
     const criterionId = snap?.rounds[0]?.criteria[0]?.id;
     expect(criterionId).toBeTruthy();
-    expect(snap?.plan?.phases[0]).toMatchObject({
-      status: 'active',
-      criteriaIds: [criterionId],
+    expect(snap?.plan?.phases).toEqual([
+      expect.objectContaining({ title: '验证', status: 'active', criteriaIds: [criterionId] }),
+      expect.objectContaining({ title: '输出', status: 'planned', criteriaIds: [] }),
+    ]);
+  });
+
+  it.each([
+    [
+      '先再',
+      '先访问 https://www.iana.org/help/example-domains，再打开 https://en.wikipedia.org/wiki/Web_browser，最后输出比较。',
+    ],
+    [
+      '随后',
+      '访问 https://www.iana.org/help/example-domains，随后打开 https://en.wikipedia.org/wiki/Web_browser，最后输出比较。',
+    ],
+  ])('freezes only the final URL for an ordered two-source delivery: %s', async (caseName, instruction) => {
+    const taskId = `task-two-source-url-plan-${caseName}`;
+    const manager = new TaskManager({
+      createExecutor: async () => fakeDriver(),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: false,
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
     });
-    expect(snap?.plan?.phases[1]?.criteriaIds).toEqual([]);
+    await manager.dispatch({
+      type: 'start',
+      commandId: `start-${taskId}`,
+      taskId,
+      instruction,
+      chatSessionId: 'chat-two-source-url-plan',
+      instructionMessageId: 'message-two-source-url-plan',
+      tabId: 7,
+    });
+
+    await vi.waitFor(async () => expect((await manager.snapshot(taskId))?.rounds[0]?.criteria.length).toBe(1));
+    const snapshot = await manager.snapshot(taskId);
+    expect(snapshot?.rounds[0]?.criteria).toEqual([
+      expect.objectContaining({
+        kind: 'url',
+        expected: 'https://en.wikipedia.org/wiki/Web_browser',
+        targetRefId: 'tab-7',
+      }),
+    ]);
+    expect(snapshot?.plan?.phases.map(phase => phase.title)).toEqual(['验证', '输出']);
+  });
+
+  it('completes an ordered two-URL page-state task only after persisted visit-order proof', async () => {
+    const instruction = '先访问 https://one.test/source，再访问 https://two.test/result，确认最终 URL 后完成。';
+    let finish!: (outcome: ExecutorOutcome) => void;
+    let observeCall = 0;
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    const manager = new TaskManager({
+      createExecutor: async () => driver,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) => {
+        observeCall += 1;
+        return criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: observeCall === 1 ? 'https://one.test/source' : 'https://two.test/result',
+        }));
+      }),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-ordered-page-state',
+      taskId: 'task-ordered-page-state',
+      instruction,
+      chatSessionId: 'chat-ordered-page-state',
+      instructionMessageId: 'message-ordered-page-state',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledOnce());
+    const persisted = structuredClone(store.sessions.get('task-ordered-page-state')) as
+      | { targetRefs: BrowserTargetRef[] }
+      | undefined;
+    if (!persisted) throw new Error('missing persisted task');
+    persisted.targetRefs = [
+      {
+        id: 'page-one',
+        kind: 'page',
+        tabId: 7,
+        frameId: 0,
+        urlOrigin: 'https://one.test',
+        normalizedUrl: 'https://one.test/source',
+        digest: 'one-digest',
+        visitSeq: 1,
+      },
+      {
+        id: 'page-two',
+        kind: 'page',
+        tabId: 7,
+        frameId: 0,
+        urlOrigin: 'https://two.test',
+        normalizedUrl: 'https://two.test/result',
+        digest: 'two-digest',
+        visitSeq: 2,
+      },
+    ];
+    store.sessions.set('task-ordered-page-state', persisted);
+    finish({ kind: 'candidate_complete', summary: 'done' });
+
+    await vi.waitFor(async () =>
+      expect(await manager.snapshot('task-ordered-page-state')).toMatchObject({
+        status: 'completed',
+        rounds: [{ receipt: { taskId: 'task-ordered-page-state' } }],
+      }),
+    );
+  });
+
+  it('freezes LH-02 URL and page text into one proof phase without a chat output phase', async () => {
+    let hooks!: ExecutorHooks;
+    const instruction =
+      '离开 example.com；打开 https://en.wikipedia.org/wiki/Web_browser；确认页面正文含 web browser 后再完成。';
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: false,
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-lh02-plan',
+      taskId: 'task-lh02-plan',
+      instruction,
+      chatSessionId: 'chat-lh02-plan',
+      instructionMessageId: 'message-lh02-plan',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const snapshot = await manager.snapshot('task-lh02-plan');
+    const kinds = snapshot?.rounds[0]?.criteria.map(criterion => criterion.kind);
+    expect(kinds).toEqual(['url', 'page_text']);
+    expect(snapshot?.plan?.phases).toEqual([
+      expect.objectContaining({
+        title: '验证',
+        status: 'active',
+        criteriaIds: snapshot?.rounds[0]?.criteria.map(criterion => criterion.id),
+      }),
+    ]);
+
+    const roundId = snapshot?.currentRoundId;
+    expect(roundId).toBeTruthy();
+    await expect(hooks.getMissionPlan?.(roundId!)).resolves.toEqual({
+      id: snapshot?.plan?.id,
+      goal: snapshot?.plan?.goal,
+      phases: [{ id: snapshot?.plan?.phases[0]?.id, title: '验证', status: 'active' }],
+    });
+    await expect(hooks.getMissionPlan?.('stale-round')).rejects.toBeInstanceOf(StaleTaskRoundError);
+
+    await hooks.onPlan(roundId!, [{ kind: 'page_text', operator: 'present', expected: 'web browser', required: true }]);
+    expect((await manager.snapshot('task-lh02-plan'))?.rounds[0]?.criteria).toHaveLength(2);
+  });
+
+  it('safely adds a model page-text criterion after an implicit URL freeze', async () => {
+    let hooks!: ExecutorHooks;
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: false,
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-url-then-text',
+      taskId: 'task-url-then-text',
+      instruction: '打开 https://example.test/report 后完成。',
+      chatSessionId: 'chat-url-then-text',
+      instructionMessageId: 'message-url-then-text',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-url-then-text');
+    await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: 'Report title', required: true }]);
+    const snapshot = await manager.snapshot('task-url-then-text');
+    expect(snapshot?.rounds[0]?.criteria.map(criterion => criterion.kind)).toEqual(['url', 'page_text']);
+    expect(snapshot?.plan?.phases).toEqual([
+      expect.objectContaining({
+        title: '验证',
+        criteriaIds: snapshot?.rounds[0]?.criteria.map(criterion => criterion.id),
+      }),
+    ]);
+  });
+
+  it.each([
+    [
+      'LH-01',
+      '进入英文维基；搜索并打开 Artificial intelligence 条目；确认 URL 在 wiki/Artificial_intelligence 后再完成。',
+      ['验证'],
+      ['url', 'page_text'],
+    ],
+    [
+      'LH-04',
+      '这是一个双来源交付任务：先访问 IANA Example Domains，再打开 https://en.wikipedia.org/wiki/Web_browser。最终交付包含两个完整 URL、两条中文观察、IANA 标题、Wikipedia 标题与首段定义。',
+      ['验证', '输出'],
+      ['url'],
+    ],
+  ])('aligns %s initial proof and returned-deliverable plan shape', async (label, instruction, titles, kinds) => {
+    const taskId = `task-${label.toLowerCase()}`;
+    const manager = new TaskManager({
+      createExecutor: async () => fakeDriver(),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: false,
+        })),
+      ),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: `start-${label.toLowerCase()}`,
+      taskId,
+      instruction,
+      chatSessionId: `chat-${label.toLowerCase()}`,
+      instructionMessageId: `message-${label.toLowerCase()}`,
+      tabId: 7,
+    });
+    await vi.waitFor(async () =>
+      expect((await manager.snapshot(taskId))?.rounds[0]?.criteria.length).toBeGreaterThan(0),
+    );
+    const snapshot = await manager.snapshot(taskId);
+    expect(snapshot?.rounds[0]?.criteria.map(criterion => criterion.kind)).toEqual(kinds);
+    expect(snapshot?.plan?.phases.map(phase => phase.title)).toEqual(titles);
+    expect(snapshot?.plan?.phases[0]?.criteriaIds).toEqual(
+      snapshot?.rounds[0]?.criteria.filter(criterion => criterion.required).map(criterion => criterion.id),
+    );
+    expect(snapshot?.rounds[0]?.receipt).toBeUndefined();
   });
 
   it('does not advance multi-phase plan from successful action counts without criteria evidence', async () => {
@@ -1042,7 +1783,7 @@ describe('TaskManager lifecycle', () => {
     expect(snap?.plan?.phases.map(p => p.status)).toEqual(['active', 'planned', 'planned']);
   });
 
-  it('does not spread one criterion across remaining mission phases', async () => {
+  it('does not let a forged output close a progressed proof phase', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     let hooks!: ExecutorHooks;
     const driver = fakeDriver();
@@ -1087,7 +1828,7 @@ describe('TaskManager lifecycle', () => {
       mid.plan.phases[0] = {
         ...mid.plan.phases[0]!,
         status: 'done',
-        evidenceIds: [...(mid.plan.phases[0]?.evidenceIds ?? []), 'seed'],
+        evidenceIds: [...(mid.plan.phases[0]?.criteriaIds ?? [])],
       };
       mid.plan.phases[1] = { ...mid.plan.phases[1]!, status: 'active' };
       if (mid.plan.phases[0]?.status === 'done' && mid.plan.phases[1]?.status === 'active') {
@@ -1096,19 +1837,21 @@ describe('TaskManager lifecycle', () => {
     }
 
     pageTextPresent = true;
-    finish({ kind: 'candidate_complete', summary: 'all done' });
+    finish({ kind: 'candidate_complete', summary: 'done' });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(2));
+    finish({ kind: 'candidate_complete', summary: 'done' });
 
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-plan-done')).toMatchObject({
         status: 'failed',
-        rounds: [{ failureCategory: 'mission_plan_unverified' }],
+        rounds: [{ failureCategory: 'no_action' }],
       });
     });
     const done = await manager.snapshot('task-plan-done');
     expect(done?.plan?.phases.map(p => p.status)).not.toEqual(['done', 'done', 'done']);
     expect(done?.rounds[0]?.receipt).toBeUndefined();
-    // Intermediate evidence preserved on the already-done phase.
-    expect(done?.plan?.phases[0]?.evidenceIds).toContain('seed');
+    // Intermediate evidence preserved on the already-done proof phase.
+    expect(done?.plan?.phases[0]?.evidenceIds).toEqual(done?.plan?.phases[0]?.criteriaIds);
   });
 
   it('rejects a second concurrent task', async () => {

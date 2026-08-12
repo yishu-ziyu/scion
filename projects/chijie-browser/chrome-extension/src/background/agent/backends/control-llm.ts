@@ -23,7 +23,13 @@ import { AgentContext, AgentStepInfo, DEFAULT_AGENT_OPTIONS } from '../types';
 import MessageManager from '../messages/service';
 import { EventManager } from '../event/manager';
 import { extractJsonFromModelOutput, wrapUntrustedContent } from '../messages/utils';
-import type { ExecutorDriver, ExecutorHooks, ExecutorInput, ExecutorOutcome } from '../../task/contracts';
+import type {
+  ExecutorDriver,
+  ExecutorHooks,
+  ExecutorInput,
+  ExecutorMissionPlan,
+  ExecutorOutcome,
+} from '../../task/contracts';
 import {
   buildAgentStatusBar,
   observationSupportsWaitingUser,
@@ -71,6 +77,32 @@ const logger = createLogger('ControlLlmBackend');
 /** Default no-progress budget for control path (contracts 010/011). */
 export const CONTROL_MAX_NO_PROGRESS = 3;
 
+export interface CurrentMissionContext {
+  planMemory: string;
+  activePhaseId?: string;
+}
+
+function missionContextFromPlan(plan: ExecutorMissionPlan | undefined): CurrentMissionContext {
+  return {
+    planMemory: buildPlanMemory(plan),
+    activePhaseId: plan?.phases.find(phase => phase.status === 'active')?.id,
+  };
+}
+
+/** Resolve plan state at decision time so a long run never repeats a phase that already advanced. */
+export async function readCurrentMissionContext(
+  hooks: Pick<ExecutorHooks, 'getMissionPlan'>,
+  roundId: string,
+  initialPlan?: ExecutorMissionPlan,
+): Promise<CurrentMissionContext> {
+  if (!hooks.getMissionPlan) return missionContextFromPlan(initialPlan);
+  try {
+    return missionContextFromPlan(await hooks.getMissionPlan(roundId));
+  } catch {
+    return missionContextFromPlan(undefined);
+  }
+}
+
 const SEMANTIC_PROGRESS_ACTIONS = new Set([
   'cache_content',
   'record_evidence',
@@ -114,10 +146,7 @@ export function researchDecisionFailureFeedback(error: string): string {
   return 'record_research_decision failed before acceptance. Use exactly 3 capabilities with the exact documented keys, top-level deferred and contradictions, and only IDs from decision_evidence_shortlist. Do not inspect, browse, wait, or finish; retry the action now.';
 }
 
-export function researchGateGuidance(input: {
-  decisionReady: boolean;
-  deliveryReady: boolean;
-}): string[] {
+export function researchGateGuidance(input: { decisionReady: boolean; deliveryReady: boolean }): string[] {
   if (!input.decisionReady) {
     return [
       'The collection gates are complete. Stop browsing and do not record the current page.',
@@ -162,7 +191,14 @@ export function inferResearchDeliveryReadbackAction(input: {
   } catch {
     return null;
   }
-  if (!(host === 'feishu.cn' || host.endsWith('.feishu.cn') || host === 'larksuite.com' || host.endsWith('.larksuite.com'))) {
+  if (
+    !(
+      host === 'feishu.cn' ||
+      host.endsWith('.feishu.cn') ||
+      host === 'larksuite.com' ||
+      host.endsWith('.larksuite.com')
+    )
+  ) {
     return null;
   }
   if (!input.tableRecorded && RESEARCH_TABLE_READBACK_FIELDS.every(field => input.visibleText.includes(field))) {
@@ -224,10 +260,7 @@ export function shouldRetryUnrecordedResearchSource(input: {
   );
 }
 
-export function shouldRedirectSearchResultEvidenceAttempt(input: {
-  pageUrl: string;
-  actionName?: string;
-}): boolean {
+export function shouldRedirectSearchResultEvidenceAttempt(input: { pageUrl: string; actionName?: string }): boolean {
   return input.actionName === 'record_evidence' && isSearchResultsEvidenceSource(input.pageUrl);
 }
 
@@ -416,8 +449,6 @@ export async function createLlmControlDriver(
   let previousFrame: ObservationFrame | null = null;
   let lastRenderedMode: 'full' | 'diff' = 'full';
   const trajectorySteps: TrajectoryStep[] = [];
-  const planMemory = buildPlanMemory(input.plan);
-  const activePhaseId = input.plan?.phases.find(phase => phase.status === 'active')?.id;
   const skillState = new Map<string, unknown>();
   const artifacts: TaskArtifact[] = [];
   const researchQuotas = extractResearchQuotas(input.instruction);
@@ -542,6 +573,8 @@ export async function createLlmControlDriver(
           agentContext.nSteps = step;
           agentContext.stepInfo = new AgentStepInfo({ stepNumber: step, maxSteps });
 
+          const { planMemory, activePhaseId } = await readCurrentMissionContext(hooks, roundId, input.plan);
+
           const pageUrl = currentFrame?.tab.url ?? '';
           let researchStatus = '';
           let researchDecisionEvidenceShortlist = '';
@@ -562,7 +595,9 @@ export async function createLlmControlDriver(
             researchDeliveryComplete = researchDeliveryReady(evidenceSpace);
             researchTableRecorded = Boolean(evidenceSpace?.researchDelivery?.research_table);
             researchDocumentRecorded = Boolean(evidenceSpace?.researchDelivery?.decision_document);
-            researchDecisionTitles = (evidenceSpace?.researchDecision?.capabilities ?? []).map(capability => capability.title);
+            researchDecisionTitles = (evidenceSpace?.researchDecision?.capabilities ?? []).map(
+              capability => capability.title,
+            );
             if (
               researchCollectionComplete &&
               requiresStructuredResearchDecision(instruction) &&
@@ -726,7 +761,10 @@ export async function createLlmControlDriver(
                       /* still complete */
                     }
                   }
-                  logger.info('skill done', { skill: skillTry.record?.skillId, summary: decision.summary.slice(0, 120) });
+                  logger.info('skill done', {
+                    skill: skillTry.record?.skillId,
+                    summary: decision.summary.slice(0, 120),
+                  });
                   return { kind: 'done', summary: decision.summary };
                 }
                 if (decision.kind === 'action') {
@@ -814,10 +852,7 @@ export async function createLlmControlDriver(
           try {
             const response = await invokeWithTimeout(
               signal =>
-                llm.invoke(
-                  [new SystemMessage(renderControlSystemPrompt()), new HumanMessage(userPrompt)],
-                  { signal },
-                ),
+                llm.invoke([new SystemMessage(renderControlSystemPrompt()), new HumanMessage(userPrompt)], { signal }),
               CONTROL_LLM_TIMEOUT_MS,
               agentContext.controller.signal,
             );
@@ -847,7 +882,8 @@ export async function createLlmControlDriver(
                   bodyText: currentFrame?.text ?? '',
                 }),
                 textLength: currentFrame?.text.length ?? 0,
-              }) && evidenceRetryBudget.consume(pageUrl)
+              }) &&
+              evidenceRetryBudget.consume(pageUrl)
             ) {
               return { kind: 'recoverable', category: 'evidence_required' };
             }
@@ -858,7 +894,8 @@ export async function createLlmControlDriver(
                   kind: 'action',
                   name: 'search_google',
                   args: { query, intent: 'recover malformed model output and continue research quotas' },
-                  observation: 'The model output was malformed while durable research quotas remain; continuing discovery.',
+                  observation:
+                    'The model output was malformed while durable research quotas remain; continuing discovery.',
                 };
               }
             }
@@ -900,9 +937,7 @@ export async function createLlmControlDriver(
             bodyText: currentFrame?.text ?? '',
           });
           const continuationQuery =
-            researchQuotas && researchProgress
-              ? researchContinuationQuery(researchQuotas, researchProgress)
-              : null;
+            researchQuotas && researchProgress ? researchContinuationQuery(researchQuotas, researchProgress) : null;
           const currentNeedsEvidence = shouldRetryUnrecordedResearchSource({
             hasResearchQuotas: Boolean(researchQuotas),
             collectionComplete: researchCollectionComplete,
@@ -953,15 +988,16 @@ export async function createLlmControlDriver(
           }
 
           if (decision.done && continuationQuery) {
-              if (currentNeedsEvidence && evidenceRetryBudget.consume(pageUrl)) {
-                return { kind: 'recoverable', category: 'evidence_required' };
-              }
-              return {
-                kind: 'action',
-                name: 'search_google',
-                args: { query: continuationQuery, intent: 'continue the unmet durable research quotas' },
-                observation: 'The model tried to finish before the durable research quotas were met; continuing research.',
-              };
+            if (currentNeedsEvidence && evidenceRetryBudget.consume(pageUrl)) {
+              return { kind: 'recoverable', category: 'evidence_required' };
+            }
+            return {
+              kind: 'action',
+              name: 'search_google',
+              args: { query: continuationQuery, intent: 'continue the unmet durable research quotas' },
+              observation:
+                'The model tried to finish before the durable research quotas were met; continuing research.',
+            };
           }
 
           if (decision.done) {
@@ -980,7 +1016,8 @@ export async function createLlmControlDriver(
                 kind: 'action',
                 name: 'search_google',
                 args: { query: continuationQuery, intent: 'recover a missing research action and continue quotas' },
-                observation: 'No usable research action was proposed while durable quotas remain; continuing discovery.',
+                observation:
+                  'No usable research action was proposed while durable quotas remain; continuing discovery.',
               };
             }
             return { kind: 'recoverable', category: 'no_action' };
@@ -1059,9 +1096,7 @@ export async function createLlmControlDriver(
                 })();
 
             const decisionFailureFeedback =
-              result.error && name === 'record_research_decision'
-                ? researchDecisionFailureFeedback(result.error)
-                : '';
+              result.error && name === 'record_research_decision' ? researchDecisionFailureFeedback(result.error) : '';
             await traceStore.finishSpan(actSpan, result.error ? 'fail' : 'ok', decisionFailureFeedback || undefined);
             if (enableContextCompression) {
               trajectorySteps.push({

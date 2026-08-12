@@ -175,6 +175,39 @@ describe('Skill discovery + runtime', () => {
     if (result.decision?.kind === 'done') {
       expect(result.decision.artifact?.type).toBe('table');
       expect(result.decision.summary).toMatch(/name|A/i);
+      expect(result.decision.summary).not.toContain('最贵商品');
+    }
+  });
+
+  it('completes the full LH-03 deliverable with a row-derived highest-price conclusion', async () => {
+    const html = `
+      <div class="product" data-name="A" data-price="$1" data-rating="5"></div>
+      <div class="product" data-name="B" data-price="$2.00" data-rating="4"></div>
+    `;
+    const runtime = createSkillRuntime({
+      registry: createSkillRegistry([repeatingListExtractSkill]),
+      kernel: mockKernel({
+        extract: (async () => ({ ok: true, data: html })) as BrowserKernel['extract'],
+      }),
+      taskId: 'lh-03',
+      flags: { enableSkillRuntime: true },
+      hasAction: () => true,
+    });
+    const result = await runtime.tryDecide({
+      roundId: 'r1',
+      instruction:
+        '这是一个多阶段任务：1) 阅读当前产品列表页；2) 提取所有行为 name,price,rating CSV；3) 根据页面数据在回复中写出最贵商品的名称与价格。',
+      url: 'https://shop.test/list',
+      frame: frame('https://shop.test/list'),
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.decision?.kind).toBe('done');
+    if (result.decision?.kind === 'done') {
+      expect(result.decision.summary).toContain('name,price,rating');
+      expect(result.decision.summary).toContain('A,$1,5');
+      expect(result.decision.summary).toContain('B,$2.00,4');
+      expect(result.decision.summary).toContain('最贵商品是 B，价格为 $2.00。');
     }
   });
 
