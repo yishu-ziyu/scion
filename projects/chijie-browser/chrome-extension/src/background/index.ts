@@ -289,8 +289,12 @@ chrome.runtime.onConnect.addListener(port => {
 
     port.onDisconnect.addListener(() => {
       console.log('Side panel disconnected');
-      if (!sidePanelPorts.release(port)) return;
-      void taskManager.interruptActive();
+      // The side panel is a control/observation surface, not the task's lifetime owner.
+      // Chrome can replace this port during panel refreshes, tab focus changes, extension
+      // reloads, or transient renderer suspension. Treating the last disconnect as an
+      // interruption makes ordinary read-only tasks stop and ask the user to continue.
+      // Explicit Pause/Stop commands and debugger cancellation remain authoritative.
+      sidePanelPorts.release(port);
     });
   }
 });
