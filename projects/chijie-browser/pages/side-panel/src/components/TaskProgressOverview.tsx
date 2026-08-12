@@ -38,7 +38,7 @@ function HealthIcon({ state }: { state: TaskProgressView['health']['state'] }) {
 }
 
 export function TaskProgressOverview({ view, now = Date.now(), controls }: TaskProgressOverviewProps) {
-  const active = view.milestones.find(milestone => milestone.status === 'active');
+  const blocked = view.milestones.find(milestone => milestone.status === 'blocked');
   const lastProgress = relativeTime(view.health.lastMeaningfulProgressAt, now);
 
   return (
@@ -130,7 +130,7 @@ export function TaskProgressOverview({ view, now = Date.now(), controls }: TaskP
         </section>
       )}
 
-      {active?.status === 'blocked' && (
+      {blocked && (
         <div className="chijie-progress-blocked" role="alert">
           当前阶段遇到阻塞，请查看上方健康状态或调整任务方向。
         </div>
