@@ -19,7 +19,7 @@ import {
   tabProvenanceWrongTab,
   wrongTabFromIds,
 } from '../../chrome-extension/scripts/lib/eval-verification.mjs';
-import { validateEvalSeedReadback } from '../../chrome-extension/scripts/lib/eval-provider.mjs';
+import { resolveEvalProxyArgs, validateEvalSeedReadback } from '../../chrome-extension/scripts/lib/eval-provider.mjs';
 
 test('missing runner protocol is invalid even when the process exits zero', () => {
   const parsed = parseMatrixRows('runner completed successfully\n');
@@ -394,4 +394,16 @@ test('provider identity is accepted only after storage readback matches both age
       'provider base URL',
     ),
   );
+});
+
+test('browser evals inherit a safe proxy without exposing credentials', () => {
+  assert.deepEqual(resolveEvalProxyArgs({ HTTPS_PROXY: 'http://127.0.0.1:7897' }), [
+    '--proxy-server=http://127.0.0.1:7897',
+  ]);
+  assert.deepEqual(resolveEvalProxyArgs({ https_proxy: 'socks5://localhost:1080' }), [
+    '--proxy-server=socks5://localhost:1080',
+  ]);
+  assert.deepEqual(resolveEvalProxyArgs({}), []);
+  assert.throws(() => resolveEvalProxyArgs({ HTTPS_PROXY: 'ftp://127.0.0.1:21' }), /unsupported protocol/);
+  assert.throws(() => resolveEvalProxyArgs({ HTTPS_PROXY: 'http://name:secret@127.0.0.1:7897' }), /credentials/);
 });

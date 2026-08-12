@@ -20,6 +20,32 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+export function resolveEvalProxyArgs(env = process.env) {
+  const rawProxy =
+    env.EVAL_PROXY_URL ||
+    env.HTTPS_PROXY ||
+    env.https_proxy ||
+    env.HTTP_PROXY ||
+    env.http_proxy ||
+    env.ALL_PROXY ||
+    env.all_proxy ||
+    '';
+  if (!rawProxy) return [];
+
+  let proxy;
+  try {
+    proxy = new URL(rawProxy);
+  } catch {
+    throw new Error('eval proxy URL is invalid');
+  }
+  if (!['http:', 'https:', 'socks4:', 'socks5:'].includes(proxy.protocol) || !proxy.hostname) {
+    throw new Error('eval proxy URL uses an unsupported protocol');
+  }
+  if (proxy.username || proxy.password)
+    throw new Error('eval proxy credentials must not be passed on the command line');
+  return [`--proxy-server=${proxy.protocol}//${proxy.host}`];
+}
+
 export function discoverChromeForTesting(homeDir = os.homedir(), platform = process.platform) {
   const roots = [path.join(homeDir, '.cache/puppeteer/chrome'), path.join(homeDir, 'Library/Caches/puppeteer/chrome')];
   const matches = [];
