@@ -1439,6 +1439,7 @@ const SidePanel = () => {
                         evidenceSpace={evidenceSpace}
                         onAdjustDirection={() => {
                           pendingDirectionChangeRef.current = true;
+                          setIsHistoricalSession(false);
                           const existingComposer = document.querySelector(
                             '.chijie-composer textarea',
                           ) as HTMLTextAreaElement | null;
