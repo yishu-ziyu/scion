@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { ProgressMilestone, TaskProgressView } from '../../presentation/task-progress-view';
 import { MissionPlanList, missionPlanItemStatus } from '../MissionPlanList';
 import { TaskProgressOverview } from '../TaskProgressOverview';
+import { ThinkingReasoning } from '../ThinkingReasoning';
 
 function milestone(
   id: string,
@@ -74,13 +75,16 @@ describe('MissionPlanList rendered contract', () => {
     ['paused', 'paused', '已暂停'],
     ['needs_user', 'waiting_user', '等待你'],
     ['failed', 'failed', '未完成'],
-  ] as const)('projects active work into the %s task state without stale running motion', (taskStatus, itemStatus, label) => {
-    const html = renderPlan([milestone('current', 'active', { summary: '当前阶段' })], taskStatus);
+  ] as const)(
+    'projects active work into the %s task state without stale running motion',
+    (taskStatus, itemStatus, label) => {
+      const html = renderPlan([milestone('current', 'active', { summary: '当前阶段' })], taskStatus);
 
-    expect(html).toContain(`data-status="${itemStatus}"`);
-    expect(html).toContain(label);
-    expect(html).not.toContain('data-status="active"');
-  });
+      expect(html).toContain(`data-status="${itemStatus}"`);
+      expect(html).toContain(label);
+      expect(html).not.toContain('data-status="active"');
+    },
+  );
 
   it('renders blocked stages and clamps gate progress at both boundaries', () => {
     const html = renderPlan(
@@ -120,7 +124,6 @@ describe('TaskProgressOverview mission-plan integration', () => {
       mission: { title: '描述当前页面', deliverable: '给出页面摘要' },
       status: 'working',
       milestones: [milestone('blocked', 'blocked', { summary: '页面暂不可读' })],
-      health: { state: 'recovering', summary: '正在换一种方式' },
       findings: [],
       artifacts: [],
       nextStep: '重新读取页面',
@@ -140,7 +143,6 @@ describe('TaskProgressOverview mission-plan integration', () => {
       mission: { title: '描述当前页面', deliverable: '给出页面摘要' },
       status: 'paused',
       milestones: [milestone('current', 'active')],
-      health: { state: 'paused', summary: '运行已中断，检查点已经保存' },
       findings: [],
       artifacts: [],
       nextStep: '继续完成“描述当前页面”',
@@ -148,12 +150,49 @@ describe('TaskProgressOverview mission-plan integration', () => {
     };
 
     const controls = createElement('div', { 'data-testid': 'interrupted-controls' }, '继续任务');
-    const html = renderToStaticMarkup(createElement(TaskProgressOverview, { view, now: 1, interrupted: true, controls }));
+    const html = renderToStaticMarkup(
+      createElement(TaskProgressOverview, { view, now: 1, interrupted: true, controls }),
+    );
 
     expect(html).toContain('data-testid="task-interrupted-status"');
     expect(html).toContain('任务已中断，进度已经保存');
     expect(html).toContain('可以从「阶段 current」继续');
     expect(html).toContain('data-testid="interrupted-controls"');
     expect(html).not.toContain('data-testid="task-progress-health"');
+    expect(html).not.toContain('data-testid="task-progress-current-activity"');
+  });
+});
+
+describe('ThinkingReasoning rendered contract', () => {
+  const items = [
+    { id: 'attempt-1', text: '打开 Zotero 官网' },
+    { id: 'attempt-2', text: '读取当前页面' },
+  ];
+
+  it('shows the live stream expanded while the task is running', () => {
+    const html = renderToStaticMarkup(createElement(ThinkingReasoning, { items, running: true, elapsed: '12s' }));
+
+    expect(html).toContain('data-testid="task-thinking-reasoning"');
+    expect(html).toContain('data-running="true"');
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('思考中…');
+    expect(html).toContain('打开 Zotero 官网');
+    expect(html).toContain('读取当前页面');
+  });
+
+  it('folds completed work into an elapsed summary by default', () => {
+    const html = renderToStaticMarkup(createElement(ThinkingReasoning, { items, running: false, elapsed: '1m 08s' }));
+
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('工作了');
+    expect(html).toContain('1m 08s');
+    expect(html).toContain('is-collapsed');
+    expect(html).not.toContain('思考中…');
+  });
+
+  it('renders nothing for an idle task without public action summaries', () => {
+    const html = renderToStaticMarkup(createElement(ThinkingReasoning, { items: [], running: false, elapsed: '0s' }));
+
+    expect(html).toBe('');
   });
 });

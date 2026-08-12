@@ -64,17 +64,6 @@ export interface TaskProgressView {
   };
   status: ProgressViewStatus;
   milestones: ProgressMilestone[];
-  currentActivity?: {
-    summary: string;
-    purpose: string;
-    site?: string;
-    startedAt: number;
-  };
-  health: {
-    state: 'advancing' | 'recovering' | 'slow' | 'needs_user' | 'paused' | 'failed' | 'complete';
-    summary: string;
-    lastMeaningfulProgressAt?: number;
-  };
   findings: ProgressFinding[];
   artifacts: ProgressArtifact[];
   nextStep: string;
@@ -114,14 +103,14 @@ function boundedResearchQuota(value: string | undefined): number {
 }
 
 /** Keep synchronized with background/task/research-checkpoint.ts. */
-export function extractVisibleResearchTargets(instruction: string): { userDiscussions: number; products: number } | null {
+export function extractVisibleResearchTargets(
+  instruction: string,
+): { userDiscussions: number; products: number } | null {
   const text = instruction.replace(/\s+/g, ' ').trim();
   const userMatch = text.match(
     /(?:至少|at\s+least)\D{0,24}(\d{1,4})\D{0,24}(?:用户讨论|讨论或案例|讨论|user discussions?|cases?)/i,
   );
-  const productMatch = text.match(
-    /(?:至少|at\s+least)\D{0,24}(\d{1,4})\D{0,20}(?:竞品|产品|products?|competitors?)/i,
-  );
+  const productMatch = text.match(/(?:至少|at\s+least)\D{0,24}(\d{1,4})\D{0,20}(?:竞品|产品|products?|competitors?)/i);
   const userDiscussions = boundedResearchQuota(userMatch?.[1]);
   const products = boundedResearchQuota(productMatch?.[1]);
   if (!userDiscussions && !products) return null;
@@ -149,57 +138,8 @@ function viewStatus(snapshot: TaskSnapshot, evidenceSpace?: EvidenceSpace | null
   return snapshot.rounds.some(round => round.evidence.length > 0) ? 'working' : 'planning';
 }
 
-function boundSite(snapshot: TaskSnapshot): string | undefined {
-  const page = [...snapshot.targetRefs]
-    .reverse()
-    .find(ref => ref.kind === 'page' && ref.tabId === snapshot.activeTabId)
-    ?? [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page');
-  if (!page) return undefined;
-  if (page.urlOrigin && page.urlOrigin !== 'null') {
-    try {
-      return new URL(page.urlOrigin).hostname.replace(/^www\./, '');
-    } catch {
-      return compact(page.urlOrigin, 48);
-    }
-  }
-  return compact(page.label, 48) || undefined;
-}
-
-function currentActivity(snapshot: TaskSnapshot, activeMilestone?: ProgressMilestone) {
-  if (snapshot.status !== 'running') return undefined;
-  const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
-  const attempt = [...(round?.attempts ?? [])]
-    .reverse()
-    .find(item => item.state === 'executing' || item.state === 'authorized' || item.state === 'proposed');
-  if (!attempt) {
-    return {
-      summary: '正在决定下一步',
-      purpose: activeMilestone ? `推进“${activeMilestone.title}”` : '推进当前任务',
-      site: boundSite(snapshot),
-      startedAt: snapshot.updatedAt,
-    };
-  }
-  return {
-    summary: compact(attempt.displaySummary, 96) || '正在执行下一步',
-    purpose: activeMilestone ? `推进“${activeMilestone.title}”` : '推进当前任务',
-    site: compact(attempt.targetLabel, 48) || boundSite(snapshot),
-    startedAt: attempt.executingAt ?? attempt.authorizedAt ?? attempt.proposedAt,
-  };
-}
-
 function researchDeliveryComplete(space?: EvidenceSpace | null): boolean {
   return researchDeliveryReady(space);
-}
-
-function latestMeaningfulProgress(snapshot: TaskSnapshot, space?: EvidenceSpace | null): number | undefined {
-  const candidates = [
-    ...(space?.records.map(record => record.capturedAt) ?? []),
-    space?.researchDecision?.createdAt,
-    space?.researchDelivery?.research_table?.verifiedAt,
-    space?.researchDelivery?.decision_document?.verifiedAt,
-    ...snapshot.rounds.map(round => round.receipt?.verifiedAt),
-  ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-  return candidates.length > 0 ? Math.max(...candidates) : undefined;
 }
 
 function latestDirectionChange(snapshot: TaskSnapshot): TaskProgressView['directionChange'] {
@@ -209,53 +149,6 @@ function latestDirectionChange(snapshot: TaskSnapshot): TaskProgressView['direct
     summary: '用户已调整任务方向，新要求已进入后续执行',
     occurredAt: round.createdAt ?? snapshot.updatedAt,
   };
-}
-
-function healthFor(input: {
-  snapshot: TaskSnapshot;
-  now: number;
-  lastMeaningfulProgressAt?: number;
-}): TaskProgressView['health'] {
-  const { snapshot, now, lastMeaningfulProgressAt } = input;
-  if (snapshot.status === 'paused' || snapshot.status === 'interrupted') {
-    return {
-      state: 'paused',
-      summary: snapshot.status === 'interrupted' ? '运行已中断，检查点已经保存' : '已暂停，不会继续操作网页',
-      lastMeaningfulProgressAt,
-    };
-  }
-  if (snapshot.status === 'waiting_user' || snapshot.status === 'inputs_required') {
-    return {
-      state: 'needs_user',
-      summary: '任务需要你的操作才能继续',
-      lastMeaningfulProgressAt,
-    };
-  }
-  if (snapshot.status === 'completed') {
-    return { state: 'complete', summary: '全部要求已经过页面证据验证', lastMeaningfulProgressAt };
-  }
-  if (snapshot.status === 'failed' || snapshot.status === 'cancelled') {
-    return { state: 'failed', summary: '任务未完成，请查看尚未通过的要求', lastMeaningfulProgressAt };
-  }
-
-  const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
-  const latestAttempt = [...(round?.attempts ?? [])].sort((a, b) => b.proposedAt - a.proposedAt)[0];
-  if (latestAttempt?.state === 'blocked' || latestAttempt?.state === 'uncertain') {
-    return {
-      state: 'recovering',
-      summary: '这一步未确认成功，正在换一种方式',
-      lastMeaningfulProgressAt,
-    };
-  }
-  const meaningfulProgressAnchor = lastMeaningfulProgressAt ?? snapshot.createdAt;
-  if (now - meaningfulProgressAnchor > 8 * 60_000) {
-    return {
-      state: 'slow',
-      summary: '一段时间没有新成果，正在重新规划',
-      lastMeaningfulProgressAt,
-    };
-  }
-  return { state: 'advancing', summary: '正常推进', lastMeaningfulProgressAt };
 }
 
 function qualificationDetail(raw: number, qualified: number, unit: string): string {
@@ -278,7 +171,6 @@ function milestoneStatuses(done: boolean[]): MissionPhaseStatus[] {
 
 function researchProgressView(input: DeriveTaskProgressViewInput): TaskProgressView {
   const { snapshot, evidenceSpace } = input;
-  const now = input.now ?? Date.now();
   const quotas = extractVisibleResearchTargets(input.missionInstruction) ?? { userDiscussions: 80, products: 30 };
   const progress = evidenceSpaceProgress(evidenceSpace);
   const rawUserDiscussionCount =
@@ -384,11 +276,7 @@ function researchProgressView(input: DeriveTaskProgressViewInput): TaskProgressV
       ],
     },
   ];
-  const active = milestones.find(milestone => milestone.status === 'active');
-  const lastMeaningfulProgressAt = latestMeaningfulProgress(snapshot, evidenceSpace);
-  const recentRecords = [...(evidenceSpace?.records ?? [])]
-    .sort((a, b) => b.capturedAt - a.capturedAt)
-    .slice(0, 2);
+  const recentRecords = [...(evidenceSpace?.records ?? [])].sort((a, b) => b.capturedAt - a.capturedAt).slice(0, 2);
   const findings: ProgressFinding[] = recentRecords.map(record => ({
     id: record.id,
     title: compact(record.sourceTitle, 72) || '新增研究证据',
@@ -435,8 +323,6 @@ function researchProgressView(input: DeriveTaskProgressViewInput): TaskProgressV
     directionChange: latestDirectionChange(snapshot),
     status: viewStatus(snapshot, evidenceSpace),
     milestones,
-    currentActivity: currentActivity(snapshot, active),
-    health: healthFor({ snapshot, now, lastMeaningfulProgressAt }),
     findings,
     artifacts,
     nextStep,
@@ -446,7 +332,6 @@ function researchProgressView(input: DeriveTaskProgressViewInput): TaskProgressV
 
 function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressView {
   const { snapshot } = input;
-  const now = input.now ?? Date.now();
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
   const milestones: ProgressMilestone[] = (snapshot.plan?.phases ?? []).map(phase => {
     const passed = phase.criteriaIds.filter(id => phase.evidenceIds.includes(id)).length;
@@ -461,7 +346,8 @@ function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressVi
               {
                 id: `${phase.id}-criteria`,
                 label: '验收条件',
-                status: passed >= phase.criteriaIds.length ? 'passed' : phase.status === 'active' ? 'active' : 'pending',
+                status:
+                  passed >= phase.criteriaIds.length ? 'passed' : phase.status === 'active' ? 'active' : 'pending',
                 current: passed,
                 target: phase.criteriaIds.length,
                 unit: '项',
@@ -471,7 +357,6 @@ function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressVi
     };
   });
   const active = milestones.find(milestone => milestone.status === 'active');
-  const lastMeaningfulProgressAt = latestMeaningfulProgress(snapshot);
   const artifacts: ProgressArtifact[] = round?.receipt
     ? [
         {
@@ -491,11 +376,13 @@ function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressVi
     directionChange: latestDirectionChange(snapshot),
     status: viewStatus(snapshot),
     milestones,
-    currentActivity: currentActivity(snapshot, active),
-    health: healthFor({ snapshot, now, lastMeaningfulProgressAt }),
     findings: [],
     artifacts,
-    nextStep: active ? `继续完成“${active.title}”` : snapshot.status === 'completed' ? '任务已完成' : '继续推进当前任务',
+    nextStep: active
+      ? `继续完成“${active.title}”`
+      : snapshot.status === 'completed'
+        ? '任务已完成'
+        : '继续推进当前任务',
     updatedAt: snapshot.updatedAt,
   };
 }

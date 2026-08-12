@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  EvidenceRecord,
-  EvidenceSpace,
-  ResearchCapabilityDecisionDraft,
-  TaskSnapshot,
-} from '@extension/storage';
+import type { EvidenceRecord, EvidenceSpace, ResearchCapabilityDecisionDraft, TaskSnapshot } from '@extension/storage';
 import {
   putResearchDecisionInSpace,
   putResearchDeliveryInSpace,
@@ -207,15 +202,10 @@ describe('deriveTaskProgressView', () => {
       status: 'active',
       detail: '原始记录 91 条，15 条因来源过滤或去重未计入',
     });
-    expect(view.health).toMatchObject({
-      state: 'paused',
-      summary: '运行已中断，检查点已经保存',
-    });
-    expect(view.currentActivity).toBeUndefined();
     expect(view.nextStep).toContain('4 条合格用户讨论证据');
   });
 
-  it('never presents stale live activity while paused', () => {
+  it('keeps durable progress while paused without deriving a duplicate live-status card', () => {
     const view = deriveTaskProgressView({
       snapshot: snapshot('paused'),
       missionInstruction: originalInstruction,
@@ -224,47 +214,18 @@ describe('deriveTaskProgressView', () => {
     });
 
     expect(view.status).toBe('paused');
-    expect(view.health.state).toBe('paused');
-    expect(view.currentActivity).toBeUndefined();
-  });
-
-  it('explains the current action through the active milestone while running', () => {
-    const view = deriveTaskProgressView({
-      snapshot: snapshot('running'),
-      missionInstruction: originalInstruction,
-      evidenceSpace: space(91, 26),
-      now: 12_000,
-    });
-
-    expect(view.currentActivity).toMatchObject({
-      summary: '打开 Zotero 官网',
-      purpose: '推进“产品研究”',
-      site: 'zotero.org',
-    });
-    expect(view.health.state).toBe('advancing');
-  });
-
-  it('reports slow when a running task has no meaningful progress for the health window', () => {
-    const view = deriveTaskProgressView({
-      snapshot: snapshot('running'),
-      missionInstruction: originalInstruction,
-      evidenceSpace: space(91, 26),
-      now: 600_000,
-    });
-
-    expect(view.health).toMatchObject({
-      state: 'slow',
-      summary: '一段时间没有新成果，正在重新规划',
-    });
+    expect(view.milestones.some(item => item.status === 'active')).toBe(true);
+    expect(view).not.toHaveProperty('health');
+    expect(view).not.toHaveProperty('currentActivity');
   });
 
   it.each([
-    ['waiting_user', 'needs_user', 'needs_user'],
-    ['inputs_required', 'needs_user', 'needs_user'],
-    ['failed', 'failed', 'failed'],
-    ['cancelled', 'failed', 'failed'],
-    ['completed', 'completed', 'complete'],
-  ] as const)('maps %s to one non-running public state', (taskStatus, viewStatus, healthState) => {
+    ['waiting_user', 'needs_user'],
+    ['inputs_required', 'needs_user'],
+    ['failed', 'failed'],
+    ['cancelled', 'failed'],
+    ['completed', 'completed'],
+  ] as const)('maps %s to one non-running public state', (taskStatus, viewStatus) => {
     const view = deriveTaskProgressView({
       snapshot: snapshot(taskStatus),
       missionInstruction: originalInstruction,
@@ -273,24 +234,8 @@ describe('deriveTaskProgressView', () => {
     });
 
     expect(view.status).toBe(viewStatus);
-    expect(view.health.state).toBe(healthState);
-    expect(view.currentActivity).toBeUndefined();
-  });
-
-  it('reports recovery from a blocked live attempt instead of pretending normal progress', () => {
-    const task = snapshot('running');
-    task.rounds[0]!.attempts[0]!.state = 'blocked';
-    const view = deriveTaskProgressView({
-      snapshot: task,
-      missionInstruction: originalInstruction,
-      evidenceSpace: space(91, 26),
-      now: 12_000,
-    });
-
-    expect(view.health).toMatchObject({
-      state: 'recovering',
-      summary: '这一步未确认成功，正在换一种方式',
-    });
+    expect(view).not.toHaveProperty('health');
+    expect(view).not.toHaveProperty('currentActivity');
   });
 
   it('projects a durable direction-change round separately from the stable mission', () => {
@@ -387,8 +332,7 @@ describe('deriveTaskProgressView', () => {
       kind: 'research_table',
       url: 'https://example.feishu.cn/base/living-reader-research',
       title: 'Living Reader 研究表',
-      observedText:
-        '证据 来源 用户问题 观察 推断 置信度 相关产品 对应 Living Reader 能力 优先级，共 111 行',
+      observedText: '证据 来源 用户问题 观察 推断 置信度 相关产品 对应 Living Reader 能力 优先级，共 111 行',
       rowCount: 111,
       now: 10_000,
     });
@@ -415,8 +359,6 @@ describe('deriveTaskProgressView', () => {
     expect(view.kind).toBe('research');
     expect(view.mission.title).toBe('Living Reader 下一阶段能力决策');
     expect(view.status).toBe('completed');
-    expect(view.health).toMatchObject({ state: 'complete', summary: '全部要求已经过页面证据验证' });
-    expect(view.currentActivity).toBeUndefined();
     expect(view.milestones.map(item => item.status)).toEqual(['done', 'done', 'done', 'done', 'done']);
     expect(view.milestones.flatMap(item => item.gates).every(gate => gate.status === 'passed')).toBe(true);
     expect(view.milestones[1]?.gates[0]).toMatchObject({ current: 80, target: 80 });
@@ -424,7 +366,11 @@ describe('deriveTaskProgressView', () => {
     expect(view.milestones[3]?.gates[0]).toMatchObject({ current: 3, target: 3 });
     expect(view.milestones[4]?.gates[0]).toMatchObject({ current: 2, target: 2 });
     expect(view.artifacts).toEqual([
-      expect.objectContaining({ id: 'research-table', status: 'verified', url: table.space.researchDelivery?.research_table?.url }),
+      expect.objectContaining({
+        id: 'research-table',
+        status: 'verified',
+        url: table.space.researchDelivery?.research_table?.url,
+      }),
       expect.objectContaining({
         id: 'decision-document',
         status: 'verified',

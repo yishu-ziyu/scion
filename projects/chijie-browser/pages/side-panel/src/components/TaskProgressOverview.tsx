@@ -1,13 +1,5 @@
 import type { ReactNode } from 'react';
-import {
-  FiActivity,
-  FiAlertCircle,
-  FiCheck,
-  FiClock,
-  FiExternalLink,
-  FiFileText,
-  FiPauseCircle,
-} from 'react-icons/fi';
+import { FiActivity, FiExternalLink, FiFileText, FiPauseCircle } from 'react-icons/fi';
 import type { TaskProgressView } from '../presentation/task-progress-view';
 import { MissionPlanList } from './MissionPlanList';
 
@@ -30,14 +22,6 @@ function relativeTime(timestamp: number | undefined, now: number): string | null
   return new Date(timestamp).toLocaleDateString();
 }
 
-function HealthIcon({ state }: { state: TaskProgressView['health']['state'] }) {
-  if (state === 'paused') return <FiPauseCircle aria-hidden />;
-  if (state === 'needs_user' || state === 'failed') return <FiAlertCircle aria-hidden />;
-  if (state === 'complete') return <FiCheck aria-hidden />;
-  if (state === 'slow') return <FiClock aria-hidden />;
-  return <FiActivity aria-hidden />;
-}
-
 export function TaskProgressOverview({
   view,
   now = Date.now(),
@@ -46,7 +30,6 @@ export function TaskProgressOverview({
 }: TaskProgressOverviewProps) {
   const blocked = view.milestones.find(milestone => milestone.status === 'blocked');
   const interruptedMilestone = view.milestones.find(milestone => milestone.status === 'active');
-  const lastProgress = relativeTime(view.health.lastMeaningfulProgressAt, now);
 
   return (
     <div className="chijie-progress-overview" data-kind={view.kind} data-testid="task-progress-overview">
@@ -69,17 +52,6 @@ export function TaskProgressOverview({
 
       {view.milestones.length > 0 && <MissionPlanList milestones={view.milestones} status={view.status} />}
 
-      {view.currentActivity && (
-        <section className="chijie-progress-now" data-testid="task-progress-current-activity">
-          <span className="chijie-progress-kicker">现在</span>
-          <strong>{view.currentActivity.summary}</strong>
-          <span>
-            {view.currentActivity.purpose}
-            {view.currentActivity.site ? ` · ${view.currentActivity.site}` : ''}
-          </span>
-        </section>
-      )}
-
       {interrupted ? (
         <section className="chijie-interrupted-status" data-testid="task-interrupted-status">
           <span className="chijie-interrupted-status-icon">
@@ -94,21 +66,7 @@ export function TaskProgressOverview({
           {controls}
         </section>
       ) : (
-        <>
-          <section className="chijie-progress-health" data-state={view.health.state} data-testid="task-progress-health">
-            <span className="chijie-progress-health-icon">
-              <HealthIcon state={view.health.state} />
-            </span>
-            <span className="chijie-progress-health-copy">
-              <strong>{view.health.summary}</strong>
-              {lastProgress && <span>最近有效进展：{lastProgress}</span>}
-              <span>
-                {view.status === 'paused' ? '继续后' : '下一步'}：{view.nextStep}
-              </span>
-            </span>
-          </section>
-          {controls}
-        </>
+        controls
       )}
 
       {view.findings.length > 0 && (
@@ -155,7 +113,7 @@ export function TaskProgressOverview({
 
       {blocked && (
         <div className="chijie-progress-blocked" role="alert">
-          当前阶段遇到阻塞，请查看上方健康状态或调整任务方向。
+          当前阶段遇到阻塞，请调整任务方向或稍后重试。
         </div>
       )}
     </div>

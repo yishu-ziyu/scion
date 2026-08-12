@@ -1,27 +1,7 @@
 import type { ActionAttempt, EvidenceSpace, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
 import { t } from '@extension/i18n';
 import { useEffect, useState } from 'react';
-import {
-  FiArrowDown,
-  FiCamera,
-  FiCheck,
-  FiChevronDown,
-  FiChevronUp,
-  FiClock,
-  FiCornerUpLeft,
-  FiEdit3,
-  FiEye,
-  FiGlobe,
-  FiLayers,
-  FiList,
-  FiMousePointer,
-  FiMoreHorizontal,
-  FiPlay,
-  FiSearch,
-  FiX,
-  FiZap,
-} from 'react-icons/fi';
-import type { IconType } from 'react-icons';
+import { FiCheck, FiMoreHorizontal } from 'react-icons/fi';
 import {
   actionStackClassName,
   completionVisibleText,
@@ -34,8 +14,6 @@ import {
 } from '../design/contracts';
 import {
   type TaskOutcomeRating,
-  defaultStepsExpanded,
-  observedAttemptCount,
   ratingStorageKey,
   shouldShowExecutionSteps,
   shouldShowOutcomeRating,
@@ -43,46 +21,14 @@ import {
   taskPrimaryOrganism,
   visibleAttemptWindow,
 } from '../presentation/task-loop-ui';
-import {
-  type ActivityIconKey,
-  activityElapsedSeconds,
-  activityIconForAction,
-  activityLiveActingLine,
-  activityLiveDetail,
-  activityLiveHeadline,
-  activityPhaseForAttempt,
-  formatActivityDuration,
-  looksLikeActionName,
-} from '../presentation/activity-stream';
+import { activityElapsedSeconds, formatActivityDuration, looksLikeActionName } from '../presentation/activity-stream';
 import { requiredCompletionResult } from '../presentation/completion-outcome';
 import { assessGoalCoverage, resolveDeliverableAnswer } from '../presentation/goal-coverage';
 import { productFailureLabel, toProductFailureCode } from '../presentation/failure-taxonomy';
 import { waitUserActionTestId } from '../presentation/wait-affordance';
 import { deriveTaskProgressView } from '../presentation/task-progress-view';
 import { TaskProgressOverview } from './TaskProgressOverview';
-
-const ACTIVITY_ICONS: Record<ActivityIconKey, IconType> = {
-  search: FiSearch,
-  eye: FiEye,
-  globe: FiGlobe,
-  click: FiMousePointer,
-  type: FiEdit3,
-  play: FiPlay,
-  scroll: FiArrowDown,
-  wait: FiClock,
-  tab: FiLayers,
-  close: FiX,
-  camera: FiCamera,
-  check: FiCheck,
-  back: FiCornerUpLeft,
-  list: FiList,
-  generic: FiZap,
-};
-
-function ActivityGlyph({ name, className }: { name: ActivityIconKey; className?: string }) {
-  const Icon = ACTIVITY_ICONS[name] ?? FiZap;
-  return <Icon className={className} aria-hidden size={14} strokeWidth={2} />;
-}
+import { ThinkingReasoning } from './ThinkingReasoning';
 
 export interface TaskStatusCardProps {
   snapshot: TaskSnapshot;
@@ -241,9 +187,7 @@ export function humanActionLabel(actionName: string): string {
 }
 
 /** Prefer backend displaySummary (verb + object); fall back to coarse action label. */
-export function attemptDisplayTitle(
-  attempt: Pick<ActionAttempt, 'actionName' | 'displaySummary'>,
-): string {
+export function attemptDisplayTitle(attempt: Pick<ActionAttempt, 'actionName' | 'displaySummary'>): string {
   const summary = attempt.displaySummary?.replace(/\s+/g, ' ').trim();
   // Never surface raw English actionName as a "summary" (design/005 P2).
   if (summary && summary.length >= 2 && !looksLikeActionName(summary)) return summary;
@@ -264,36 +208,11 @@ function evidenceLabel(kind: string): string {
   return t(labels[kind] ?? 'chat_task_evidence_generic');
 }
 
-function attemptLineState(attempt: ActionAttempt): string {
-  switch (attempt.state) {
-    case 'observed':
-      return t('chat_task_attempt_observed');
-    case 'executing':
-      return t('chat_task_attempt_executing');
-    case 'authorized':
-      return t('chat_task_attempt_authorized');
-    case 'proposed':
-      return t('chat_task_attempt_proposed');
-    case 'uncertain':
-      return t('chat_task_attempt_uncertain');
-    case 'blocked':
-      return t('chat_task_attempt_blocked');
-    default:
-      return attempt.state;
-  }
-}
-
-function formatTime(ts: number): string {
-  try {
-    return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
-}
-
 function boundPageRef(snapshot: TaskSnapshot) {
-  return [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page' && ref.tabId === snapshot.activeTabId)
-    ?? [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page');
+  return (
+    [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page' && ref.tabId === snapshot.activeTabId) ??
+    [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page')
+  );
 }
 
 function siteLabel(snapshot: TaskSnapshot): string {
@@ -355,7 +274,6 @@ export function TaskStatusCard({
   const [showSkillForm, setShowSkillForm] = useState(false);
   const [skillTitle, setSkillTitle] = useState('');
   const [skillTemplate, setSkillTemplate] = useState('');
-  const [stepsExpanded, setStepsExpanded] = useState(() => defaultStepsExpanded(snapshot.status));
   const [outcomeRating, setOutcomeRating] = useState<TaskOutcomeRating | null>(null);
   const [skillSavePendingId, setSkillSavePendingId] = useState<string | null>(null);
   const [deliverableCopied, setDeliverableCopied] = useState(false);
@@ -371,8 +289,7 @@ export function TaskStatusCard({
           evidence => evidence.criterionId === criterion.id && evidence.source === 'user' && evidence.passed,
         ),
     ) ?? [];
-  const waitAction =
-    snapshot.status === 'waiting_user' ? waitUserActionTestId(round?.waitReason) : null;
+  const waitAction = snapshot.status === 'waiting_user' ? waitUserActionTestId(round?.waitReason) : null;
 
   const isTerminal = ['completed', 'failed', 'cancelled'].includes(snapshot.status);
   const needsAttention =
@@ -381,7 +298,6 @@ export function TaskStatusCard({
     snapshot.status === 'failed' ||
     snapshot.status === 'interrupted';
 
-  const doneSteps = observedAttemptCount(attempts);
   const stableInstruction = missionInstruction || defaultInstruction;
   const goalText = displayGoalText(snapshot, round?.instructionSummary, stableInstruction);
   const progressView = deriveTaskProgressView({
@@ -390,10 +306,6 @@ export function TaskStatusCard({
     evidenceSpace,
     now: nowTick,
   });
-
-  useEffect(() => {
-    setStepsExpanded(defaultStepsExpanded(snapshot.status));
-  }, [snapshot.id, snapshot.status, round?.id]);
 
   useEffect(() => {
     if (snapshot.status !== 'running') return;
@@ -450,9 +362,6 @@ export function TaskStatusCard({
 
   const showSteps = shouldShowExecutionSteps(attempts);
   const visibleAttempts = visibleAttemptWindow(attempts, snapshot.status);
-  const currentAttempt = [...attempts]
-    .reverse()
-    .find(attempt => attempt.state === 'executing' || attempt.state === 'proposed' || attempt.state === 'authorized');
   const passedEvidence =
     round?.evidence
       .filter(evidence => evidence.passed)
@@ -484,43 +393,7 @@ export function TaskStatusCard({
     answerText: deliverableAnswer,
   });
   const showPartialComplete = showVerifiedDone && goalCoverage.coverage === 'partial';
-  const siteHost = siteHostLabel(snapshot);
-  const siteFull = siteLabel(snapshot);
-  // Prefer hostname alone for live line (not "host · title") so 「正在… · host」 stays scannable.
-  const liveSiteHost = (() => {
-    const page = boundPageRef(snapshot);
-    if (page?.urlOrigin && page.urlOrigin !== 'null') {
-      try {
-        return new URL(page.urlOrigin).hostname.replace(/^www\./, '');
-      } catch {
-        return page.urlOrigin;
-      }
-    }
-    return '';
-  })();
-  const liveMeta = activityLiveHeadline({
-    status: snapshot.status,
-    actionName: currentAttempt?.actionName,
-    siteHost: liveSiteHost || siteHost,
-    siteLabel: siteFull,
-  });
-  const liveDetailKind = activityLiveDetail({
-    mode: liveMeta.mode,
-    siteHost: liveSiteHost || siteHost,
-    observedCount: doneSteps,
-  });
-  // Prefer displaySummary; fallback 「正在{人话动作} · host」; never actionName English.
-  const liveActingText =
-    liveMeta.mode === 'acting' && currentAttempt
-      ? activityLiveActingLine({
-          displaySummary: currentAttempt.displaySummary,
-          humanActionLabel: humanActionLabel(currentAttempt.actionName),
-          siteHost: liveSiteHost || siteHost,
-        })
-      : null;
-  const activityEndAt =
-    round?.receipt?.verifiedAt ??
-    (isTerminal ? snapshot.updatedAt : undefined);
+  const activityEndAt = round?.receipt?.verifiedAt ?? (isTerminal ? snapshot.updatedAt : undefined);
   const activitySeconds = activityElapsedSeconds({
     createdAt: snapshot.createdAt,
     endAt: activityEndAt,
@@ -532,13 +405,11 @@ export function TaskStatusCard({
     showVerifiedDone,
   });
 
-  const showLiveActivity =
-    snapshot.status === 'running' ||
-    (snapshot.status === 'waiting_user' && !showPartialComplete) ||
-    snapshot.status === 'inputs_required';
-
-  // Activity panel: live work signal and/or collapsible step history.
-  const showActivityPanel = showLiveActivity || showSteps;
+  const showActivityPanel = snapshot.status === 'running' || showSteps;
+  const publicActivityItems = visibleAttempts.map(attempt => ({
+    id: attempt.id,
+    text: attemptDisplayTitle(attempt),
+  }));
 
   const copyDeliverable = async () => {
     if (!deliverableAnswer) return;
@@ -561,106 +432,13 @@ export function TaskStatusCard({
     }
   };
 
-  const activityHeader = (
-    <div className="chijie-activity-header" data-testid="task-activity-header">
-      <span className="chijie-activity-header-label">{t('chat_task_activity_heading')}</span>
-      <span className="chijie-activity-header-sep" aria-hidden>
-        ·
-      </span>
-      <span className="chijie-activity-header-elapsed" data-testid="task-activity-elapsed">
-        {formatActivityDuration(activitySeconds)}
-      </span>
-    </div>
-  );
-
-  const liveActivityRow = showLiveActivity ? (
-    <div
-      className="chijie-activity-live"
-      data-testid="task-activity-live"
-      data-mode={liveMeta.mode}
-      role="status"
-      aria-live="polite"
-      aria-atomic="true">
-      <span className="chijie-activity-icon is-live" data-phase={liveMeta.phase}>
-        <ActivityGlyph name={liveMeta.icon} />
-      </span>
-      <span className="chijie-activity-live-copy">
-        <strong>
-          {liveMeta.mode === 'waiting'
-            ? t('chat_task_activity_waiting')
-            : liveMeta.mode === 'viewing'
-              ? t('chat_task_activity_viewing', [liveSiteHost || siteHost || siteFull || '…'])
-              : liveMeta.mode === 'acting' && liveActingText
-                ? liveActingText
-                : t('chat_task_activity_thinking')}
-        </strong>
-        {/* Acting line already embeds host; skip duplicate site detail under displaySummary. */}
-        {liveDetailKind === 'site' && liveMeta.mode !== 'viewing' && liveMeta.mode !== 'acting' && (
-          <span>{t('chat_task_activity_viewing', [liveSiteHost || siteHost])}</span>
-        )}
-        {liveDetailKind === 'verified' && liveMeta.mode !== 'acting' && (
-          <span>{t('chat_task_activity_verified', [String(doneSteps)])}</span>
-        )}
-        {liveDetailKind === 'preparing' && <span>{t('chat_task_activity_preparing')}</span>}
-        {liveDetailKind === 'wait_user' && <span>{t('chat_task_activity_wait_hint')}</span>}
-      </span>
-      {snapshot.status === 'running' && <span className="chijie-activity-dot" aria-hidden />}
-    </div>
+  const thinkingReasoning = showActivityPanel ? (
+    <ThinkingReasoning
+      items={publicActivityItems}
+      running={snapshot.status === 'running'}
+      elapsed={formatActivityDuration(activitySeconds)}
+    />
   ) : null;
-
-  const stepsHistory =
-    showSteps ? (
-      <div data-testid="task-round-timeline" className="chijie-activity-history">
-        <button
-          type="button"
-          data-testid="task-steps-toggle"
-          className="chijie-task-steps-toggle"
-          aria-expanded={stepsExpanded}
-          onClick={() => setStepsExpanded(open => !open)}>
-          <span>
-            {t('chat_task_steps_heading')}
-            <span className="chijie-task-steps-count">{attempts.length}</span>
-          </span>
-          <span className="chijie-task-steps-caret" aria-hidden>
-            {stepsExpanded ? <FiChevronUp /> : <FiChevronDown />}
-          </span>
-        </button>
-        {stepsExpanded && (
-          <ol data-testid="task-execution-steps" className="chijie-activity-stream">
-            {visibleAttempts.map(attempt => {
-              const isActive = attempt.state === 'executing' || attempt.state === 'proposed';
-              const iconKey = activityIconForAction(attempt.actionName);
-              const phase = activityPhaseForAttempt(attempt.state);
-              return (
-                <li
-                  key={attempt.id}
-                  data-testid="task-round-step"
-                  data-state={attempt.state}
-                  data-phase={phase}
-                  data-pending="false"
-                  className={isActive ? 'is-active' : undefined}>
-                  <span className="chijie-activity-icon" data-phase={phase} aria-hidden>
-                    <ActivityGlyph name={iconKey} />
-                  </span>
-                  <span className="chijie-round-body">
-                    <span className="chijie-round-title">{attemptDisplayTitle(attempt)}</span>
-                    <span className="chijie-round-meta">
-                      {attempt.targetLabel && (
-                        <span className="chijie-round-target">{attempt.targetLabel}</span>
-                      )}
-                      <span className="chijie-round-state">
-                        {attemptLineState(attempt)}
-                      </span>
-                      <span className="chijie-round-time">{formatTime(attempt.proposedAt)}</span>
-                    </span>
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
-        )}
-      </div>
-    ) : null;
 
   const completionBlock =
     showVerifiedDone && round?.receipt ? (
@@ -706,9 +484,7 @@ export function TaskStatusCard({
             </div>
             {/* Deliverable slot: only when substantive content exists; clickable/copyable. */}
             {deliverableAnswer && (
-              <div
-                className="chijie-completion-deliverable"
-                data-testid="completion-deliverable">
+              <div className="chijie-completion-deliverable" data-testid="completion-deliverable">
                 <button
                   type="button"
                   className="chijie-completion-deliverable-text"
@@ -884,14 +660,10 @@ export function TaskStatusCard({
         interrupted={snapshot.status === 'interrupted'}
       />
 
-      {/* 3b. Running activity is already represented semantically in TaskProgressOverview.
-          Keep raw browser operations as a collapsed audit trail. */}
+      {/* 3b. Public action summaries only. Never expose model chain-of-thought or raw browser selectors. */}
       {primaryOrganism === 'activity' && showActivityPanel && (
-        <div
-          data-testid="task-activity-panel"
-          className="chijie-activity-panel"
-          data-secondary="true">
-          {stepsHistory}
+        <div data-testid="task-activity-panel" className="chijie-activity-panel" data-secondary="true">
+          {thinkingReasoning}
         </div>
       )}
 
@@ -904,10 +676,7 @@ export function TaskStatusCard({
           data-testid="task-activity-panel"
           className="chijie-activity-panel"
           data-secondary={primaryOrganism === 'completion' ? 'true' : undefined}>
-          {/* Runtime activity is mutually exclusive with paused/interrupted/recovery states. */}
-          {snapshot.status === 'running' && activityHeader}
-          {snapshot.status === 'running' && liveActivityRow}
-          {stepsHistory}
+          {thinkingReasoning}
         </div>
       )}
 
@@ -1094,7 +863,6 @@ export function TaskStatusCard({
           </button>
         </div>
       )}
-
     </section>
   );
 }
