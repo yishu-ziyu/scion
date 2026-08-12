@@ -489,7 +489,9 @@ export function classifyWorkspaceStatus(entries) {
 
 export function readWorkspaceStatus(scionRoot) {
   const tracked = runGit(scionRoot, ['status', '--porcelain', '--untracked-files=no']);
-  const untracked = String(runGit(scionRoot, ['ls-files', '--others', '--exclude-standard', '--directory', '-z']))
+  // `--directory` also reports empty, untrackable folders. Only real files can
+  // change a committed build, so keep the file-level list here.
+  const untracked = String(runGit(scionRoot, ['ls-files', '--others', '--exclude-standard', '-z']))
     .split('\0')
     .filter(Boolean)
     .map(file => `?? ${file}`)
