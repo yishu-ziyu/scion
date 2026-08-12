@@ -44,6 +44,7 @@ const tokensCss = readFileSync(resolve(here, '../chijie-tokens.css'), 'utf8');
 const componentsCss = readFileSync(resolve(here, '../chijie-components.css'), 'utf8');
 const taskStatusCardSource = readFileSync(resolve(here, '../../components/TaskStatusCard.tsx'), 'utf8');
 const taskProgressOverviewSource = readFileSync(resolve(here, '../../components/TaskProgressOverview.tsx'), 'utf8');
+const thinkingReasoningSource = readFileSync(resolve(here, '../../components/ThinkingReasoning.tsx'), 'utf8');
 const sidePanelSource = readFileSync(resolve(here, '../../SidePanel.tsx'), 'utf8');
 const sidePanelCss = readFileSync(resolve(here, '../../SidePanel.css'), 'utf8');
 const indexCss = readFileSync(resolve(here, '../../index.css'), 'utf8');
@@ -252,16 +253,24 @@ describe('Feature: Side panel uses 持节 design system', () => {
 });
 
 describe('Feature: design/003 task main blocks', () => {
-  it('progress console and TaskStatusCard include mission, audit, and completion testids', () => {
+  it('progress console and TaskStatusCard include mission, public work stream, and completion testids', () => {
     expect(taskProgressOverviewSource).toContain('task-goal-block');
     expect(taskProgressOverviewSource).toContain('MissionPlanList');
     expect(readFileSync(resolve(here, '../../components/MissionPlanList.tsx'), 'utf8')).toContain('mission-plan');
-    expect(taskStatusCardSource).toContain('task-round-timeline');
+    expect(taskStatusCardSource).toContain('ThinkingReasoning');
+    expect(thinkingReasoningSource).toContain('task-thinking-reasoning');
     expect(taskStatusCardSource).toContain('completion-receipt');
     expect(taskStatusCardSource).toContain('completion-receipt-meta');
     expect(taskStatusCardSource).toContain('completion-receipt-details');
     expect(taskStatusCardSource).toContain('completion-evidence-list');
     expect(taskStatusCardSource).not.toContain('批准一次');
+  });
+
+  it('removes the duplicated current-action and normal-health blocks completely', () => {
+    expect(taskProgressOverviewSource).not.toContain('task-progress-current-activity');
+    expect(taskProgressOverviewSource).not.toContain('task-progress-health');
+    expect(componentsCss).not.toContain('.chijie-progress-now');
+    expect(componentsCss).not.toContain('.chijie-progress-health');
   });
 
   it('mission plan is collapsible and driven by truthful runtime status rather than demo timers', () => {
@@ -331,7 +340,7 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskProgressOverviewSource).toContain('任务已中断，进度已经保存');
     expect(taskStatusCardSource).toContain('data-testid="task-resume"');
     expect(taskStatusCardSource).toContain('data-testid="task-stop-menu"');
-    expect(taskStatusCardSource).toContain('snapshot.status !== \'interrupted\'');
+    expect(taskStatusCardSource).toContain("snapshot.status !== 'interrupted'");
     expect(componentsCss).toContain('.chijie-interrupted-status');
     expect(componentsCss).toContain('.chijie-interrupted-actions');
     expect(componentsCss).toContain('.chijie-interrupted-menu');
@@ -393,9 +402,9 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(chatInput).not.toMatch(/Planner|Navigator|step_failed/);
   });
 
-  it('TaskStatusCard has collapsible execution steps and outcome rating after receipt', () => {
-    expect(taskStatusCardSource).toContain('data-testid="task-steps-toggle"');
-    expect(taskStatusCardSource).toContain('data-testid="task-execution-steps"');
+  it('TaskStatusCard has a collapsible public work stream and outcome rating after receipt', () => {
+    expect(thinkingReasoningSource).toContain('aria-expanded={expanded}');
+    expect(thinkingReasoningSource).toContain('展开或收起任务处理过程');
     expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
     expect(taskStatusCardSource).toContain('data-testid="task-outcome-rating"');
     expect(taskStatusCardSource).toContain('data-testid={`task-rate-${rating}`}');
@@ -405,16 +414,16 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toContain('type="radio"');
   });
 
-  it('TaskStatusCard activity panel uses icons and elapsed responsibility stream', () => {
+  it('TaskStatusCard activity panel uses elapsed, privacy-safe real action summaries', () => {
     expect(taskStatusCardSource).toContain('data-testid="task-activity-panel"');
-    expect(taskStatusCardSource).toContain('data-testid="task-activity-live"');
-    expect(taskStatusCardSource).toContain('ActivityGlyph');
-    expect(taskStatusCardSource).toContain('activityIconForAction');
+    expect(taskStatusCardSource).toContain('publicActivityItems');
     expect(taskStatusCardSource).toContain('formatActivityDuration');
     expect(taskStatusCardSource).toContain('attemptDisplayTitle');
     expect(taskStatusCardSource).toContain('displaySummary');
-    // design/006 §5 #3: live line prefers displaySummary; fallback 正在{人话} · host.
-    expect(taskStatusCardSource).toContain('activityLiveActingLine');
+    expect(thinkingReasoningSource).toContain('never model chain-of-thought');
+    expect(thinkingReasoningSource).not.toContain('SENTENCES');
+    expect(thinkingReasoningSource).not.toContain('DELAYS');
+    expect(thinkingReasoningSource).not.toMatch(/setTimeout/);
     expect(taskStatusCardSource).not.toMatch(/Planner|Navigator|step_failed/);
   });
 
@@ -439,22 +448,17 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(tree.indexOf('TaskProgressOverview')).toBeLessThan(tree.indexOf('task-activity-panel'));
     expect(taskStatusCardSource).toContain('data-primary-organism={primaryOrganism}');
     expect(taskStatusCardSource).toContain('taskPrimaryOrganism');
-    const liveSlice = taskStatusCardSource.slice(
-      taskStatusCardSource.indexOf('const showLiveActivity'),
-      taskStatusCardSource.indexOf('const showActivityPanel'),
-    );
-    expect(liveSlice).toContain("status === 'running'");
+    expect(taskStatusCardSource).toContain("snapshot.status === 'running' || showSteps");
     // Completion honesty remains above the secondary audit history.
     expect(tree.indexOf("primaryOrganism === 'completion' && completionBlock")).toBeLessThan(
       tree.indexOf("primaryOrganism !== 'activity' && showActivityPanel"),
     );
-    // Running uses semantic Now in TaskProgressOverview; operations stay secondary and collapsed.
+    // Running action summaries stay visible without restoring either deleted status card.
     expect(tree).toContain("primaryOrganism === 'activity' && showActivityPanel");
     expect(tree).toContain('data-secondary="true"');
-    expect(tree).toContain("{snapshot.status === 'running' && activityHeader}");
-    expect(tree).toContain("{snapshot.status === 'running' && liveActivityRow}");
-    expect(tree).not.toContain("showLiveActivity || primaryOrganism === 'recovery'");
-    expect(tree).toContain('{stepsHistory}');
+    expect(tree).toContain('{thinkingReasoning}');
+    expect(taskProgressOverviewSource).not.toContain('task-progress-current-activity');
+    expect(taskProgressOverviewSource).not.toContain('task-progress-health');
     // The progress workspace gets meaningful height while chat and the fixed composer remain usable.
     expect(componentsCss).toMatch(/\.chijie-chat-log[\s\S]{0,120}min-height:\s*8\.5rem/);
     expect(componentsCss).toMatch(/\.chijie-paper-card[\s\S]{0,200}max-height:\s*min\(58vh,\s*560px\)/);
