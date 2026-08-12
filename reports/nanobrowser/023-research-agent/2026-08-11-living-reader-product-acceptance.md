@@ -129,6 +129,106 @@ verified Feishu deliveries: 2/2
 }
 ```
 
+## 最终全结果公共复验
+
+完成全部代码修复和生产构建后，关闭原 ego space `19`，确认没有可复用空间，再创建 fresh ego space `20`。该复验不是读取测试夹具，而是重新走真实扩展入口、历史恢复、任务卡片、飞书页面和扩展存储边界。
+
+### 公共入口与历史恢复
+
+1. 打开最新构建的 `side-panel/index.html`，初始公共状态为“空闲”。
+2. 点击真实“加载历史”按钮。
+3. 历史列表仍有两个以原始 Living Reader 指令开头的记录，证明扩展 reload 和新 browser space 后历史仍可读取。
+4. 打开绑定正式任务 ID 的记录后，公共任务卡片恢复为完成态，而不是创建新任务或只显示聊天文本。
+
+最新构建的公共观察全部为真：
+
+```json
+{
+  "completed": true,
+  "mission": "Living Reader 下一阶段能力决策",
+  "stages": "5/5",
+  "repository": "1/1",
+  "qualifiedUsers": "81/80",
+  "qualifiedProducts": "30/30",
+  "decisions": "3/3",
+  "deliveries": "2/2",
+  "allEvidenceVerified": true,
+  "nextStep": "任务已完成",
+  "readbackLabels": 2,
+  "tableLinkVisible": true,
+  "documentLinkVisible": true
+}
+```
+
+同一时刻，扩展持久状态报告：
+
+```json
+{
+  "status": "completed",
+  "revision": 3113,
+  "roundStatus": "completed",
+  "receipt": true,
+  "records": 182,
+  "rawUsers": 96,
+  "rawProducts": 32,
+  "decisionCount": 3,
+  "deliveryKinds": ["decision_document", "research_table"]
+}
+```
+
+### 真实交付物重新打开
+
+复验直接重新打开两份真实 Feishu URL：
+
+- 研究表：页面标题包含 `The Living Reader 研究证据矩阵`，可见正文包含九个要求字段；持久回读记录的 `rowCount=179`，`observedText` 包含“已经保存到云端”。
+- 决策文档：先读取顶部三个能力，再滚动真实 `.bear-web-x-container.docx-in-wiki` 编辑器到下方；视口中实际出现 `暂时不做` 与 `反证与风险`。完整页面正文同时包含 `下一步做什么`、`为什么`、三个最终能力标题。
+
+截图：
+
+- [研究表真实页面回读](./2026-08-12-research-table-readback.png)
+- [决策文档暂不做与风险区回读](./2026-08-12-decision-document-readback.png)
+
+这关闭了 delivery 目标的反馈环：不仅 storage 有 URL，用户可访问页面也实际渲染了要求内容。
+
+### 真实窄侧栏进度控制台
+
+同一完成历史卡片在最新构建下用真实浏览器 viewport 复验：
+
+| 宽度 | `clientWidth` | `scrollWidth` | 横向溢出 | 完成态、Mission、5/5 |
+|---|---:|---:|---|---|
+| 430px | 430 | 430 | 否 | 全部可见 |
+| 320px | 320 | 320 | 否 | 全部可见 |
+
+截图：
+
+- [430px 完成态](./progress-console/2026-08-12-completed-430px.png)
+- [320px 完成态](./progress-console/2026-08-12-completed-320px.png)
+
+这关闭了 progress-console 目标的反馈环：最终完成输出在真实侧栏宽度可读，没有依赖源代码检查或合成 DOM。
+
+### 恢复与调整方向的真实观察
+
+正式任务仍为 `waiting_user/proof_required` 时，在包含 `1fcbf49` 的真实构建中点击公共“调整方向”按钮。浏览器观察到 composer 从 `textareaDisabled=true` 变为 `false`。通过该 composer 提交边界明确的继续指令后，同一任务创建后续 round，并最终变成 revision `3113` 的 completed + verified receipt。
+
+这关闭了 recovery 和 long-horizon recovery 目标的反馈环：修复后的按钮实际恢复了用户连续控制，后续执行保留原任务 ID、证据空间、3 项决策和两份回读收据。
+
+### 先前解释假设
+
+会话压缩丢失了最初用户原文，只保留未完成 todo、正式任务 ID、报告和浏览器状态。恢复早期的必要解释是：用户要继续并完成现有 Living Reader 长任务，而不是新建一个相似任务。后续从正式任务历史、相同 task ID 和持久证据确认了这个解释。对“必须完全无人辅助完成 Feishu 富文本写入”是否属于最终用户结果没有可靠原文，因此报告把“用户结果交付”和“纯 Agent 富文本自主性”分开判定，避免把不确定解释冒充通过。
+
+### 全目标可观察映射
+
+| 先前目标 | 最新真实入口检查 | 观察结果 |
+|---|---|---|
+| progress-console | 历史完成卡片，430px 与 320px viewport | 5/5 与全部 Gate 可读，无横向溢出 |
+| long-horizon-product | reload 后从历史恢复同一任务，检查终态、健康和持久回执 | completed、receipt=true、证据不丢失 |
+| living-reader | 正式 ID 的完成卡片和三项决策 | 81/80、30/30、3/3、2/2 |
+| living-reader-e2e | 公共入口、扩展存储、两份真实 Feishu 页面 | 任务、存储和页面三层一致 |
+| Living Reader recovery | waiting_user 卡片点击“调整方向”并发送 follow-up | composer 重新启用，原任务进入后续 round |
+| Living Reader long-horizon recovery | 多 round 恢复后再次 reload 和历史打开 | 同 ID、182 条记录、三项决策、双收据仍在 |
+| living-reader-delivery | 重新打开研究表和决策文档并滚动读取 | 表头、179 行回读、做什么/为什么/暂不做/风险和三项标题存在 |
+| Living Reader long-horizon acceptance | 最终任务卡片与内存储状态 | completed/completed、verified receipt、全部门通过 |
+
 ## G23 映射
 
 | Gate | 最终结果 | 状态 |
