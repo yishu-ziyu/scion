@@ -14,7 +14,16 @@ import { sha256 } from '../digest';
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
   chatSessions: new Map<string, unknown>(),
-  evidenceSpaces: new Map<string, { taskId: string; records: Array<{ recordType: string }>; workCycles: number }>(),
+  evidenceSpaces: new Map<
+    string,
+    {
+      taskId: string;
+      records: Array<{ recordType: string }>;
+      workCycles: number;
+      researchDecision?: unknown;
+      researchDelivery?: unknown;
+    }
+  >(),
   saveTask: vi.fn(async (task: { id: string }) => {
     store.sessions.set(task.id, structuredClone(task));
   }),
@@ -256,6 +265,65 @@ describe('TaskManager lifecycle', () => {
     expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('Candidate completion rejected'));
     expect(store.evidenceSpaces.get('task-research-premature')?.workCycles).toBe(1);
     await vi.waitFor(async () => expect((await manager.snapshot('task-research-premature'))?.status).toBe('failed'));
+  });
+
+  it('completes structured research from durable decision and Feishu receipts without user confirmation', async () => {
+    let finish!: (outcome: ExecutorOutcome) => void;
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    store.evidenceSpaces.set('task-research-delivered', {
+      taskId: 'task-research-delivered',
+      records: [
+        ...Array.from({ length: 80 }, () => ({ recordType: 'user_discussion' })),
+        ...Array.from({ length: 30 }, () => ({ recordType: 'product' })),
+        { recordType: 'repository' },
+      ],
+      workCycles: 0,
+      researchDecision: { capabilities: [{ title: 'A' }, { title: 'B' }, { title: 'C' }] },
+      researchDelivery: { research_table: {}, decision_document: {} },
+    });
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => driver),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-research-delivered',
+      taskId: 'task-research-delivered',
+      instruction:
+        'Living Reader：至少搜索并阅读 80 个用户讨论；至少研究 30 个产品；最终恰好 3 个能力并完成飞书研究表与决策文档回读。',
+      chatSessionId: 'chat-research-delivered',
+      instructionMessageId: 'message-research-delivered',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledTimes(1));
+    const storedTask = structuredClone(store.sessions.get('task-research-delivered')) as {
+      rounds: Array<{ criteria: unknown[] }>;
+    };
+    storedTask.rounds[0].criteria = [
+      {
+        id: 'criterion-user-confirmed',
+        kind: 'user_confirmed',
+        description: 'User confirms delivery',
+        required: true,
+      },
+    ];
+    store.sessions.set('task-research-delivered', storedTask);
+
+    finish({ kind: 'candidate_complete', summary: 'All durable research gates are verified.' });
+
+    await vi.waitFor(async () => {
+      const snapshot = await manager.snapshot('task-research-delivered');
+      expect(snapshot?.status).toBe('completed');
+      expect(snapshot?.rounds[0]?.status).toBe('completed');
+      expect(snapshot?.rounds[0]?.waitReason).toBeUndefined();
+      expect(snapshot?.rounds[0]?.receipt).toBeDefined();
+      expect(snapshot?.rounds[0]?.criteria).toEqual([]);
+    });
   });
 
   it('recovers a quota research task from a single-source action failure', async () => {
