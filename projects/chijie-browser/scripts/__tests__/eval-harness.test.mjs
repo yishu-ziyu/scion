@@ -20,6 +20,7 @@ import {
   multiSourceDeliveryPass,
   navigateInitialTargetWithRetry,
   productDeliverablePass,
+  productOracleRows,
   r1ProductDeliverablePass,
   scopedCompletionSnapshot,
   tabProvenanceWrongTab,
@@ -164,6 +165,10 @@ test('product oracle accepts the real six-row formatter output and only its fixe
   assert.equal(productDeliverablePass(`商品提取结果：\n${table.join('\n')}\n${conclusion}`, products), true);
   assert.equal(productDeliverablePass(`商品提取结果：\n${deliverable}`, products), true);
   assert.equal(productDeliverablePass(`任意分析标题：\n${table.join('\n')}\n${conclusion}`, products), false);
+  const wrapped = [{ name: '', price: '', rating: '' }, ...products];
+  assert.equal(productOracleRows(wrapped).length, 6);
+  assert.equal(productDeliverablePass(deliverable, wrapped), true);
+  assert.equal(productDeliverablePass(deliverable.replace(/\n/g, ' '), products), false);
 });
 
 test('R1 accepts the real CSV or Markdown formatter table without weakening LH03', () => {
@@ -291,6 +296,8 @@ test('R1 scorer only reads one task-scoped deliverable and a matching receipt', 
   assert.match(source, /card\.querySelectorAll\(deliverableSelector\)/);
   assert.match(source, /deliverableRequired: true/);
   assert.match(source, /completion_result_count: result\.completionResultCount/);
+  assert.match(source, /productOracleRows/);
+  assert.doesNotMatch(source, /\[data-testid\^="product-"\]/);
   assert.doesNotMatch(source, /seenRunning/);
   assert.doesNotMatch(source, /document\.querySelectorAll\(deliverableSelector\)/);
   assert.doesNotMatch(source, /instructionSummary/);
@@ -368,6 +375,10 @@ test('public and frontier body_contains_all score only the unique final delivera
     assert.match(source, /wrong_tab:\s*wrongTab\s*\?\?\s*''/);
     assert.match(source, /priorReceiptIds/);
     assert.match(source, /runtimeTaskSnapshot/);
+    if (relative.endsWith('eval-public-task.mjs')) {
+      assert.match(source, /productOracleRows/);
+      assert.doesNotMatch(source, /\[data-testid\^="product-"\]/);
+    }
   }
 });
 

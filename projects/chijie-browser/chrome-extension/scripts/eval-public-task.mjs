@@ -33,6 +33,7 @@ import {
   navigateInitialTargetWithRetry,
   normalizeEvidenceText,
   productDeliverablePass,
+  productOracleRows,
   scopedCompletionSnapshot,
   tabProvenanceWrongTab,
   taskUrlContractPass,
@@ -451,13 +452,14 @@ async function pageTextContains(target, needle) {
 }
 
 async function readProductsOracle(target) {
-  return target.evaluate(() =>
-    [...document.querySelectorAll('[data-testid^="product-"]')].map(element => ({
+  const raw = await target.evaluate(() =>
+    [...document.querySelectorAll('[data-name][data-price]')].map(element => ({
       name: element.getAttribute('data-name') || '',
       price: element.getAttribute('data-price') || '',
       rating: element.getAttribute('data-rating') || '',
     })),
   );
+  return productOracleRows(raw);
 }
 
 async function verifyResult(target, panel) {
