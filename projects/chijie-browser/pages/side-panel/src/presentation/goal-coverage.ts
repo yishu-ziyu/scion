@@ -94,15 +94,19 @@ export function hasSubstantiveAnswer(answer: string | undefined, goalText?: stri
 /**
  * Prefer a real agent answer; never treat the goal text or media status as the deliverable.
  */
+function visibleDeliverableText(value?: string | null): string {
+  return value?.replace(/\r\n?/g, '\n').trim() ?? '';
+}
+
 export function resolveDeliverableAnswer(input: {
   instructionSummary?: string;
   goalText?: string;
   completionOutcome?: string | null;
 }): string | undefined {
   const goal = input.goalText?.replace(/\s+/g, ' ').trim() ?? '';
-  const summary = input.instructionSummary?.replace(/\s+/g, ' ').trim() ?? '';
+  const summary = visibleDeliverableText(input.instructionSummary);
   if (hasSubstantiveAnswer(summary, goal)) return summary;
-  const outcome = input.completionOutcome?.replace(/\s+/g, ' ').trim() ?? '';
+  const outcome = visibleDeliverableText(input.completionOutcome);
   if (hasSubstantiveAnswer(outcome, goal)) return outcome;
   return undefined;
 }

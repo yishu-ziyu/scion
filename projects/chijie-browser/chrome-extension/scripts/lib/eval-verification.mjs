@@ -663,10 +663,21 @@ function parseMarkdownRow(line) {
   return fields;
 }
 
+/** Drop list wrappers and other empty nodes the DOM oracle may scrape. */
+export function productOracleRows(products) {
+  if (!Array.isArray(products)) return [];
+  return products.filter(
+    product =>
+      Boolean(normalizeEvidenceText(product?.name)) &&
+      Boolean(normalizeEvidenceText(product?.price)) &&
+      Boolean(normalizeEvidenceText(product?.rating)),
+  );
+}
+
 function validatedProductTable(deliverable, products, allowedFormats) {
-  if (!Array.isArray(products) || products.length < 5) return null;
-  const expectedRows = products.map(product => [product?.name, product?.price, product?.rating]);
-  if (expectedRows.some(row => row.some(value => !normalizeEvidenceText(value)))) return null;
+  const oracleRows = productOracleRows(products);
+  if (oracleRows.length < 5) return null;
+  const expectedRows = oracleRows.map(product => [product.name, product.price, product.rating]);
 
   let lines = structuredDeliverableLines(deliverable);
   if (/^商品提取结果\s*[:：]$/.test(lines[0] || '')) lines = lines.slice(1);

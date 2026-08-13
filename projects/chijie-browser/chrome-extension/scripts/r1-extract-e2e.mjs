@@ -30,6 +30,7 @@ import {
   completionProtocolErrors,
   COMPLETION_RESULT_SELECTOR,
   FINAL_DELIVERABLE_SELECTOR,
+  productOracleRows,
   r1ProductDeliverablePass,
   scopedCompletionSnapshot,
   tabProvenanceWrongTab,
@@ -552,15 +553,17 @@ try {
   const target = await browser.newPage();
   await target.goto(`${origin}/products`, { waitUntil: 'domcontentloaded' });
   // Sanity: fixture has ≥5 products in DOM.
-  const productCount = await target.$$eval('[data-testid^="product-"]', els => els.length);
-  assert.ok(productCount >= 5, `fixture must list ≥5 products, got ${productCount}`);
-  const products = await target.$$eval('[data-testid^="product-"]', elements =>
-    elements.map(element => ({
-      name: element.getAttribute('data-name') || '',
-      price: element.getAttribute('data-price') || '',
-      rating: element.getAttribute('data-rating') || '',
-    })),
+  const products = productOracleRows(
+    await target.$$eval('[data-name][data-price]', elements =>
+      elements.map(element => ({
+        name: element.getAttribute('data-name') || '',
+        price: element.getAttribute('data-price') || '',
+        rating: element.getAttribute('data-rating') || '',
+      })),
+    ),
   );
+  const productCount = products.length;
+  assert.ok(productCount >= 5, `fixture must list ≥5 products, got ${productCount}`);
 
   const panel = await openPanelForTarget(extensionId, target, { seed: true });
   panelPage = panel;

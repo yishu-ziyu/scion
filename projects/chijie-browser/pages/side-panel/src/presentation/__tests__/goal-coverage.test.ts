@@ -56,4 +56,19 @@ describe('resolveDeliverableAnswer', () => {
     ).toBeUndefined();
     expect(hasSubstantiveAnswer('第一条评论：哈哈哈', goal)).toBe(true);
   });
+
+  it('keeps CSV newlines in the visible deliverable', () => {
+    const csv = [
+      '已提取 6 件商品（CSV）：',
+      'name,price,rating',
+      'Alpha Wireless Headphones,$49.99,4.5',
+      '最贵商品是 Alpha Wireless Headphones，价格为 $49.99。',
+    ].join('\n');
+    expect(
+      resolveDeliverableAnswer({
+        instructionSummary: csv,
+        goalText: '把商品导出为 CSV 表并指出最贵商品',
+      }),
+    ).toBe(csv);
+  });
 });
