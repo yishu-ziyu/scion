@@ -10,6 +10,8 @@
 
 **最新暂停交接：** [2026-08-13-repair-pause-handoff.md](./2026-08-13-repair-pause-handoff.md)。继续工作前先核对其中的候选指纹、排除目录、已完成检查与固定恢复顺序。
 
+**D 短测（2026-08-13，HEAD `ff3b077`，未推送）：** Chrome for Testing、MiniMax-M3、六任务各 1 次。013-A01 / 013-B07 / 021-LH-01 / 021-LH-02 / 021-LH-03 为 `verified_pass` 且 `false_complete=0`。021-LH-04 诚实 `agent_failed`（两站已访问，未写出观察一/观察二）。主 Chrome 原生侧栏因 CDP `health: BAD` 未跑。证据：`reports/nanobrowser/eval/2026-08-13-ff3b077-d-smoke-*`。下列条目全部保持原状态，没有改为 DONE。
+
 ## 状态约定
 
 | 状态      | 含义                                    |

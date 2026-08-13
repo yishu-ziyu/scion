@@ -4,27 +4,21 @@
 
 **暂停原因：** Owner 要求先停下，完整记录已做工作与后续计划。
 
-**当前判断：** A/B 已完成。独立反攻后又修了两处候选内真问题（导航「返回」误开交付、catch 路径 `wrong_tab ?? 0`）。**可以进入步骤 C（提交候选）**，但不是发布通过，也不得把 DF-P0-01/03/09 标成 DONE。主 Chrome 短测与正式多轮仍属 D/E。
+**当前判断：** A/B/C 已完成。D 短测在 `ff3b077` 上 **5/6 诚实通过**，不是发布通过。021-LH-04 仍诚实失败。主 Chrome 原生侧栏未跑。E/F 未开始。不得把 DF-P0 标成 DONE。
 
 ## 1. 当前精确停点
 
 - 仓库：`/Users/mahaoxuan/Desktop/AI产品经理/自研产品/scion`
-- 分支：`main`
-- 当前提交：`88eb23126dde22cf4ef8925b178510f790ac8a96`
-- 所有候选代码仍在工作区，**没有暂存、没有提交、没有推送**。
-- 暂停时（A 核对）项目代码差异指纹：`f77f76ea906ebc202a2a1d8b9dc255c7d0cbb6a71542a3ee0f4fab334492a1e4`。当时与交接完全吻合，五个新文件 SHA 也全部吻合。
-- A/B 之后的项目代码差异指纹：`7feb09771638b55bb6ff1931a16a90582adaede377050545db68dc936073b488`。
-  - 复核命令：`git diff --binary -- projects/chijie-browser | shasum -a 256`
-  - 相对暂停指纹的有意漂移：旅程测试类型收窄；导航「返回」排除加宽；public/frontier catch 的 `wrong_tab` 不再默认 0。
-  - 本交接文档与 Todo 链接不属于该代码指纹。
-- 五个应纳入候选的新源码/测试文件及 SHA-256：
-  - `chrome-extension/scripts/lib/action-run-evidence.mjs`：`81f6975dee0bb001e514b2baa1572d77ff08367525328a33f346aede1ac96dbf`（未变）
-  - `chrome-extension/scripts/lib/eval-claim-polarity.mjs`：`5eef3976bda81cbb3321543c218f0ee7ef60b00add3e3a4d64805ff1ee8190a8`（未变）
-  - `chrome-extension/src/background/instruction-language.ts`：`1a2a58cd0032b0bc1e5b564cacd4c2d0f059d1f90ad004e7e04e3e1a52d26714`
-  - `chrome-extension/src/background/__tests__/instruction-language.test.ts`：`5460253b4548884ec7f34e02980e984b0c06282e6066e478c4ecb689a9ff14d6`
-  - `pages/side-panel/src/components/__tests__/task-status-card-identity.test.ts`：`1eb40dbdf7a2c1d296733f5a52e73969b032793aa22ed8c9c1488ce9cb17c4e1`（未变）
-- `instruction-language.ts` 当前为 400 行。结构解析入口（子句、极性、施事、目标、网址顺序），不是句式补丁堆积。
-- `.omo/`、`clicky/`、旧评测 CSV/`artifacts/`/`build-attestations/` 仍为未跟踪过程产物，A/B 未碰触。
+- 分支：`main`，**领先 origin 5 个提交，未推送**
+- 当前 HEAD：`ff3b07759d164081d2347413e99e15ef4be13f33`
+- 本轮 D 迭代新提交（均未推送）：
+  - `5aa9033` 完成必须有页面证据
+  - `b4033ea` 页面正文大小写
+  - `5a7d569` 长程提取与 IANA 途经跳转
+  - `57a3397` 商品 CSV 换行 + 空 oracle 行
+  - `ff3b077` 双来源途经跳转不再锁 IANA 完成准则
+- 不要 `git add -A`。`.omo/`、`clicky/`、旧评测产物保持未跟踪。
+- `current_milestone`：`long_horizon_v1`（021）。
 
 ## 2. 本轮已经做了什么
 
@@ -202,4 +196,48 @@ pnpm eval:matrix
 
 ## 6. 下次开始时的一句话
 
-> A/B 已完成。指纹 `7feb0977...`。可进入步骤 C 提交候选；不要宣称 DF-P0 已关，不要把 Todo 标完成。
+> D 未绿。HEAD `ff3b077`（5 个提交未推送）。六任务短测 5/6：LH-04 诚实失败。不要宣称 DF-P0 已关。E 未开始。主 Chrome CDP `health: BAD`，不要 `chrome-cdp repair` 除非 Owner 允许退出 Chrome。
+
+## 7. D 恢复结果（2026-08-13）
+
+**官方模型：** MiniMax-M3。**attach：** Chrome for Testing。**policy：** `verified-long-horizon-v1`。
+
+最新可引用 campaign（自我校验通过，6/6 行，`false_complete=0`，`wrong_tab=0`）：
+
+- stamp：`2026-08-13-ff3b077-d-smoke`
+- git：`ff3b07759d164081d2347413e99e15ef4be13f33`
+- CSV：`reports/nanobrowser/eval/2026-08-13-ff3b077-d-smoke-eval-matrix.csv`
+- 摘要：`reports/nanobrowser/eval/2026-08-13-ff3b077-d-smoke-eval-summary.md`
+- campaign：`reports/nanobrowser/eval/2026-08-13-ff3b077-d-smoke-eval-campaign.json`
+- 产物：`reports/nanobrowser/eval/artifacts/2026-08-13-ff3b077-d-smoke/`
+
+| task_id | attempt | outcome | 说明 |
+| --- | --- | --- | --- |
+| 013-A01 | 1 | verified_pass | Wikipedia 标题/域名，有页面证据 |
+| 013-B07 | 1 | verified_pass | 到达 IANA Example Domains |
+| 021-LH-01 | 1 | verified_pass | `wiki/Artificial_intelligence` |
+| 021-LH-02 | 1 | verified_pass | Wikipedia Web browser 正文 |
+| 021-LH-03 | 1 | verified_pass | 6 行 CSV + 最贵 Beta Mechanical Keyboard $89.00；交付保留换行 |
+| 021-LH-04 | 1 | fail `agent_failed` | 技能已 example→IANA→Wikipedia 且停在 Wikipedia；模型未写出观察一/观察二。诚实失败，无完成收据 |
+
+更早 D 批次保留原样，不得改名成通过：`5aa9033-d-smoke`、`b4033ea-d-smoke`、`5a7d569-d-smoke`（LH-03 曾 `false_complete=1`，评测误杀）、`57a3397-d-smoke`（LH-03 已绿，LH-04 仍失败）。
+
+**D 迭代修了什么：**
+
+1. 侧栏交付不再把 CSV 换行压成空格；评测 oracle 忽略空的 `product-list` 包装行。LH-03 从假完成变成真实通过。
+2. 双来源「More information」途经跳转不再把 IANA URL 冻成完成准则；并按指令中的 Wikipedia 条目继续走。LH-04 不再 IANA↔Wikipedia 来回，但仍未交付。
+
+**回归（`ff3b077`）：** journey 20/20；extension 820；eval 99；side-panel 253；tsc/prettier 绿。
+
+**未做 / 阻断：**
+
+1. D 未诚实全绿 → **不得进入 E**（正式 3 轮）。
+2. 主 Chrome 原生侧栏：`chrome-cdp status` → `listen: yes`，`targets: 0`，`DevToolsActivePort: missing`，`health: BAD`。PID **55713** 占用 `127.0.0.1:9222`。`ensure` 无法接管；`repair` 会退出主 Chrome，需 Owner 允许。
+3. LH-04 剩余缺口是模型在两站都已访问后仍不写「观察一/观察二」。再做一个评测五段格式技能会变成评测过拟合；按连续失败规则停止对该缺口的产品补丁。
+4. F：全部 dogfood 仍为 VERIFYING。DF-P0-10 仍等 Owner 决定是否改写公开历史。
+
+**Owner 可解锁：**
+
+1. 允许 `chrome-cdp repair`（会退出主 Chrome）或自行腾出 9222，才能跑原生侧栏第五步。
+2. 决定 LH-04：接受 MiniMax-M3 在该合同上的诚实失败，或另开产品方向（不是把评测五段格式写进技能）。
+3. DF-P0-10 公开历史是否重写。
