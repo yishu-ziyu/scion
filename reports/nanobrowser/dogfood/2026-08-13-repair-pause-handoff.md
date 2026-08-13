@@ -4,7 +4,7 @@
 
 **暂停原因：** Owner 要求先停下，完整记录已做工作与后续计划。
 
-**当前判断：** A/B/C 已完成。D 短测在 `ff3b077` 上 **5/6 诚实通过**，不是发布通过。021-LH-04 仍诚实失败。主 Chrome 原生侧栏未跑。E/F 未开始。不得把 DF-P0 标成 DONE。
+**当前判断：** A/B/C 已完成。D 短测在 `ff3b077` 上 **5/6 诚实通过**，不是发布通过。021-LH-04 仍诚实失败。第五步主 Chrome 原生侧栏：WebBridge 已连上用户 Chrome，但**看不到持节 Side Panel**，7 项全部 BLOCKED。E/F 未开始。不得把 DF-P0 标成 DONE。
 
 ## 1. 当前精确停点
 
@@ -196,7 +196,7 @@ pnpm eval:matrix
 
 ## 6. 下次开始时的一句话
 
-> D 未绿。HEAD `ff3b077`（5 个提交未推送）。六任务短测 5/6：LH-04 诚实失败。不要宣称 DF-P0 已关。E 未开始。主 Chrome CDP `health: BAD`，不要 `chrome-cdp repair` 除非 Owner 允许退出 Chrome。
+> D 未绿。评测代码 `ff3b077`，文档曾到 `bb3e007`。六任务短测 5/6。WebBridge 第五步看不到原生侧栏。不要宣称 DF-P0 已关。E 未开始。不要 `chrome-cdp repair`。标签组「持节原生侧栏短测」未关。
 
 ## 7. D 恢复结果（2026-08-13）
 
@@ -232,12 +232,32 @@ pnpm eval:matrix
 **未做 / 阻断：**
 
 1. D 未诚实全绿 → **不得进入 E**（正式 3 轮）。
-2. 主 Chrome 原生侧栏：`chrome-cdp status` → `listen: yes`，`targets: 0`，`DevToolsActivePort: missing`，`health: BAD`。PID **55713** 占用 `127.0.0.1:9222`。`ensure` 无法接管；`repair` 会退出主 Chrome，需 Owner 允许。
+2. 主 Chrome 原生侧栏：CDP 9222 仍 `health: BAD`（未 repair）。改用 Kimi WebBridge 后仍看不到 `chrome.sidePanel`。见第 8 节。
 3. LH-04 剩余缺口是模型在两站都已访问后仍不写「观察一/观察二」。再做一个评测五段格式技能会变成评测过拟合；按连续失败规则停止对该缺口的产品补丁。
 4. F：全部 dogfood 仍为 VERIFYING。DF-P0-10 仍等 Owner 决定是否改写公开历史。
 
 **Owner 可解锁：**
 
-1. 允许 `chrome-cdp repair`（会退出主 Chrome）或自行腾出 9222，才能跑原生侧栏第五步。
+1. 原生侧栏：需要能看见 `chrome.sidePanel` 的控制面（人手点开侧栏并操作，或允许会退出 Chrome 的 `chrome-cdp repair`）。WebBridge 不够。
 2. 决定 LH-04：接受 MiniMax-M3 在该合同上的诚实失败，或另开产品方向（不是把评测五段格式写进技能）。
 3. DF-P0-10 公开历史是否重写。
+4. 是否书面放行 E（即使侧栏仍 BLOCKED，当前也不应进 E）。
+
+## 8. WebBridge 第五步（2026-08-13）
+
+**会话：** `chijie-dogfood-sidepanel`。**组：** 持节原生侧栏短测（未 `close_session`）。  
+**证据目录：** `reports/nanobrowser/dogfood/2026-08-13-webbridge-sidepanel/`
+
+WebBridge 能开用户真实 Chrome 网页标签，不能进入持节的 `chrome-extension://` 页，也不能枚举原生 Side Panel。`Target.getTargets` 被拒绝。页面截图与 snapshot 都没有任务卡/收据/暂停继续。
+
+| 第五步检查 | 结果 | 说明 |
+| --- | --- | --- |
+| 1 简单读取 | BLOCKED | 无侧栏输入与收据 |
+| 2 中等导航 | BLOCKED | 仅确认 example.com 网页可见，不能从侧栏发任务 |
+| 3 长任务 | BLOCKED | 同左 |
+| 4 商品任务 | BLOCKED | 同左 |
+| 5 新对话 | BLOCKED | 同左 |
+| 6 暂停/继续/停止 | BLOCKED | 同左 |
+| 7 宽度/缩放/无障碍 | BLOCKED | cannot observe |
+
+因此 **D 侧栏项未过，不能进 E。** 条目保持 VERIFYING。DF-P0-10 仍 BLOCKED。
