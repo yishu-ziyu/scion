@@ -7,6 +7,7 @@ import {
   isExampleDomainLinkInstruction,
   isScrollBottomInstruction,
   isWikipediaSearchInstruction,
+  nextInstructionWikipediaArticleUrl,
   WIKIPEDIA_SEARCH_QUERY,
 } from '../../../browser/sites/public-shortcuts';
 import type { BrowserSkill, SkillResult } from '../types';
@@ -109,22 +110,43 @@ export const searchAndOpenSkill: BrowserSkill = {
     }
 
     if (isExampleDomainLinkInstruction(instruction)) {
+      const terminalHop = exampleDomainLinkIsTerminalGoal(instruction);
+      const ianaUrlCriteria = terminalHop
+        ? [
+            {
+              kind: 'url' as const,
+              operator: 'starts_with' as const,
+              expected: 'https://www.iana.org',
+              required: true,
+            },
+          ]
+        : [];
       if (/iana\.org/i.test(url)) {
-        if (!exampleDomainLinkIsTerminalGoal(instruction)) {
+        if (!terminalHop) {
+          const nextSource = nextInstructionWikipediaArticleUrl(instruction);
+          if (nextSource && !prev.wikiNavIssued) {
+            if (context.hasAction && !context.hasAction('go_to_url')) {
+              return { decision: { kind: 'continue', reason: 'no_go_to_url' } };
+            }
+            return {
+              decision: {
+                kind: 'action',
+                name: 'go_to_url',
+                args: { url: nextSource, intent: 'Open the next required source' },
+                observation: `Opening next source: ${nextSource}`,
+                criteria: [],
+                state: { ...prev, wikiNavIssued: true },
+              },
+              state: { ...prev, wikiNavIssued: true },
+            };
+          }
           return { decision: { kind: 'continue', reason: 'iana_hop_complete' } };
         }
         return {
           decision: {
             kind: 'done',
             summary: `Opened More information: ${url}`,
-            criteria: [
-              {
-                kind: 'url',
-                operator: 'starts_with',
-                expected: 'https://www.iana.org',
-                required: true,
-              },
-            ],
+            criteria: ianaUrlCriteria,
             state: prev,
           },
         };
@@ -150,14 +172,7 @@ export const searchAndOpenSkill: BrowserSkill = {
             name: 'go_to_url',
             args: { url: targetUrl, intent: 'Open More information' },
             observation: `Opening More information: ${targetUrl}`,
-            criteria: [
-              {
-                kind: 'url',
-                operator: 'starts_with',
-                expected: 'https://www.iana.org',
-                required: true,
-              },
-            ],
+            criteria: ianaUrlCriteria,
             state: { ...prev, exampleNavIssued: true },
           },
           state: { ...prev, exampleNavIssued: true },
