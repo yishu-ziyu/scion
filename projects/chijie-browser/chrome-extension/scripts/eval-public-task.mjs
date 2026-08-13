@@ -230,7 +230,7 @@ async function capturePageEvidence(target) {
     const observed = await target.evaluate(() => {
       const firstParagraph = (() => {
         const wikiParas = Array.from(
-          document.querySelectorAll('#mw-content-text .mw-parser-output > p:not(.mw-empty-elt)'),
+          document.querySelectorAll('#mw-content-text .mw-parser-output p:not(.mw-empty-elt)'),
         )
           .map(node => (node.textContent || '').replace(/\s+/g, ' ').trim())
           .filter(
