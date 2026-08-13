@@ -35,4 +35,17 @@ export function exampleDomainLinkIsTerminalGoal(instruction: string): boolean {
   return true;
 }
 
+/** First en.wikipedia.org/wiki article URL named in the instruction, if any. */
+export function nextInstructionWikipediaArticleUrl(instruction: string): string | null {
+  const match = instruction.match(/https?:\/\/en\.wikipedia\.org\/wiki\/[^\s<>"'，。；;）)\]}]+/i);
+  if (!match) return null;
+  try {
+    const url = new URL(match[0]);
+    if (url.hostname !== 'en.wikipedia.org' || !url.pathname.startsWith('/wiki/')) return null;
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return null;
+  }
+}
+
 export const WIKIPEDIA_SEARCH_QUERY = 'Agent';

@@ -4,6 +4,7 @@ import {
   isExampleDomainLinkInstruction,
   isScrollBottomInstruction,
   isWikipediaSearchInstruction,
+  nextInstructionWikipediaArticleUrl,
 } from '../public-shortcuts';
 
 describe('public-site shortcut detection', () => {
@@ -26,5 +27,7 @@ describe('public-site shortcut detection', () => {
     expect(isExampleDomainLinkInstruction(lh04)).toBe(true);
     expect(exampleDomainLinkIsTerminalGoal(lh04)).toBe(false);
     expect(exampleDomainLinkIsTerminalGoal('点击页面上的 More information... 链接')).toBe(true);
+    expect(nextInstructionWikipediaArticleUrl(lh04)).toBe('https://en.wikipedia.org/wiki/Web_browser');
+    expect(nextInstructionWikipediaArticleUrl('点击 More information')).toBeNull();
   });
 });
