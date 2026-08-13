@@ -662,8 +662,9 @@ function provenanceIdentityKey(identity: DeliverablePageEvidence): string {
 function latestPageEvidence(items: DeliverablePageEvidence[]): DeliverablePageEvidence | undefined {
   return items.reduce<DeliverablePageEvidence | undefined>((latest, item) => {
     if (!latest) return item;
-    if (item.visitSeq === undefined || latest.visitSeq === undefined) return item;
-    return item.visitSeq >= latest.visitSeq ? item : latest;
+    const itemSeq = item.visitSeq ?? -1;
+    const latestSeq = latest.visitSeq ?? -1;
+    return itemSeq >= latestSeq ? item : latest;
   }, undefined);
 }
 
@@ -2867,8 +2868,8 @@ export class TaskManager {
     const text = instruction.replace(/\s+/g, ' ').trim();
     if (!text) return false;
     const referencesCurrentPage =
-      /(?:当前|这个|本)(?:[^。！？!?]{0,20})?(?:页面|网页|网站|标签页)|(?:页面|网页)(?:上|中|展示|内容)/.test(text) ||
-      /\b(?:this|the|current)\s+(?:page|webpage|site|tab)\b/i.test(text);
+      /(?:当前|这个|本)(?:的)?(?:页面|网页|网站)|(?:页面|网页)(?:上|中|展示|内容)/.test(text) ||
+      /\b(?:this|the|current)\s+(?:page|webpage|site)\b/i.test(text);
     const requestsReading =
       /说明|描述|总结|摘要|概括|读取|读一下|提取|摘录|展示的内容|是什么|有哪些|确认(?:页面|网页)?(?:的)?(?:正文|内容|文本)/.test(
         text,
@@ -3079,7 +3080,8 @@ export class TaskManager {
           criterion.pageRevision = boundPageTarget.pageRevision;
         } else if (observation) criterion.targetRefId = observation.targetRefId;
         criterion.baseline =
-          readOnlyBrowserEvidence && (criterion.kind === 'page_text' || criterion.kind === 'url')
+          (readOnlyBrowserEvidence || parseProductTableInstruction(instructionForFreeze) !== null) &&
+          (criterion.kind === 'page_text' || criterion.kind === 'url')
             ? false
             : (observation?.value ?? false);
       }

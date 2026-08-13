@@ -548,6 +548,16 @@ describe('instruction deliverable contract', () => {
       reasons: [],
     });
 
+    expect(
+      await checkInstructionDeliverable(instruction, [...table, '最贵商品是 Beta，价格为 ¥25。'].join('\n'), [
+        ...evidence,
+        { normalizedUrl: 'https://shop.test/list', pageRevision: 'later-empty-capture' },
+      ]),
+    ).toEqual({
+      passed: true,
+      reasons: [],
+    });
+
     const duplicateAndOmit = [
       '已提取 3 件商品（CSV）：',
       'name,price,rating',

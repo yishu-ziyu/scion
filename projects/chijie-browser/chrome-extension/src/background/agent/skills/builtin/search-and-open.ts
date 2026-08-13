@@ -3,6 +3,7 @@
  * Migrated from control-llm public shortcuts.
  */
 import {
+  exampleDomainLinkIsTerminalGoal,
   isExampleDomainLinkInstruction,
   isScrollBottomInstruction,
   isWikipediaSearchInstruction,
@@ -109,6 +110,9 @@ export const searchAndOpenSkill: BrowserSkill = {
 
     if (isExampleDomainLinkInstruction(instruction)) {
       if (/iana\.org/i.test(url)) {
+        if (!exampleDomainLinkIsTerminalGoal(instruction)) {
+          return { decision: { kind: 'continue', reason: 'iana_hop_complete' } };
+        }
         return {
           decision: {
             kind: 'done',

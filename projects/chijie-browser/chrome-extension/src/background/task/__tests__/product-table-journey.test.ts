@@ -256,4 +256,49 @@ describe('R1 product-table journey (auto_proxy)', () => {
     expect(round?.instructionSummary).toContain('name,price,rating');
     expect(round?.instructionSummary).toContain(conclusion);
   });
+
+  it('completes LH-03 when the product name is already visible at freeze', async () => {
+    const rows = extractProductsFromHtml(fixtureHtml);
+    const conclusion = formatMostExpensiveProductConclusion(rows);
+    if (!conclusion) throw new Error('fixture prices must be comparable');
+    const csvSummary = `${formatProductTableDeliverable(rows, 'csv')}\n${conclusion}`;
+
+    const observeCriteria = vi.fn(async (criteria: CompletionCriterion[]) =>
+      criteria.map(item => ({
+        criterionId: item.id,
+        roundId: item.roundId,
+        targetRefId: item.targetRefId,
+        observedAt: 600,
+        source: 'page' as const,
+        value: true,
+      })),
+    );
+    const manager = new TaskManager({
+      createExecutor: async (input, hooks) =>
+        createControlLoopDriver(input, hooks, {
+          steps: fixtureProductTableControlSteps({ csvSummary }),
+        }),
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 600,
+    });
+    const completed = waitForVerifiedCompletion(manager, 'task-lh-03-present');
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-lh-03-present',
+      taskId: 'task-lh-03-present',
+      tabId: 11,
+      instruction:
+        '这是一个多阶段任务：1) 阅读当前产品列表页；2) 提取所有行为 name,price,rating CSV；3) 根据页面数据在回复中写出最贵商品的名称与价格。',
+      chatSessionId: 'chat-lh-03-present',
+      instructionMessageId: 'msg-lh-03-present',
+    });
+
+    const completedEvent = await completed;
+    expect(completedEvent.snapshot.status).toBe('completed');
+    const snapshot = await manager.snapshot('task-lh-03-present');
+    const round = snapshot?.rounds.find(item => item.id === snapshot.currentRoundId);
+    expect(round?.instructionSummary).toContain(conclusion);
+  });
 });
