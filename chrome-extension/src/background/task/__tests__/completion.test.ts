@@ -1,0 +1,599 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { checkCompletion } from '../completion';
+
+describe('CompletionChecker', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+  it('rejects url criterion when observation is empty (unavailable page sentinel)', () => {
+    // observeCompletionCriteria sets value='' when pageLooksUnavailable — must not pass starts_with.
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'c-url',
+          kind: 'url',
+          operator: 'starts_with',
+          expected: 'https://www.youtube.com/playlist',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          baseline: '',
+          frozenAt: 100,
+          notBefore: 150,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [
+        {
+          criterionId: 'c-url',
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          observedAt: 200,
+          source: 'page',
+          value: '',
+        },
+      ],
+    });
+    expect(result.passed).toBe(false);
+    expect(result.evidence[0].reason).toBe('mismatch');
+  });
+
+  it('accepts url starts_with on a newer tab than the frozen search tab', () => {
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'c-url',
+          kind: 'url',
+          operator: 'starts_with',
+          expected: 'https://www.bilibili.com/video',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'tab-search',
+          pageRevision: 'search-1',
+          baseline: '',
+          frozenAt: 100,
+          notBefore: 150,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [
+        {
+          criterionId: 'c-url',
+          roundId: 'round-1',
+          targetRefId: 'tab-watch',
+          pageRevision: 'watch-1',
+          observedAt: 200,
+          source: 'page',
+          value: 'https://www.bilibili.com/video/BV1kguq6YEN6',
+        },
+      ],
+    });
+    expect(result.passed).toBe(true);
+  });
+
+  it('accepts url starts_with when observation is a real destination', () => {
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'c-url',
+          kind: 'url',
+          operator: 'starts_with',
+          expected: 'https://www.youtube.com/playlist',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          baseline: '',
+          frozenAt: 100,
+          notBefore: 150,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [
+        {
+          criterionId: 'c-url',
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          observedAt: 200,
+          source: 'page',
+          value: 'https://www.youtube.com/playlist?list=PLabc',
+        },
+      ],
+    });
+    expect(result.passed).toBe(true);
+  });
+
+  it('rejects cross-origin and path-prefix spoofing for url starts_with', () => {
+    const criterion = {
+      id: 'c-url-spoof',
+      kind: 'url' as const,
+      operator: 'starts_with' as const,
+      expected: 'https://github.com/Org/Repo',
+      required: true,
+      roundId: 'round-1',
+      targetRefId: 'tab-1',
+      baseline: '',
+      frozenAt: 100,
+      notBefore: 150,
+      timeoutMs: 5000,
+    };
+    const check = (value: string) =>
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: criterion.id,
+            roundId: criterion.roundId,
+            targetRefId: criterion.targetRefId,
+            observedAt: 200,
+            source: 'page',
+            value,
+          },
+        ],
+      }).passed;
+
+    expect(check('https://github.com.evil.example/Org/Repo')).toBe(false);
+    expect(check('https://github.com/Org/Repository')).toBe(false);
+    expect(check('https://github.com/org/Repo')).toBe(false);
+    expect(check('https://github.com/Org/Repo/issues?state=open')).toBe(true);
+  });
+
+  it('keeps URL equality query-aware and preserves pair order', () => {
+    const criterion = {
+      id: 'c-url-query',
+      kind: 'url' as const,
+      operator: 'equals' as const,
+      expected: 'https://example.test/CasePath?a=1&b=2',
+      required: true,
+      roundId: 'round-1',
+      targetRefId: 'tab-1',
+      baseline: '',
+      frozenAt: 100,
+      notBefore: 150,
+      timeoutMs: 5000,
+    };
+    const check = (value: string) =>
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: criterion.id,
+            roundId: criterion.roundId,
+            targetRefId: criterion.targetRefId,
+            observedAt: 200,
+            source: 'page',
+            value,
+          },
+        ],
+      }).passed;
+
+    expect(check('https://example.test/CasePath?a=1&b=2#ignored')).toBe(true);
+    expect(check('https://example.test/CasePath?b=2&a=1')).toBe(false);
+    expect(check('https://example.test/CasePath?a=1&b=3')).toBe(false);
+    expect(check('https://example.test/casepath?a=1&b=2')).toBe(false);
+    expect(check('https://example.test/CasePath?a=%ZZ&b=2')).toBe(false);
+  });
+
+  it('rejects a page_text observation from a different page revision', () => {
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'c-page-revision',
+          kind: 'page_text',
+          operator: 'present',
+          expectedDigest: 'saved-digest',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'page-bound',
+          pageRevision: 'revision-a',
+          baseline: false,
+          frozenAt: 100,
+          notBefore: 150,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [
+        {
+          criterionId: 'c-page-revision',
+          roundId: 'round-1',
+          targetRefId: 'page-bound',
+          pageRevision: 'revision-b',
+          observedAt: 200,
+          source: 'page',
+          value: true,
+        },
+      ],
+    });
+    expect(result.passed).toBe(false);
+    expect(result.evidence[0]?.reason).toBe('wrong_target');
+  });
+
+  it('keeps query identity stable across a simulated service-worker module restart', async () => {
+    const state: Record<string, unknown> = {};
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async (key: string) => ({ [key]: state[key] })),
+          set: vi.fn(async (items: Record<string, unknown>) => Object.assign(state, items)),
+        },
+      },
+    });
+    vi.resetModules();
+    const firstModule = await import('../completion');
+    const first = await firstModule.redactedHttpUrlIdentity('https://example.test/report?id=1&view=full');
+    vi.resetModules();
+    const restartedModule = await import('../completion');
+    const restarted = await restartedModule.redactedHttpUrlIdentity('https://example.test/report?id=1&view=full');
+
+    expect(restarted).toEqual(first);
+    expect(JSON.stringify(state)).not.toContain('id=1');
+    expect(JSON.stringify(state)).not.toContain('view=full');
+  });
+
+  it('rejects evidence already true at baseline', () => {
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'c1',
+          kind: 'page_text',
+          operator: 'present',
+          expectedDigest: 'saved-digest',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          baseline: true,
+          frozenAt: 100,
+          notBefore: 150,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [
+        {
+          criterionId: 'c1',
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          observedAt: 200,
+          source: 'page',
+          value: true,
+        },
+      ],
+    });
+    expect(result.passed).toBe(false);
+    expect(result.evidence[0].reason).toBe('already_true_at_baseline');
+  });
+
+  it.each([
+    ['old round', { roundId: 'round-0' }, {}, 'wrong_round'],
+    ['wrong target', {}, { targetRefId: 'tab-2' }, 'wrong_target'],
+    ['before commit', {}, { observedAt: 149 }, 'stale'],
+    ['after timeout', {}, {}, 'timed_out'],
+    ['value mismatch', {}, { value: false }, 'mismatch'],
+  ] as const)('rejects %s evidence', (_name, criterionPatch, observationPatch, reason) => {
+    const criterion = {
+      id: 'c1',
+      kind: 'page_text' as const,
+      operator: 'present' as const,
+      expectedDigest: 'saved-digest',
+      required: true,
+      roundId: 'round-1',
+      targetRefId: 'tab-1',
+      baseline: false,
+      frozenAt: 100,
+      notBefore: 150,
+      timeoutMs: 5000,
+      ...criterionPatch,
+    };
+    const observation = {
+      criterionId: 'c1',
+      roundId: 'round-1',
+      targetRefId: 'tab-1',
+      observedAt: 200,
+      source: 'page' as const,
+      value: true,
+      ...observationPatch,
+    };
+    const result = checkCompletion({
+      now: reason === 'timed_out' ? 5201 : 200,
+      currentRoundId: 'round-1',
+      criteria: [criterion],
+      observations: [observation],
+    });
+    expect(result.passed).toBe(false);
+    expect(result.evidence[0].reason).toBe(reason);
+  });
+
+  it('keeps post-commit evidence valid after a long approval wait past frozenAt+timeout', () => {
+    // Planner froze at t=100 with 5s timeout. User approved much later; notBefore advanced to execute.
+    const result = checkCompletion({
+      now: 12_000,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'c1',
+          kind: 'page_text',
+          operator: 'present',
+          expectedDigest: 'saved-digest',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          baseline: false,
+          frozenAt: 100,
+          notBefore: 10_000,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [
+        {
+          criterionId: 'c1',
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          observedAt: 11_000,
+          source: 'page',
+          value: true,
+        },
+      ],
+    });
+    expect(result.passed).toBe(true);
+    expect(result.evidence[0].passed).toBe(true);
+  });
+
+  it('accepts only a dedicated user observation for user_confirmed', () => {
+    const criterion = {
+      id: 'confirm-1',
+      kind: 'user_confirmed' as const,
+      operator: 'equals' as const,
+      expected: true as const,
+      required: true,
+      roundId: 'round-1',
+      targetRefId: 'tab-1',
+      baseline: false,
+      frozenAt: 100,
+      notBefore: 100,
+      timeoutMs: 5000,
+    };
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [criterion],
+      observations: [
+        {
+          criterionId: 'confirm-1',
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          observedAt: 200,
+          source: 'user',
+          value: true,
+        },
+      ],
+    });
+    expect(result.passed).toBe(true);
+
+    expect(
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: 'confirm-1',
+            roundId: 'round-1',
+            targetRefId: 'tab-1',
+            observedAt: 200,
+            source: 'page',
+            value: true,
+          },
+        ],
+      }).passed,
+    ).toBe(false);
+
+    expect(
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: 'confirm-1',
+            roundId: 'round-1',
+            targetRefId: 'tab-1',
+            observedAt: 200,
+            source: 'page',
+            value: false,
+          },
+          {
+            criterionId: 'confirm-1',
+            roundId: 'round-1',
+            targetRefId: 'tab-1',
+            observedAt: 200,
+            source: 'user',
+            value: true,
+          },
+        ],
+      }).passed,
+    ).toBe(true);
+  });
+
+  it('rejects URL evidence when the same URL already matched at baseline', () => {
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'url-1',
+          kind: 'url',
+          operator: 'equals',
+          expected: 'https://example.test/success',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          baseline: 'https://example.test/success',
+          frozenAt: 100,
+          notBefore: 100,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [
+        {
+          criterionId: 'url-1',
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          observedAt: 200,
+          source: 'page',
+          value: 'https://example.test/success',
+        },
+      ],
+    });
+    expect(result.evidence[0]).toMatchObject({ passed: false, reason: 'already_true_at_baseline' });
+  });
+
+  it('allows failed optional criteria without completing an empty required set by accident', () => {
+    const optional = {
+      id: 'optional-1',
+      kind: 'url' as const,
+      operator: 'equals' as const,
+      expected: 'https://example.test/success',
+      required: false,
+      roundId: 'round-1',
+      targetRefId: 'tab-1',
+      baseline: false,
+      frozenAt: 100,
+      notBefore: 100,
+      timeoutMs: 5000,
+    };
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [optional],
+      observations: [],
+    });
+    expect(result.passed).toBe(true);
+    expect(result.evidence).toEqual([expect.objectContaining({ criterionId: 'optional-1', passed: false })]);
+  });
+
+  it('never completes an empty criterion set', () => {
+    expect(checkCompletion({ now: 200, currentRoundId: 'round-1', criteria: [], observations: [] })).toEqual({
+      passed: false,
+      evidence: [],
+    });
+  });
+
+  it('accepts media_state playing/paused only with matching evidence', () => {
+    const criterion = {
+      id: 'media-1',
+      kind: 'media_state' as const,
+      operator: 'equals' as const,
+      expected: 'playing' as const,
+      required: true,
+      roundId: 'round-1',
+      targetRefId: 'media:abc',
+      baseline: 'paused',
+      frozenAt: 100,
+      notBefore: 100,
+      timeoutMs: 5000,
+    };
+    expect(
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: 'media-1',
+            roundId: 'round-1',
+            targetRefId: 'media:abc',
+            observedAt: 200,
+            source: 'page',
+            value: 'playing',
+          },
+        ],
+      }).passed,
+    ).toBe(true);
+    expect(
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: 'media-1',
+            roundId: 'round-1',
+            targetRefId: 'media:abc',
+            observedAt: 200,
+            source: 'page',
+            value: 'paused',
+          },
+        ],
+      }).passed,
+    ).toBe(false);
+  });
+
+  it('accepts tab_state closed only after closed observation', () => {
+    const criterion = {
+      id: 'tab-1',
+      kind: 'tab_state' as const,
+      operator: 'equals' as const,
+      expected: 'closed' as const,
+      required: true,
+      roundId: 'round-1',
+      targetRefId: 'tab-7',
+      baseline: 'active',
+      frozenAt: 100,
+      notBefore: 100,
+      timeoutMs: 5000,
+    };
+    expect(
+      checkCompletion({
+        now: 200,
+        currentRoundId: 'round-1',
+        criteria: [criterion],
+        observations: [
+          {
+            criterionId: 'tab-1',
+            roundId: 'round-1',
+            targetRefId: 'tab-7',
+            observedAt: 200,
+            source: 'page',
+            value: 'closed',
+          },
+        ],
+      }).passed,
+    ).toBe(true);
+  });
+
+  it('reports missing evidence as a mismatch in the current round', () => {
+    const result = checkCompletion({
+      now: 200,
+      currentRoundId: 'round-1',
+      criteria: [
+        {
+          id: 'missing-1',
+          kind: 'page_text',
+          operator: 'present',
+          expectedDigest: 'saved-digest',
+          required: true,
+          roundId: 'round-1',
+          targetRefId: 'tab-1',
+          baseline: false,
+          frozenAt: 100,
+          notBefore: 100,
+          timeoutMs: 5000,
+        },
+      ],
+      observations: [],
+    });
+    expect(result.evidence[0]).toMatchObject({ passed: false, reason: 'mismatch' });
+  });
+});

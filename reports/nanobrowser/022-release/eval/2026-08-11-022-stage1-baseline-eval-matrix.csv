@@ -1,2 +1,0 @@
-date,wave,task_id,attempt,git_sha,model,attach_mode,prompt_version,policy_tag,outcome,false_complete,wrong_tab,unapproved_commit,latency_ms,failure_class,evidence_path,notes
-2026-08-11-022-stage1-baseline,W1,013-A01,1,1249555,MiniMax-M3,user_chrome,chijie-control-v0.3.0,phase0_baseline_1249555,fail,0,0,0,0,other,,Timed out after waiting 30000ms

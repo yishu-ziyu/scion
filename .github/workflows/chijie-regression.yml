@@ -21,7 +21,6 @@ env:
 defaults:
   run:
     shell: bash
-    working-directory: projects/chijie-browser
 
 jobs:
   evaluator-contracts:
@@ -33,30 +32,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-
-      - name: Block private knowledge-base links
-        run: |
-          private_link_pattern="https?://[^[:space:]<>\"']*(notion\\.so|notion\\.site)|https?://[^[:space:]<>\"']*[?&]X-Amz-(Algorithm|Credential|Date|Expires|Security-Token|Signature)="
-          # Page ids are ambiguous with ordinary hashes across the repository. Restrict the
-          # id-only guard to the design-note surfaces that may receive de-identified Notion research.
-          private_page_id_pattern="(^|[^[:xdigit:]])[[:xdigit:]]{32}([^[:xdigit:]]|$)|[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}"
-          set +e
-          matched_files="$(git grep -IlEi "$private_link_pattern" -- ../../docs ../../reports)"
-          scan_status=$?
-          page_id_files="$(git grep -IlEi "$private_page_id_pattern" -- ../../docs/design ../../reports/nanobrowser/design-iter 2>/dev/null)"
-          page_id_status=$?
-          set -e
-
-          if (( scan_status > 1 || page_id_status > 1 )); then
-            echo '::error::Private-link scan could not complete.'
-            exit 2
-          fi
-
-          if [[ -n "$matched_files" || -n "$page_id_files" ]]; then
-            echo '::error::Tracked docs or reports contain a private knowledge-base reference or signed resource URL.'
-            printf '%s\n%s\n' "$matched_files" "$page_id_files" | sed '/^$/d; s#^../../##' | sort -u
-            exit 1
-          fi
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -100,7 +75,7 @@ jobs:
         with:
           node-version: 22.12.0
           cache: pnpm
-          cache-dependency-path: projects/chijie-browser/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         id: install
@@ -156,7 +131,7 @@ jobs:
         with:
           node-version: 22.12.0
           cache: pnpm
-          cache-dependency-path: projects/chijie-browser/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         id: install
@@ -199,26 +174,12 @@ jobs:
             exit 0
           fi
 
-          project_files=()
-          root_files=()
+          files=()
           for file in "${changed_files[@]}"; do
-            if [[ "$file" == projects/chijie-browser/* ]]; then
-              project_files+=("$GITHUB_WORKSPACE/$file")
-            else
-              root_files+=("$GITHUB_WORKSPACE/$file")
-            fi
+            files+=("$GITHUB_WORKSPACE/$file")
           done
 
-          if (( ${#project_files[@]} > 0 )); then
-            pnpm --dir projects/chijie-browser exec prettier --check --ignore-unknown \
-              --ignore-path "$GITHUB_WORKSPACE/projects/chijie-browser/.prettierignore" \
-              "${project_files[@]}"
-          fi
-
-          if (( ${#root_files[@]} > 0 )); then
-            pnpm --dir projects/chijie-browser exec prettier --check --ignore-unknown \
-              --ignore-path /dev/null "${root_files[@]}"
-          fi
+          pnpm exec prettier --check --ignore-unknown --ignore-path "$GITHUB_WORKSPACE/.prettierignore" "${files[@]}"
 
       - name: Bundle with an inert provider placeholder
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}

@@ -1,37 +1,46 @@
-# deps & build
-**/node_modules/
-**/dist/
-**/dist-zip/
-**/build/
-**/.turbo/
-**/coverage/
+# dependencies
+**/node_modules
 
-# env & secrets
+# testing
+**/coverage
+
+# build
+**/dist
+**/build
+**/dist-zip
+
+# env
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
 **/.env
 **/.env.*
 !**/.env.example
-**/secrets.local.ts
+
+# personal fork secrets (injected at build; never commit)
+chrome-extension/src/personal/secrets.local.ts
+
+# etc
+.DS_Store
+.idea
+**/.turbo
+*.bak
+*.bak-*
+*~
+
+# compiled
+chrome-extension/public/manifest.json
+**/tailwind-output.css
+
+.nanobrowser
+.vscode
+.cursor
+
+# local indexes / secrets
+**/.codegraph/
 **/*.pem
 **/*.key
 
-# OS / IDE / editor junk
-.DS_Store
-.idea/
-.vscode/
-.cursor/
-*.bak
-*.bak-*
-**/*.md.bak-*
-*~
-
-# logs
-**/*.log
-**/tmp/
-
-# extension local state
-projects/chijie-browser/.nanobrowser/
-
-# CDP / runtime captures may contain model payloads or semi-sensitive text
-reports/nanobrowser/logs/*
-!reports/nanobrowser/logs/.gitkeep
-!reports/nanobrowser/logs/README.md
+# eval / dogfood output (created at runtime)
+reports/
