@@ -28,6 +28,7 @@ import { pageLooksUnavailable } from './page-availability';
 import { captureActionFrame } from '../task/action-frame';
 import { durableHttpCompletionUrl, redactedHttpUrlIdentity } from '../task/completion';
 import { fillEditableElement, type FillResult } from './kernel/fill-text';
+import { cdpHandleFromDomNode, clickCdpElement } from './cdp/click';
 
 const logger = createLogger('Page');
 
@@ -384,12 +385,18 @@ export default class Page {
     return this._cachedState;
   }
 
-  async getState(useVision = false, cacheClickableElementsHashes = false): Promise<PageState> {
+  async getState(
+    useVision = false,
+    cacheClickableElementsHashes = false,
+    options?: { waitForLoad?: boolean },
+  ): Promise<PageState> {
     if (!this._validWebPage) {
       // return the initial state
       return build_initial_state(this._tabId);
     }
-    await this.waitForPageAndFramesLoad();
+    if (options?.waitForLoad !== false) {
+      await this.waitForPageAndFramesLoad();
+    }
     const updatedState = await this._updateState(useVision);
 
     // Find out which elements are new
@@ -1310,12 +1317,34 @@ export default class Page {
   }
 
   async clickElementNode(useVision: boolean, elementNode: DOMElementNode): Promise<void> {
+    void useVision;
+    const handle = cdpHandleFromDomNode({
+      tabId: elementNode.tabId ?? this._tabId,
+      cdpFrameId: elementNode.cdpFrameId,
+      backendNodeId: elementNode.backendNodeId,
+      cdpTargetId: elementNode.cdpTargetId,
+      viewportCoordinates: elementNode.viewportCoordinates,
+    });
+    if (handle) {
+      try {
+        await clickCdpElement(handle);
+        await this._checkAndHandleNavigation();
+        return;
+      } catch (cdpError) {
+        if (!this._puppeteerPage) {
+          throw new Error(
+            `Failed to click element: ${elementNode}. Error: ${cdpError instanceof Error ? cdpError.message : String(cdpError)}`,
+          );
+        }
+        logger.warning('CDP click failed, trying puppeteer', cdpError);
+      }
+    }
+
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer is not connected');
     }
 
     try {
-      void useVision;
       // Highlight before clicking
       // if (elementNode.highlightIndex !== null) {
       //   await this._updateState(useVision, elementNode.highlightIndex);

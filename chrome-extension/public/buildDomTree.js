@@ -900,25 +900,11 @@ window.buildDomTree = (
       return true;
     }
 
-    // For shadow DOM, we need to check within its own root context
+    // Page-world elementFromPoint often hits the shadow host, not the inner control.
+    // Treat visible shadow descendants as top. chrome.debugger pierce is the fallback.
     const shadowRoot = element.getRootNode();
     if (shadowRoot instanceof ShadowRoot) {
-      const centerX = rects[Math.floor(rects.length / 2)].left + rects[Math.floor(rects.length / 2)].width / 2;
-      const centerY = rects[Math.floor(rects.length / 2)].top + rects[Math.floor(rects.length / 2)].height / 2;
-
-      try {
-        const topEl = shadowRoot.elementFromPoint(centerX, centerY);
-        if (!topEl) return false;
-
-        let current = topEl;
-        while (current && current !== shadowRoot) {
-          if (current === element) return true;
-          current = current.parentElement;
-        }
-        return false;
-      } catch (e) {
-        return true;
-      }
+      return true;
     }
 
     const margin = 5;
@@ -1273,6 +1259,15 @@ window.buildDomTree = (
       // regardless of viewport status
       if (nodeData.isInViewport || viewportExpansion === -1) {
         nodeData.highlightIndex = highlightIndex++;
+        try {
+          node.setAttribute('data-scion-hi', String(nodeData.highlightIndex));
+        } catch (e) {
+          // SVG or foreign objects may reject attributes
+        }
+        const rootNode = node.getRootNode && node.getRootNode();
+        if (rootNode && typeof ShadowRoot !== 'undefined' && rootNode instanceof ShadowRoot) {
+          nodeData.inShadow = true;
+        }
 
         if (doHighlightElements) {
           if (focusHighlightIndex >= 0) {

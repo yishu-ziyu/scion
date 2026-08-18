@@ -44,7 +44,7 @@ export async function ensurePersonalDefaults(): Promise<void> {
       createdAt: Date.now(),
     });
 
-    for (const agent of [AgentNameEnum.Planner, AgentNameEnum.Navigator] as const) {
+    for (const agent of [AgentNameEnum.Planner, AgentNameEnum.Navigator, AgentNameEnum.Validator] as const) {
       const cfg = PERSONAL_AGENT_MODELS[agent];
       await agentModelStore.setAgentModel(agent, {
         provider: cfg.provider,

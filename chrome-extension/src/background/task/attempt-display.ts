@@ -140,6 +140,16 @@ export function buildAttemptDisplaySummary(input: AttemptDisplayInput): string {
     }
     case 'done':
       return intent || '准备交付结果';
+    case 'observe': {
+      const query = readString(args, 'query');
+      if (query && query.length <= 32) return `查看「${query}」`;
+      return host ? `查看 ${host}` : '查看页面';
+    }
+    case 'extract_content': {
+      const goal = readString(args, 'goal');
+      if (goal && goal.length <= 36) return `抽取：${goal}`;
+      return host ? `抽取 ${host} 的内容` : '抽取页面内容';
+    }
     default:
       return intent || '执行页面操作';
   }

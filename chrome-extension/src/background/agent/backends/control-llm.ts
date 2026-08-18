@@ -36,7 +36,15 @@ import {
   parseControlPolicyDecision,
   renderControlSystemPrompt,
 } from './control-policy';
-import { JUDGE_PAGE_THEN_WRITE, judgeVisibleVideoOpenComplete, resolveControlDelivery } from './control-delivery';
+import { JUDGE_PAGE_THEN_WRITE, resolveControlDelivery } from './control-delivery';
+import {
+  SUPERVISE_SYSTEM_PROMPT,
+  applySuperviseVerdict,
+  pageTextForSupervisor,
+  parseSuperviseVerdict,
+  renderSuperviseUserPrompt,
+} from './control-supervise';
+import { Actors, ExecutionState } from '../event/types';
 import type { Action } from '../actions/builder';
 import { isForbiddenTaskContentUrl, runObserveActLoop, type LoopDecision, type LoopOutcome } from './observe-act-loop';
 import { markSetupError } from '../../task/executor-start-error';
@@ -98,19 +106,29 @@ const SEMANTIC_PROGRESS_ACTIONS = new Set([
   'inspect_evidence_space',
   'read_page_text',
   'inspect_open_tabs',
+  'find_tab',
+  'evaluate',
+  'snapshot',
   'record_research_decision',
   'record_research_delivery',
   'save_screenshot',
+  'observe',
+  'extract_content',
 ]);
 
 const CONTENT_RESULT_ACTIONS = new Set([
   'record_evidence',
   'read_page_text',
   'inspect_open_tabs',
+  'find_tab',
+  'evaluate',
+  'snapshot',
   'inspect_evidence_space',
   'inspect_github_repository',
   'record_research_decision',
   'record_research_delivery',
+  'observe',
+  'extract_content',
 ]);
 
 const CONTROL_LLM_TIMEOUT_MS = 90_000;
@@ -227,9 +245,19 @@ export async function createLlmControlDriver(
   }
 
   const llm: BaseChatModel = createChatModel(providers[navigatorModel.provider], navigatorModel);
+  const supervisorModel =
+    agentModels[AgentNameEnum.Validator] && providers[agentModels[AgentNameEnum.Validator].provider]
+      ? agentModels[AgentNameEnum.Validator]
+      : navigatorModel;
+  const supervisorLlm: BaseChatModel =
+    supervisorModel.provider === navigatorModel.provider && supervisorModel.modelName === navigatorModel.modelName
+      ? llm
+      : createChatModel(providers[supervisorModel.provider], supervisorModel);
   logger.info('LLM control backend model', {
     provider: navigatorModel.provider,
     model: navigatorModel.modelName,
+    supervisorProvider: supervisorModel.provider,
+    supervisorModel: supervisorModel.modelName,
   });
 
   const firewall = await firewallStore.getFirewall();
@@ -298,6 +326,7 @@ export async function createLlmControlDriver(
   const artifacts: TaskArtifact[] = [];
   let lastActionMemory: string | null = null;
   let pageBodyRead = false;
+  let observeQuery: string | undefined;
 
   const waitIfPaused = async () => {
     while (paused && !stopped) {
@@ -313,9 +342,9 @@ export async function createLlmControlDriver(
     }
   };
 
-  const observeFrame = async (): Promise<ObservationFrame> => {
+  const observeFrame = async (opts?: { waitForLoad?: boolean }): Promise<ObservationFrame> => {
     if (enableKernel) {
-      const frame = await kernel.observe();
+      const frame = await kernel.observe({ query: observeQuery, waitForLoad: opts?.waitForLoad });
       previousFrame = currentFrame;
       currentFrame = frame;
       currentPageRevision = frame.pageRevision;
@@ -323,7 +352,9 @@ export async function createLlmControlDriver(
       return frame;
     }
     // Legacy path (flag off): same frame shape as kernel observe, including wording.
-    const browserState = await agentContext.browserContext.getState(agentContext.options.useVision);
+    const browserState = await agentContext.browserContext.getState(agentContext.options.useVision, false, {
+      waitForLoad: opts?.waitForLoad,
+    });
     const rawElementsText = browserState.elementTree.clickableElementsToString(agentContext.options.includeAttributes);
     let visibleText = '';
     try {
@@ -337,6 +368,7 @@ export async function createLlmControlDriver(
       browserState,
       elementsText: rawElementsText,
       visibleText,
+      query: observeQuery,
     });
     previousFrame = currentFrame;
     currentFrame = frame;
@@ -380,6 +412,51 @@ export async function createLlmControlDriver(
       const maxFailures = generalSettings.maxFailures || DEFAULT_AGENT_OPTIONS.maxFailures;
       const maxNoProgress = CONTROL_MAX_NO_PROGRESS;
 
+      const settleProposedDone = async (summary: string, stateText: string): Promise<LoopDecision> => {
+        const pageText = pageTextForSupervisor({
+          url: currentFrame?.tab.url,
+          title: currentFrame?.tab.title,
+          visibleText: currentFrame?.visibleText,
+          fallback: stateText,
+        });
+        await agentContext.emitEvent(Actors.VALIDATOR, ExecutionState.STEP_START, '正在核对页面上的结果');
+        try {
+          const response = await invokeWithTimeout(
+            signal =>
+              supervisorLlm.invoke(
+                [
+                  new SystemMessage(SUPERVISE_SYSTEM_PROMPT),
+                  new HumanMessage(
+                    renderSuperviseUserPrompt({
+                      instruction,
+                      claimedResult: summary,
+                      pageText,
+                    }),
+                  ),
+                ],
+                { signal },
+              ),
+            CONTROL_LLM_TIMEOUT_MS,
+            agentContext.controller.signal,
+          );
+          const verdict = parseSuperviseVerdict(extractJsonFromModelOutput(await contentToString(response.content)));
+          await agentContext.emitEvent(
+            Actors.VALIDATOR,
+            ExecutionState.STEP_OK,
+            verdict.accept ? verdict.reason : `还没做完：${verdict.reason}`,
+          );
+          const applied = applySuperviseVerdict(verdict, summary);
+          if (applied.lastActionMemory) lastActionMemory = applied.lastActionMemory;
+          return applied.decision;
+        } catch (error) {
+          logger.warning('supervisor failed; reject completion', error);
+          await agentContext.emitEvent(Actors.VALIDATOR, ExecutionState.STEP_OK, '监督这一轮没看清，先继续做。');
+          const applied = applySuperviseVerdict({ accept: false, reason: '监督没看清，先继续。' }, summary);
+          lastActionMemory = applied.lastActionMemory;
+          return applied.decision;
+        }
+      };
+
       const loopOutcome = await runObserveActLoop({
         maxSteps,
         maxFailures,
@@ -389,9 +466,12 @@ export async function createLlmControlDriver(
         shouldRetryFailure: evalSettings.featureFlags.enableRetryRecovery
           ? error => classifyRetry(error) === 'retry'
           : () => false,
+        onPhase: async event => {
+          await hooks.reportLoopPhase?.(roundId, event);
+        },
         observe: async () => {
           agentContext.nSteps = agentContext.nSteps ?? 0;
-          const frame = await observeFrame();
+          const frame = await observeFrame({ waitForLoad: false });
           const stateText = renderObservationForModel(frame, true);
           if (isForbiddenTaskContentUrl(frame.tab.url)) {
             logger.warning('observed forbidden content url; continue with state', { url: frame.tab.url });
@@ -419,16 +499,6 @@ export async function createLlmControlDriver(
 
           const { planMemory, activePhaseId } = await readCurrentMissionContext(hooks, roundId, input.plan);
 
-          const pageUrl = currentFrame?.tab.url ?? '';
-          const watchComplete = judgeVisibleVideoOpenComplete(
-            input.instruction,
-            pageUrl,
-            currentFrame?.tab.title ?? '',
-          );
-          if (watchComplete) {
-            return { kind: 'done', summary: watchComplete };
-          }
-
           // Skill Runtime first — site/task knowledge never inlined in this file.
           if (enableSkillRuntime) {
             const skillSpan = await traceStore.beginSpan({
@@ -443,7 +513,7 @@ export async function createLlmControlDriver(
               const skillTry = await skillRuntime.tryDecide({
                 roundId,
                 instruction,
-                url: pageUrl,
+                url: currentFrame?.tab.url ?? '',
                 observationText: stateText,
                 frame: currentFrame,
                 phaseId: activePhaseId,
@@ -476,6 +546,8 @@ export async function createLlmControlDriver(
               if (skillTry.handled && skillTry.decision) {
                 const decision = skillTry.decision;
                 if (decision.kind === 'done') {
+                  const settled = await settleProposedDone(decision.summary, stateText);
+                  if (settled.kind !== 'done') return settled;
                   if (decision.artifact) {
                     artifacts.push(decision.artifact);
                     const artSpan = await traceStore.beginSpan({
@@ -503,7 +575,7 @@ export async function createLlmControlDriver(
                     skill: skillTry.record?.skillId,
                     summary: decision.summary.slice(0, 120),
                   });
-                  return { kind: 'done', summary: decision.summary };
+                  return settled;
                 }
                 if (decision.kind === 'action') {
                   if (!criteriaLocked && decision.criteria && decision.criteria.length > 0) {
@@ -663,17 +735,11 @@ export async function createLlmControlDriver(
             return retry.decision;
           }
           if (delivery.kind === 'complete') {
-            return {
-              kind: 'done',
-              summary: decision.observation || 'Control loop candidate complete',
-            };
+            return settleProposedDone(decision.observation || 'Control loop candidate complete', stateText);
           }
 
           if (decision.done) {
-            return {
-              kind: 'done',
-              summary: decision.observation || 'Control loop candidate complete',
-            };
+            return settleProposedDone(decision.observation || 'Control loop candidate complete', stateText);
           }
 
           if (!decision.action) {
@@ -698,6 +764,12 @@ export async function createLlmControlDriver(
           };
         },
         act: async ({ name, args }) => {
+          if (name === 'observe') {
+            const rawQuery = args && typeof args === 'object' ? (args as { query?: unknown }).query : undefined;
+            observeQuery = typeof rawQuery === 'string' && rawQuery.trim() ? rawQuery.trim() : undefined;
+          } else {
+            observeQuery = undefined;
+          }
           const actSpan = await traceStore.beginSpan({
             taskId: input.taskId,
             roundId,
@@ -737,6 +809,10 @@ export async function createLlmControlDriver(
             }
             if (!result.error && name === 'read_page_text') {
               pageBodyRead = true;
+            }
+            if (!result.error && name === 'extract_content') {
+              const last = agentContext.actionResults[agentContext.actionResults.length - 1];
+              if (last?.artifact) artifacts.push(last.artifact);
             }
             if (!result.error && result.summary && shouldKeepActionResultInContext(name)) {
               lastActionMemory = compactStateText(result.summary, 24_000);

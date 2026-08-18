@@ -186,7 +186,7 @@ export function canDispatchTaskCommand(
   pending: Iterable<{ taskId: string; type: string }>,
   command: { taskId: string; type: string },
 ): boolean {
-  const lifecycleTypes = new Set(['pause', 'resume', 'cancel']);
+  const lifecycleTypes = new Set(['pause', 'resume', 'cancel', 'takeover', 'set_follow']);
   return ![...pending].some(
     item =>
       item.taskId === command.taskId &&
@@ -195,7 +195,13 @@ export function canDispatchTaskCommand(
 }
 
 export function hasPendingLifecycleCommand(pending: ReadonlySet<TaskCommand['type']>): boolean {
-  return pending.has('pause') || pending.has('resume') || pending.has('cancel');
+  return (
+    pending.has('pause') ||
+    pending.has('resume') ||
+    pending.has('cancel') ||
+    pending.has('takeover') ||
+    pending.has('set_follow')
+  );
 }
 
 export function canExposeMessageRecoveryActions(input: {

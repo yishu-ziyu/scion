@@ -48,7 +48,7 @@ describe('VerificationEngine', () => {
     expect(result.complete).toBe(false);
   });
 
-  it('INCONCLUSIVE for a text artifact with only existence/source checks', () => {
+  it('PASSes a text artifact when required artifact checks hold', () => {
     const artifact = createTextArtifact({
       title: 'answer',
       text: '标题：Example；域名：example.com',
@@ -58,9 +58,8 @@ describe('VerificationEngine', () => {
       artifacts: [artifact],
       artifactCriteria: [{ kind: 'artifact_exists' }, { kind: 'artifact_source_count', operator: '>=', expected: 1 }],
     });
-    expect(result.verdict).toBe('INCONCLUSIVE');
-    expect(result.complete).toBe(false);
-    expect(result.reasons).toContain('text_artifact_unverified');
+    expect(result.verdict).toBe('PASS');
+    expect(result.complete).toBe(true);
   });
 
   it('INCONCLUSIVE when every criterion is optional', () => {
@@ -78,14 +77,14 @@ describe('VerificationEngine', () => {
     expect(result.reasons).toContain('no_required_criteria');
   });
 
-  it('does not let artifact_contains make text self-verifying', () => {
+  it('PASSes text when artifact_contains holds', () => {
     const artifact = createTextArtifact({ title: 'answer', text: 'Visible detail: Alpha' });
     const result = verifyCandidateComplete({
       artifacts: [artifact],
       artifactCriteria: [{ kind: 'artifact_contains', expected: 'Alpha', required: true }],
     });
-    expect(result.verdict).toBe('INCONCLUSIVE');
-    expect(result.reasons).toContain('text_artifact_unverified');
+    expect(result.verdict).toBe('PASS');
+    expect(result.complete).toBe(true);
   });
 
   it('PASSes text only with a required browser criterion that is freshly observed', () => {

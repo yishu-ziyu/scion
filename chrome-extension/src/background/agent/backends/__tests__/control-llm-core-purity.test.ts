@@ -23,5 +23,9 @@ describe('control-llm core purity (022)', () => {
     // Must route through kernel + skills.
     expect(codeOnly).toMatch(/createBrowserKernel/);
     expect(codeOnly).toMatch(/createSkillRuntime|skillRuntime/);
+    expect(codeOnly).toMatch(/settleProposedDone/);
+    expect(codeOnly).toMatch(/from '\.\/control-supervise'/);
+    expect(codeOnly).toMatch(/reportLoopPhase/);
+    expect(codeOnly).toMatch(/waitForLoad:\s*false/);
   });
 });

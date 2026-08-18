@@ -214,6 +214,7 @@ export default function FirstRunSetup({ onConnected }: FirstRunSetupProps) {
     };
     await agentModelStore.setAgentModel(AgentNameEnum.Planner, agentConfig);
     await agentModelStore.setAgentModel(AgentNameEnum.Navigator, agentConfig);
+    await agentModelStore.setAgentModel(AgentNameEnum.Validator, agentConfig);
 
     setPhase('success');
     window.setTimeout(() => {

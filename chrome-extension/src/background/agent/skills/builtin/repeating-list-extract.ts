@@ -1,14 +1,7 @@
 /**
  * Builtin skill: repeating product list → table artifact (R1).
  */
-import {
-  extractProductsFromHtml,
-  formatMostExpensiveProductConclusion,
-  formatProductTableDeliverable,
-  instructionRequestsMostExpensive,
-  parseProductTableInstruction,
-} from '../../../browser/sites/product-table';
-import { createTableArtifact } from '../../../task/artifact';
+import { parseProductTableInstruction } from '../../../browser/sites/product-table';
 import type { BrowserSkill, SkillResult } from '../types';
 
 export const repeatingListExtractSkill: BrowserSkill = {
@@ -30,50 +23,17 @@ export const repeatingListExtractSkill: BrowserSkill = {
     const goal = parseProductTableInstruction(context.instruction);
     if (!goal) return { decision: { kind: 'continue', reason: 'no_product_goal' } };
 
-    const extracted = await context.kernel.extract<string>({});
-    if (!extracted.ok || typeof extracted.data !== 'string') {
-      return { decision: { kind: 'continue', reason: 'html_unavailable' } };
-    }
-    const rows = extractProductsFromHtml(extracted.data);
-    if (rows.length < goal.minRows) {
-      return {
-        decision: {
-          kind: 'continue',
-          reason: 'insufficient_rows',
-        },
-      };
-    }
-
-    let summary = formatProductTableDeliverable(rows, goal.format);
-    if (instructionRequestsMostExpensive(context.instruction)) {
-      const conclusion = formatMostExpensiveProductConclusion(rows);
-      if (!conclusion) {
-        return { decision: { kind: 'continue', reason: 'prices_not_comparable' } };
-      }
-      summary += `\n${conclusion}`;
-    }
-    const artifact = createTableArtifact({
-      title: 'Product table',
-      columns: ['name', 'price', 'rating'],
-      rows: rows.map(r => ({ name: r.name, price: r.price, rating: r.rating })),
-      sources: context.frame?.tab.url ? [{ url: context.frame.tab.url, title: context.frame.tab.title }] : [],
-    });
-
     return {
       decision: {
-        kind: 'done',
-        summary,
-        criteria: [
-          {
-            kind: 'page_text',
-            operator: 'present',
-            expected: rows[0].name,
-            required: true,
-          },
-        ],
-        artifact,
+        kind: 'action',
+        name: 'extract_content',
+        args: {
+          goal: context.instruction,
+          schema: 'name,price,rating',
+          intent: 'extract repeating list via extract_content',
+        },
+        observation: 'Use extract_content for the repeating list. Skill does not finish the task.',
       },
-      output: { rows, artifact },
     };
   },
 };

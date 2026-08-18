@@ -42,20 +42,7 @@ export const bilibiliOpenFirstVideoSkill: BrowserSkill = {
         ? bilibiliWatchResultSummary(context.frame?.tab.title ?? '', pageUrl)
         : null);
     if (watchResult) {
-      return {
-        decision: {
-          kind: 'done',
-          summary: watchResult,
-          criteria: [
-            {
-              kind: 'url',
-              operator: 'starts_with',
-              expected: 'https://www.bilibili.com/video/',
-              required: true,
-            },
-          ],
-        },
-      };
+      return { decision: { kind: 'continue', reason: 'already_on_watch_page' } };
     }
 
     if (!shouldDeterministicOpenFirstBilibiliVideo(instruction, pageUrl)) {

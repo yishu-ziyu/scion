@@ -25,7 +25,7 @@
   color: var(--chijie-paper);
 }
 
-/* 撕纸纸卡：顶大圆底小方 + 蜡笔红边 */
+/* 撕纸纸卡：顶大圆底小方。边色跟当前 accent，不绑定蜡笔红。 */
 .chijie-paper-card {
   display: flex;
   flex-direction: column;

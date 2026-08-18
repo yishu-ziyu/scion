@@ -65,7 +65,8 @@ describe('final side-panel accessibility gates', () => {
     expect(missionPlan).toContain('任务未交付');
     expect(missionPlan).toContain("collapsed ? '已收起，按下展开' : '已展开，按下收起'");
     expect(thinking).toContain('工作时长 ${elapsed}');
-    expect(thinking).toContain('处理过程 · {elapsed}');
+    expect(thinking).toContain('disclosureLabel');
+    expect(thinking).toContain('执行步骤');
   });
 
   it('keeps visible health time outside a semantic-only live announcer', () => {

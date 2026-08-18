@@ -65,13 +65,13 @@
     "message": "有什麼需要協助的嗎？"
   },
   "chat_empty_hint": {
-    "message": "把一個任務交給我"
+    "message": "打開頁面、抽出表格、讀完再回。做完能核對。"
   },
   "chat_task_mode_badge": {
-    "message": "任務：代理任務"
+    "message": "任務"
   },
   "chat_task_input_placeholder": {
-    "message": "描述需要完成的任務，持節將為你執行"
+    "message": "要做什麼"
   },
   "chat_task_input_attach_placeholder": {
     "message": "新增說明（可選）..."
@@ -81,6 +81,9 @@
   },
   "chat_input_attach_files_title": {
     "message": "附加文字檔案（txt、md、json、csv 等）"
+  },
+  "chat_task_thinking_heading": {
+    "message": "思考過程"
   },
   "chat_task_steps_heading": {
     "message": "執行步驟"
@@ -309,6 +312,9 @@
   },
   "options_models_agents_planner": {
     "message": "制定並調整策略以完成任務"
+  },
+  "options_models_agents_validator": {
+    "message": "對著頁面核對是否真的做完，沒對上就打回"
   },
   "options_models_labels_model": {
     "message": "模型"
@@ -1167,6 +1173,12 @@
   "chat_task_confirm_done": {
     "message": "我確認已經完成"
   },
+  "chat_task_follow": {
+    "message": "跟隨"
+  },
+  "chat_task_takeover": {
+    "message": "接管"
+  },
   "chat_task_pause": {
     "message": "暫停"
   },
@@ -1249,7 +1261,7 @@
     "message": "頁面動作執行失敗。重新整理頁面或改指令後重試。"
   },
   "chat_task_fail_max_steps": {
-    "message": "步數用盡仍未完成。拆成更小任務或提高最大步數後再試。"
+    "message": "試了多輪還沒做成。可以拆小一點，或在下面改一句再說一次。"
   },
   "chat_task_fail_setup": {
     "message": "模型或金鑰未就緒。開啟設定 → 模型，確認設定後重試。"
@@ -1282,7 +1294,7 @@
     "message": "頁面未達成卻報完成"
   },
   "chat_task_product_fail_model_loop": {
-    "message": "模型反覆失敗或步數耗盡"
+    "message": "試了多輪還沒做成，先停下來了"
   },
   "chat_task_product_fail_other": {
     "message": "任務失敗，可重試或改寫指令"

@@ -265,6 +265,9 @@ describe('side-panel session/task identity contract', () => {
     expect(canDispatchTaskCommand(pending, { taskId: 'B', type: 'cancel' })).toBe(true);
     expect(hasPendingLifecycleCommand(new Set(['resume']))).toBe(true);
     expect(hasPendingLifecycleCommand(new Set(['follow_up']))).toBe(false);
+    expect(canDispatchTaskCommand(pending, { taskId: 'A', type: 'takeover' })).toBe(false);
+    expect(canDispatchTaskCommand(pending, { taskId: 'A', type: 'set_follow' })).toBe(false);
+    expect(hasPendingLifecycleCommand(new Set(['takeover']))).toBe(true);
   });
 
   it('exposes failure recovery only for a loaded writable composer', () => {

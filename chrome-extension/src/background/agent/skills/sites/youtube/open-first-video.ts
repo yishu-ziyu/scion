@@ -33,20 +33,7 @@ export const youtubeOpenFirstVideoSkill: BrowserSkill = {
       return { decision: { kind: 'continue', reason: 'not_youtube_goal' } };
     }
     if (/youtube\.com\/watch/i.test(pageUrl)) {
-      return {
-        decision: {
-          kind: 'done',
-          summary: `Already on YouTube watch page: ${pageUrl}`,
-          criteria: [
-            {
-              kind: 'url',
-              operator: 'starts_with',
-              expected: 'https://www.youtube.com/watch',
-              required: true,
-            },
-          ],
-        },
-      };
+      return { decision: { kind: 'continue', reason: 'already_on_watch_page' } };
     }
     if (context.hasAction && !context.hasAction('go_to_url')) {
       return { decision: { kind: 'continue', reason: 'no_go_to_url' } };

@@ -25,6 +25,7 @@ import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import { TaskStatusCard } from './components/TaskStatusCard';
 import FirstRunSetup from './components/FirstRunSetup';
+import { IdleHome } from './components/IdleHome';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import { shouldPersistExecutionEvent } from './event-persistence';
 import { mergeTaskSnapshot } from './task-snapshot';
@@ -44,6 +45,7 @@ import {
 import { completionChatDelivery, hasCompletionChatDelivery } from './presentation/completion-chat-delivery';
 import { isStatusOnlyAnswer } from './presentation/goal-coverage';
 import { taskAllowsDirectionChange, taskLocksComposer, taskNeedsDirectStop } from './presentation/wait-affordance';
+import { isFollowingForeground, setFollowCommand, takeoverCommand } from './presentation/run-presence';
 import {
   cancellationIntentAfterDisconnect,
   cancellationIntentAfterDispatch,
@@ -1210,7 +1212,11 @@ const SidePanel = () => {
     [setupConnection],
   );
 
-  const handleSendMessage = async (text: string, displayText?: string) => {
+  const handleSendMessage = async (
+    text: string,
+    displayText?: string,
+    options?: { execute?: boolean },
+  ) => {
     // Trim the input text first
     const trimmedText = text.trim();
 
@@ -1321,8 +1327,11 @@ const SidePanel = () => {
         setupConnection();
       }
 
-      // LLM decides: reply / clarify / execute / stop (no keyword router)
-      const decision = await requestUserTurnDecision(trimmedText, historyForModel);
+      // LLM decides: reply / clarify / execute / stop (no keyword router).
+      // 再说一次 already knows this is the same task - skip the hop.
+      const decision = options?.execute
+        ? { kind: 'execute' as const, userVisibleText: '' }
+        : await requestUserTurnDecision(trimmedText, historyForModel);
       // A delayed decision from a superseded chat must never append or start work in the new chat.
       if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
 
@@ -1499,6 +1508,18 @@ const SidePanel = () => {
     });
   }, [pendingCommandTypes, sendTaskCommand, taskSnapshot]);
 
+  const handleFollowTask = useCallback(() => {
+    if (!taskSnapshot || hasPendingLifecycleCommand(pendingCommandTypes)) return;
+    sendTaskCommand(
+      setFollowCommand(taskSnapshot, !isFollowingForeground(taskSnapshot), crypto.randomUUID()),
+    );
+  }, [pendingCommandTypes, sendTaskCommand, taskSnapshot]);
+
+  const handleTakeoverTask = useCallback(() => {
+    if (!taskSnapshot || hasPendingLifecycleCommand(pendingCommandTypes)) return;
+    sendTaskCommand(takeoverCommand(taskSnapshot, crypto.randomUUID()));
+  }, [pendingCommandTypes, sendTaskCommand, taskSnapshot]);
+
   const handleResumeTask = useCallback(() => {
     if (!taskSnapshot || hasPendingLifecycleCommand(pendingCommandTypes)) return;
     sendTaskCommand({
@@ -1659,6 +1680,11 @@ const SidePanel = () => {
     if (setInputTextRef.current) {
       setInputTextRef.current(content);
     }
+    setInputEnabled(true);
+    window.requestAnimationFrame(() => {
+      const composer = document.querySelector('.chijie-composer textarea') as HTMLTextAreaElement | null;
+      composer?.focus();
+    });
   };
 
   const handleSkillRun = async (skill: FavoriteSkill, values: Record<string, string>) => {
@@ -2070,8 +2096,8 @@ const SidePanel = () => {
     (currentSessionId === taskSnapshot?.chatSessionId || taskSnapshot?.sourceSkillId !== undefined);
   // Idle home still shows this session's chat (replies/clarifications); only task card needs active status.
   const showLiveMessages = messages.length > 0;
-  const showIdleHint = !showLiveMessages && favoritePrompts.length === 0;
   const liveTaskConsole = Boolean(taskSnapshot) && showTaskCard && isActiveTaskStatus(taskSnapshot.status);
+  const showIdleHint = !showLiveMessages && !liveTaskConsole;
   const hasAuthoritativeLiveTask = protectedLiveHistorySessionId(authoritativeTaskSnapshotRef.current) !== null;
   const visibleFavoritePrompts =
     liveTaskConsole || hasAuthoritativeLiveTask
@@ -2126,7 +2152,7 @@ const SidePanel = () => {
                   aria-live="polite"
                   aria-atomic="true">
                   {taskSnapshot && showTaskCard
-                    ? taskSnapshot.status === 'completed'
+                    ? taskSnapshot.status === 'completed' || taskSnapshot.status === 'failed'
                       ? '任务结果'
                       : t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
                     : t('chat_task_header_idle')}
@@ -2135,26 +2161,23 @@ const SidePanel = () => {
             )}
           </div>
           <div className="header-icons">
-            {!showHistory && (
-              <>
-                <button
-                  type="button"
-                  onClick={handleNewChat}
-                  className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
-                  aria-label={t('nav_newChat_a11y')}
-                  aria-busy={Boolean(pendingNewChatCancellationRef.current)}
-                  disabled={Boolean(pendingNewChatCancellationRef.current)}>
-                  <PiPlusBold size={20} />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLoadHistory}
-                  className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
-                  aria-label={t('nav_loadHistory_a11y')}>
-                  <GrHistory size={20} />
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              onClick={handleNewChat}
+              className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
+              aria-label={t('nav_newChat_a11y')}
+              aria-busy={Boolean(pendingNewChatCancellationRef.current)}
+              disabled={Boolean(pendingNewChatCancellationRef.current)}>
+              <PiPlusBold size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={handleLoadHistory}
+              className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
+              data-active={showHistory ? 'true' : undefined}
+              aria-label={t('nav_loadHistory_a11y')}>
+              <GrHistory size={20} />
+            </button>
             <button
               type="button"
               onClick={() => chrome.runtime.openOptionsPage()}
@@ -2258,6 +2281,18 @@ const SidePanel = () => {
                               composer?.scrollIntoView({ block: 'nearest' });
                             });
                           }}
+                          onRetry={
+                            !isHistoricalSession && taskSnapshot.status === 'failed'
+                              ? () => {
+                                  void handleSendMessage(originalInstruction, originalInstruction, { execute: true });
+                                }
+                              : undefined
+                          }
+                          onStop={
+                            !isHistoricalSession && taskSnapshot.status === 'running'
+                              ? handleTakeoverTask
+                              : undefined
+                          }
                           onAdjustDirection={
                             canAdjustDirection
                               ? () => {
@@ -2286,73 +2321,45 @@ const SidePanel = () => {
                   <div
                     className="chijie-chat-log scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3"
                     data-testid="sidepanel-chat-log"
+                    data-live={liveTaskConsole ? 'true' : 'false'}
                     data-collapsed={chatCollapsed ? 'true' : 'false'}
                     data-idle={!showMainTaskSurface ? 'true' : 'false'}>
-                    {showLiveMessages ? (
-                      chatCollapsed ? (
-                        <button
-                          type="button"
-                          className="chijie-chat-fold"
-                          data-testid="chat-log-fold"
-                          aria-expanded="false"
-                          onClick={() => setChatLogExpanded(true)}>
-                          <span>对话 {messages.length} 条</span>
-                          <span className="chijie-chat-fold-meta">展开查看委托与追问</span>
-                        </button>
-                      ) : (
-                        <>
-                          {liveTaskConsole && (
-                            <button
-                              type="button"
-                              className="chijie-chat-fold"
-                              data-testid="chat-log-fold"
-                              aria-expanded="true"
-                              onClick={() => setChatLogExpanded(false)}>
-                              <span>对话 {messages.length} 条</span>
-                              <span className="chijie-chat-fold-meta">收起</span>
-                            </button>
-                          )}
-                          <MessageList
-                            messages={
-                              taskSnapshot?.status === 'running'
-                                ? displayMessages
-                                : displayMessages.filter(message => message.content !== progressMessage)
-                            }
-                            isDarkMode={false}
-                            onRetry={
-                              messageRecoveryEnabled
-                                ? () => {
-                                    const lastUser = [...messages].reverse().find(m => m.actor === Actors.USER);
-                                    if (lastUser?.content) {
-                                      void handleSendMessage(lastUser.content);
-                                    } else {
-                                      setInputTextRef.current?.('');
-                                    }
+                    {liveTaskConsole ? null : showLiveMessages ? (
+                      <>
+                        <MessageList
+                          messages={displayMessages.filter(message => message.content !== progressMessage)}
+                          isDarkMode={false}
+                          onRetry={
+                            messageRecoveryEnabled
+                              ? () => {
+                                  const lastUser = [...messages].reverse().find(m => m.actor === Actors.USER);
+                                  if (lastUser?.content) {
+                                    void handleSendMessage(lastUser.content);
+                                  } else {
+                                    setInputTextRef.current?.('');
                                   }
-                                : undefined
-                            }
-                            onRephrase={
-                              messageRecoveryEnabled
-                                ? () => {
-                                    const el = document.querySelector(
-                                      '.chijie-composer textarea',
-                                    ) as HTMLTextAreaElement | null;
-                                    el?.focus();
-                                  }
-                                : undefined
-                            }
-                          />
-                          <div ref={messagesEndRef} />
-                        </>
-                      )
+                                }
+                              : undefined
+                          }
+                          onRephrase={
+                            messageRecoveryEnabled
+                              ? () => {
+                                  const el = document.querySelector(
+                                    '.chijie-composer textarea',
+                                  ) as HTMLTextAreaElement | null;
+                                  el?.focus();
+                                }
+                              : undefined
+                          }
+                        />
+                        <div ref={messagesEndRef} />
+                      </>
                     ) : showIdleHint ? (
-                      <div
-                        className="flex h-full min-h-[8.5rem] items-center justify-center px-2"
-                        data-testid="empty-composer-spacer">
-                        <p className="text-center text-xs text-[var(--chijie-muted)]" data-testid="idle-delegate-hint">
-                          {t('chat_empty_hint')}
-                        </p>
-                      </div>
+                      <IdleHome
+                        hint={t('chat_empty_hint')}
+                        onPick={handleBookmarkSelect}
+                        savedCount={visibleFavoritePrompts.length}
+                      />
                     ) : null}
                   </div>
                   {/* Skills must stay runnable after a completed chat (O1 skill re-run / e2e).
@@ -2397,15 +2404,27 @@ const SidePanel = () => {
                       data-testid="composer-continuous-controls"
                       data-status={taskSnapshot.status}>
                       {taskSnapshot.status === 'running' ? (
-                        <button
-                          type="button"
-                          className="chijie-btn-secondary"
-                          data-testid="composer-pause"
-                          disabled={lifecycleCommandPending}
-                          aria-busy={lifecycleCommandPending}
-                          onClick={handlePauseTask}>
-                          {t('chat_task_pause')}
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="chijie-btn-secondary"
+                            data-testid="composer-follow"
+                            aria-pressed={isFollowingForeground(taskSnapshot)}
+                            disabled={lifecycleCommandPending}
+                            aria-busy={lifecycleCommandPending}
+                            onClick={handleFollowTask}>
+                            {t('chat_task_follow')}
+                          </button>
+                          <button
+                            type="button"
+                            className="chijie-btn-primary"
+                            data-testid="composer-takeover"
+                            disabled={lifecycleCommandPending}
+                            aria-busy={lifecycleCommandPending}
+                            onClick={handleTakeoverTask}>
+                            {t('chat_task_takeover')}
+                          </button>
+                        </>
                       ) : taskSnapshot.status === 'paused' || taskSnapshot.status === 'interrupted' ? (
                         <button
                           type="button"
@@ -2432,6 +2451,17 @@ const SidePanel = () => {
                           <details>
                             <summary aria-label="更多任务操作">更多</summary>
                             <div className="chijie-composer-stop-menu" role="menu">
+                              {taskSnapshot.status === 'running' ? (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  data-testid="composer-pause"
+                                  disabled={lifecycleCommandPending}
+                                  aria-busy={lifecycleCommandPending}
+                                  onClick={handlePauseTask}>
+                                  {t('chat_task_pause')}
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 role="menuitem"
@@ -2455,6 +2485,7 @@ const SidePanel = () => {
                     isProcessingSpeech={isProcessingSpeech}
                     disabled={!taskSnapshotLoaded || !inputEnabled || isHistoricalSession}
                     showStopButton={false}
+                    currentPage={visibleBindPreview}
                     setContent={setter => {
                       setInputTextRef.current = setter;
                     }}

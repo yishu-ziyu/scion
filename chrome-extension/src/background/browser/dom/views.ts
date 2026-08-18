@@ -84,6 +84,14 @@ export class DOMElementNode extends DOMBaseNode {
   viewportCoordinates?: CoordinateSet;
   pageCoordinates?: CoordinateSet;
   viewportInfo?: ViewportInfo;
+  /** Chrome tab that produced this node. */
+  tabId?: number;
+  /** CDP Page.FrameId. */
+  cdpFrameId?: string;
+  /** CDP backend node id used by chrome.debugger clicks. */
+  backendNodeId?: number;
+  /** iframe debugger target id, when the node is not on the tab's main target. */
+  cdpTargetId?: string;
 
   /*
 	### State injected by the browser context.
@@ -108,6 +116,10 @@ export class DOMElementNode extends DOMBaseNode {
     viewportInfo?: ViewportInfo;
     isNew?: boolean | null;
     parent?: DOMElementNode | null;
+    tabId?: number;
+    cdpFrameId?: string;
+    backendNodeId?: number;
+    cdpTargetId?: string;
   }) {
     super(params.isVisible, params.parent);
     this.tagName = params.tagName;
@@ -123,6 +135,10 @@ export class DOMElementNode extends DOMBaseNode {
     this.pageCoordinates = params.pageCoordinates;
     this.viewportInfo = params.viewportInfo;
     this.isNew = params.isNew ?? null;
+    this.tabId = params.tabId;
+    this.cdpFrameId = params.cdpFrameId;
+    this.backendNodeId = params.backendNodeId;
+    this.cdpTargetId = params.cdpTargetId;
   }
 
   // Cache for the hash value

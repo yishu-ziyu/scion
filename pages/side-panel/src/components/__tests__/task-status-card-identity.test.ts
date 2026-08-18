@@ -130,6 +130,144 @@ describe('TaskStatusCard identity markers', () => {
     expect(failureNextStep(snapshot)).not.toContain('把目标写具体');
   });
 
+  it('running card is a live tool log, not a collapsed audit or empty result', () => {
+    const snapshot = {
+      id: 'task-live',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      status: 'running',
+      revision: 2,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [
+        {
+          id: 'page-1',
+          kind: 'page',
+          tabId: 7,
+          frameId: 0,
+          urlOrigin: 'https://www.etsy.com',
+          digest: 'digest',
+        },
+      ],
+      rounds: [
+        {
+          id: 'round-1',
+          instructionSummary: 'User task',
+          status: 'running',
+          commandAcks: {},
+          criteria: [],
+          attempts: [
+            {
+              id: 'attempt-1',
+              roundId: 'round-1',
+              actionName: 'go_to_url',
+              effect: 'read',
+              argsDigest: 'args',
+              displaySummary: '打开 etsy.com',
+              targetLabel: 'etsy.com',
+              state: 'executing',
+              proposedAt: 1,
+              executingAt: 2,
+            },
+          ],
+          evidence: [],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 3,
+    } satisfies TaskSnapshot;
+
+    const html = renderToStaticMarkup(
+      createElement(TaskStatusCard, {
+        snapshot,
+        send: vi.fn(),
+        defaultInstruction: '打开 etsy 搜相框，抽出前 5 个商品写进表格',
+        onStop: vi.fn(),
+      }),
+    );
+
+    expect(html).toContain('chijie-user-bubble');
+    expect(html).toContain('打开 etsy 搜相框，抽出前 5 个商品写进表格');
+    expect(html).toContain('data-live-log="true"');
+    expect(html).toContain('data-testid="live-tool-log"');
+    expect(html).toContain('data-testid="live-cursor"');
+    expect(html).toContain('data-testid="live-stop-generating"');
+    expect(html).toContain('接管');
+    expect(html).toContain('etsy.com');
+    expect(html).toContain('打开');
+    expect(html).not.toContain('做完会出现在这里');
+    expect(html).not.toContain('is-collapsed');
+    expect(html).not.toContain('data-testid="task-status-label"');
+  });
+
+  it('failed card is 目标 + 结果 + 再说一次, not stacked 失败了 chrome', () => {
+    const snapshot = {
+      id: 'task-failed',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      status: 'failed',
+      revision: 4,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      rounds: [
+        {
+          id: 'round-1',
+          instructionSummary: 'User task',
+          status: 'failed',
+          failureCategory: 'max_steps',
+          commandAcks: {},
+          criteria: [],
+          attempts: [
+            {
+              id: 'attempt-1',
+              roundId: 'round-1',
+              actionName: 'observe',
+              effect: 'read',
+              argsDigest: 'args',
+              displaySummary: '获取页面快照',
+              state: 'observed',
+              proposedAt: 1,
+              observedAt: 2,
+            },
+          ],
+          evidence: [],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 4,
+    } satisfies TaskSnapshot;
+
+    const html = renderToStaticMarkup(
+      createElement(TaskStatusCard, {
+        snapshot,
+        send: vi.fn(),
+        defaultInstruction: '打开这个网页的第二行的第一个视频',
+        onRetry: vi.fn(),
+      }),
+    );
+
+    expect(html).toContain('打开这个网页的第二行的第一个视频');
+    expect(html).toContain('试了几轮，还是没做成。');
+    expect(html).toContain('再说一次');
+    expect(html).toContain('data-testid="task-retry"');
+    expect(html).toContain('chijie-failed-result');
+    expect(html).toContain('做过');
+    expect(html).not.toContain('>现在<');
+    expect(html.indexOf('>结果<')).toBeLessThan(html.indexOf('做过'));
+    expect(html).not.toContain('data-testid="task-status-label"');
+    expect(html).not.toContain('失败了');
+    expect(html).not.toContain('本次任务完成得怎么样');
+    expect(html).not.toContain('模型反复');
+    expect(html).not.toContain('步数耗尽');
+    expect(html).not.toContain('没有可交付结果');
+    expect(html).not.toContain('data-testid="task-thinking-process"');
+    expect(html).not.toContain('data-testid="task-outcome-rating"');
+    expect(html).toMatch(/data-testid="completion-result"[^>]*>试了几轮，还是没做成。</);
+  });
+
   it('does not repeat the same failure sentence as both hint and product label', () => {
     const label = productFailureLabel('target_missing');
     expect(distinctFailureCategoryLabel(label, 'target_missing')).toBeNull();

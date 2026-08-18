@@ -60,13 +60,20 @@ code {
   height: 40px;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--chijie-border);
-  border-radius: 50%;
-  background: var(--chijie-surface-raised);
-  color: var(--chijie-foreground);
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--chijie-muted);
   cursor: pointer;
-  transition: color 0.2s ease;
-  opacity: 0.9;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease;
+  opacity: 1;
+}
+
+.header-icon[data-active='true'] {
+  background: var(--chijie-accent-subtle);
+  color: var(--chijie-accent);
 }
 
 .header-icon:hover {

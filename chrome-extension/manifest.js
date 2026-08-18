@@ -65,6 +65,7 @@ const manifest = withOperaSidebar(
       'storage',
       'scripting',
       'tabs',
+      'tabGroups',
       'activeTab',
       'debugger',
       'unlimitedStorage',

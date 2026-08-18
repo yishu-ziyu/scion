@@ -62,9 +62,10 @@ describe('Feature: Tabbit-class task loop UI (ticket 01, seam S1)', () => {
     expect(shouldShowVerifiedDone(completedSnapshot, receipt)).toBe(true);
   });
 
-  it('offers outcome rating only after verified done', () => {
+  it('offers outcome rating only after a completed delivery', () => {
     expect(shouldShowOutcomeRating({ ...completedSnapshot, status: 'running' }, receipt)).toBe(false);
-    expect(shouldShowOutcomeRating(completedSnapshot, undefined)).toBe(false);
+    expect(shouldShowOutcomeRating(completedSnapshot, undefined)).toBe(true);
+    expect(shouldShowOutcomeRating({ ...completedSnapshot, status: 'failed' }, undefined)).toBe(false);
     expect(shouldShowOutcomeRating(completedSnapshot, receipt)).toBe(true);
   });
 
@@ -97,6 +98,7 @@ describe('Feature: Tabbit-class task loop UI (ticket 01, seam S1)', () => {
   it('picks feature-first primary organism for goal-directed reading order', () => {
     expect(taskPrimaryOrganism({ status: 'running' })).toBe('activity');
     expect(taskPrimaryOrganism({ status: 'completed', showVerifiedDone: true })).toBe('completion');
+    expect(taskPrimaryOrganism({ status: 'completed', showVerifiedDone: false })).toBe('completion');
     expect(taskPrimaryOrganism({ status: 'waiting_user' })).toBe('recovery');
     expect(taskPrimaryOrganism({ status: 'paused' })).toBe('idle');
   });

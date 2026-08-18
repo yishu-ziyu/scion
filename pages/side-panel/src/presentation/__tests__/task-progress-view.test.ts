@@ -309,7 +309,7 @@ describe('deriveTaskProgressView', () => {
     expect(view.kind).toBe('generic');
     expect(view.surface).toBe('console');
     expect(view.status).toBe('failed');
-    expect(view.health).toMatchObject({ state: 'failed', summary: '失败了，没有可交付结果' });
+    expect(view.health).toMatchObject({ state: 'failed', summary: '没做成' });
     expect(view.nextStep).toBe('没有完成交付');
     expect(view).not.toHaveProperty('currentActivity');
   });
@@ -345,7 +345,10 @@ describe('deriveTaskProgressView', () => {
       state: 'slow',
       summary: '尚无可确认进展，可继续等待或调整方向',
     });
-    expect(view).not.toHaveProperty('currentActivity');
+    expect(view.currentActivity).toMatchObject({
+      summary: '正在看 example.com',
+      site: 'example.com',
+    });
   });
 
   it.each([
@@ -376,7 +379,7 @@ describe('deriveTaskProgressView', () => {
     });
   });
 
-  it('shows Now only for the currently executing attempt, never a stale observed attempt', () => {
+  it('keeps Now on the last observed action while running, so the live line is never empty', () => {
     const task = snapshot('running');
     task.rounds[0]!.attempts[0] = {
       ...task.rounds[0]!.attempts[0]!,
@@ -392,7 +395,10 @@ describe('deriveTaskProgressView', () => {
       now: 20_000,
     });
 
-    expect(view).not.toHaveProperty('currentActivity');
+    expect(view.currentActivity).toMatchObject({
+      summary: '打开 Zotero 官网',
+      site: 'example.com',
+    });
     expect(view.health).toMatchObject({
       state: 'advancing',
       summary: '刚有可确认进展',
@@ -416,6 +422,9 @@ describe('deriveTaskProgressView', () => {
     });
 
     expect(view.health).toMatchObject({ state: 'recovering', summary: '上一步未确认，正在恢复或换路' });
-    expect(view).not.toHaveProperty('currentActivity');
+    expect(view.currentActivity).toMatchObject({
+      summary: '打开 Zotero 官网',
+      site: 'example.com',
+    });
   });
 });

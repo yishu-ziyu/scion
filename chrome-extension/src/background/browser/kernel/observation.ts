@@ -13,6 +13,7 @@ import type {
   ViewportState,
 } from './types';
 import { renderFormFieldsBlock } from './form-fields';
+import { filterElementsTextByIndexes, filterInteractiveElements } from './filter-interactive';
 
 export interface ObservationBuildInput {
   browserState: PageState;
@@ -25,6 +26,8 @@ export interface ObservationBuildInput {
   enrichment?: string;
   includeAttributes?: string[] | null;
   screenshotRef?: string;
+  /** Keep only clickable controls matching this text. Empty = full page list. */
+  query?: string;
 }
 
 let frameSeq = 0;
@@ -58,6 +61,10 @@ export function digestInteractiveElements(state: PageState, limit = 80): Interac
       label: attrs.accname || attrs['aria-label'] || attrs.placeholder,
       contentEditable: contentEditable || undefined,
       checked: attrs.checked,
+      tabId: typeof node.tabId === 'number' ? node.tabId : state.tabId,
+      cdpFrameId: node.cdpFrameId,
+      backendNodeId: node.backendNodeId,
+      cdpTargetId: node.cdpTargetId,
     });
   }
   return out;
@@ -73,17 +80,24 @@ export async function buildObservationFrame(input: ObservationBuildInput): Promi
     mediaLine = `media: ambiguous count=${media.candidateCount ?? 0}`;
   }
 
-  const interactiveElements = digestInteractiveElements(input.browserState);
+  const query = input.query?.trim() ?? '';
+  const digested = digestInteractiveElements(input.browserState, query ? 2000 : 80);
+  const interactiveElements = filterInteractiveElements(digested, query);
   const formFieldsBlock = renderFormFieldsBlock(interactiveElements);
   const visibleText = input.visibleText?.trim() ?? '';
   const visibleBlock = visibleText
     ? `Visible page text:\n${wrapUntrustedContent(visibleText)}`
     : 'Visible page text:\n[empty]';
-  const interactiveRaw = [formFieldsBlock, `Interactive elements:\n${input.elementsText || 'empty interactive list'}`]
+  const keptIndexes = new Set(interactiveElements.map(element => element.index));
+  const elementsText = query ? filterElementsTextByIndexes(input.elementsText, keptIndexes) : input.elementsText;
+  const elementsLabel = query
+    ? `Interactive elements (query="${query}", ${interactiveElements.length} matches):`
+    : 'Interactive elements:';
+  const interactiveRaw = [formFieldsBlock, `${elementsLabel}\n${elementsText || 'empty interactive list'}`]
     .filter(Boolean)
     .join('\n');
   const interactiveBlock =
-    input.elementsText !== '' || formFieldsBlock
+    elementsText !== '' || formFieldsBlock || Boolean(query)
       ? wrapUntrustedContent(interactiveRaw)
       : 'empty interactive list';
   const text = compactStateText(

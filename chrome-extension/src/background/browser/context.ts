@@ -10,6 +10,7 @@ import Page, { build_initial_state } from './page';
 import { createLogger } from '@src/background/log';
 import { isNewTabPage, isUrlAllowed } from './util';
 import { pickNewerBilibiliWatchTab } from './sites/bilibili-first-video';
+import { isGroupableTabUrl, taskTabGroupTitle } from './task-tab-group';
 import { analytics } from '../services/analytics';
 
 const logger = createLogger('BrowserContext');
@@ -18,6 +19,10 @@ export default class BrowserContext {
   private _currentTabId: number | null = null;
   private _boundWindowId: number | null = null;
   private _attachedPages: Map<number, Page> = new Map();
+  private _revealForeground = false;
+  private _taskGroupEnabled = false;
+  private _taskGroupId: number | null = null;
+  private _taskGroupTitle = '任务';
 
   constructor(config: Partial<BrowserContextConfig>) {
     this._config = { ...DEFAULT_BROWSER_CONTEXT_CONFIG, ...config };
@@ -25,6 +30,74 @@ export default class BrowserContext {
 
   public getConfig(): BrowserContextConfig {
     return this._config;
+  }
+
+  /** Tab the task is already attached to, or null before the first bind. */
+  public getBoundTabId(): number | null {
+    return this._currentTabId;
+  }
+
+  /** When true, switchTab/openTab may bring the task tab to the front (user chose 跟随). */
+  public setRevealForeground(reveal: boolean): void {
+    this._revealForeground = reveal;
+  }
+
+  public revealsForeground(): boolean {
+    return this._revealForeground;
+  }
+
+  public taskTabGroupId(): number | null {
+    return this._taskGroupId;
+  }
+
+  /**
+   * Bind later attach/open/switch tabs into one Chrome tab group.
+   * Does not activate tabs. No-op when tabGroups is missing (Firefox).
+   */
+  public async beginTaskTabGroup(title: string, existingGroupId?: number): Promise<number | null> {
+    this._taskGroupEnabled = true;
+    this._taskGroupTitle = taskTabGroupTitle(title);
+    this._taskGroupId =
+      typeof existingGroupId === 'number' && Number.isSafeInteger(existingGroupId) && existingGroupId >= 0
+        ? existingGroupId
+        : null;
+    if (this._currentTabId != null) {
+      await this.adoptTabIntoTaskGroup(this._currentTabId);
+    }
+    return this._taskGroupId;
+  }
+
+  private async adoptTabIntoTaskGroup(tabId: number): Promise<void> {
+    if (!this._taskGroupEnabled || !chrome.tabGroups || !chrome.tabs.group) return;
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (!tab.id || !isGroupableTabUrl(tab.url || tab.pendingUrl)) return;
+      if (this._taskGroupId != null && tab.groupId === this._taskGroupId) return;
+      const groupId = await chrome.tabs.group({
+        tabIds: [tab.id],
+        ...(this._taskGroupId != null ? { groupId: this._taskGroupId } : {}),
+      });
+      this._taskGroupId = groupId;
+      await chrome.tabGroups.update(groupId, {
+        title: this._taskGroupTitle,
+        color: 'orange',
+        collapsed: false,
+      });
+    } catch (error) {
+      logger.info('task tab group skipped', error);
+    }
+  }
+
+  /** User asked to see this tab now (跟随 on, or 接管). Always activates. */
+  public async revealTab(tabId: number): Promise<void> {
+    const tab = await chrome.tabs.get(tabId);
+    if (!this._getAllowedTabUrl(tab)) {
+      throw new URLNotAllowedError(`Reveal tab failed. URL: ${tab.url || ''} is not allowed`);
+    }
+    await chrome.tabs.update(tabId, { active: true });
+    if (Number.isInteger(tab.windowId) && chrome.windows?.update) {
+      await chrome.windows.update(tab.windowId, { focused: true });
+    }
   }
 
   public updateConfig(config: Partial<BrowserContextConfig>): void {
@@ -119,6 +192,7 @@ export default class BrowserContext {
         return this.getCurrentPage();
       }
       this._currentTabId = tabId;
+      await this.adoptTabIntoTaskGroup(tabId);
       return page;
     } catch (error) {
       await this._invalidatePage(tabId, page);
@@ -136,6 +210,9 @@ export default class BrowserContext {
     this._attachedPages.clear();
     this._currentTabId = null;
     this._boundWindowId = null;
+    this._taskGroupEnabled = false;
+    this._taskGroupId = null;
+    this._taskGroupTitle = '任务';
   }
 
   public async detachPage(tabId: number): Promise<void> {
@@ -161,8 +238,11 @@ export default class BrowserContext {
         tab = tabs.find(candidate => this._getAllowedTabUrl(candidate));
       }
       if (!tab?.id) {
-        // open a new tab with blank page
-        const newTab = await chrome.tabs.create({ url: this._config.homePageUrl });
+        // open a new tab with blank page; keep it in the background
+        const newTab = await chrome.tabs.create({
+          url: this._config.homePageUrl,
+          active: this._revealForeground,
+        });
         if (!newTab.id) {
           // this should rarely happen
           throw new Error('No tab ID available');
@@ -234,7 +314,7 @@ export default class BrowserContext {
       timeoutMs?: number;
     } = {},
   ): Promise<void> {
-    const { waitForUpdate = true, waitForActivation = true, timeoutMs = 5000 } = options;
+    const { waitForUpdate = true, waitForActivation = false, timeoutMs = 5000 } = options;
 
     const promises: Promise<void>[] = [];
 
@@ -317,8 +397,14 @@ export default class BrowserContext {
       throw new Error(`Switch tab failed. Tab ${tabId} is outside the task window`);
     }
 
-    await chrome.tabs.update(tabId, { active: true });
-    await this.waitForTabEvents(tabId, { waitForUpdate: false });
+    // Default: attach in place. Only bring the tab forward when the user chose 跟随.
+    if (this._revealForeground) {
+      await chrome.tabs.update(tabId, { active: true });
+      await this.waitForTabEvents(tabId, { waitForUpdate: false, waitForActivation: true });
+    } else if (tab.discarded) {
+      await chrome.tabs.reload(tabId);
+      await this.waitForTabEvents(tabId, { waitForActivation: false });
+    }
 
     return await this._attachAllowedPage(tabId);
   }
@@ -352,9 +438,14 @@ export default class BrowserContext {
     }
     //  Use chrome.tabs.update only if the page is not attached
     const tabId = page.tabId;
-    // Update tab and wait for events
-    await chrome.tabs.update(tabId, { url, active: true });
-    await this.waitForTabEvents(tabId);
+    if (this._revealForeground) {
+      await chrome.tabs.update(tabId, { url, active: true });
+      await this.waitForTabEvents(tabId, { waitForActivation: true });
+    } else {
+      // Omit `active` (true steals, false kicks them off a page they are watching).
+      await chrome.tabs.update(tabId, { url });
+      await this.waitForTabEvents(tabId, { waitForActivation: false });
+    }
 
     // Reattach the page after navigation completes
     await this._attachAllowedPage(tabId, true);
@@ -365,17 +456,16 @@ export default class BrowserContext {
       throw new URLNotAllowedError(`Open tab failed. URL: ${url} is not allowed`);
     }
 
-    // Create the new tab
     const tab = await chrome.tabs.create({
       url,
-      active: true,
+      active: this._revealForeground,
       ...(this._boundWindowId === null ? {} : { windowId: this._boundWindowId }),
     });
     if (!tab.id) {
       throw new Error('No tab ID available');
     }
     // Wait for tab events
-    await this.waitForTabEvents(tab.id);
+    await this.waitForTabEvents(tab.id, { waitForActivation: this._revealForeground });
 
     return await this._attachAllowedPage(tab.id);
   }
@@ -434,12 +524,16 @@ export default class BrowserContext {
     return browserState;
   }
 
-  public async getState(useVision = false, cacheClickableElementsHashes = false): Promise<BrowserState> {
+  public async getState(
+    useVision = false,
+    cacheClickableElementsHashes = false,
+    options?: { waitForLoad?: boolean },
+  ): Promise<BrowserState> {
     const currentPage = await this.getCurrentPage();
 
     const pageState = !currentPage
       ? build_initial_state()
-      : await currentPage.getState(useVision, cacheClickableElementsHashes);
+      : await currentPage.getState(useVision, cacheClickableElementsHashes, options);
     const tabInfos = await this.getTabInfos();
     const browserState: BrowserState = {
       ...pageState,

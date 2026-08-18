@@ -164,7 +164,8 @@ export type TaskCommand =
       instructionMessageId: string;
       changeType?: 'follow_up' | 'direction_change';
     })
-  | (ExistingTaskCommand & { type: 'pause' | 'resume' | 'cancel' })
+  | (ExistingTaskCommand & { type: 'pause' | 'resume' | 'cancel' | 'takeover' })
+  | (ExistingTaskCommand & { type: 'set_follow'; follow: boolean })
   | (ExistingTaskCommand & { type: 'confirm_completion'; roundId: string; criterionId: string })
   | (ExistingTaskCommand & { type: 'save_skill'; roundId: string; title: string; instructionTemplate: string })
   | {
@@ -205,6 +206,10 @@ export interface TaskSession {
   status: TaskStatus;
   revision: number;
   activeTabId: number;
+  /** Chrome tab group that holds pages this task opened or bound. */
+  tabGroupId?: number;
+  /** When true, agent tab/window may come to the front so the user can watch. */
+  followForeground?: boolean;
   currentRoundId: string;
   targetRefs: BrowserTargetRef[];
   rounds: TaskRound[];

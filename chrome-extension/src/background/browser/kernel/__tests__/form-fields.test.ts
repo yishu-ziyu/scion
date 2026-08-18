@@ -11,9 +11,12 @@ describe('form field view', () => {
     expect(isFillableControl(field({ index: 1, tagName: 'input', type: 'text' }))).toBe(true);
     expect(isFillableControl(field({ index: 2, tagName: 'textarea' }))).toBe(true);
     expect(isFillableControl(field({ index: 3, tagName: 'div', contentEditable: true }))).toBe(true);
+    expect(isFillableControl(field({ index: 9, tagName: 'select' }))).toBe(true);
     expect(isFillableControl(field({ index: 4, tagName: 'a', text: 'Home' }))).toBe(false);
     expect(isFillableControl(field({ index: 5, tagName: 'input', type: 'checkbox' }))).toBe(false);
     expect(isFillableControl(field({ index: 6, tagName: 'input', type: 'submit' }))).toBe(false);
+    expect(isFillableControl(field({ index: 7, tagName: 'input', type: 'radio' }))).toBe(false);
+    expect(isFillableControl(field({ index: 8, tagName: 'input', type: 'file' }))).toBe(false);
   });
 
   it('prints label and current value for a Salesforce-style form', () => {

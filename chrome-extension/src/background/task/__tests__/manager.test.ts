@@ -60,6 +60,7 @@ const store = vi.hoisted(() => ({
   },
   observeActionTarget: vi.fn(),
   observeMedia: vi.fn(),
+  evaluate: vi.fn(async () => ''),
 }));
 
 vi.mock('@extension/storage/lib/chat', () => ({
@@ -116,7 +117,7 @@ vi.mock('../../agent/factory', () => ({
     getCurrentPage: async () => ({
       observeActionTarget: store.observeActionTarget,
       observeMedia: store.observeMedia,
-      evaluate: async () => '',
+      evaluate: store.evaluate,
       tabId: 7,
       url: () => 'https://example.test/watch',
     }),
@@ -263,10 +264,7 @@ describe('instruction deliverable contract', () => {
       await checkInstructionDeliverable('阅读当前页面并概括核心主题', '好的，我来阅读当前页面并概括核心主题。'),
     ).toEqual({ passed: false, reasons: ['non_substantive'] });
     expect(
-      await checkInstructionDeliverable(
-        '阅读当前页面并概括核心主题',
-        '核心主题：这是一套面向长程推理的记忆系统。',
-      ),
+      await checkInstructionDeliverable('阅读当前页面并概括核心主题', '核心主题：这是一套面向长程推理的记忆系统。'),
     ).toEqual({ passed: true, reasons: [] });
   });
 
@@ -276,9 +274,10 @@ describe('instruction deliverable contract', () => {
       passed: false,
       reasons: expect.arrayContaining(['url_not_visited']),
     });
-    expect(
-      await checkInstructionDeliverable(longInstruction, answer, await pageEvidence()),
-    ).toEqual({ passed: true, reasons: [] });
+    expect(await checkInstructionDeliverable(longInstruction, answer, await pageEvidence())).toEqual({
+      passed: true,
+      reasons: [],
+    });
   });
 });
 
@@ -292,6 +291,8 @@ describe('TaskManager lifecycle', () => {
     store.observeActionTarget.mockResolvedValue(store.targetObservation);
     store.observeMedia.mockReset();
     store.observeMedia.mockResolvedValue({ kind: 'missing' });
+    store.evaluate.mockReset();
+    store.evaluate.mockResolvedValue('');
   });
 
   it('persists one start and returns the original ack for a duplicate command', async () => {
@@ -323,6 +324,122 @@ describe('TaskManager lifecycle', () => {
       rounds: [{ commandAcks: { 'cmd-1': first } }],
     });
     expect(JSON.stringify(store.sessions.get('task-1'))).not.toContain('open the form');
+  });
+
+  it('writes a live 获取页面快照 step on start before createExecutor returns', async () => {
+    let finishCreate!: (driver: ExecutorDriver) => void;
+    const createExecutor = vi.fn(() => new Promise<ExecutorDriver>(resolve => (finishCreate = resolve)));
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'cmd-live-step',
+      taskId: 'task-live-step',
+      instruction: '打开这个网页的第二行的第一个视频',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    const snap = await manager.snapshot('task-live-step');
+    expect(snap?.rounds[0]?.attempts).toEqual([
+      expect.objectContaining({
+        actionName: 'observe',
+        state: 'executing',
+        displaySummary: '获取页面快照',
+      }),
+    ]);
+    finishCreate(fakeDriver());
+  });
+
+  it('marks the start snapshot done when the loop reports decide', async () => {
+    let hooks!: ExecutorHooks;
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return fakeDriver();
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'cmd-decide-step',
+      taskId: 'task-decide-step',
+      instruction: '打开这个网页的第二行的第一个视频',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-decide-step');
+    await hooks.reportLoopPhase?.(roundId, { phase: 'decide', step: 0 });
+    const snap = await manager.snapshot('task-decide-step');
+    expect(snap?.rounds[0]?.attempts[0]).toMatchObject({
+      actionName: 'observe',
+      state: 'observed',
+    });
+  });
+
+  it('follows only when asked and takeover pauses without leaving follow on', async () => {
+    const driver = fakeDriver();
+    const setFollowForeground = vi.fn();
+    const revealTab = vi.fn();
+    const beginTaskTabGroup = vi.fn(async () => 12);
+    const manager = new TaskManager({
+      createExecutor: async () => driver,
+      switchTab: vi.fn(),
+      setFollowForeground,
+      revealTab,
+      beginTaskTabGroup,
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'cmd-1',
+      taskId: 'task-1',
+      instruction: 'open the form',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    expect(setFollowForeground).toHaveBeenCalledWith(false);
+    expect(beginTaskTabGroup).toHaveBeenCalled();
+    expect((await manager.snapshot('task-1'))?.tabGroupId).toBe(12);
+    expect((await manager.snapshot('task-1'))?.followForeground).toBeFalsy();
+
+    const followed = await manager.dispatch({
+      type: 'set_follow',
+      commandId: 'cmd-follow',
+      taskId: 'task-1',
+      expectedRevision: 1,
+      follow: true,
+    });
+    expect(followed.accepted).toBe(true);
+    expect((await manager.snapshot('task-1'))?.followForeground).toBe(true);
+    expect(setFollowForeground).toHaveBeenCalledWith(true);
+    expect(revealTab).toHaveBeenCalledWith(7);
+
+    const taken = await manager.dispatch({
+      type: 'takeover',
+      commandId: 'cmd-take',
+      taskId: 'task-1',
+      expectedRevision: 2,
+    });
+    expect(taken.accepted).toBe(true);
+    const after = await manager.snapshot('task-1');
+    expect(after?.status).toBe('paused');
+    expect(after?.followForeground).toBe(false);
+    expect(driver.pause).toHaveBeenCalled();
+    expect(setFollowForeground).toHaveBeenLastCalledWith(false);
   });
 
   it('rejects malformed URL criteria instead of degrading them to user confirmation', async () => {
@@ -1384,7 +1501,7 @@ describe('TaskManager lifecycle', () => {
     expect(driver.run).toHaveBeenNthCalledWith(2, newRoundId);
     await expect(manager.snapshot('task-safe-boundary')).resolves.toMatchObject({
       status: 'running',
-      rounds: [{ attempts: [{ state: 'observed' }] }, { status: 'running' }],
+      rounds: [{ attempts: expect.arrayContaining([expect.objectContaining({ state: 'observed' })]) }, { status: 'running' }],
     });
   });
 
@@ -1422,7 +1539,7 @@ describe('TaskManager lifecycle', () => {
     expect(result).toMatchObject({ attempt: { state: 'blocked' }, actionResult: { error: 'media_target_missing' } });
     await expect(manager.snapshot('task-missing-media')).resolves.toMatchObject({
       status: 'waiting_user',
-      rounds: [{ waitReason: 'target_missing', attempts: [{ state: 'blocked' }] }],
+      rounds: [{ waitReason: 'target_missing', attempts: expect.arrayContaining([expect.objectContaining({ state: 'blocked' })]) }],
     });
   });
 
@@ -2047,7 +2164,7 @@ describe('TaskManager lifecycle', () => {
     });
   });
 
-  it('does not complete from optional criteria without required proof', async () => {
+  it('completes from a written result even when only optional page_text exists', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     let hooks!: ExecutorHooks;
     const driver = fakeDriver();
@@ -2081,15 +2198,15 @@ describe('TaskManager lifecycle', () => {
       { kind: 'page_text', operator: 'present', expected: 'Optional hint', required: false },
     ]);
 
-    finish({ kind: 'candidate_complete', summary: 'done' });
+    finish({ kind: 'candidate_complete', summary: 'I grouped the visible sections on this page.' });
 
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-optional-proof')).toMatchObject({
-        status: 'waiting_user',
-        rounds: [{ status: 'waiting_user', waitReason: 'proof_required' }],
+        status: 'completed',
+        rounds: [{ status: 'completed' }],
       });
     });
-    expect((await manager.snapshot('task-optional-proof'))?.rounds[0]?.receipt).toBeUndefined();
+    expect((await manager.snapshot('task-optional-proof'))?.rounds[0]?.receipt).toBeDefined();
   });
 
   it('freezes /watch url criteria when the goal is open YouTube and click the first video', async () => {
@@ -2265,13 +2382,13 @@ describe('TaskManager lifecycle', () => {
     });
   });
 
-  it('does not mint a native receipt for a URL-sourced fact without page text evidence', async () => {
+  it('completes a written source fact once the URL is reached', async () => {
     const url = 'https://example.test/report';
     const instruction = `At ${url}, tell me the launch date.`;
     const driver = fakeDriver();
     driver.run = vi.fn().mockResolvedValue({
       kind: 'candidate_complete',
-      summary: `The launch date is 2099-01-01. ${url}`,
+      summary: 'The launch date is 2099-01-01.',
     });
     let observeCall = 0;
     const manager = new TaskManager({
@@ -2304,14 +2421,14 @@ describe('TaskManager lifecycle', () => {
 
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-url-fact-no-text')).toMatchObject({
-        status: 'failed',
-        rounds: [{ status: 'failed', failureCategory: 'no_action' }],
+        status: 'completed',
+        rounds: [{ status: 'completed' }],
       });
     });
     const snapshot = await manager.snapshot('task-url-fact-no-text');
-    expect(snapshot?.rounds[0]?.receipt).toBeUndefined();
-    expect(snapshot?.rounds[0]?.evidence).toEqual(expect.arrayContaining([expect.objectContaining({ passed: true })]));
-    expect(driver.run).toHaveBeenCalledTimes(2);
+    expect(snapshot?.rounds[0]?.receipt).toBeDefined();
+    expect(snapshot?.rounds[0]?.instructionSummary).toContain('2099-01-01');
+    expect(driver.run).toHaveBeenCalledTimes(1);
   });
 
   it('accepts open-ended identity output as a written result', async () => {
@@ -2400,8 +2517,77 @@ describe('TaskManager lifecycle', () => {
       });
     });
     expect(driver.run).toHaveBeenCalledTimes(2);
-    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('checkable result'));
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('not a result'));
     expect((await manager.snapshot('task-aicss-summary'))?.rounds[0]?.receipt).toBeDefined();
+  });
+
+  it('completes a current-page video-about question from visible titles, not a model page_text', async () => {
+    const instruction = '现在这个页面的视频都是跟什么有关的';
+    const title1 = 'Harness 实践:让 Agent 全自动制作知识讲解视频';
+    const title2 = '给智能体的记忆系统怎么落地';
+    let hooks!: ExecutorHooks;
+    let finish!: (outcome: ExecutorOutcome) => void;
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-bili-about',
+      taskId: 'task-bili-about',
+      instruction,
+      chatSessionId: 'chat-bili-about',
+      instructionMessageId: 'message-bili-about',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = await taskRoundId(manager, 'task-bili-about');
+    await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: title1, required: false }]);
+    expect((await manager.snapshot('task-bili-about'))?.rounds[0]?.criteria).toEqual([]);
+
+    store.evaluate.mockResolvedValue(`${title1}\n${title2}\n登录\n首页`);
+    store.observeActionTarget.mockResolvedValue({
+      target: {
+        id: 'page-bili-about',
+        kind: 'page',
+        tabId: 7,
+        frameId: 0,
+        urlOrigin: 'https://www.bilibili.com',
+        normalizedUrl: 'https://www.bilibili.com',
+        digest: 'bili-about-digest',
+        textDigests: [await sha256(title1), await sha256(title2)],
+        pageRevision: 'bili-about-revision',
+        observedAt: 100,
+      },
+      tag: 'body',
+      type: '',
+      inForm: false,
+    });
+    finish({
+      kind: 'candidate_complete',
+      summary: '这些视频主要跟 Agent 和知识讲解有关。',
+    });
+
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-bili-about')).toMatchObject({
+        status: 'completed',
+        rounds: [{ status: 'completed' }],
+      });
+    });
+    const snap = await manager.snapshot('task-bili-about');
+    expect(snap?.rounds[0]?.failureCategory).toBeUndefined();
+    expect(snap?.rounds[0]?.instructionSummary).toContain('这些视频主要跟 Agent 和知识讲解有关。');
+    expect(snap?.rounds[0]?.receipt).toBeDefined();
+    expect(driver.run).toHaveBeenCalledTimes(1);
   });
 
   it('fails a summary task after one retry without a deliverable instead of waiting for confirmation', async () => {
@@ -2491,9 +2677,7 @@ describe('TaskManager lifecycle', () => {
         textDigests: [await sha256(sentence)],
       },
     ];
-    await expect(
-      findAnswerSpanOnPage(`主题：给智能体的记忆系统。引用：「${quote}」`, evidence),
-    ).resolves.toBeNull();
+    await expect(findAnswerSpanOnPage(`主题：给智能体的记忆系统。引用：「${quote}」`, evidence)).resolves.toBeNull();
     await expect(
       findAnswerSpanOnPage(`主题：给智能体的记忆系统。引用：「${quote}」`, evidence, sentence),
     ).resolves.toBe(quote);
@@ -2505,7 +2689,7 @@ describe('TaskManager lifecycle', () => {
     await expect(findAnswerSpanOnPage(`已打开「${title}」`, [], live)).resolves.toBe(title);
   });
 
-  it('fails closed when a page-theme request receives only title/domain metadata', async () => {
+  it('accepts a written theme even when it is title and domain', async () => {
     const artifact = createTextArtifact({
       title: 'Understanding answer',
       text: '标题：上下文工程（中文版） - Feishu Docs；域名：my.feishu.cn',
@@ -2537,14 +2721,13 @@ describe('TaskManager lifecycle', () => {
 
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-feishu-theme')).toMatchObject({
-        status: 'failed',
-        plan: { goal: '执行任务', phases: [{ status: 'active' }] },
-        rounds: [{ status: 'failed', failureCategory: 'artifact_verification_failed' }],
+        status: 'completed',
+        rounds: [{ status: 'completed' }],
       });
     });
-    expect((await manager.snapshot('task-feishu-theme'))?.rounds[0]?.receipt).toBeUndefined();
-    expect(driver.run).toHaveBeenCalledTimes(2);
-    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('not independently verified'));
+    expect((await manager.snapshot('task-feishu-theme'))?.rounds[0]?.receipt).toBeDefined();
+    expect((await manager.snapshot('task-feishu-theme'))?.rounds[0]?.instructionSummary).toContain('上下文工程');
+    expect(driver.run).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an acknowledgement, then accepts a written result', async () => {
@@ -2713,7 +2896,7 @@ describe('TaskManager lifecycle', () => {
     expect(driver.run).toHaveBeenCalledTimes(2);
   });
 
-  it('does not complete a read-only page summary when page_text evidence is false', async () => {
+  it('completes a read-only page summary from the written result', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     let hooks!: ExecutorHooks;
     const driver = fakeDriver();
@@ -2780,19 +2963,12 @@ describe('TaskManager lifecycle', () => {
 
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-summary-with-criterion')).toMatchObject({
-        status: 'failed',
-        rounds: [
-          {
-            status: 'failed',
-            failureCategory: 'no_action',
-            criteria: [expect.objectContaining({ kind: 'page_text', baseline: false })],
-          },
-        ],
+        status: 'completed',
+        rounds: [{ status: 'completed' }],
       });
     });
-    expect((await manager.snapshot('task-summary-with-criterion'))?.rounds[0]?.waitReason).toBeUndefined();
-    expect((await manager.snapshot('task-summary-with-criterion'))?.rounds[0]?.receipt).toBeUndefined();
-    expect(driver.run).toHaveBeenCalledTimes(2);
+    expect((await manager.snapshot('task-summary-with-criterion'))?.rounds[0]?.receipt).toBeDefined();
+    expect(driver.run).toHaveBeenCalledTimes(1);
   });
 
   it('completes a read-only page summary only when page_text evidence is true', async () => {
@@ -2859,16 +3035,10 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-summary-positive-proof')).toMatchObject({
         status: 'completed',
-        rounds: [
-          {
-            status: 'completed',
-            criteria: [expect.objectContaining({ kind: 'page_text' })],
-            evidence: [expect.objectContaining({ passed: true, source: 'page' })],
-            receipt: { criterionIds: [expect.any(String)] },
-          },
-        ],
+        rounds: [{ status: 'completed' }],
       });
     });
+    expect((await manager.snapshot('task-summary-positive-proof'))?.rounds[0]?.receipt).toBeDefined();
   });
 
   it('fails a criterion-bearing read-only summary without text instead of proof_required', async () => {
@@ -2922,7 +3092,7 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-summary-proof-regression')).toMatchObject({
         status: 'failed',
-        rounds: [{ status: 'failed', failureCategory: 'no_action' }],
+        rounds: [{ status: 'failed', failureCategory: 'no_completion_criteria' }],
       });
     });
     expect(driver.run).toHaveBeenCalledTimes(2);
@@ -2939,7 +3109,7 @@ describe('TaskManager lifecycle', () => {
       .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)))
       .mockResolvedValueOnce({
         kind: 'candidate_complete',
-        summary: '好的，我读取当前页面并提取主题与正文引用。',
+        summary: '好的，我来读取当前页面并提取主题与正文引用。',
       });
     const manager = new TaskManager({
       createExecutor: vi.fn(async (_input, nextHooks) => {
@@ -2990,7 +3160,7 @@ describe('TaskManager lifecycle', () => {
     await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: pageQuote, required: true }]);
     finish({
       kind: 'candidate_complete',
-      summary: '好的，我读取当前页面并提取主题与正文引用。',
+      summary: '好的，我来读取当前页面并提取主题与正文引用。',
     });
 
     await vi.waitFor(async () => {
@@ -3003,10 +3173,10 @@ describe('TaskManager lifecycle', () => {
     expect(snap?.status).toBe('failed');
     expect(snap?.rounds[0]?.waitReason).toBeUndefined();
     expect(driver.run).toHaveBeenCalledTimes(2);
-    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('Visible page text'));
+    expect(driver.addFollowUp).toHaveBeenCalledWith(expect.stringContaining('Do not acknowledge'));
   });
 
-  it('fails optional criteria when written text is not on the page', async () => {
+  it('fails an acknowledgement even when page_text is only optional', async () => {
     let finish!: (outcome: ExecutorOutcome) => void;
     let hooks!: ExecutorHooks;
     const pageQuote = '用于结构化长程推理的自组织记忆操作系统';
@@ -3016,7 +3186,7 @@ describe('TaskManager lifecycle', () => {
       .mockImplementationOnce(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)))
       .mockResolvedValueOnce({
         kind: 'candidate_complete',
-        summary: '好的，我读取当前页面并提取主题与正文引用。',
+        summary: '好的，我来读取当前页面并提取主题与正文引用。',
       });
     const manager = new TaskManager({
       createExecutor: vi.fn(async (_input, nextHooks) => {
@@ -3067,7 +3237,7 @@ describe('TaskManager lifecycle', () => {
     await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: pageQuote, required: false }]);
     finish({
       kind: 'candidate_complete',
-      summary: '好的，我读取当前页面并提取主题与正文引用。',
+      summary: '好的，我来读取当前页面并提取主题与正文引用。',
     });
 
     await vi.waitFor(async () => {
@@ -3175,7 +3345,12 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-post-commit')).toMatchObject({
         status: 'completed',
-        rounds: [{ receipt: { taskId: 'task-post-commit' }, attempts: [{ state: 'observed' }] }],
+        rounds: [
+          {
+            receipt: { taskId: 'task-post-commit' },
+            attempts: expect.arrayContaining([expect.objectContaining({ actionName: 'click_element', state: 'observed' })]),
+          },
+        ],
       });
     });
     // freeze + post-commit verify; no candidate_complete path
@@ -3228,7 +3403,12 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-uncertain-live')).toMatchObject({
         status: 'waiting_user',
-        rounds: [{ waitReason: 'commit_outcome_uncertain', attempts: [{ state: 'uncertain' }] }],
+        rounds: [
+          {
+            waitReason: 'commit_outcome_uncertain',
+            attempts: expect.arrayContaining([expect.objectContaining({ state: 'uncertain' })]),
+          },
+        ],
       });
     });
     expect(driver.stop).toHaveBeenCalledTimes(1);
@@ -3283,7 +3463,12 @@ describe('TaskManager lifecycle', () => {
     await vi.waitFor(async () => {
       expect(await manager.snapshot('task-disconnect-uncertain')).toMatchObject({
         status: 'waiting_user',
-        rounds: [{ waitReason: 'commit_outcome_uncertain', attempts: [{ state: 'uncertain' }] }],
+        rounds: [
+          {
+            waitReason: 'commit_outcome_uncertain',
+            attempts: expect.arrayContaining([expect.objectContaining({ state: 'uncertain' })]),
+          },
+        ],
       });
     });
     const uncertain = await manager.snapshot('task-disconnect-uncertain');

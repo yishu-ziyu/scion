@@ -3,6 +3,14 @@ import { FaMicrophone } from 'react-icons/fa';
 import { AiOutlineLoading3Quarters } from 'react-icons/ai';
 import { FiArrowUp, FiPaperclip, FiPlus, FiSquare, FiX } from 'react-icons/fi';
 import { t } from '@extension/i18n';
+import {
+  CURRENT_PAGE_TOKEN,
+  expandCurrentPageMention,
+  insertCurrentPageMention,
+  mentionMatchesCurrentPage,
+  mentionTriggerAt,
+  type MentionPage,
+} from '../presentation/composer-mention';
 
 interface ChatInputProps {
   onSendMessage: (text: string, displayText?: string) => void;
@@ -14,6 +22,7 @@ interface ChatInputProps {
   showStopButton: boolean;
   setContent?: (setter: (text: string) => void) => void;
   isDarkMode?: boolean;
+  currentPage?: MentionPage | null;
 }
 
 // File attachment interface
@@ -44,10 +53,12 @@ export default function ChatInput({
   disabled,
   showStopButton,
   setContent,
+  currentPage = null,
 }: ChatInputProps) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [mentionOpen, setMentionOpen] = useState(false);
   const isSendButtonDisabled = useMemo(
     () => disabled || (text.trim() === '' && attachedFiles.length === 0),
     [disabled, text, attachedFiles],
@@ -58,9 +69,26 @@ export default function ChatInput({
   const attachmentTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Handle text changes and resize textarea
+  const syncMentionMenu = useCallback((value: string, cursor: number) => {
+    const trigger = mentionTriggerAt(value, cursor);
+    setMentionOpen(Boolean(trigger && mentionMatchesCurrentPage(trigger.query)));
+  }, []);
+
+  const applyCurrentPageMention = useCallback(() => {
+    const cursor = textareaRef.current?.selectionStart ?? text.length;
+    const trigger = mentionTriggerAt(text, cursor);
+    const next = trigger
+      ? insertCurrentPageMention(text, trigger.start, cursor)
+      : insertCurrentPageMention(`${text.slice(0, cursor)}@${text.slice(cursor)}`, cursor, cursor + 1);
+    setText(next);
+    setMentionOpen(false);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [text]);
+
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newText = e.target.value;
     setText(newText);
+    syncMentionMenu(newText, e.target.selectionStart ?? newText.length);
 
     // Resize textarea
     const textarea = textareaRef.current;
@@ -112,7 +140,7 @@ export default function ChatInput({
       const trimmedText = text.trim();
 
       if (trimmedText || attachedFiles.length > 0) {
-        let messageContent = trimmedText;
+        let messageContent = expandCurrentPageMention(trimmedText, currentPage);
         let displayContent = trimmedText;
 
         // Security: Clearly separate user input from file content
@@ -140,17 +168,27 @@ export default function ChatInput({
         setAttachedFiles([]);
       }
     },
-    [text, attachedFiles, onSendMessage],
+    [text, attachedFiles, currentPage, onSendMessage],
   );
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (mentionOpen && (e.key === 'Enter' || e.key === 'Tab') && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        applyCurrentPageMention();
+        return;
+      }
+      if (e.key === 'Escape' && mentionOpen) {
+        e.preventDefault();
+        setMentionOpen(false);
+        return;
+      }
       if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         handleSubmit(e);
       }
     },
-    [handleSubmit],
+    [applyCurrentPageMention, handleSubmit, mentionOpen],
   );
 
   const handleFileSelect = useCallback(() => {
@@ -248,6 +286,25 @@ export default function ChatInput({
           aria-label={t('chat_input_editor')}
         />
 
+        {mentionOpen && (
+          <div className="chijie-prompt-menu chijie-mention-menu" role="listbox" data-testid="composer-mention-menu">
+            {currentPage ? (
+              <button
+                type="button"
+                role="option"
+                data-testid="composer-mention-current-page"
+                onClick={applyCurrentPageMention}>
+                <span>{CURRENT_PAGE_TOKEN}</span>
+                <small>
+                  {currentPage.host} · {currentPage.title}
+                </small>
+              </button>
+            ) : (
+              <p data-testid="composer-mention-empty">{t('chat_task_bind_missing')}</p>
+            )}
+          </div>
+        )}
+
         <div className="chijie-prompt-actions">
           <div className="chijie-prompt-actions-left">
             <div className="chijie-prompt-add-wrap" ref={attachmentMenuRef}>
@@ -282,6 +339,18 @@ export default function ChatInput({
               className="hidden"
               aria-hidden="true"
             />
+            <button
+              type="button"
+              className="chijie-prompt-icon-button"
+              data-testid="composer-mention-button"
+              disabled={disabled}
+              aria-label={CURRENT_PAGE_TOKEN}
+              onClick={() => {
+                if (currentPage) applyCurrentPageMention();
+                else setMentionOpen(true);
+              }}>
+              @
+            </button>
             {onMicClick && (
               <button
                 type="button"
@@ -302,7 +371,7 @@ export default function ChatInput({
                 )}
               </button>
             )}
-            <span data-testid="task-mode-badge" className="chijie-prompt-mode">
+            <span data-testid="task-mode-badge" className="chijie-prompt-mode chijie-visually-hidden">
               {t('chat_task_mode_badge')}
             </span>
           </div>

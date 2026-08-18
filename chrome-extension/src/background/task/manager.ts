@@ -1,10 +1,4 @@
-import {
-  getActiveTask,
-  getSkillSaveMeta,
-  getTask,
-  putSkillSaveMeta,
-  saveTask,
-} from '@extension/storage/lib/task';
+import { getActiveTask, getSkillSaveMeta, getTask, putSkillSaveMeta, saveTask } from '@extension/storage/lib/task';
 import favoritesStorage, {
   assertExactSkillInputs,
   compileSkillTemplate,
@@ -38,6 +32,13 @@ import { StaleTaskRoundError } from './contracts';
 import { buildAttemptDisplaySummary, buildAttemptTargetLabel } from './attempt-display';
 import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
 import {
+  attemptsAfterLoopPhase,
+  completeObservePhaseAttempt,
+  createObservePhaseAttempt,
+  isLiveObserveAttempt,
+  type LoopPhaseName,
+} from './loop-phase-attempt';
+import {
   checkCompletion,
   durableHttpCompletionUrl,
   redactedHttpUrlIdentity,
@@ -60,6 +61,7 @@ import {
 } from './mission-plan';
 import { ActionResult } from '../agent/types';
 import { isUnderstandingOnlyInstruction } from '../browser/sites/understanding-answer';
+import { instructionAsksPageAbout } from '../browser/sites/theme-citation';
 import {
   isBilibiliWatchUrl,
   judgeBilibiliWatchComplete,
@@ -91,6 +93,12 @@ export type DownloadStateProbe = 'none' | 'started' | 'finished';
 interface TaskManagerDeps {
   createExecutor: (input: ExecutorInput, hooks: ExecutorHooks) => Promise<ExecutorDriver>;
   switchTab: (tabId: number) => Promise<void>;
+  /** User chose 跟随: later switch/open may activate the tab. */
+  setFollowForeground?: (follow: boolean) => Promise<void> | void;
+  /** Bring the task tab to the front (跟随 on, or 接管). */
+  revealTab?: (tabId: number) => Promise<void>;
+  /** Put this task's pages in one Chrome tab group. Returns the group id. */
+  beginTaskTabGroup?: (title: string, existingGroupId?: number) => Promise<number | null>;
   observeCriteria: ObserveCriteria;
   now: () => number;
   /** Backoff after external_commit before re-probe (ms). Default covers async form rewrites. */
@@ -851,6 +859,10 @@ export class TaskManager {
     switch (command.type) {
       case 'pause':
         return this.pause(existing, command.commandId);
+      case 'set_follow':
+        return this.setFollow(existing, command);
+      case 'takeover':
+        return this.takeover(existing, command.commandId);
       case 'resume':
         return this.resume(existing, command.commandId);
       case 'follow_up':
@@ -893,7 +905,7 @@ export class TaskManager {
       status: 'running',
       commandAcks: { [command.commandId]: ack },
       criteria: [],
-      attempts: [],
+      attempts: [createObservePhaseAttempt(roundId, now)],
       evidence: [],
     };
     const task: TaskSession = {
@@ -914,7 +926,14 @@ export class TaskManager {
     // Seed page bind evidence immediately so UI shows the same tab the user intended
     // (Phase 1 S1). Digest stays empty until observe; label is title-only for display.
     try {
+      await this.deps.setFollowForeground?.(false);
       await this.deps.switchTab(command.tabId);
+      try {
+        const groupId = await this.deps.beginTaskTabGroup?.(plan.goal || '任务');
+        if (typeof groupId === 'number') task.tabGroupId = groupId;
+      } catch {
+        // Grouping is visible organization only; the task still runs.
+      }
       const tab = await chrome.tabs.get(command.tabId);
       let urlOrigin = 'null';
       let normalizedUrl: string | undefined;
@@ -1050,7 +1069,7 @@ export class TaskManager {
           status: 'running',
           commandAcks: { [command.commandId]: ack },
           criteria,
-          attempts: [],
+          attempts: [createObservePhaseAttempt(roundId, now)],
           evidence: [],
         },
       ],
@@ -1096,6 +1115,39 @@ export class TaskManager {
     return ack;
   }
 
+  private async setFollow(
+    task: TaskSession,
+    command: Extract<TaskCommand, { type: 'set_follow' }>,
+  ): Promise<CommandAck> {
+    if (!['running', 'paused', 'interrupted'].includes(task.status)) {
+      return this.reject(task, command.commandId, 'invalid_transition');
+    }
+    task.followForeground = command.follow;
+    const ack = this.accept(task, command.commandId);
+    await this.persist(task);
+    await this.deps.setFollowForeground?.(command.follow);
+    if (command.follow) {
+      try {
+        await this.deps.revealTab?.(task.activeTabId);
+      } catch {
+        // Tab may be gone; follow flag still persists.
+      }
+    }
+    return ack;
+  }
+
+  private async takeover(task: TaskSession, commandId: string): Promise<CommandAck> {
+    if (task.status !== 'running') return this.reject(task, commandId, 'invalid_transition');
+    task.followForeground = false;
+    await this.deps.setFollowForeground?.(false);
+    try {
+      await this.deps.revealTab?.(task.activeTabId);
+    } catch {
+      // User still gets the paused task even if the tab cannot be shown.
+    }
+    return this.pause(task, commandId);
+  }
+
   private async resume(task: TaskSession, commandId: string): Promise<CommandAck> {
     if (!['paused', 'interrupted'].includes(task.status)) {
       return this.reject(task, commandId, 'invalid_transition');
@@ -1105,6 +1157,16 @@ export class TaskManager {
     // Resume continues the existing plan object (phase titles / progress), not a fresh skeleton.
     const ack = this.accept(task, commandId);
     await this.persist(task);
+    await this.deps.setFollowForeground?.(task.followForeground === true);
+    try {
+      const groupId = await this.deps.beginTaskTabGroup?.(task.plan?.goal || task.goalSummary || '任务', task.tabGroupId);
+      if (typeof groupId === 'number' && groupId !== task.tabGroupId) {
+        task.tabGroupId = groupId;
+        await this.persist(task);
+      }
+    } catch {
+      // Keep resuming even if the previous group was closed.
+    }
     const driver = this.drivers.get(task.id);
     if (driver) driver.resume();
     else void this.runCurrentRound(task.id);
@@ -1321,6 +1383,9 @@ export class TaskManager {
           throw new StaleTaskRoundError();
         }
         return this.executorMissionPlan(task);
+      },
+      reportLoopPhase: async (roundId, event) => {
+        await this.applyLoopPhase(taskId, roundId, event.phase, event.step);
       },
       onPlan: async (roundId, criteria) => {
         let task = await getTask(taskId);
@@ -1564,6 +1629,36 @@ export class TaskManager {
     });
   }
 
+  private async ensureLiveObserveAttempt(taskId: string, roundId: string): Promise<void> {
+    const task = await getTask(taskId);
+    if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return;
+    const round = this.currentRound(task);
+    if (round.attempts.some(isLiveObserveAttempt)) return;
+    await this.persistAttempt(taskId, createObservePhaseAttempt(roundId, this.deps.now()));
+  }
+
+  private async applyLoopPhase(
+    taskId: string,
+    roundId: string,
+    phase: LoopPhaseName,
+    step: number,
+  ): Promise<void> {
+    const task = await getTask(taskId);
+    if (!task || task.currentRoundId !== roundId) return;
+    const round = task.rounds.find(item => item.id === roundId);
+    if (!round) return;
+    const { changed } = attemptsAfterLoopPhase({
+      attempts: round.attempts,
+      phase,
+      step,
+      roundId,
+      now: this.deps.now(),
+    });
+    for (const attempt of changed) {
+      await this.persistAttempt(taskId, attempt);
+    }
+  }
+
   private async persistAttempt(taskId: string, attempt: ActionAttempt): Promise<void> {
     let stopDriver = false;
     await this.queueTransition(async () => {
@@ -1575,8 +1670,15 @@ export class TaskManager {
         throw new Error('Task is not running');
       }
       const index = round.attempts.findIndex(item => item.id === attempt.id);
-      if (index === -1) round.attempts.push(structuredClone(attempt));
-      else round.attempts[index] = structuredClone(attempt);
+      if (index === -1) {
+        for (let i = 0; i < round.attempts.length; i++) {
+          const existing = round.attempts[i];
+          if (existing && isLiveObserveAttempt(existing) && existing.id !== attempt.id) {
+            round.attempts[i] = { ...existing, state: 'observed', observedAt: this.deps.now() };
+          }
+        }
+        round.attempts.push(structuredClone(attempt));
+      } else round.attempts[index] = structuredClone(attempt);
       if (attempt.state === 'executing') {
         const notBefore = attempt.executingAt ?? this.deps.now();
         for (const criterion of round.criteria) criterion.notBefore = Math.max(criterion.notBefore, notBefore);
@@ -1893,6 +1995,7 @@ export class TaskManager {
       }
 
       const roundId = round.id;
+      await this.ensureLiveObserveAttempt(taskId, roundId);
       const isSkillRun = task.sourceSkillId !== undefined;
       // Freeze instruction-derived success text before the agent acts so baseline is pre-submit.
       if (!isSkillRun && !this.lockedCriteriaRounds.has(this.roundKey(taskId, roundId))) {
@@ -2075,25 +2178,18 @@ export class TaskManager {
         const artifacts =
           outcome.kind === 'candidate_complete' && Array.isArray(outcome.artifacts) ? outcome.artifacts : [];
         const pageEvidenceForAnswer = this.visitedPageEvidence(task);
-        const answer = await this.selectCandidateDeliverableText(
+        let answer = await this.selectCandidateDeliverableText(
           rawAnswer,
           artifacts,
           instructionForRound,
           pageEvidenceForAnswer,
         );
-        const pagesWithText = pageEvidenceForAnswer.filter(item => item.textDigests?.length && item.pageRevision);
-        const liveVisibleText = await this.liveVisiblePageText(taskId);
-        const canGround = pagesWithText.length > 0 || hasUsablePageBody(liveVisibleText);
-        const groundedSpan = canGround
-          ? await findAnswerSpanOnPage(answer, pagesWithText, liveVisibleText)
-          : null;
         const needsDeliverable = this.instructionRequestsUserDeliverable(instructionForRound);
         const deliverableOk =
           answer.length > 0 &&
           isBasicSubstantiveAnswer(answer, instructionForRound) &&
           (!needsDeliverable ||
-            (await this.hasSubstantiveDeliverableAnswer(answer, instructionForRound, pageEvidenceForAnswer))) &&
-          (!canGround || Boolean(groundedSpan));
+            (await this.hasSubstantiveDeliverableAnswer(answer, instructionForRound, pageEvidenceForAnswer)));
         let artifactVerified = artifacts.length === 0;
         if (artifacts.length > 0) {
           const artifactGate = this.verifyArtifactsIndependently(
@@ -2138,13 +2234,10 @@ export class TaskManager {
             currentRound.instructionSummary = (await redactDeliverableUrlsForPersistence(answer)).slice(0, 2000);
             delete currentRound.waitReason;
             delete currentRound.failureCategory;
-            const groundedEvidence = groundedSpan
-              ? [await this.attachGroundedPageProof(current, currentRound, groundedSpan)]
-              : [];
             await this.persistVerifiedReceipt(
               current,
               currentRound,
-              groundedEvidence,
+              [],
               true,
               artifacts.map(artifact => 'artifact:' + artifact.id),
             );
@@ -2176,7 +2269,7 @@ export class TaskManager {
           driver.addFollowUp(
             artifacts.length > 0
               ? 'The artifact is not independently verified. Inspect the page, add required browser criteria, then return the requested deliverable.'
-              : 'The last answer was not a checkable result. Quote wording that is visible on the current page, then write the result. Do not acknowledge. Do not invent completion criteria.',
+              : 'The last answer was not a result. Write the user-facing result. Do not acknowledge.',
           );
           continue;
         }
@@ -2315,21 +2408,10 @@ export class TaskManager {
         instructionForRound,
         pageEvidenceForAnswer,
       );
-      const pagesWithText = pageEvidenceForAnswer.filter(item => item.textDigests?.length && item.pageRevision);
-      const liveVisibleText = await this.liveVisiblePageText(taskId);
       const deliverableOk =
         !needsDeliverable ||
-        (await this.hasSubstantiveDeliverableAnswer(
-          outcomeAnswer,
-          instructionForRound,
-          pageEvidenceForAnswer,
-        ));
-      // Page-span proof is only a fail gate after one follow-up. Do not block
-      // verified receipt when required criteria already passed (product tables).
-      const pageGrounded =
-        (pagesWithText.length === 0 && !hasUsablePageBody(liveVisibleText)) ||
-        verificationRetries < 1 ||
-        Boolean(await findAnswerSpanOnPage(outcomeAnswer, pagesWithText, liveVisibleText));
+        (isBasicSubstantiveAnswer(outcomeAnswer, instructionForRound) &&
+          (await this.hasSubstantiveDeliverableAnswer(outcomeAnswer, instructionForRound, pageEvidenceForAnswer)));
       const artifactGate =
         candidateArtifacts.length > 0
           ? this.verifyArtifactsIndependently(candidateArtifacts, instructionForRound, {
@@ -2356,16 +2438,15 @@ export class TaskManager {
         const currentRound = this.currentRound(current);
         currentRound.evidence.push(...checked.evidence);
         this.syncMissionPlanFromEvidence(current, checked.evidence);
-        // Optional-only criteria must not mint a verified receipt (sticky false complete).
-        if (
-          allowsVerifiedComplete({
-            completionPassed: checked.passed,
-            hasRequiredCriteria: currentRound.criteria.some(criterion => criterion.required),
-          }) &&
-          deliverableOk &&
-          orderedSourceProof &&
-          artifactsVerified
-        ) {
+        const requiredAction = currentRound.criteria.filter(
+          criterion => criterion.required && criterion.kind !== 'page_text' && criterion.kind !== 'user_confirmed',
+        );
+        const actionPassed = requiredAction.every(criterion =>
+          checked.evidence.some(item => item.criterionId === criterion.id && item.passed),
+        );
+        const asksWritten = this.instructionAsksWrittenResult(instructionForRound);
+        const resultOk = deliverableOk || (requiredAction.length > 0 && !asksWritten);
+        if (resultOk && orderedSourceProof && artifactsVerified && actionPassed) {
           if (outcomeAnswer.length > 0) {
             currentRound.instructionSummary = (await redactDeliverableUrlsForPersistence(outcomeAnswer)).slice(0, 2000);
           }
@@ -2378,38 +2459,27 @@ export class TaskManager {
           );
           return;
         }
-        // Criteria green but user still asked for text we never got — keep working, do not fake done.
-        if (
-          allowsVerifiedComplete({
-            completionPassed: checked.passed,
-            hasRequiredCriteria: currentRound.criteria.some(criterion => criterion.required),
-          }) &&
-          ((!deliverableOk && needsDeliverable) || !artifactsVerified) &&
-          verificationRetries < 1
-        ) {
+        if (verificationRetries < 1) {
           current.revision += 1;
           await this.persist(current);
           retry = true;
           return;
         }
-        if (verificationRetries >= 1) {
-          const hasRequiredCriteria = currentRound.criteria.some(criterion => criterion.required);
-          if (
-            (hasRequiredCriteria && needsDeliverable && !deliverableOk) ||
-            !pageGrounded ||
-            !artifactsVerified ||
-            this.isReadOnlyCandidate(instructionForRound)
-          ) {
-            // Written text missing from the page is not something the user can prove for us.
-            current.status = 'failed';
-            currentRound.status = 'failed';
-            currentRound.failureCategory = artifactsVerified ? 'no_action' : 'artifact_verification_failed';
-            delete currentRound.waitReason;
-            current.revision += 1;
-            current.updatedAt = this.deps.now();
-            await this.persist(current);
-            return;
-          }
+        if (
+          !artifactsVerified ||
+          !orderedSourceProof ||
+          (needsDeliverable && !deliverableOk && (requiredAction.length === 0 || asksWritten))
+        ) {
+          current.status = 'failed';
+          currentRound.status = 'failed';
+          currentRound.failureCategory = artifactsVerified ? 'no_action' : 'artifact_verification_failed';
+          delete currentRound.waitReason;
+          current.revision += 1;
+          current.updatedAt = this.deps.now();
+          await this.persist(current);
+          return;
+        }
+        if (!actionPassed) {
           await this.persistWaitingUser(current, currentRound, 'proof_required');
           return;
         }
@@ -2431,10 +2501,8 @@ export class TaskManager {
         continue;
       }
       verificationRetries += 1;
-      if (!deliverableOk || pagesWithText.length > 0) {
-        driver.addFollowUp(
-          'Write the user-facing result from the Visible page text in observation. Do not acknowledge.',
-        );
+      if (!deliverableOk) {
+        driver.addFollowUp('Write the user-facing result. Do not acknowledge.');
       } else {
         driver.addFollowUp('Completion was not verified; inspect the current page and continue.');
       }
@@ -2543,6 +2611,14 @@ export class TaskManager {
         status: phase.status,
       })),
     };
+  }
+
+  private instructionAsksWrittenResult(instruction: string): boolean {
+    return (
+      instructionAsksPageAbout(instruction) ||
+      this.instructionRequestsReadOnlyPageDeliverable(instruction) ||
+      /复制|拷贝|\bcopy\b|告诉我|tell me|写出|总结|主题|有关|评论|\bcomment\b/i.test(instruction)
+    );
   }
 
   private instructionRequestsReadOnlyPageDeliverable(instruction: string): boolean {
@@ -2735,9 +2811,17 @@ export class TaskManager {
     drafts: CompletionCriterionDraft[],
   ): Promise<void> {
     const instructionForFreeze = this.instructions.get(taskId) ?? '';
+    // A page-about question is answered by quoting visible wording. A model
+    // page_text of one feed title cannot prove that and blocks the no-criteria path.
+    const plannedDrafts =
+      instructionAsksPageAbout(instructionForFreeze) ||
+      this.instructionUsesReadOnlyBrowserEvidence(instructionForFreeze)
+        ? drafts.filter(draft => draft.kind !== 'page_text')
+        : drafts;
+    if (plannedDrafts.length === 0) return;
     const readOnlyBrowserEvidence = this.instructionUsesReadOnlyBrowserEvidence(instructionForFreeze);
     let boundPageTarget: TaskSession['targetRefs'][number] | undefined;
-    if (readOnlyBrowserEvidence && drafts.some(draft => draft.kind === 'page_text')) {
+    if (readOnlyBrowserEvidence && plannedDrafts.some(draft => draft.kind === 'page_text')) {
       try {
         const { browserContext } = await import('../agent/factory');
         const page = await browserContext.getCurrentPage();
@@ -2751,7 +2835,7 @@ export class TaskManager {
       const task = await getTask(taskId);
       if (!task || task.status !== 'running' || task.currentRoundId !== expectedRoundId) return;
       const round = this.currentRound(task);
-      if (drafts.length === 0) return;
+      if (plannedDrafts.length === 0) return;
       const key = this.roundKey(task.id, round.id);
       const existingTemplates = this.criterionTemplates.get(key) ?? [];
       const isFirstFreeze = round.criteria.length === 0;
@@ -2759,7 +2843,7 @@ export class TaskManager {
       const seenDrafts = new Set(
         existingTemplates.map(template => this.criterionDraftKey(this.skillTemplateDraft(template))),
       );
-      const additions = drafts
+      const additions = plannedDrafts
         .filter(draft => {
           if (!isFirstFreeze && existingKinds.has(draft.kind)) return false;
           const identity = this.criterionDraftKey(draft);
@@ -3377,8 +3461,18 @@ export class TaskManager {
     return ack;
   }
 
+  private completeLiveObserveAttempts(round: TaskRound, now: number): void {
+    for (let i = 0; i < round.attempts.length; i++) {
+      const existing = round.attempts[i];
+      if (existing && isLiveObserveAttempt(existing)) {
+        round.attempts[i] = completeObservePhaseAttempt(existing, now);
+      }
+    }
+  }
+
   private async persistTerminalOrWaiting(task: TaskSession, outcome: ExecutorOutcome): Promise<void> {
     this.applyOutcome(task, outcome);
+    this.completeLiveObserveAttempts(this.currentRound(task), this.deps.now());
     task.revision += 1;
     await this.persist(task);
   }
@@ -3421,6 +3515,7 @@ export class TaskManager {
     incrementRevision = true,
     artifactProofIds: string[] = [],
   ): Promise<boolean> {
+    this.completeLiveObserveAttempts(round, this.deps.now());
     const passedEvidence = evidence.filter(item => item.passed);
     const visibleAnswer =
       round.instructionSummary && !['User instruction', 'Direction changed'].includes(round.instructionSummary)

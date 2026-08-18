@@ -75,6 +75,56 @@ describe('buildObservationFrame', () => {
     expect(frame.text.indexOf('Form fields:')).toBeLessThan(frame.text.indexOf('Interactive elements:'));
   });
 
+  it('filters clickable controls when query is 提交 and keeps the full list when query is empty', async () => {
+    const state = {
+      tabId: 3,
+      url: 'https://example.test/form',
+      title: 'Form',
+      elementTree: {
+        clickableElementsToString: () =>
+          '[1]<a>Home</a> [2]<input type=text /> [3]<button type=submit>提交</button> [4]<button>Cancel</button>',
+      } as never,
+      selectorMap: new Map([
+        [1, node('a', {}, 'Home')],
+        [2, node('input', { type: 'text', accname: 'Name' }, '')],
+        [3, node('button', { type: 'submit' }, '提交')],
+        [4, node('button', {}, 'Cancel')],
+      ]),
+    } as unknown as PageState;
+
+    const filtered = await buildObservationFrame({
+      browserState: state,
+      elementsText: '[1]<a>Home</a>\n[2]<input type=text />\n[3]<button type=submit>提交</button>\n[4]<button>Cancel</button>',
+      visibleText: 'Name',
+      query: '提交',
+    });
+    expect(filtered.interactiveElements.map(item => item.index)).toEqual([3]);
+    expect(filtered.text).toContain('query="提交"');
+    expect(filtered.text).toContain('[3]');
+    expect(filtered.text).not.toContain('[1]<a>Home</a>');
+    expect(filtered.text).not.toContain('[4]<button>Cancel</button>');
+
+    const full = await buildObservationFrame({
+      browserState: state,
+      elementsText: '[1]<a>Home</a>\n[2]<input type=text />\n[3]<button type=submit>提交</button>\n[4]<button>Cancel</button>',
+      visibleText: 'Name',
+      query: '',
+    });
+    expect(full.interactiveElements.map(item => item.index)).toEqual([1, 2, 3, 4]);
+    expect(full.text).toContain('Interactive elements:');
+    expect(full.text).not.toContain('query=');
+
+    const none = await buildObservationFrame({
+      browserState: state,
+      elementsText: '[1]<a>Home</a>\n[2]<input type=text />\n[3]<button type=submit>提交</button>\n[4]<button>Cancel</button>',
+      visibleText: 'Name',
+      query: 'no-such-control',
+    });
+    expect(none.interactiveElements).toEqual([]);
+    expect(none.text).toContain('0 matches');
+    expect(none.text).not.toContain('[3]<button type=submit>提交</button>');
+  });
+
   it('keeps an empty wording slot when the body is blank', async () => {
     const frame = await buildObservationFrame({
       browserState: browserState(),

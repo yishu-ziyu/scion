@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { FiActivity, FiExternalLink, FiFileText, FiPauseCircle } from 'react-icons/fi';
-import type { TaskProgressView } from '../presentation/task-progress-view';
+import type { ProgressHealthState, TaskProgressView } from '../presentation/task-progress-view';
 import { MissionPlanList } from './MissionPlanList';
 
 interface TaskProgressOverviewProps {
@@ -8,6 +8,20 @@ interface TaskProgressOverviewProps {
   now?: number;
   controls?: ReactNode;
   interrupted?: boolean;
+  /** Verified or failed result body. Shown in the 结果 block. */
+  result?: ReactNode;
+  /** Live tool log. Replaces the one-line Now callout while the task is running. */
+  nowBody?: ReactNode;
+}
+
+export function healthNeedsAttention(state: ProgressHealthState): boolean {
+  return (
+    state === 'needs_user' ||
+    state === 'failed' ||
+    state === 'stalled' ||
+    state === 'paused' ||
+    state === 'recovering'
+  );
 }
 
 function relativeTime(timestamp: number | undefined, now: number): string | null {
@@ -38,10 +52,58 @@ export function TaskProgressOverview({
   now = Date.now(),
   controls,
   interrupted = false,
+  result,
+  nowBody,
 }: TaskProgressOverviewProps) {
   const blocked = view.milestones.find(milestone => milestone.status === 'blocked');
   const lastProgress = relativeTime(view.health.lastMeaningfulProgressAt, now);
   const isResultSurface = view.surface === 'result';
+  const healthVisible = healthNeedsAttention(view.health.state);
+  const hideDuplicateHealth =
+    Boolean(result) && (view.health.state === 'failed' || view.health.state === 'complete');
+  const hasDeliveredResult =
+    Boolean(result) || view.findings.length > 0 || (!isResultSurface && view.artifacts.length > 0);
+  const showPendingResult =
+    !hasDeliveredResult &&
+    !nowBody &&
+    view.status !== 'failed' &&
+    view.status !== 'completed' &&
+    view.health.state !== 'failed' &&
+    view.health.state !== 'complete';
+  const failedAudit = view.status === 'failed';
+  const nowKicker = failedAudit ? '做过' : '现在';
+  const showNow = Boolean(nowBody || view.currentActivity);
+  const nowSection = showNow ? (
+    <section
+      className="chijie-progress-now"
+      data-testid="task-progress-current-activity"
+      data-live-log={nowBody ? 'true' : undefined}
+      data-audit={failedAudit ? 'true' : undefined}>
+      {!(failedAudit && nowBody) && <span className="chijie-progress-kicker">{nowKicker}</span>}
+      {view.currentActivity && (
+        <>
+          <strong
+            data-testid="task-now-summary"
+            className={nowBody ? 'chijie-visually-hidden' : undefined}>
+            {view.currentActivity.summary}
+          </strong>
+          {view.currentActivity.site && (
+            <span
+              className={nowBody ? 'chijie-visually-hidden' : 'chijie-progress-now-site'}
+              data-testid="task-now-site">
+              {view.currentActivity.site}
+            </span>
+          )}
+          <span
+            data-testid="task-now-purpose"
+            className={nowBody ? 'chijie-visually-hidden' : undefined}>
+            {view.currentActivity.purpose}
+          </span>
+        </>
+      )}
+      {nowBody}
+    </section>
+  ) : null;
 
   return (
     <div
@@ -49,10 +111,10 @@ export function TaskProgressOverview({
       data-kind={view.kind}
       data-surface={view.surface ?? 'console'}
       data-testid="task-progress-overview">
-      <section className="chijie-progress-mission" data-testid="task-goal-block">
-        <p className="chijie-progress-kicker">任务目标</p>
+      <section className="chijie-progress-mission chijie-user-bubble" data-testid="task-goal-block">
+        <p className="chijie-progress-kicker">目标</p>
         <h2 data-testid="task-goal-summary">{view.mission.title}</h2>
-        {!isResultSurface && <p>{view.mission.deliverable}</p>}
+        {!isResultSurface && view.kind === 'research' && <p>{view.mission.deliverable}</p>}
       </section>
 
       {view.directionChange && (
@@ -66,7 +128,7 @@ export function TaskProgressOverview({
         </section>
       )}
 
-      {!isResultSurface && view.milestones.length > 0 && (
+      {!isResultSurface && !failedAudit && view.milestones.length > 0 && (
         <MissionPlanList
           milestones={view.milestones}
           status={view.status}
@@ -76,20 +138,14 @@ export function TaskProgressOverview({
         />
       )}
 
-      {view.currentActivity && (
-        <section className="chijie-progress-now" data-testid="task-progress-current-activity">
-          <span className="chijie-progress-kicker">现在</span>
-          <strong data-testid="task-now-summary">{view.currentActivity.summary}</strong>
-          <span data-testid="task-now-purpose">{view.currentActivity.purpose}</span>
-          {view.currentActivity.site && (
-            <span className="chijie-progress-now-site" data-testid="task-now-site">
-              {view.currentActivity.site}
-            </span>
-          )}
-        </section>
-      )}
+      {!failedAudit && nowSection}
 
-      <section className="chijie-progress-health" data-testid="task-progress-health" data-health={view.health.state}>
+      <section
+        className="chijie-progress-health"
+        data-testid="task-progress-health"
+        data-health={view.health.state}
+        data-quiet={healthVisible && !hideDuplicateHealth ? undefined : 'true'}
+        hidden={hideDuplicateHealth || undefined}>
         <span className="chijie-progress-health-label">{healthLabel(view.health.state)}</span>
         <strong className="chijie-progress-health-summary">{view.health.summary}</strong>
         {view.health.lastMeaningfulProgressAt ? (
@@ -125,47 +181,51 @@ export function TaskProgressOverview({
         controls
       )}
 
-      {view.findings.length > 0 && (
-        <section className="chijie-progress-findings" data-testid="task-progress-findings">
-          <div className="chijie-progress-section-head">
-            <span>{isResultSurface ? '结果' : '最新成果'}</span>
-            <span>{view.findings.length}</span>
-          </div>
-          <ul>
-            {view.findings.map(finding => (
-              <li key={finding.id}>
-                <strong>{finding.title}</strong>
-                {finding.detail && <span>{finding.detail}</span>}
-              </li>
-            ))}
-          </ul>
+      {(result || hasDeliveredResult || showPendingResult) && (
+        <section className="chijie-progress-result" data-testid="task-result-block">
+          <p className="chijie-progress-kicker">结果</p>
+          {result}
+          {view.findings.length > 0 && (
+            <div className="chijie-progress-findings" data-testid="task-progress-findings">
+              <ul>
+                {view.findings.map(finding => (
+                  <li key={finding.id}>
+                    <strong>{finding.title}</strong>
+                    {finding.detail && <span>{finding.detail}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {!isResultSurface && view.artifacts.length > 0 && (
+            <div className="chijie-progress-artifacts" data-testid="task-progress-artifacts">
+              <ul>
+                {view.artifacts.map(artifact => (
+                  <li key={artifact.id}>
+                    <FiFileText aria-hidden />
+                    {artifact.url ? (
+                      <a href={artifact.url} target="_blank" rel="noreferrer">
+                        <span>{artifact.title}</span>
+                        <FiExternalLink aria-hidden />
+                      </a>
+                    ) : (
+                      <span>{artifact.title}</span>
+                    )}
+                    <small>{artifact.status === 'verified' ? '已回读验证' : '已创建'}</small>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {showPendingResult && (
+            <p className="chijie-progress-result-pending" data-testid="task-result-pending">
+              做完会出现在这里
+            </p>
+          )}
         </section>
       )}
 
-      {!isResultSurface && view.artifacts.length > 0 && (
-        <section className="chijie-progress-artifacts" data-testid="task-progress-artifacts">
-          <div className="chijie-progress-section-head">
-            <span>交付物</span>
-            <span>{view.artifacts.length}</span>
-          </div>
-          <ul>
-            {view.artifacts.map(artifact => (
-              <li key={artifact.id}>
-                <FiFileText aria-hidden />
-                {artifact.url ? (
-                  <a href={artifact.url} target="_blank" rel="noreferrer">
-                    <span>{artifact.title}</span>
-                    <FiExternalLink aria-hidden />
-                  </a>
-                ) : (
-                  <span>{artifact.title}</span>
-                )}
-                <small>{artifact.status === 'verified' ? '已回读验证' : '已创建'}</small>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {failedAudit && nowSection}
 
       {blocked && (
         <div className="chijie-progress-blocked" role="alert">

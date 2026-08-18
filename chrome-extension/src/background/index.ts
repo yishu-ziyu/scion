@@ -10,7 +10,16 @@ import { analytics } from './services/analytics';
 import { ensurePersonalDefaults } from '../personal/bootstrap';
 import { TaskManager } from './task/manager';
 import { PortRegistry } from './task/port-registry';
-import { chromeTabsSendMessage, syncPageOperatingBar } from './task/page-operating';
+import {
+  chromeTabsSendMessage,
+  PAGE_OPERATING_FOLLOW,
+  PAGE_OPERATING_STOP,
+  PAGE_OPERATING_TAKEOVER,
+  pageOperatingCancelCommand,
+  pageOperatingFollowCommand,
+  pageOperatingTakeoverCommand,
+  syncPageOperatingBar,
+} from './task/page-operating';
 import { browserContext, createExecutorDriver } from './agent/factory';
 import { decideUserTurn, type HistoryTurn } from './intent/user-turn-decision';
 
@@ -23,6 +32,15 @@ const taskManager = new TaskManager({
     createExecutorDriver(input, hooks, event => sidePanelPorts.broadcast(port => port.postMessage(event))),
   switchTab: async tabId => {
     await browserContext.bindToTab(tabId);
+  },
+  setFollowForeground: follow => {
+    browserContext.setRevealForeground(follow);
+  },
+  revealTab: async tabId => {
+    await browserContext.revealTab(tabId);
+  },
+  beginTaskTabGroup: async (title, existingGroupId) => {
+    return browserContext.beginTaskTabGroup(title, existingGroupId);
   },
   observeCriteria: async criteria => {
     const page = await browserContext.getCurrentPage();
@@ -133,11 +151,35 @@ analyticsSettingsStore.subscribe(() => {
   });
 });
 
-// Listen for simple messages (e.g., from options page)
-chrome.runtime.onMessage.addListener(() => {
-  // Handle other message types if needed in the future
-  // Return false if response is not sent asynchronously
-  // return false;
+// Page overlay: 跟随 / 接管 / legacy stop. Only from the tab this task is driving.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (
+    !message ||
+    (message.type !== PAGE_OPERATING_STOP &&
+      message.type !== PAGE_OPERATING_TAKEOVER &&
+      message.type !== PAGE_OPERATING_FOLLOW)
+  ) {
+    return false;
+  }
+  void taskManager
+    .activeSnapshot()
+    .then(async snapshot => {
+      const commandId = crypto.randomUUID();
+      const command =
+        message.type === PAGE_OPERATING_FOLLOW
+          ? pageOperatingFollowCommand(snapshot, sender.tab?.id, commandId, Boolean(message.follow))
+          : pageOperatingTakeoverCommand(snapshot, sender.tab?.id, commandId) ??
+            (message.type === PAGE_OPERATING_STOP
+              ? pageOperatingCancelCommand(snapshot, sender.tab?.id, commandId)
+              : null);
+      if (command) await taskManager.dispatch(command);
+      sendResponse({ ok: Boolean(command) });
+    })
+    .catch(error => {
+      logger.error('Page operating control failed', error);
+      sendResponse({ ok: false });
+    });
+  return true;
 });
 
 // Setup connection listener for long-lived connections (e.g., side panel)
