@@ -1,0 +1,97 @@
+/**
+ * User-visible failure categories (ticket 04).
+ * Aligns product reports (login_wall / selector_miss / …) with executor categories.
+ * Primary UI shows localized product labels only — never raw step_failed / Planner.
+ */
+
+import { t } from '@extension/i18n';
+
+/** Product report codes (golden journeys / Tabbit alignment). */
+export type ProductFailureCode =
+  | 'login_wall'
+  | 'selector_miss'
+  | 'false_complete'
+  | 'model_loop'
+  | 'other';
+
+const PRODUCT_FAILURE_MESSAGE_KEYS = {
+  login_wall: 'chat_task_product_fail_login_wall',
+  selector_miss: 'chat_task_product_fail_selector_miss',
+  false_complete: 'chat_task_product_fail_false_complete',
+  model_loop: 'chat_task_product_fail_model_loop',
+  other: 'chat_task_product_fail_other',
+} as const satisfies Record<ProductFailureCode, Parameters<typeof t>[0]>;
+
+/** Localized labels for each product failure code (resolved at access time). */
+export const PRODUCT_FAILURE_LABELS: Record<ProductFailureCode, string> = {
+  get login_wall() {
+    return t(PRODUCT_FAILURE_MESSAGE_KEYS.login_wall);
+  },
+  get selector_miss() {
+    return t(PRODUCT_FAILURE_MESSAGE_KEYS.selector_miss);
+  },
+  get false_complete() {
+    return t(PRODUCT_FAILURE_MESSAGE_KEYS.false_complete);
+  },
+  get model_loop() {
+    return t(PRODUCT_FAILURE_MESSAGE_KEYS.model_loop);
+  },
+  get other() {
+    return t(PRODUCT_FAILURE_MESSAGE_KEYS.other);
+  },
+};
+
+/** Map executor / waitReason / free-form category → product code. */
+export function toProductFailureCode(category: string | undefined | null): ProductFailureCode {
+  if (!category) return 'other';
+  const c = category.toLowerCase();
+
+  if (
+    c === 'login_wall' ||
+    c === 'login_required' ||
+    c === 'captcha_required' ||
+    c.includes('login') ||
+    c.includes('captcha')
+  ) {
+    return 'login_wall';
+  }
+
+  if (
+    c === 'selector_miss' ||
+    c === 'target_missing' ||
+    c === 'target_ambiguous' ||
+    c === 'observe_failed' ||
+    c === 'action_failed' ||
+    c === 'unknown_action'
+  ) {
+    return 'selector_miss';
+  }
+
+  if (c === 'false_complete') {
+    return 'false_complete';
+  }
+
+  if (
+    c === 'model_loop' ||
+    c === 'max_steps' ||
+    c === 'no_progress' ||
+    c === 'json_parse_failed' ||
+    c === 'llm_failed' ||
+    c === 'control_script_exhausted'
+  ) {
+    return 'model_loop';
+  }
+
+  return 'other';
+}
+
+export function productFailureLabel(category: string | undefined | null): string {
+  return t(PRODUCT_FAILURE_MESSAGE_KEYS[toProductFailureCode(category)]);
+}
+
+/** True if text looks like engineer-primary noise (presentation leakage). See product/014 Part C. */
+export function isEngineerFailureNoise(text: string): boolean {
+  return /\b(step_failed|Planner|Navigator|observe_failed|json_parse_failed|no_progress|ExecutorDriver|pageRevision|failure_class|false_complete|wrong_tab|attach_mode|llm_failed|control_script_exhausted|ExecutorOutcome|done_candidate)\b/i.test(
+    text,
+  );
+}
