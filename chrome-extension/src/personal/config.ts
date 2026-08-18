@@ -23,7 +23,7 @@ export const PERSONAL_MODEL = 'MiniMax-M3';
  */
 export const PERSONAL_AGENT_CORE_BACKEND: AgentCoreBackend | null = 'control';
 
-/** Planner + Navigator both use M3 for self-use simplicity. */
+/** Planner + Navigator + Validator use M3 for self-use simplicity. */
 export const PERSONAL_AGENT_MODELS = {
   [AgentNameEnum.Planner]: {
     provider: PERSONAL_PROVIDER_ID,
@@ -34,5 +34,10 @@ export const PERSONAL_AGENT_MODELS = {
     provider: PERSONAL_PROVIDER_ID,
     modelName: PERSONAL_MODEL,
     parameters: { temperature: 0.2, topP: 0.5 },
+  },
+  [AgentNameEnum.Validator]: {
+    provider: PERSONAL_PROVIDER_ID,
+    modelName: PERSONAL_MODEL,
+    parameters: { temperature: 0.1, topP: 0.3 },
   },
 } as const;

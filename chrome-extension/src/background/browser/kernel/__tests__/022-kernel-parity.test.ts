@@ -71,4 +71,28 @@ describe('022-KERNEL-01 BrowserKernel contract', () => {
     expect(getState).toHaveBeenCalled();
     expect(hooks.dispatchAction).not.toHaveBeenCalled();
   });
+
+  it('can skip the page-load wait on the first look at an already-open page', async () => {
+    const getState = vi.fn(async () => ({
+      tabId: 7,
+      url: 'https://www.bilibili.com/',
+      title: '哔哩哔哩',
+      elementTree: { clickableElementsToString: () => '' },
+      selectorMap: new Map(),
+    }));
+    const kernel = createBrowserKernel({
+      browserContext: {
+        getState,
+        getCurrentPage: vi.fn(async () => ({
+          observeMedia: async () => ({ kind: 'none' as const }),
+          evaluate: async () => '',
+        })),
+      } as never,
+      hooks: { dispatchAction: vi.fn() } as never,
+      resolveAction: () => undefined,
+      defaultUseVision: false,
+    });
+    await kernel.observe({ waitForLoad: false });
+    expect(getState).toHaveBeenCalledWith(false, false, { waitForLoad: false });
+  });
 });

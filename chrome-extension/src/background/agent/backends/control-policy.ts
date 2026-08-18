@@ -14,7 +14,7 @@ export interface ControlPolicyDecision {
   waitingUser: 'login_required' | 'captcha_required' | null;
 }
 
-export const CONTROL_PROMPT_VERSION = 'chijie-control-v0.3.6';
+export const CONTROL_PROMPT_VERSION = 'chijie-control-v0.4.1';
 
 export interface AgentStatusBarInput {
   url?: string;
@@ -102,6 +102,8 @@ const ALLOWED_ACTIONS = new Set([
   'save_screenshot',
   'go_to_url',
   'go_back',
+  'observe',
+  'extract_content',
   'send_keys',
   'wait',
   'scroll_to_text',
@@ -121,6 +123,9 @@ const ALLOWED_ACTIONS = new Set([
   'record_research_delivery',
   'read_page_text',
   'inspect_open_tabs',
+  'find_tab',
+  'evaluate',
+  'snapshot',
   'search_google',
   'previous_page',
   'next_page',
@@ -129,6 +134,7 @@ const ALLOWED_ACTIONS = new Set([
 /** Alias model-facing names onto registered action handlers. */
 function normalizeActionName(name: string): string {
   if (name === 'focus_tab') return 'switch_tab';
+  if (name === 'snapshot') return 'observe';
   return name;
 }
 
@@ -309,18 +315,20 @@ Schema:
     { "kind": "page_text", "operator": "present", "expected": "Saved successfully", "required": true }
   ],
   "done": false,
-  "action_name": "input_text" | "click_element" | "control_media" | "save_screenshot" | "go_to_url" | "wait" | "send_keys" | "done" | ...,
+  "action_name": "observe" | "extract_content" | "input_text" | "click_element" | "control_media" | "save_screenshot" | "go_to_url" | "wait" | "send_keys" | "done" | ...,
   "action_args": { ... }
 }
 
 Rules:
-1. After Visible page text is present, first judge whether the user's original sentence is already done from that wording. If yes, set "done": true and write the user-facing result in observation. Indexes are only for clicking. Do not take an action first just to start reading. One action per turn only when the goal is not yet done; prefer the smallest step that advances the task.
+0. Loop: observe/snapshot the page, decide, act, observe again. If the user asked what this page or these videos are about, read then write the analysis in observation and set done. The analysis sentence does not need to appear on the page.
+1. After Visible page text is present, first judge whether the user's original sentence is already done from that wording. If yes, set "done": true and write the user-facing result in observation. Indexes are only for clicking. Do not take an action first just to start reading. One action per turn only when the goal is not yet done; prefer the smallest step that advances the task. When the user says 这个页面 / current tab, call find_tab { "active": true } once if you are not already bound. That stays on the page they sent the task from; do not follow them if they switch away.
 2. On the first useful turn include completion_criteria if the goal is verifiable (success text, media_state, tab_state, download_state, url). For "open YouTube and click the first video", prefer url starts_with https://www.youtube.com/watch (not just the homepage).
+2c. If the user asks what this page or these videos are about, do not invent completion_criteria. Write the result in observation and set done.
 2b. Never treat 404 / "This page isn't available" / empty playlist error shells as success. URL criteria alone are invalid if the page is an error page; keep working or recover (search library / Library / Liked videos) instead of done.
-3. When the goal is already met on the page, set "done": true and omit action_name (or use done). Do not re-open the homepage or re-click the same video. Model "done" alone never completes without matching page/tab/download evidence.
+3. When the goal is already met, set "done": true and omit action_name (or use done). Do not re-open the homepage or re-click the same video. Open/click/fill still need the page to have changed. A written analysis is itself the result.
 4. For HTML audio/video play/pause use action_name "control_media" with action_args { "command": "play"|"pause", optional "target_digest" }. Do not click native shadow media controls. Continuous control reuses the last media digest when target_digest is omitted.
-5. Close/focus tabs with close_tab / switch_tab (or focus_tab). Omit tab_id to use the task-bound current tab. For close goals set completion_criteria tab_state expected closed.
-6. Form fields lists labeled controls with current values. Use input_text on those indexes (input, textarea, select, contenteditable). After a fill, read Form fields again to confirm the value stuck. Do not invent indexes.
+5. Bind/close tabs with close_tab / switch_tab (or focus_tab). switch_tab and open_tab do not bring that tab to the front; the user may keep working in another tab. Omit tab_id to use the task-bound current tab. For close goals set completion_criteria tab_state expected closed. Do not require tab_state active.
+6. Form fields lists labeled controls with current values. Use input_text on those indexes (input, textarea, select, contenteditable). After a fill, read Form fields again to confirm the value stuck. Do not invent indexes. Checkbox, radio, file, and submit are not Form fields — click them with click_element (file cannot be filled with input_text).
 6b. Click submit / send / buy / delete only when the user's original sentence asked to submit, send, buy, or delete. If they only asked to fill, fill the matching fields, set done true, and say what was filled. Do not click submit to be helpful. Plain link clicks are not form submits.
 7. Never invent element indexes that are not listed. Indexes are short-lived refs bound automatically to the shown Snapshot frame. If an action reports a stale frame/target, use the next observation instead of retrying the old index.
 8. Do not claim login_required unless a clear login wall is visible.
@@ -334,6 +342,8 @@ Rules:
 13. When done is true, "observation" is the user-facing result. The user will check it against the page. Acknowledgements, promises, and "I will…" / "好的我来…" are not results. Never return an acknowledgement or future promise.
 14. For long research tasks, use record_evidence only after opening and reading the actual source page. Never count search snippets or unopened links. Every useful source MUST be recorded before leaving its URL; never plan to reconstruct records later from memory. Repository files/pages use record_type "repository", user discussions use "user_discussion", and product pages use "product". Use inspect_evidence_space after recovery and before claiming a source quota is met.
 15. Each observation includes visible page wording plus clickable indexes. Write the user-facing result from the wording. Indexes are for clicking, not for quoting. Call read_page_text only if the visible window is empty or too short, or after you scrolled to new content. Do not click around to start reading. When the user asks to include already-open browser context, use inspect_open_tabs and switch only to clearly relevant tabs.
+15b. Before click_element, if the Interactive elements list is long or you need a named control, call observe with a query (for example "提交" or "Search") so only matching controls remain. Indexes stay the original highlight numbers. You may also pass the same query on click_element or input_text instead of an index. If the query does not resolve to one control, you get candidates and no click. An empty observe query returns the full page list.
+15c. When the user wants numbers, a table, a named list, or what the videos/items on the current page are about, call extract_content with a goal and optional schema field names. That writes JSON records into an artifact. extract_content does not finish the task; do not set done true just because rows came back. Then write the result in observation and set done.
 16. For record_evidence, action_args MUST be {"records":[{"record_type":"user_discussion"|"product"|"repository"|"browser_context"|"product_principle","source":"the exact current page URL","source_title":"...","user_problem":"optional","raw_basis":"at least 20 characters copied from the page","observation":"at least 8 characters","inference":"...","confidence":"high"|"medium"|"low","related_product":"optional","living_reader_capability":"optional","priority":"high"|"medium"|"low","stance":"support"|"oppose"|"mixed"|"neutral","dedupe_key":"stable source-local key"}]}. Use these English field names and enum values exactly. Product records MUST set related_product to the actual product shown on the current source, never to Living Reader as a placeholder. For evidence-recording tasks, do not propose a URL criterion that was already true at baseline; verify progress with inspect_evidence_space instead.
 17. On an unavailable/404/error page during research, do not record evidence, wait, or finish. Use go_back to return to the last valid source, then choose a real alternative link.
 18. When research quotas are met, inspect filtered evidence pages, then use record_research_decision to persist exactly three capabilities. Each requires seven substantive decision answers plus IDs for 2 independent user sources, 1 product, and 1 repository source. Candidate completion is invalid until this action is accepted.

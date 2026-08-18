@@ -23,6 +23,35 @@ function frame(overrides: Partial<ObservationFrame> = {}): ObservationFrame {
 }
 
 describe('parseControlPolicyDecision', () => {
+  it('aliases snapshot to observe', () => {
+    const d = parseControlPolicyDecision({
+      observation: 'page',
+      done: false,
+      action_name: 'snapshot',
+      action_args: { query: '提交' },
+    });
+    expect(d.action).toEqual({ name: 'observe', args: { query: '提交' } });
+  });
+
+  it('parses find_tab and evaluate', () => {
+    expect(
+      parseControlPolicyDecision({
+        observation: 'use this page',
+        done: false,
+        action_name: 'find_tab',
+        action_args: { active: true },
+      }).action,
+    ).toEqual({ name: 'find_tab', args: { active: true } });
+    expect(
+      parseControlPolicyDecision({
+        observation: 'titles',
+        done: false,
+        action_name: 'evaluate',
+        action_args: { code: '1+1' },
+      }).action,
+    ).toEqual({ name: 'evaluate', args: { code: '1+1' } });
+  });
+
   it('parses action_name shape', () => {
     const d = parseControlPolicyDecision({
       observation: 'name empty',
@@ -155,6 +184,28 @@ describe('parseControlPolicyDecision', () => {
     });
     expect(read.action).toEqual({ name: 'read_page_text', args: { max_chars: 20000 } });
   });
+
+  it('allows observe with query and extract_content', () => {
+    const observe = parseControlPolicyDecision({
+      observation: 'find the submit control',
+      done: false,
+      action_name: 'observe',
+      action_args: { query: '提交', intent: 'shrink list' },
+    });
+    expect(observe.action).toEqual({ name: 'observe', args: { query: '提交', intent: 'shrink list' } });
+
+    const extract = parseControlPolicyDecision({
+      observation: 'table of products is visible',
+      done: false,
+      action_name: 'extract_content',
+      action_args: { goal: 'name,price,rating', schema: 'name,price,rating' },
+    });
+    expect(extract.action).toEqual({
+      name: 'extract_content',
+      args: { goal: 'name,price,rating', schema: 'name,price,rating' },
+    });
+    expect(extract.done).toBe(false);
+  });
 });
 
 describe('agent status bar / prompt versioning', () => {
@@ -176,7 +227,7 @@ describe('agent status bar / prompt versioning', () => {
 
   it('includes prompt version and optional status block', () => {
     const prompt = renderControlSystemPrompt({ statusBar: 'url: https://example.com' });
-    expect(CONTROL_PROMPT_VERSION).toBe('chijie-control-v0.3.6');
+    expect(CONTROL_PROMPT_VERSION).toBe('chijie-control-v0.4.1');
     expect(prompt).toContain(CONTROL_PROMPT_VERSION);
     expect(prompt).toContain('<agent_status>');
     expect(prompt).toContain('url: https://example.com');
@@ -184,7 +235,7 @@ describe('agent status bar / prompt versioning', () => {
     expect(prompt).toContain('plan memory');
     expect(prompt).toContain('Never invent done without observable');
     expect(prompt).toContain('Never return an acknowledgement or future promise');
-    expect(prompt).toContain('first judge whether the user\'s original sentence is already done');
+    expect(prompt).toContain("first judge whether the user's original sentence is already done");
     expect(prompt).toContain('Do not take an action first just to start reading');
     expect(prompt).toContain('visible page wording plus clickable indexes');
     expect(prompt).toContain('read_page_text');
@@ -195,7 +246,19 @@ describe('agent status bar / prompt versioning', () => {
     expect(prompt).toContain('do not propose a URL criterion that was already true at baseline');
     expect(prompt).toContain('inspect_open_tabs');
     expect(prompt).toContain('Form fields lists labeled controls');
-    expect(prompt).toContain('only when the user\'s original sentence asked to submit');
+    expect(prompt).toContain('Checkbox, radio, file, and submit are not Form fields');
+    expect(prompt).toContain("only when the user's original sentence asked to submit");
+    expect(prompt).toContain('call observe with a query');
+    expect(prompt).toContain('extract_content');
+    expect(prompt).toContain('does not finish the task');
+    expect(prompt).toContain('do not invent completion_criteria');
+    expect(prompt).toContain('what this page or these videos are about');
+    expect(prompt).toContain('Write the result in observation and set done');
+    expect(prompt).toContain('find_tab');
+    expect(prompt).toContain('The analysis sentence does not need to appear on the page');
+    expect(prompt).toContain('do not bring that tab to the front');
+    expect(prompt).toContain('Do not require tab_state active');
+    expect(prompt).toContain('do not follow them if they switch away');
   });
 });
 

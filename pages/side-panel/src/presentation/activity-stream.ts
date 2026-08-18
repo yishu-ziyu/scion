@@ -29,6 +29,14 @@ export function activityIconForAction(actionName: string): ActivityIconKey {
     case 'open_tab':
     case 'search_google':
       return 'globe';
+    case 'observe':
+    case 'snapshot':
+    case 'evaluate':
+      return 'eye';
+    case 'extract_content':
+      return 'list';
+    case 'inspect_open_tabs':
+    case 'find_tab':
     case 'switch_tab':
     case 'focus_tab':
       return 'tab';
@@ -60,11 +68,7 @@ export function activityIconForAction(actionName: string): ActivityIconKey {
   }
 }
 
-export function activityElapsedSeconds(input: {
-  createdAt: number;
-  endAt?: number;
-  now?: number;
-}): number {
+export function activityElapsedSeconds(input: { createdAt: number; endAt?: number; now?: number }): number {
   const end = input.endAt ?? input.now ?? Date.now();
   if (!Number.isFinite(input.createdAt) || input.createdAt <= 0) return 0;
   return Math.max(0, Math.floor((end - input.createdAt) / 1000));
@@ -171,4 +175,51 @@ export function activityLiveActingLine(input: {
   const base = /^正在/.test(verb) ? verb : `正在${verb}`;
   const host = (input.siteHost || '').replace(/^www\./, '').trim();
   return host ? `${base} · ${host}` : base;
+}
+
+export type ActivityLogItem = {
+  id: string;
+  text: string;
+  icon: ActivityIconKey;
+  chip?: string;
+  live?: boolean;
+};
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Split "打开 etsy.com" + chip "etsy.com" into verb + chip, Sider-style. */
+export function activityToolRow(input: { title: string; chip?: string | null }): { verb: string; chip?: string } {
+  const title = input.title.replace(/\s+/g, ' ').trim();
+  const chip = input.chip?.replace(/\s+/g, ' ').trim();
+  if (!title) return { verb: title };
+  if (!chip || title === chip) return { verb: title };
+  const suffix = new RegExp(`(?:\\s|[·:：]|（)${escapeRegExp(chip)}(?:）)?\\s*$`);
+  if (suffix.test(title)) {
+    const verb = title.replace(suffix, '').trim();
+    if (verb) return { verb, chip };
+  }
+  if (title.includes(chip)) return { verb: title };
+  return { verb: title, chip };
+}
+
+export function toActivityLogItem(
+  attempt: {
+    id: string;
+    actionName: string;
+    displaySummary?: string;
+    targetLabel?: string;
+    state: string;
+  },
+  title: string,
+): ActivityLogItem {
+  const row = activityToolRow({ title, chip: attempt.targetLabel });
+  return {
+    id: attempt.id,
+    text: row.verb,
+    icon: activityIconForAction(attempt.actionName),
+    chip: row.chip,
+    live: attempt.state === 'executing' || attempt.state === 'authorized' || attempt.state === 'proposed',
+  };
 }

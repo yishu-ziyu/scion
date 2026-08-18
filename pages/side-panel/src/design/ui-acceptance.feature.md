@@ -4,17 +4,42 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 
 ## Background
 
-- Black ambient canvas (`#000000`), warm paper cards (`#F2E3CF`), crayon accent (`#e35342`)
-- No `box-shadow`; hierarchy via surface steps and paper vs black
+- No stock sky-blue chrome. Colors come from `--chijie-*` tokens, not a mandatory paper/crayon look.
+- No `box-shadow`; hierarchy via surface steps.
 - Body: Space Grotesk; labels: Space Mono ALL CAPS; no sky-blue default chrome
 - Primary actions are pill buttons
 - Task language is human, not raw enum strings
+
+## Scenario: Live run is a tool log, not a collapsed audit
+
+- Given a task snapshot with status `running`
+- When the status card is rendered
+- Then the user goal is a bubble
+- And 现在 is an expanded tool log (icon + verb + optional chip)
+- And a live cursor and 停止生成 pill are visible
+- And the page overlay says 持节正在操作这个页面
+
+## Scenario: Idle home is a hero plus example rows
+
+- Given models are configured and no live task is running
+- When the side panel is idle
+- Then the user sees a title, a short hint, and example rows that fill the composer
+- And there is no Chat / Claw mode rail
 
 ## Scenario: Status card speaks human language
 
 - Given a task snapshot with status `running`
 - When the status label is rendered
 - Then the user sees "进行中" / localized human copy, not the string `running`
+
+## Scenario: Failed task is 目标 + 结果 + 再说一次
+
+- Given a task snapshot with status `failed`
+- When the status card is rendered
+- Then there is no 失败了 pill and no rating form
+- And 结果 is one human sentence
+- And the primary action is 再说一次
+- And any steps sit under 做过, after 结果
 
 ## Scenario: Completion is plain language, not a receipt id
 

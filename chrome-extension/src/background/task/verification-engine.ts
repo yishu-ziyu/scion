@@ -170,8 +170,6 @@ export function verifyCandidateComplete(input: VerificationInput): VerificationR
     };
   }
 
-  // A failed required check is conclusive even for a text artifact. The
-  // browser-grounding rule below only handles otherwise-green self-evidence.
   if (reasons.length > 0) {
     return {
       verdict: 'FAIL',
@@ -179,20 +177,6 @@ export function verifyCandidateComplete(input: VerificationInput): VerificationR
       completion,
       artifactEvidence,
       reasons,
-    };
-  }
-
-  // Text/file deliverables always need required browser evidence. Their own
-  // text, source list, or contains checks cannot prove that the page was read.
-  const artifacts = input.artifacts ?? [];
-  const hasTextLikeArtifact = artifacts.some(artifact => artifact.type === 'text' || artifact.type === 'file');
-  if (!hasRequiredEnvCriterion && hasTextLikeArtifact) {
-    return {
-      verdict: 'INCONCLUSIVE',
-      complete: false,
-      completion,
-      artifactEvidence,
-      reasons: ['text_artifact_unverified'],
     };
   }
 

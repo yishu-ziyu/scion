@@ -3,6 +3,7 @@ import type { BuildDomTreeArgs, RawDomTreeNode, RawDomElementNode, BuildDomTreeR
 import { type DOMState, type DOMBaseNode, DOMElementNode, DOMTextNode } from './views';
 import type { ViewportInfo } from './history/view';
 import { isNewTabPage } from '../util';
+import { applyCdpHandles, collectInteractive } from '../cdp';
 
 const logger = createLogger('DOMService');
 
@@ -206,7 +207,22 @@ async function _buildDomTree(
     mainFramePage = frameTreeResult.resultPage;
   }
 
-  return _constructDomTree(mainFramePage);
+  const constructed = _constructDomTree(mainFramePage);
+  await enrichWithCdpHandles(tabId, constructed[0], constructed[1]);
+  return constructed;
+}
+
+async function enrichWithCdpHandles(
+  tabId: number,
+  elementTree: DOMElementNode,
+  selectorMap: Map<number, DOMElementNode>,
+): Promise<void> {
+  try {
+    const collected = await collectInteractive(tabId);
+    applyCdpHandles(elementTree, selectorMap, collected);
+  } catch (error) {
+    logger.debug('CDP collect skipped:', error);
+  }
 }
 
 async function constructFrameTree(
@@ -500,6 +516,8 @@ export function _parse_node(nodeData: RawDomTreeNode): [DOMBaseNode | null, stri
     shadowRoot: elementData.shadowRoot ?? false,
     parent: null,
     viewportInfo: viewportInfo,
+    backendNodeId: elementData.backendNodeId,
+    cdpFrameId: elementData.cdpFrameId,
   });
 
   const childrenIds = elementData.children || [];

@@ -65,6 +65,22 @@ describe('buildAttemptDisplaySummary', () => {
     expect(sanitizeIntent('点击开始播放')).toBe('点击开始播放');
   });
 
+  it('describes observe and extract without leaking selectors', () => {
+    expect(
+      buildAttemptDisplaySummary({
+        actionName: 'observe',
+        args: { query: '提交' },
+        urlOrigin: 'https://www.etsy.com',
+      }),
+    ).toBe('查看「提交」');
+    expect(
+      buildAttemptDisplaySummary({
+        actionName: 'extract_content',
+        args: { goal: '商品名和价格' },
+      }),
+    ).toBe('抽取：商品名和价格');
+  });
+
   it('target label prefers host', () => {
     expect(
       buildAttemptTargetLabel({

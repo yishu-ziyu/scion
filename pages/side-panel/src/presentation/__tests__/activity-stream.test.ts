@@ -5,8 +5,10 @@ import {
   activityLiveActingLine,
   activityLiveHeadline,
   activityPhaseForAttempt,
+  activityToolRow,
   formatActivityDuration,
   looksLikeActionName,
+  toActivityLogItem,
 } from '../activity-stream';
 
 describe('activity-stream', () => {
@@ -16,6 +18,31 @@ describe('activity-stream', () => {
     expect(activityIconForAction('control_media')).toBe('play');
     expect(activityIconForAction('input_text')).toBe('type');
     expect(activityIconForAction('unknown_xyz')).toBe('generic');
+    expect(activityIconForAction('observe')).toBe('eye');
+    expect(activityIconForAction('snapshot')).toBe('eye');
+    expect(activityIconForAction('evaluate')).toBe('eye');
+    expect(activityIconForAction('find_tab')).toBe('tab');
+    expect(activityIconForAction('extract_content')).toBe('list');
+  });
+
+  it('splits a host chip off the verb so the row can show icon + verb + chip', () => {
+    expect(activityToolRow({ title: '打开 etsy.com', chip: 'etsy.com' })).toEqual({
+      verb: '打开',
+      chip: 'etsy.com',
+    });
+    expect(activityToolRow({ title: '填写表单', chip: undefined })).toEqual({ verb: '填写表单' });
+    expect(
+      toActivityLogItem(
+        {
+          id: 'a1',
+          actionName: 'go_to_url',
+          displaySummary: '打开 etsy.com',
+          targetLabel: 'etsy.com',
+          state: 'executing',
+        },
+        '打开 etsy.com',
+      ),
+    ).toMatchObject({ text: '打开', icon: 'globe', chip: 'etsy.com', live: true });
   });
 
   it('formats elapsed duration for Activity header', () => {

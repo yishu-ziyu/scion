@@ -6,38 +6,37 @@
 @import url('https://fonts.googleapis.com/css2?family=Gochi+Hand&family=Noto+Sans+SC:wght@400;500&family=Noto+Serif+SC:wght@400;600&family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap');
 
 :root {
-  /* Warm paper + scion green (first-run setup + console) */
-  --chijie-background: #fbfaf7;
-  --chijie-foreground: #1f2d2a;
-  --chijie-muted: #687280;
-  --chijie-accent: #166f4e;
-  --chijie-accent-signal: #125842;
-  --chijie-accent-subtle: #eaf4ef;
+  /* Agent console grammar: near-white, 1px gray, one ink accent. Not paper/crayon, not a purple clone. */
+  --chijie-background: #f6f6f5;
+  --chijie-foreground: #1c1b19;
+  --chijie-muted: #6f6a66;
+  --chijie-accent: #1c1b19;
+  --chijie-accent-signal: #1c1b19;
+  --chijie-accent-subtle: #f0efed;
   --chijie-surface: #ffffff;
-  --chijie-surface-raised: #f7f5f0;
-  --chijie-border: #dde4e0;
-  --chijie-border-strong: #b8c3bc;
+  --chijie-surface-raised: #ffffff;
+  --chijie-border: #e7e5e4;
+  --chijie-border-strong: #d4d1ce;
   --chijie-paper: #ffffff;
-  --chijie-paper-ink: #1f2d2a;
-  --chijie-paper-muted: #586863;
+  --chijie-paper-ink: #1c1b19;
+  --chijie-paper-muted: #6f6a66;
   --chijie-warning: #855600;
-  --chijie-warning-subtle: #fff6e5;
+  --chijie-warning-subtle: #f4e4c4;
   --chijie-danger: #a72f2f;
-  --chijie-danger-subtle: #fbecea;
+  --chijie-danger-subtle: #f6d8d0;
   --chijie-space-unit: 8px;
-  /* S5: compact ladder for ~430px console (Notion spacing notes + 008 density). */
   --chijie-space-1: 4px;
   --chijie-space-2: 8px;
   --chijie-space-3: 12px;
   --chijie-space-4: 16px;
   --chijie-space-5: 24px;
-  --chijie-space-section: 16px;
+  --chijie-space-section: 24px;
   --chijie-radius-sm: 4px;
   --chijie-radius-md: 8px;
   --chijie-radius-lg: 12px;
-  --chijie-radius-xl: 16px;
-  --chijie-radius-pill: 999px;
-  --chijie-radius-torn: 16px;
+  --chijie-radius-xl: 20px;
+  --chijie-radius-pill: 60px;
+  --chijie-radius-torn: 20px 20px 4px 4px;
   /* S5: 3–5 type steps (Sajid/Refactoring UI), not Material full scale. */
   --chijie-text-xs: 11px;
   --chijie-text-sm: 12px;
@@ -48,8 +47,8 @@
   --chijie-weight-semibold: 600;
   --chijie-leading-tight: 1.15;
   --chijie-leading-normal: 1.4;
-  --chijie-success: #166f4e;
-  --chijie-success-subtle: #eaf4ef;
+  --chijie-success: #5b6b4a;
+  --chijie-success-subtle: #e8e4d4;
   --chijie-font-body: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
   --chijie-font-mono: 'Space Mono', ui-monospace, monospace;
   --chijie-font-hand: 'Gochi Hand', 'Noto Sans SC', cursive;

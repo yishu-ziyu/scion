@@ -47,7 +47,9 @@ export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
       deps.agentContext?.options.includeAttributes ??
       null;
 
-    const browserState = await deps.browserContext.getState(useVision);
+    const browserState = await deps.browserContext.getState(useVision, false, {
+      waitForLoad: options?.waitForLoad,
+    });
     const rawElementsText = browserState.elementTree.clickableElementsToString(includeAttributes);
 
     let media: ObservationFrame['media'] = { kind: 'none' };
@@ -102,6 +104,7 @@ export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
       viewport,
       enrichment: options?.enrichment,
       includeAttributes,
+      query: options?.query,
     });
     last = frame;
     return frame;

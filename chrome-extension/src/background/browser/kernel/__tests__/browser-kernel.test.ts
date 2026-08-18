@@ -65,6 +65,51 @@ describe('BrowserKernel', () => {
     expect(dispatchAction).not.toHaveBeenCalled();
   });
 
+  it('observe applies query to interactive elements', async () => {
+    const selectorMap = new Map([
+      [
+        1,
+        {
+          tagName: 'a',
+          attributes: {},
+          getAllTextTillNextClickableElement: (): string => 'Home',
+          hash: async () => ({ branchPathHash: 'b', attributesHash: 'a', xpathHash: 'x' }),
+        },
+      ],
+      [
+        2,
+        {
+          tagName: 'button',
+          attributes: { type: 'submit' },
+          getAllTextTillNextClickableElement: (): string => '提交',
+          hash: async () => ({ branchPathHash: 'b', attributesHash: 'a', xpathHash: 'x' }),
+        },
+      ],
+    ]);
+    const kernel = createBrowserKernel({
+      browserContext: {
+        getState: vi.fn(async () => ({
+          tabId: 1,
+          url: 'https://example.test/form',
+          title: 'Form',
+          elementTree: { clickableElementsToString: () => '[1]<a>Home</a>\n[2]<button type=submit>提交</button>' },
+          selectorMap,
+        })),
+        getCurrentPage: vi.fn(async () => ({
+          observeMedia: async () => ({ kind: 'none' as const }),
+          evaluate: async () => '',
+        })),
+      } as never,
+      hooks: { dispatchAction: vi.fn() },
+      resolveAction: () => undefined,
+    });
+
+    const filtered = await kernel.observe({ query: '提交' });
+    expect(filtered.interactiveElements.map(item => item.index)).toEqual([2]);
+    const full = await kernel.observe();
+    expect(full.interactiveElements.map(item => item.index)).toEqual([1, 2]);
+  });
+
   it('extract uses parser on page html', async () => {
     const kernel = createBrowserKernel({
       browserContext: {

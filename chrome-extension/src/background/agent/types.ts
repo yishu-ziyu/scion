@@ -7,6 +7,7 @@ import type { EventManager } from './event/manager';
 import { type Actors, type ExecutionState, AgentEvent } from './event/types';
 import { redactRuntimeEventDetails } from './event/privacy';
 import { AgentStepHistory } from './history';
+import type { TaskArtifact } from '../task/artifact';
 
 export interface AgentOptions {
   maxSteps: number;
@@ -117,6 +118,7 @@ export class ActionResult {
   error: string | null;
   includeInMemory: boolean;
   interactedElement: DOMHistoryElement | null;
+  artifact: TaskArtifact | null;
 
   constructor(params: Partial<ActionResult> = {}) {
     this.isDone = params.isDone ?? false;
@@ -125,6 +127,7 @@ export class ActionResult {
     this.extractedContent = params.extractedContent ?? null;
     this.error = params.error ?? null;
     this.includeInMemory = params.includeInMemory ?? false;
+    this.artifact = params.artifact ?? null;
   }
 }
 

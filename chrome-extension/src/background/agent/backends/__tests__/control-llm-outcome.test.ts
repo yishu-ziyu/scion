@@ -72,6 +72,8 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
     expect(shouldKeepActionResultInContext('record_evidence')).toBe(true);
     expect(shouldKeepActionResultInContext('read_page_text')).toBe(true);
     expect(shouldKeepActionResultInContext('inspect_github_repository')).toBe(true);
+    expect(shouldKeepActionResultInContext('observe')).toBe(true);
+    expect(shouldKeepActionResultInContext('extract_content')).toBe(true);
     expect(shouldKeepActionResultInContext('click_element')).toBe(false);
   });
 

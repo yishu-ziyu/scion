@@ -27,4 +27,11 @@ export {
   normalizeVisiblePageText,
 } from './visible-text';
 export { renderFormFieldsBlock, describeFormControl, isFillableControl } from './form-fields';
+export {
+  filterInteractiveElements,
+  filterElementsTextByIndexes,
+  formatInteractiveList,
+} from './filter-interactive';
 export { fillEditableElement, classifyFillTarget } from './fill-text';
+export { resolveIntent, formatResolveIntentError } from './resolve-intent';
+export type { ResolveIntentResult } from './resolve-intent';

@@ -29,12 +29,12 @@
  * but give Mission, Gates, Now, Health, and latest findings enough room to be understood. */
 .chijie-paper-card {
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   flex-direction: column;
-  gap: 8px;
-  max-height: min(58vh, 560px);
-  margin: 8px 10px 0;
-  padding: 12px 12px 10px;
+  gap: var(--chijie-space-section);
+  max-height: none;
+  margin: 16px 16px 0;
+  padding: 24px 20px 20px;
   overflow: auto;
   border: 1px solid var(--chijie-border);
   border-radius: var(--chijie-radius-xl);
@@ -43,15 +43,17 @@
   animation: chijie-surface-enter 180ms ease-out;
 }
 
-/* Running gets the largest console area while the continuous-control composer stays fixed. */
 .chijie-paper-card[data-status='running'],
-.chijie-paper-card[data-primary-organism='activity'] {
-  max-height: min(64vh, 620px);
+.chijie-paper-card[data-primary-organism='activity'],
+.chijie-paper-card[data-primary-organism='completion'] {
+  max-height: none;
 }
 
-/* Completion stays inspectable without pushing follow-up chat off screen. */
-.chijie-paper-card[data-primary-organism='completion'] {
-  max-height: min(54vh, 520px);
+.chijie-paper-card[data-status='running'] {
+  margin: 10px 12px 0;
+  padding: 16px 16px 12px;
+  border-color: var(--chijie-border);
+  border-radius: 12px;
 }
 
 .chijie-workspace {
@@ -116,8 +118,8 @@
 }
 
 .chijie-btn-primary:hover:not(:disabled) {
-  border-color: var(--chijie-accent-signal);
-  background: var(--chijie-accent-signal);
+  border-color: #2e2c29;
+  background: #2e2c29;
 }
 
 .chijie-btn-secondary {
@@ -280,25 +282,42 @@ summary:focus-visible,
 .chijie-progress-overview {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--chijie-space-section);
 }
 
 .chijie-progress-overview[data-surface='result'] {
-  gap: var(--chijie-space-3, 12px);
+  gap: var(--chijie-space-section);
 }
 
 .chijie-progress-mission {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--chijie-space-1);
+}
+
+.chijie-user-bubble {
+  align-self: flex-end;
+  max-width: 94%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(42, 36, 28, 0.07);
+}
+
+.chijie-user-bubble h2 {
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 1.45;
+  letter-spacing: 0;
 }
 
 .chijie-progress-kicker,
 .chijie-progress-section-head {
   color: var(--chijie-muted);
+  font-family: var(--chijie-font-mono);
   font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.03em;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .chijie-progress-kicker {
@@ -322,15 +341,50 @@ summary:focus-visible,
   line-height: 1.4;
 }
 
-/* design/008 S2: one Now line — action + purpose + optional site. */
+/* Live action: callout, not another card. Group spacing lives on the parent. */
 .chijie-progress-now {
   display: flex;
   flex-direction: column;
-  gap: var(--chijie-space-1, 4px);
-  padding: var(--chijie-space-2, 8px);
-  border: 1px solid var(--chijie-border);
-  border-radius: var(--chijie-radius-md);
-  background: var(--chijie-surface);
+  gap: var(--chijie-space-1);
+  padding: 12px 12px 12px 16px;
+  border: 0;
+  border-left: 3px solid var(--chijie-accent);
+  border-radius: var(--chijie-radius-sm);
+  background: var(--chijie-accent-subtle);
+}
+
+.chijie-progress-now[data-live-log='true'] {
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.chijie-progress-now[data-audit='true'] {
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.chijie-progress-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--chijie-space-1);
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.chijie-progress-result-pending {
+  margin: 0;
+  color: var(--chijie-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.chijie-progress-health[data-quiet='true'] {
+  display: none;
 }
 
 .chijie-progress-now strong {
@@ -350,6 +404,35 @@ summary:focus-visible,
   color: var(--chijie-accent);
   font-family: var(--chijie-font-mono, ui-monospace, monospace);
   font-size: var(--chijie-text-xs, 11px);
+}
+
+.chijie-now-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chijie-now-trace-block {
+  margin: 0;
+}
+
+.chijie-now-trace-block > summary {
+  cursor: pointer;
+  color: var(--chijie-muted);
+  font-size: 12px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.chijie-now-trace-block > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chijie-now-trace-block > p {
+  margin: 6px 0 0;
+  color: var(--chijie-paper-ink);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 /* design/008 S1: fixed health line under mission/plan; text required (not color alone). */
@@ -1300,6 +1383,12 @@ summary:focus-visible,
   scrollbar-width: none;
 }
 
+.chijie-thinking[data-running='true'] .chijie-thinking-viewport {
+  max-height: none;
+  margin-top: 4px;
+  mask-image: none;
+}
+
 .chijie-thinking-viewport::-webkit-scrollbar {
   display: none;
 }
@@ -1314,12 +1403,93 @@ summary:focus-visible,
 }
 
 .chijie-thinking-stream li {
-  color: var(--chijie-muted);
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--chijie-paper-ink);
+  font-size: 13px;
   font-weight: 450;
   line-height: 20px;
   letter-spacing: -0.005em;
   animation: chijie-thinking-sentence-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chijie-tool-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--chijie-muted);
+}
+
+.chijie-tool-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.chijie-tool-verb {
+  min-width: 0;
+  color: var(--chijie-paper-ink);
+}
+
+.chijie-tool-chip {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 22px;
+  align-items: center;
+  padding: 1px 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(42, 36, 28, 0.08);
+  color: var(--chijie-paper-ink);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chijie-live-cursor {
+  min-height: 20px;
+  padding-top: 4px;
+}
+
+.chijie-live-dot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chijie-paper-ink);
+}
+
+.chijie-live-stop-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 4px;
+}
+
+.chijie-stop-pill {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--chijie-border-strong);
+  border-radius: var(--chijie-radius-pill);
+  background: var(--chijie-surface);
+  color: var(--chijie-paper-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.chijie-stop-pill svg {
+  width: 10px;
+  height: 10px;
+  fill: currentColor;
 }
 
 @keyframes chijie-thinking-sentence-in {
@@ -1380,6 +1550,27 @@ summary:focus-visible,
   border-color: #e8c98f;
   background: #fff8ec;
   color: var(--chijie-warning, #93641a);
+}
+
+.chijie-failed-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.chijie-failed-result [data-testid='completion-result'] {
+  margin: 0;
+  color: var(--chijie-paper-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.chijie-failed-result .chijie-btn-primary {
+  width: auto;
+  min-width: 104px;
+  padding: 9px 18px;
 }
 
 /* Deliverable slot: clickable / copyable result payload (design/006 §5 #2). */
@@ -1722,6 +1913,10 @@ summary:focus-visible,
   color: var(--chijie-foreground);
 }
 
+.chijie-chat-log[data-live='true'] {
+  display: none;
+}
+
 /* S4: task-active chat collapses so progress console stays first. */
 .chijie-chat-log[data-collapsed='true'] {
   flex: 0 0 auto;
@@ -1776,10 +1971,18 @@ summary:focus-visible,
   margin-bottom: var(--chijie-space-2, 8px);
 }
 
+.chijie-composer-controls .chijie-btn-secondary[aria-pressed='true'] {
+  border-color: var(--chijie-accent);
+  background: var(--chijie-accent-subtle);
+  color: var(--chijie-accent);
+}
+
 .chijie-composer-controls .chijie-btn-primary,
 .chijie-composer-controls .chijie-btn-secondary {
+  width: auto;
+  min-width: 72px;
   min-height: 40px;
-  padding: 6px 12px;
+  padding: 6px 14px;
   font-size: var(--chijie-text-sm, 12px);
 }
 
@@ -2039,6 +2242,37 @@ summary:focus-visible,
 
 .chijie-prompt-add-wrap {
   position: relative;
+}
+
+.chijie-mention-menu {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  width: 100%;
+  margin: 0 0 6px;
+}
+
+.chijie-mention-menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chijie-mention-menu small,
+.chijie-mention-menu p {
+  margin: 0;
+  color: var(--chijie-muted);
+  font-size: 11px;
 }
 
 .chijie-prompt-menu {
@@ -2305,6 +2539,107 @@ summary:focus-visible,
   font-family: var(--chijie-font-body);
   font-size: 20px;
   font-weight: 650;
+}
+
+.chijie-idle-home {
+  display: flex;
+  min-height: 8.5rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+  padding: 8px 4px 12px;
+}
+
+.chijie-idle-hero h1 {
+  margin: 0 0 8px;
+  color: var(--chijie-foreground);
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.chijie-idle-hero p {
+  margin: 0;
+  color: var(--chijie-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.chijie-example-card {
+  overflow: hidden;
+  border: 1px solid var(--chijie-border);
+  border-radius: 16px;
+  background: var(--chijie-surface);
+}
+
+.chijie-example-row {
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--chijie-border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chijie-example-row:last-of-type {
+  border-bottom: 0;
+}
+
+.chijie-example-row:hover {
+  background: var(--chijie-accent-subtle);
+}
+
+.chijie-example-icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--chijie-accent-subtle);
+  color: var(--chijie-foreground);
+}
+
+.chijie-example-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.chijie-example-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chijie-example-copy strong {
+  color: var(--chijie-foreground);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.chijie-example-copy span {
+  color: var(--chijie-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.chijie-example-more {
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--chijie-border);
+  color: var(--chijie-muted);
+  font-size: 12px;
 }
 
 /* Existing settings contracts remain available to shared acceptance checks. */

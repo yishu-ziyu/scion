@@ -65,13 +65,13 @@
     "message": "我能帮你做什么？"
   },
   "chat_empty_hint": {
-    "message": "Hand me a task"
+    "message": "Open a page, extract a table, or read it and come back with something you can check."
   },
   "chat_task_mode_badge": {
-    "message": "Task: agent task"
+    "message": "Task"
   },
   "chat_task_input_placeholder": {
-    "message": "Describe the task; 持节 will run it in your browser"
+    "message": "What should I do?"
   },
   "chat_task_input_attach_placeholder": {
     "message": "Add a note (optional)..."
@@ -81,6 +81,9 @@
   },
   "chat_input_attach_files_title": {
     "message": "Attach text files (txt, md, json, csv, and similar)"
+  },
+  "chat_task_thinking_heading": {
+    "message": "Thinking"
   },
   "chat_task_steps_heading": {
     "message": "Execution steps"
@@ -309,6 +312,9 @@
   },
   "options_models_agents_planner": {
     "message": "制定并调整策略以完成任务"
+  },
+  "options_models_agents_validator": {
+    "message": "Checks the live page before accepting done, and sends the worker back if it does not match"
   },
   "options_models_labels_model": {
     "message": "模型"
@@ -1002,6 +1008,12 @@
         "chat_task_confirm_done": {
     "message": "I confirm it is done"
   },
+  "chat_task_follow": {
+    "message": "Follow"
+  },
+  "chat_task_takeover": {
+    "message": "Take over"
+  },
   "chat_task_pause": {
     "message": "Pause"
   },
@@ -1249,7 +1261,7 @@
     "message": "Page action failed. Refresh the page or rewrite the instruction."
   },
   "chat_task_fail_max_steps": {
-    "message": "Max steps reached without finishing. Split the task or raise the step limit."
+    "message": "Stopped after several tries. Split the request or rephrase it below."
   },
   "chat_task_fail_setup": {
     "message": "Model/API setup incomplete. Open Settings → Models and confirm keys."
@@ -1282,7 +1294,7 @@
     "message": "Marked complete without page proof"
   },
   "chat_task_product_fail_model_loop": {
-    "message": "Model looped or hit step limit"
+    "message": "Stopped after several tries without finishing"
   },
   "chat_task_product_fail_other": {
     "message": "Task failed; retry or rephrase"

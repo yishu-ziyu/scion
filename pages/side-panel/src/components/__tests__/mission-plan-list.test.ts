@@ -326,15 +326,16 @@ describe('TaskProgressOverview mission-plan integration', () => {
     expect(html).toContain('服务于「用户研究」');
     expect(html).toContain('zotero.org');
     expect(html).toContain('data-testid="task-progress-health"');
+    expect(html).toContain('data-quiet="true"');
+    expect(html).toContain('>目标<');
+    expect(html).toContain('做完会出现在这里');
   });
 
   it('announces semantic health without coupling to the relative-time tick', () => {
     const health = { state: 'advancing' as const, summary: '正常推进', lastMeaningfulProgressAt: 1 };
 
     expect(healthAnnouncement(health)).toBe('运行状态：正常推进');
-    expect(healthAnnouncement({ state: 'failed', summary: '失败了，没有可交付结果' })).toBe(
-      '结果：失败了，没有可交付结果',
-    );
+    expect(healthAnnouncement({ state: 'failed', summary: '没做成' })).toBe('结果：没做成');
     expect(healthLabel('failed')).toBe('结果');
     expect(healthLabel('advancing')).toBe('运行');
   });
@@ -344,7 +345,7 @@ describe('TaskProgressOverview mission-plan integration', () => {
       kind: 'generic',
       mission: { title: '阅读当前页面', deliverable: '一句主题概括，并引用一处可核对的正文细节' },
       status: 'failed',
-      health: { state: 'failed', summary: '失败了，没有可交付结果' },
+      health: { state: 'failed', summary: '没做成' },
       milestones: [
         milestone('verify', 'done', {
           title: '验证',
@@ -361,8 +362,23 @@ describe('TaskProgressOverview mission-plan integration', () => {
     const html = renderToStaticMarkup(createElement(TaskProgressOverview, { view, now: 1 }));
 
     expect(html).toContain('data-health="failed"');
-    expect(html).toContain('失败了，没有可交付结果');
+    expect(html).toContain('没做成');
     expect(html).toContain('>结果<');
+
+    const withResult = renderToStaticMarkup(
+      createElement(TaskProgressOverview, {
+        view,
+        now: 1,
+        result: createElement('p', { 'data-testid': 'completion-result' }, '试了几轮，还是没做成。'),
+        nowBody: createElement('div', { 'data-testid': 'task-now-trace' }, '获取页面快照'),
+      }),
+    );
+    expect(withResult).toContain('data-testid="completion-result"');
+    expect(withResult).toContain('hidden');
+    expect(withResult).toContain('data-audit="true"');
+    expect(withResult).not.toContain('>现在<');
+    expect(withResult.indexOf('task-result-block')).toBeLessThan(withResult.indexOf('task-progress-current-activity'));
+    expect(withResult).not.toContain('本次任务完成得怎么样');
     expect(html).not.toContain('>运行<');
     expect(html).not.toContain('已达标');
     expect(html).not.toContain('请查看缺口后继续或调整方向');
@@ -397,6 +413,10 @@ describe('TaskProgressOverview mission-plan integration', () => {
     expect(html).not.toContain('data-testid="mission-plan"');
     expect(html).not.toContain('完成委托并提供可检查的结果');
     expect(html).not.toContain('已验证任务回执');
+    expect(html).toContain('>目标<');
+    expect(html).toContain('>现在<');
+    expect(html).toContain('data-testid="task-result-block"');
+    expect(html).toContain('做完会出现在这里');
   });
 });
 
@@ -406,28 +426,40 @@ describe('ThinkingReasoning rendered contract', () => {
     { id: 'attempt-2', text: '读取当前页面' },
   ];
 
-  it('keeps the audit stream collapsible while running (no forced live chrome)', () => {
-    const html = renderToStaticMarkup(createElement(ThinkingReasoning, { items, running: true, elapsed: '12s' }));
+  it('keeps the live tool log expanded while running', () => {
+    const html = renderToStaticMarkup(
+      createElement(ThinkingReasoning, {
+        items: [
+          { id: 'attempt-1', text: '打开', icon: 'globe', chip: 'zotero.org', live: true },
+          { id: 'attempt-2', text: '读取当前页面', icon: 'eye' },
+        ],
+        running: true,
+        elapsed: '12s',
+        onStop: () => undefined,
+      }),
+    );
 
     expect(html).toContain('data-testid="task-thinking-reasoning"');
     expect(html).toContain('data-running="true"');
-    expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain('aria-controls=');
-    expect(html).toContain('处理过程');
-    expect(html).toContain('工作时长 12s');
+    expect(html).toContain('data-testid="live-tool-log"');
+    expect(html).toContain('data-testid="live-cursor"');
+    expect(html).toContain('data-testid="live-stop-generating"');
+    expect(html).toContain('接管');
+    expect(html).toContain('执行步骤 · 12s');
+    expect(html).toContain('打开');
+    expect(html).toContain('zotero.org');
+    expect(html).toContain('读取当前页面');
     expect(html).not.toContain('思考中');
     expect(html).not.toContain('is-shimmer');
-    expect(html).toContain('打开 Zotero 官网');
-    expect(html).toContain('读取当前页面');
-    expect(html).toContain('is-collapsed');
-    expect(html).toContain('aria-hidden="true"');
+    expect(html).not.toContain('is-collapsed');
+    expect(html).not.toContain('aria-expanded="false"');
   });
 
   it('folds completed work into an elapsed summary by default', () => {
     const html = renderToStaticMarkup(createElement(ThinkingReasoning, { items, running: false, elapsed: '1m 08s' }));
 
     expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain('工作了');
+    expect(html).toContain('执行步骤');
     expect(html).toContain('1m 08s');
     expect(html).toContain('is-collapsed');
     expect(html).toContain('aria-hidden="true"');
@@ -438,5 +470,13 @@ describe('ThinkingReasoning rendered contract', () => {
     const html = renderToStaticMarkup(createElement(ThinkingReasoning, { items: [], running: false, elapsed: '0s' }));
 
     expect(html).toBe('');
+  });
+
+  it('still shows a live cursor before the first public action', () => {
+    const html = renderToStaticMarkup(createElement(ThinkingReasoning, { items: [], running: true, elapsed: '1s' }));
+
+    expect(html).toContain('data-running="true"');
+    expect(html).toContain('data-testid="live-cursor"');
+    expect(html).toContain('data-testid="live-tool-log"');
   });
 });

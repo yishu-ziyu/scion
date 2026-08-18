@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>iframe + shadow</title>
+  </head>
+  <body>
+    <button id="main-cancel">取消</button>
+    <div id="shadow-host"></div>
+    <iframe id="pay-frame" src="iframe-shadow-frame.html" title="pay"></iframe>
+    <script>
+      const host = document.getElementById('shadow-host');
+      const root = host.attachShadow({ mode: 'open' });
+      root.innerHTML = '<button type="button" id="shadow-pay">结算</button>';
+    </script>
+  </body>
+</html>

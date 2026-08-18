@@ -173,8 +173,17 @@ function latestAttempt(snapshot: TaskSnapshot) {
   return attempts.length > 0 ? attempts[attempts.length - 1] : undefined;
 }
 
+function activityPurpose(snapshot: TaskSnapshot, milestones: ProgressMilestone[]): string {
+  const active = milestones.find(milestone => milestone.status === 'active');
+  if (isResultSurface(milestones)) return '推进当前任务';
+  if (active) return `服务于「${active.title}」`;
+  if (snapshot.plan?.goal) return '推进当前验收';
+  return '推进当前任务';
+}
+
 /**
- * S2 Now line: only while running. Summary from last attempt; purpose from active milestone.
+ * Now line while the task is running. Prefer the live action; otherwise the
+ * last observed action or the current page. Do not leave this empty.
  */
 export function deriveCurrentActivity(
   snapshot: TaskSnapshot,
@@ -182,26 +191,26 @@ export function deriveCurrentActivity(
 ): ProgressCurrentActivity | undefined {
   if (snapshot.status !== 'running') return undefined;
   const attempt = latestAttempt(snapshot);
-  if (attempt?.state !== 'executing' || !attempt.executingAt) return undefined;
-  const active = milestones.find(milestone => milestone.status === 'active');
-  const summaryRaw =
-    attempt?.displaySummary?.replace(/\s+/g, ' ').trim() ||
-    attempt?.targetLabel?.replace(/\s+/g, ' ').trim() ||
-    (attempt?.actionName ? '正在操作页面' : '') ||
-    '正在推进任务';
-  const summary = compact(summaryRaw, 80);
-  const purpose = isResultSurface(milestones)
-    ? '推进当前任务'
-    : active
-      ? `服务于「${active.title}」`
-      : snapshot.plan?.goal
-        ? '推进当前验收'
-        : '推进当前任务';
+  const site = activitySiteLabel(snapshot);
+  const purpose = activityPurpose(snapshot, milestones);
+  if (attempt) {
+    const summaryRaw =
+      attempt.displaySummary?.replace(/\s+/g, ' ').trim() ||
+      attempt.targetLabel?.replace(/\s+/g, ' ').trim() ||
+      (attempt.actionName ? '正在操作页面' : '') ||
+      '正在处理';
+    return {
+      summary: compact(summaryRaw, 80),
+      purpose,
+      site,
+      startedAt: attempt.executingAt ?? attempt.observedAt ?? snapshot.updatedAt,
+    };
+  }
   return {
-    summary,
+    summary: site ? `正在看 ${site}` : '正在处理',
     purpose,
-    site: activitySiteLabel(snapshot),
-    startedAt: attempt.executingAt,
+    site,
+    startedAt: snapshot.createdAt,
   };
 }
 
@@ -233,7 +242,7 @@ export function deriveProgressHealth(
     case 'failed':
       return {
         state: 'failed',
-        summary: '失败了，没有可交付结果',
+        summary: '没做成',
         lastMeaningfulProgressAt: lastAt,
       };
     case 'cancelled':

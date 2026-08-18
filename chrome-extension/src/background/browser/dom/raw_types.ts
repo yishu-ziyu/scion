@@ -22,6 +22,9 @@ export type RawDomElementNode = {
   pageCoordinates?: CoordinateSet;
   viewportInfo?: ViewportInfo;
   shadowRoot?: boolean;
+  inShadow?: boolean;
+  backendNodeId?: number;
+  cdpFrameId?: string;
 };
 
 export type RawDomTreeNode = RawDomTextNode | RawDomElementNode;

@@ -14,12 +14,16 @@ import {
   sendKeysActionSchema,
   scrollToTextActionSchema,
   cacheContentActionSchema,
+  extractContentActionSchema,
+  observeActionSchema,
   recordEvidenceActionSchema,
   inspectEvidenceSpaceActionSchema,
   recordResearchDecisionActionSchema,
   recordResearchDeliveryActionSchema,
   readPageTextActionSchema,
   inspectOpenTabsActionSchema,
+  findTabActionSchema,
+  evaluateActionSchema,
   selectDropdownOptionActionSchema,
   getDropdownOptionsActionSchema,
   closeTabActionSchema,
@@ -48,8 +52,15 @@ import { z } from 'zod';
 import { createLogger } from '@src/background/log';
 import { ExecutionState, Actors } from '../event/types';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { wrapUntrustedContent } from '../messages/utils';
 import { downloadJpegToDownloads, sanitizeScreenshotFilename } from './save-screenshot';
+import { digestInteractiveElements } from '../../browser/kernel/observation';
+import { filterInteractiveElements, formatInteractiveList } from '../../browser/kernel/filter-interactive';
+import { formatResolveIntentError, resolveIntent } from '../../browser/kernel/resolve-intent';
+import { runExtractContent } from './extract-content';
+import { preferBoundTabForActiveFind, tabUrlMatchesQuery } from '../../browser/kernel/find-tab';
+import { tableRowCount } from '../../task/artifact';
 
 const logger = createLogger('Action');
 
@@ -106,10 +117,12 @@ export function resolveEvidenceProductIdentity(params: {
   if (proposed && !proposedIsLivingReader) return proposed;
   if (/living-reader/i.test(params.pageUrl)) return proposed || 'Living Reader';
 
-  const titleIdentity = params.pageTitle
-    .split(/\s+(?:\||—|–|-)\s+/)[0]
-    ?.trim();
-  if (titleIdentity && titleIdentity.length <= 80 && !/^(?:home|homepage|welcome|sign in|log in)$/i.test(titleIdentity)) {
+  const titleIdentity = params.pageTitle.split(/\s+(?:\||—|–|-)\s+/)[0]?.trim();
+  if (
+    titleIdentity &&
+    titleIdentity.length <= 80 &&
+    !/^(?:home|homepage|welcome|sign in|log in)$/i.test(titleIdentity)
+  ) {
     return titleIdentity;
   }
 
@@ -126,9 +139,7 @@ function evidenceWords(value: string): Set<string> {
   const stop = new Set(['this', 'that', 'with', 'from', 'into', 'using', 'user', 'users', 'product', 'research']);
   const words = value.toLowerCase().match(/[a-z0-9]{3,}|[\u3400-\u9fff]{2,}/g) ?? [];
   return new Set(
-    words
-      .map(word => (word.length > 4 ? word.replace(/(?:es|s)$/i, '') : word))
-      .filter(word => !stop.has(word)),
+    words.map(word => (word.length > 4 ? word.replace(/(?:es|s)$/i, '') : word)).filter(word => !stop.has(word)),
   );
 }
 
@@ -347,6 +358,34 @@ export class ActionBuilder {
     this.extractorLLM = extractorLLM;
   }
 
+  private async resolveControlIndex(input: {
+    index?: number;
+    query?: string;
+  }): Promise<{ ok: true; index: number } | { ok: false; error: string }> {
+    const query = input.query?.trim() ?? '';
+    if (query) {
+      const state = await this.context.browserContext.getState(this.context.options.useVision);
+      const digested = digestInteractiveElements(state, 2000);
+      const resolved = resolveIntent(digested, query);
+      if (resolved.kind === 'match') {
+        return { ok: true, index: resolved.index };
+      }
+      if (
+        resolved.kind === 'ambiguous' &&
+        input.index !== undefined &&
+        Number.isFinite(input.index) &&
+        resolved.candidates.some(candidate => candidate.index === input.index)
+      ) {
+        return { ok: true, index: input.index };
+      }
+      return { ok: false, error: formatResolveIntentError(resolved, query) };
+    }
+    if (input.index !== undefined && Number.isFinite(input.index)) {
+      return { ok: true, index: input.index };
+    }
+    return { ok: false, error: 'Needs index or query. Did not click.' };
+  }
+
   buildDefaultActions() {
     const actions = [];
 
@@ -417,21 +456,49 @@ export class ActionBuilder {
     }, waitActionSchema);
     actions.push(wait);
 
+    const observe = new Action(async (input: z.infer<typeof observeActionSchema.schema>) => {
+      const query = typeof input.query === 'string' ? input.query : '';
+      const intent = input.intent || (query.trim() ? `Observe query=${query.trim()}` : 'Observe page');
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+      const state = await this.context.browserContext.getState(this.context.options.useVision);
+      const digested = digestInteractiveElements(state, query.trim() ? 2000 : 80);
+      const filtered = filterInteractiveElements(digested, query);
+      const summary = [
+        query.trim()
+          ? `Filtered interactive elements for query="${query.trim()}" (${filtered.length}):`
+          : `Interactive elements (${filtered.length}):`,
+        formatInteractiveList(filtered),
+      ].join('\n');
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `Observed ${filtered.length} controls`);
+      return new ActionResult({
+        extractedContent: wrapUntrustedContent(summary),
+        includeInMemory: true,
+        success: true,
+        isDone: false,
+      });
+    }, observeActionSchema);
+    actions.push(observe);
+
     // Element Interaction Actions
     const clickElement = new Action(
       async (input: z.infer<typeof clickElementActionSchema.schema>) => {
-        const intent = input.intent || t('act_click_start', [input.index.toString()]);
+        const resolved = await this.resolveControlIndex(input);
+        if (!resolved.ok) {
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, resolved.error);
+          return new ActionResult({ error: resolved.error, includeInMemory: true, success: false, isDone: false });
+        }
+        const intent = input.intent || t('act_click_start', [resolved.index.toString()]);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
         const page = await this.context.browserContext.getCurrentPage();
-        const elementNode = page.getDomElementByIndex(input.index);
+        const elementNode = page.getDomElementByIndex(resolved.index);
         if (!elementNode) {
-          throw new Error(t('act_errors_elementNotExist', [input.index.toString()]));
+          throw new Error(t('act_errors_elementNotExist', [resolved.index.toString()]));
         }
 
         // Check if element is a file uploader
         if (page.isFileUploader(elementNode)) {
-          const msg = t('act_click_fileUploader', [input.index.toString()]);
+          const msg = t('act_click_fileUploader', [resolved.index.toString()]);
           logger.info(msg);
           return new ActionResult({
             extractedContent: msg,
@@ -442,7 +509,7 @@ export class ActionBuilder {
         try {
           const initialTabIds = await this.context.browserContext.getAllTabIds();
           await page.clickElementNode(this.context.options.useVision, elementNode);
-          let msg = t('act_click_ok', [input.index.toString(), elementNode.getAllTextTillNextClickableElement(2)]);
+          let msg = t('act_click_ok', [resolved.index.toString(), elementNode.getAllTextTillNextClickableElement(2)]);
           logger.info(msg);
 
           // TODO: could be optimized by chrome extension tab api
@@ -460,7 +527,7 @@ export class ActionBuilder {
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
           return new ActionResult({ extractedContent: msg, includeInMemory: true });
         } catch (error) {
-          const msg = t('act_errors_elementNoLongerAvailable', [input.index.toString()]);
+          const msg = t('act_errors_elementNoLongerAvailable', [resolved.index.toString()]);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
           throw error;
         }
@@ -472,19 +539,24 @@ export class ActionBuilder {
 
     const inputText = new Action(
       async (input: z.infer<typeof inputTextActionSchema.schema>) => {
-        const intent = input.intent || t('act_inputText_start', [input.index.toString()]);
+        const resolved = await this.resolveControlIndex(input);
+        if (!resolved.ok) {
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, resolved.error);
+          return new ActionResult({ error: resolved.error, includeInMemory: true, success: false, isDone: false });
+        }
+        const intent = input.intent || t('act_inputText_start', [resolved.index.toString()]);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
         const page = await this.context.browserContext.getCurrentPage();
         const state = await page.getState();
 
-        const elementNode = state?.selectorMap.get(input.index);
+        const elementNode = state?.selectorMap.get(resolved.index);
         if (!elementNode) {
-          throw new Error(t('act_errors_elementNotExist', [input.index.toString()]));
+          throw new Error(t('act_errors_elementNotExist', [resolved.index.toString()]));
         }
 
         await page.inputTextElementNode(this.context.options.useVision, elementNode, input.text);
-        const inputMessage = `Entered text into element ${input.index}`;
+        const inputMessage = `Entered text into element ${resolved.index}`;
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, inputMessage);
         return new ActionResult({ extractedContent: inputMessage, includeInMemory: true });
       },
@@ -542,37 +614,35 @@ export class ActionBuilder {
     }, closeTabActionSchema);
     actions.push(closeTab);
 
-    // Content Actions
-    // TODO: this is not used currently, need to improve on input size
-    // const extractContent = new Action(async (input: z.infer<typeof extractContentActionSchema.schema>) => {
-    //   const goal = input.goal;
-    //   const intent = input.intent || `Extracting content from page`;
-    //   this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-    //   const page = await this.context.browserContext.getCurrentPage();
-    //   const content = await page.getReadabilityContent();
-    //   const promptTemplate = PromptTemplate.fromTemplate(
-    //     'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}',
-    //   );
-    //   const prompt = await promptTemplate.invoke({ goal, page: content.content });
-
-    //   try {
-    //     const output = await this.extractorLLM.invoke(prompt);
-    //     const msg = `📄  Extracted from page\n: ${output.content}\n`;
-    //     return new ActionResult({
-    //       extractedContent: msg,
-    //       includeInMemory: true,
-    //     });
-    //   } catch (error) {
-    //     logger.error(`Error extracting content: ${error instanceof Error ? error.message : String(error)}`);
-    //     const msg =
-    //       'Failed to extract content from page, you need to extract content from the current state of the page and store it in the memory. Then scroll down if you still need more information.';
-    //     return new ActionResult({
-    //       extractedContent: msg,
-    //       includeInMemory: true,
-    //     });
-    //   }
-    // }, extractContentActionSchema);
-    // actions.push(extractContent);
+    const extractContent = new Action(async (input: z.infer<typeof extractContentActionSchema.schema>) => {
+      const intent = input.intent || `Extract: ${input.goal}`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+      const page = await this.context.browserContext.getCurrentPage();
+      const extractor = this.extractorLLM;
+      const result = await runExtractContent(input, page, {
+        extractWithModel: async (html, goal, schema) => {
+          const response = await extractor.invoke([
+            new SystemMessage(
+              'Extract records from the page as a JSON array of objects. No markdown. No prose. Empty array if nothing matches.',
+            ),
+            new HumanMessage(
+              [`Goal: ${goal}`, schema?.length ? `Fields: ${schema.join(',')}` : '', html.slice(0, 20000)]
+                .filter(Boolean)
+                .join('\n'),
+            ),
+          ]);
+          return typeof response.content === 'string' ? response.content : JSON.stringify(response.content ?? '');
+        },
+      });
+      const rows = result.artifact ? tableRowCount(result.artifact) : 0;
+      this.context.emitEvent(
+        Actors.NAVIGATOR,
+        result.error ? ExecutionState.ACT_FAIL : ExecutionState.ACT_OK,
+        result.error || `Extracted ${rows} records without completing the task`,
+      );
+      return result;
+    }, extractContentActionSchema);
+    actions.push(extractContent);
 
     // cache content for future use
     const cacheContent = new Action(async (input: z.infer<typeof cacheContentActionSchema.schema>) => {
@@ -641,7 +711,9 @@ export class ActionBuilder {
             }),
           };
         })
-        .filter(record => record.record_type !== 'product' || Boolean(record.related_product)) as EvidenceRecordActionInput[];
+        .filter(
+          record => record.record_type !== 'product' || Boolean(record.related_product),
+        ) as EvidenceRecordActionInput[];
       const basisMismatchCount = inputRecords.length - records.length;
       const drafts: EvidenceRecordDraft[] = records.map(record => ({
         recordType: record.record_type,
@@ -684,11 +756,12 @@ export class ActionBuilder {
     }, recordEvidenceActionSchema);
     actions.push(recordEvidence);
 
-    const inspectEvidenceSpace = new Action(
-      async (input: z.infer<typeof inspectEvidenceSpaceActionSchema.schema>) => {
+    const inspectEvidenceSpace = new Action(async (input: z.infer<typeof inspectEvidenceSpaceActionSchema.schema>) => {
       const space = await getEvidenceSpace(this.context.taskId);
       const progress = evidenceSpaceProgress(space);
-      const query = String(input.query ?? '').trim().toLowerCase();
+      const query = String(input.query ?? '')
+        .trim()
+        .toLowerCase();
       const filtered = (space?.records ?? []).filter(record => {
         if (input.record_type && record.recordType !== input.record_type) return false;
         if (!query) return true;
@@ -731,43 +804,38 @@ export class ActionBuilder {
       ].join('; ');
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, summary);
       return new ActionResult({ extractedContent: summary, includeInMemory: true });
-      },
-      inspectEvidenceSpaceActionSchema,
-    );
+    }, inspectEvidenceSpaceActionSchema);
     actions.push(inspectEvidenceSpace);
 
-    const recordDecision = new Action(
-      async (input: ResearchDecisionActionInput) => {
-        const result = await recordResearchDecision({
-          taskId: this.context.taskId,
-          draft: {
-            capabilities: input.capabilities.map(capability => ({
-              title: capability.title,
-              userMoment: capability.user_moment,
-              behaviorChange: capability.behavior_change,
-              whyNow: capability.why_now,
-              whyOthersLater: capability.why_others_later,
-              implementationDistance: capability.implementation_distance,
-              mvp: capability.mvp,
-              successMetric: capability.success_metric,
-              userEvidenceIds: capability.user_evidence_ids,
-              productEvidenceIds: capability.product_evidence_ids,
-              repositoryEvidenceIds: capability.repository_evidence_ids,
-            })),
-            deferred: input.deferred,
-            contradictions: input.contradictions,
-          },
-        });
-        const actionResult = researchDecisionActionResult(result);
-        this.context.emitEvent(
-          Actors.NAVIGATOR,
-          result.accepted ? ExecutionState.ACT_OK : ExecutionState.ACT_FAIL,
-          actionResult.extractedContent ?? actionResult.error ?? '',
-        );
-        return actionResult;
-      },
-      recordResearchDecisionActionSchema,
-    );
+    const recordDecision = new Action(async (input: ResearchDecisionActionInput) => {
+      const result = await recordResearchDecision({
+        taskId: this.context.taskId,
+        draft: {
+          capabilities: input.capabilities.map(capability => ({
+            title: capability.title,
+            userMoment: capability.user_moment,
+            behaviorChange: capability.behavior_change,
+            whyNow: capability.why_now,
+            whyOthersLater: capability.why_others_later,
+            implementationDistance: capability.implementation_distance,
+            mvp: capability.mvp,
+            successMetric: capability.success_metric,
+            userEvidenceIds: capability.user_evidence_ids,
+            productEvidenceIds: capability.product_evidence_ids,
+            repositoryEvidenceIds: capability.repository_evidence_ids,
+          })),
+          deferred: input.deferred,
+          contradictions: input.contradictions,
+        },
+      });
+      const actionResult = researchDecisionActionResult(result);
+      this.context.emitEvent(
+        Actors.NAVIGATOR,
+        result.accepted ? ExecutionState.ACT_OK : ExecutionState.ACT_FAIL,
+        actionResult.extractedContent ?? actionResult.error ?? '',
+      );
+      return actionResult;
+    }, recordResearchDecisionActionSchema);
     actions.push(recordDecision);
 
     const recordDelivery = new Action(
@@ -814,6 +882,72 @@ export class ActionBuilder {
       return new ActionResult({ extractedContent: summary, includeInMemory: true });
     }, inspectOpenTabsActionSchema);
     actions.push(inspectOpenTabs);
+
+    const findTab = new Action(async (input: z.infer<typeof findTabActionSchema.schema>) => {
+      const intent = input.intent || 'find_tab';
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+      const query = (input.url || '').trim();
+      let tab: chrome.tabs.Tab | undefined;
+      let borrowed = false;
+      if (input.active) {
+        const focused = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        const tabId = preferBoundTabForActiveFind(this.context.browserContext.getBoundTabId(), focused[0]?.id);
+        if (tabId === undefined) {
+          const msg = 'find_tab: no foreground tab';
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+          return new ActionResult({ error: msg, includeInMemory: true, success: false });
+        }
+        try {
+          tab = await chrome.tabs.get(tabId);
+        } catch {
+          const msg = `find_tab(active): tab ${tabId} is gone`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+          return new ActionResult({ error: msg, includeInMemory: true, success: false });
+        }
+        if (query && tab.url && !tabUrlMatchesQuery(tab.url, query)) {
+          const msg = `find_tab(active): bound tab is ${tab.url}, not ${query}`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+          return new ActionResult({ error: msg, includeInMemory: true, success: false });
+        }
+        borrowed = true;
+      } else {
+        if (!query) {
+          const msg = 'find_tab: url is required unless active is true';
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+          return new ActionResult({ error: msg, includeInMemory: true, success: false });
+        }
+        const tabs = await chrome.tabs.query({});
+        tab = tabs.find(item => item.id && item.url && tabUrlMatchesQuery(item.url, query));
+        if (!tab?.id) {
+          const msg = `find_tab: no tab matching ${query}`;
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+          return new ActionResult({ error: msg, includeInMemory: true, success: false });
+        }
+      }
+      await this.context.browserContext.bindToTab(tab.id!);
+      const summary = `find_tab tab_id=${tab.id}; title=${(tab.title || '').slice(0, 160)}; url=${tab.url || ''}; borrowed=${borrowed}`;
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, summary);
+      return new ActionResult({ extractedContent: summary, includeInMemory: true, success: true });
+    }, findTabActionSchema);
+    actions.push(findTab);
+
+    const evaluate = new Action(async (input: z.infer<typeof evaluateActionSchema.schema>) => {
+      const intent = input.intent || 'evaluate';
+      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
+      const page = await this.context.browserContext.getCurrentPage();
+      try {
+        const value = await page.evaluate(input.code);
+        const text = JSON.stringify(value);
+        const clipped = text.length > 20_000 ? `${text.slice(0, 20_000)}…` : text;
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `evaluate ${clipped.length} chars`);
+        return new ActionResult({ extractedContent: clipped, includeInMemory: true, success: true });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
+        return new ActionResult({ error: msg, includeInMemory: true, success: false });
+      }
+    }, evaluateActionSchema);
+    actions.push(evaluate);
 
     // Scroll to percent
     const scrollToPercent = new Action(async (input: z.infer<typeof scrollToPercentActionSchema.schema>) => {

@@ -61,7 +61,7 @@ export interface ObserveActLoopOptions {
   }) => Promise<{ error?: string | null; isDone?: boolean; summary?: string | null; progressKey?: string | null }>;
   /** Optional re-observe after successful act (browser-use style). */
   reobserve?: () => Promise<string>;
-  onPhase?: (event: LoopPhaseEvent) => void;
+  onPhase?: (event: LoopPhaseEvent) => void | Promise<void>;
   /**
    * Optional policy gate for action errors (book ch5): retry only when the
    * error is recoverable. Defaults to true to preserve existing behavior.
@@ -78,6 +78,13 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
   const { maxSteps, maxFailures, isStopped, waitIfPaused, observe, decide, act, reobserve, onPhase } = options;
   const maxNoProgress = options.maxNoProgress === undefined ? 3 : options.maxNoProgress;
   const noProgressEnabled = maxNoProgress > 0;
+  const emitPhase = async (event: LoopPhaseEvent) => {
+    try {
+      await onPhase?.(event);
+    } catch {
+      // Phase persist is UI-only. A write failure must not abort the loop.
+    }
+  };
 
   let failures = 0;
   const budget = Math.max(1, maxFailures);
@@ -99,7 +106,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
       carriedState = undefined;
     } else {
       try {
-        onPhase?.({ phase: 'observe', step, detail: 'page_state' });
+        await emitPhase({ phase: 'observe', step, detail: 'page_state' });
         stateText = await observe();
       } catch {
         failures += 1;
@@ -124,7 +131,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
 
     let decision: LoopDecision;
     try {
-      onPhase?.({ phase: 'decide', step });
+      await emitPhase({ phase: 'decide', step });
       decision = await decide(stateText, step);
     } catch {
       failures += 1;
@@ -152,7 +159,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
 
     // action
     const stateBeforeAct = stateText.trim();
-    onPhase?.({ phase: 'act', step, detail: decision.name });
+    await emitPhase({ phase: 'act', step, detail: decision.name });
     let semanticProgress = false;
     try {
       const result = await act({ name: decision.name, args: decision.args });
@@ -185,7 +192,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
 
     if (reobserve) {
       try {
-        onPhase?.({ phase: 'reobserve', step, detail: 'after_act' });
+        await emitPhase({ phase: 'reobserve', step, detail: 'after_act' });
         carriedState = await reobserve();
         if (noProgressEnabled) {
           if ((carriedState ?? '').trim() === stateBeforeAct && !semanticProgress) {

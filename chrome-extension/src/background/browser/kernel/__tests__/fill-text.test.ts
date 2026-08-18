@@ -49,6 +49,7 @@ describe('classifyFillTarget', () => {
   it('routes native fields to value and editors to contenteditable', () => {
     expect(classifyFillTarget({ tagName: 'input' })).toBe('value');
     expect(classifyFillTarget({ tagName: 'textarea' })).toBe('value');
+    expect(classifyFillTarget({ tagName: 'select' })).toBe('value');
     expect(classifyFillTarget({ tagName: 'div', isContentEditable: true })).toBe('contenteditable');
     expect(classifyFillTarget({ tagName: 'button' })).toBe('unsupported');
     expect(classifyFillTarget({ tagName: 'input', disabled: true })).toBe('disabled');
@@ -73,5 +74,41 @@ describe('fillEditableElement', () => {
     expect(result.ok).toBe(true);
     expect(read()).toBe('final copy');
     expect(events).toContain('input');
+  });
+
+  it('sets select value and fires change', () => {
+    const events: string[] = [];
+    const el = {
+      tagName: 'SELECT',
+      value: '',
+      isContentEditable: false,
+      disabled: false,
+      readOnly: false,
+      getAttribute: () => null,
+      dispatchEvent(event: Event) {
+        events.push(event.type);
+        return true;
+      },
+      focus() {},
+    } as unknown as Element;
+    const result = fillEditableElement(el, 'CN');
+    expect(result.ok).toBe(true);
+    expect(result.mode).toBe('value');
+    expect((el as unknown as { value: string }).value).toBe('CN');
+    expect(events).toContain('change');
+  });
+
+  it('refuses buttons and file-like unsupported targets', () => {
+    const el = {
+      tagName: 'BUTTON',
+      isContentEditable: false,
+      getAttribute: () => null,
+      dispatchEvent() {
+        return true;
+      },
+    } as unknown as Element;
+    const result = fillEditableElement(el, 'nope');
+    expect(result.ok).toBe(false);
+    expect(result.mode).toBe('unsupported');
   });
 });

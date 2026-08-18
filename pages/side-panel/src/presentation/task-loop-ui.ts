@@ -34,12 +34,17 @@ export function shouldShowVerifiedDone(snapshot: TaskSnapshot, receipt: Completi
   );
 }
 
-/** Rating is offered only after verified completion. */
+/** Rating is only for a delivered result. A failed run already has a verdict. */
 export function shouldShowOutcomeRating(
   snapshot: TaskSnapshot,
-  receipt: CompletionReceipt | undefined | null,
+  _receipt?: CompletionReceipt | undefined | null,
 ): boolean {
-  return shouldShowVerifiedDone(snapshot, receipt);
+  return snapshot.status === 'completed';
+}
+
+/** Completed tasks always show the 结果 sentence, even without the old receipt gate. */
+export function shouldShowDeliveredResult(snapshot: TaskSnapshot): boolean {
+  return snapshot.status === 'completed';
 }
 
 /** Steps panel is shown when there is at least one action attempt. */
@@ -109,7 +114,7 @@ export function taskPrimaryOrganism(input: {
   status: string;
   showVerifiedDone?: boolean;
 }): 'activity' | 'completion' | 'recovery' | 'idle' {
-  if (input.showVerifiedDone) return 'completion';
+  if (input.showVerifiedDone || input.status === 'completed') return 'completion';
   if (input.status === 'running') return 'activity';
   if (
     input.status === 'waiting_user' ||

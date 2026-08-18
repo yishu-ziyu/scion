@@ -39,8 +39,8 @@ Interactive Elements
 2. ACTIONS: You can specify multiple actions in the list to be executed in sequence. But always specify only one action name per item. Use maximum {{max_actions}} actions per sequence.
 Common action sequences:
 
-- Form filling: [{"input_text": {"intent": "Fill first name", "index": 1, "text": "Alex"}}, {"input_text": {"intent": "Fill email", "index": 2, "text": "alex@example.com"}}]
-- Form submit only if the user asked to submit: [{"click_element": {"intent": "Click submit", "index": 8}}]
+- Form filling (use Form fields indexes; never default to submit): [{"input_text": {"intent": "Fill first name", "index": 1, "text": "Alex"}}, {"input_text": {"intent": "Fill email", "index": 2, "text": "alex@example.com"}}]
+- Checkbox / radio / file / submit are not fillable — click them. Submit only if the user asked: [{"click_element": {"intent": "Click submit", "index": 8}}]
 - Navigation: [{"go_to_url": {"intent": "Go to url", "url": "https://example.com"}}]
 - Actions are executed in the given order
 - If the page changes after an action, the sequence will be interrupted

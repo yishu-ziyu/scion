@@ -14,20 +14,27 @@ import {
 import {
   type TaskOutcomeRating,
   ratingStorageKey,
+  shouldShowDeliveredResult,
   shouldShowExecutionSteps,
   shouldShowOutcomeRating,
   shouldShowVerifiedDone,
   taskPrimaryOrganism,
-  visibleAttemptWindow,
 } from '../presentation/task-loop-ui';
-import { activityElapsedSeconds, formatActivityDuration, looksLikeActionName } from '../presentation/activity-stream';
+import { deriveNowTrace } from '../presentation/now-trace';
+import { deriveFailedResult } from '../presentation/failed-result';
+import {
+  activityElapsedSeconds,
+  formatActivityDuration,
+  looksLikeActionName,
+  toActivityLogItem,
+} from '../presentation/activity-stream';
 import { requiredCompletionResult } from '../presentation/completion-outcome';
 import { assessGoalCoverage, resolveDeliverableAnswer } from '../presentation/goal-coverage';
 import { productFailureLabel, toProductFailureCode } from '../presentation/failure-taxonomy';
-import { taskAllowsDirectionChange, waitUserAction } from '../presentation/wait-affordance';
+import { waitUserAction } from '../presentation/wait-affordance';
 import { deriveTaskProgressView } from '../presentation/task-progress-view';
+import { NowTrace } from './NowTrace';
 import { TaskProgressOverview } from './TaskProgressOverview';
-import { ThinkingReasoning } from './ThinkingReasoning';
 
 export interface TaskStatusCardProps {
   snapshot: TaskSnapshot;
@@ -41,6 +48,10 @@ export interface TaskStatusCardProps {
   onAdjustDirection?: () => void;
   /** Focus the composer so waiting recovery becomes a valid TaskManager follow-up. */
   onContinueInComposer?: () => void;
+  /** Start the same instruction again after a failed run. */
+  onRetry?: () => void;
+  /** Stop the live run from the tool log (Sider-style stop pill). */
+  onStop?: () => void;
   /** Task commands awaiting acknowledgement; matching controls stay single-shot. */
   pendingCommandTypes?: ReadonlySet<TaskCommand['type']>;
   /** Historical projections are inspect-only and may never dispatch task commands. */
@@ -199,6 +210,8 @@ export function humanActionLabel(actionName: string): string {
     get_dropdown_options: 'chat_task_action_read_options',
     select_dropdown_option: 'chat_task_action_select',
   };
+  if (actionName === 'observe') return '查看页面';
+  if (actionName === 'extract_content') return '抽取内容';
   return t(map[actionName] ?? 'chat_task_action_generic');
 }
 
@@ -229,13 +242,6 @@ function boundPageRef(snapshot: TaskSnapshot) {
     [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page' && ref.tabId === snapshot.activeTabId) ??
     [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page')
   );
-}
-
-function siteLabel(snapshot: TaskSnapshot): string {
-  const page = boundPageRef(snapshot);
-  if (page?.label?.trim()) return page.label.trim();
-  if (page?.urlOrigin && page.urlOrigin !== 'null') return page.urlOrigin;
-  return t('chat_task_working_on_page');
 }
 
 /** Prefer hostname · title for the card chrome; full URL only when needed. */
@@ -287,6 +293,8 @@ export function TaskStatusCard({
   evidenceSpace = null,
   onAdjustDirection,
   onContinueInComposer,
+  onRetry,
+  onStop,
   pendingCommandTypes = new Set(),
   readOnly = false,
 }: TaskStatusCardProps) {
@@ -314,7 +322,6 @@ export function TaskStatusCard({
   const needsAttention =
     snapshot.status === 'waiting_user' ||
     snapshot.status === 'inputs_required' ||
-    snapshot.status === 'failed' ||
     snapshot.status === 'interrupted';
 
   const stableInstruction = missionInstruction || defaultInstruction;
@@ -333,18 +340,18 @@ export function TaskStatusCard({
   }, [snapshot.status, snapshot.id]);
 
   useEffect(() => {
-    const receiptId = round?.receipt?.id;
-    if (!receiptId || typeof localStorage === 'undefined') {
+    const ratingId = round?.receipt?.id ?? snapshot.id;
+    if (!ratingId || typeof localStorage === 'undefined') {
       setOutcomeRating(null);
       return;
     }
-    const stored = localStorage.getItem(ratingStorageKey(receiptId));
+    const stored = localStorage.getItem(ratingStorageKey(ratingId));
     if (stored === 'success' || stored === 'partial' || stored === 'fail') {
       setOutcomeRating(stored);
     } else {
       setOutcomeRating(null);
     }
-  }, [round?.receipt?.id]);
+  }, [round?.receipt?.id, snapshot.id]);
 
   useEffect(() => {
     if (!skillSaveAck) return;
@@ -380,7 +387,7 @@ export function TaskStatusCard({
   const doneTitleLine = completionChrome.split('\n')[0] || t('chat_task_done_title');
 
   const showSteps = shouldShowExecutionSteps(attempts);
-  const visibleAttempts = visibleAttemptWindow(attempts, snapshot.status);
+  const visibleAttempts = attempts;
   const passedEvidence =
     round?.evidence
       .filter(evidence => evidence.passed)
@@ -389,7 +396,7 @@ export function TaskStatusCard({
         criterion: round.criteria.find(criterion => criterion.id === evidence.criterionId),
       })) ?? [];
   const showVerifiedDone = shouldShowVerifiedDone(snapshot, round?.receipt);
-  const showUnverifiedComplete = snapshot.status === 'completed' && !showVerifiedDone;
+  const showDelivered = shouldShowDeliveredResult(snapshot);
   const showRating = !readOnly && shouldShowOutcomeRating(snapshot, round?.receipt);
   const evidenceForUi = passedEvidence.map(item => ({
     kind: item.criterion?.kind,
@@ -427,22 +434,15 @@ export function TaskStatusCard({
     now: nowTick,
   });
   // Feature-first primary organism (design/004+005): activity | completion | recovery.
-  const primaryOrganism = showUnverifiedComplete
-    ? ('recovery' as const)
-    : taskPrimaryOrganism({
-        status: snapshot.status,
-        showVerifiedDone,
-      });
+  const primaryOrganism = taskPrimaryOrganism({
+    status: snapshot.status,
+    showVerifiedDone,
+  });
 
   const recoveryNextStep = failureNextStep(snapshot);
-  const distinctCategoryLabel = distinctFailureCategoryLabel(recoveryNextStep, round?.failureCategory);
-  const showActivityPanel = snapshot.status === 'running' || showSteps;
-  const canAdjustDirection =
-    Boolean(onAdjustDirection) && taskAllowsDirectionChange(snapshot.status, round?.waitReason);
-  const publicActivityItems = visibleAttempts.map(attempt => ({
-    id: attempt.id,
-    text: attemptDisplayTitle(attempt),
-  }));
+  const publicActivityItems = visibleAttempts.map(attempt =>
+    toActivityLogItem(attempt, attemptDisplayTitle(attempt)),
+  );
 
   const copyDeliverable = async () => {
     if (!deliverableAnswer) return;
@@ -457,27 +457,68 @@ export function TaskStatusCard({
     }
   };
 
+  const ratingId = round?.receipt?.id ?? snapshot.id;
   const selectRating = (rating: TaskOutcomeRating) => {
     setOutcomeRating(rating);
-    const receiptId = round?.receipt?.id;
-    if (receiptId && typeof localStorage !== 'undefined') {
-      localStorage.setItem(ratingStorageKey(receiptId), rating);
+    if (ratingId && typeof localStorage !== 'undefined') {
+      localStorage.setItem(ratingStorageKey(ratingId), rating);
     }
   };
 
-  const thinkingReasoning = showActivityPanel ? (
-    <ThinkingReasoning
-      items={publicActivityItems}
-      running={snapshot.status === 'running'}
-      elapsed={formatActivityDuration(activitySeconds)}
-    />
+  const nowTrace = deriveNowTrace({
+    status: snapshot.status,
+    attempts,
+    currentSummary: progressViewForUi.currentActivity?.summary,
+  });
+  const failedResult = deriveFailedResult({
+    failureCategory: round?.failureCategory,
+    lastStepTitle: nowTrace.steps[nowTrace.steps.length - 1]?.title,
+  });
+  const nowTraceBody =
+    snapshot.status === 'running' || showSteps ? (
+      <div data-testid="task-activity-panel" className="chijie-activity-panel">
+        <NowTrace
+          view={nowTrace}
+          items={publicActivityItems}
+          running={snapshot.status === 'running'}
+          elapsed={formatActivityDuration(activitySeconds)}
+          onStop={!readOnly && snapshot.status === 'running' ? onStop : undefined}
+          audit={snapshot.status === 'failed'}
+        />
+      </div>
+    ) : null;
+
+  const ratingBlock = showRating ? (
+    <div data-testid="task-outcome-rating" className="chijie-task-section">
+      <div className={monoLabelClassName}>{t('chat_task_rating_prompt')}</div>
+      <div className="chijie-rating-control" role="radiogroup" aria-label={t('chat_task_rating_prompt')}>
+        {(['success', 'partial', 'fail'] as const).map(rating => (
+          <label
+            key={rating}
+            className="chijie-rating-option"
+            data-active={outcomeRating === rating ? 'true' : 'false'}>
+            <input
+              type="radio"
+              name={`task-outcome-${ratingId}`}
+              data-testid={`task-rate-${rating}`}
+              checked={outcomeRating === rating}
+              onChange={() => selectRating(rating)}
+            />
+            <span>{t(`chat_task_rate_${rating}`)}</span>
+          </label>
+        ))}
+      </div>
+    </div>
   ) : null;
 
+  const resultSentence =
+    deliverableAnswer || completionOutcome || nowTrace.steps[nowTrace.steps.length - 1]?.title || '已完成';
+
   const completionBlock =
-    showVerifiedDone && round?.receipt ? (
+    showDelivered || (showVerifiedDone && round?.receipt) ? (
       <div
         data-testid="completion-receipt"
-        data-receipt-id={round.receipt.id}
+        data-receipt-id={round?.receipt?.id}
         data-coverage={goalCoverage.coverage}
         className={showPartialComplete ? 'chijie-done-block is-partial' : 'chijie-done-block'}>
         {showPartialComplete ? (
@@ -512,12 +553,10 @@ export function TaskStatusCard({
             <div className="font-medium" data-testid="completion-title">
               {doneTitleLine}
             </div>
-            {/* Force human result sentence (design/006 §5 #2) — never title-only empty complete. */}
             <div className="mt-0.5 text-sm font-medium" data-testid="completion-result">
-              {completionOutcome}
+              {resultSentence}
             </div>
-            {/* Deliverable slot: only when substantive content exists; clickable/copyable. */}
-            {deliverableAnswer && (
+            {deliverableAnswer && deliverableAnswer !== resultSentence && (
               <div className="chijie-completion-deliverable" data-testid="completion-deliverable">
                 <button
                   type="button"
@@ -534,7 +573,6 @@ export function TaskStatusCard({
             )}
           </>
         )}
-        {/* Partial coverage already lists done/missing; skip duplicate evidence ticks. */}
         {passedEvidence.length > 0 && !showPartialComplete && (
           <ul className="chijie-evidence-list" data-testid="completion-evidence-list">
             {passedEvidence.map(evidence => (
@@ -547,65 +585,61 @@ export function TaskStatusCard({
             ))}
           </ul>
         )}
-        <details className="chijie-receipt-details" data-testid="completion-receipt-details">
-          <summary>{t('chat_task_receipt_technical')}</summary>
-          <dl className="chijie-receipt-meta" data-testid="completion-receipt-meta">
-            <div>
-              <dt>{t('chat_task_receipt_time')}</dt>
-              <dd>{new Date(round.receipt.verifiedAt).toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt>{t('chat_task_current_site')}</dt>
-              <dd>{siteHostLabel(snapshot)}</dd>
-            </div>
-          </dl>
-        </details>
+        {round?.receipt && (
+          <details className="chijie-receipt-details" data-testid="completion-receipt-details">
+            <summary>{t('chat_task_receipt_technical')}</summary>
+            <dl className="chijie-receipt-meta" data-testid="completion-receipt-meta">
+              <div>
+                <dt>{t('chat_task_receipt_time')}</dt>
+                <dd>{new Date(round.receipt.verifiedAt).toLocaleString()}</dd>
+              </div>
+              <div>
+                <dt>{t('chat_task_current_site')}</dt>
+                <dd>{siteHostLabel(snapshot)}</dd>
+              </div>
+            </dl>
+          </details>
+        )}
+        {ratingBlock}
+      </div>
+    ) : snapshot.status === 'failed' ? (
+      <div data-testid="completion-receipt" className="chijie-failed-result is-failed">
+        <p data-testid="completion-result">{failedResult.sentence}</p>
+        {!readOnly && onRetry ? (
+          <button type="button" data-testid="task-retry" className={primaryButtonClassName} onClick={onRetry}>
+            {failedResult.action}
+          </button>
+        ) : null}
       </div>
     ) : null;
 
-  // S6: pause/resume/stop live only beside the composer; card keeps adjust-direction only.
-  const taskControls =
-    !readOnly && !isTerminal && canAdjustDirection && onAdjustDirection ? (
-      <div className={`${actionStackClassName} chijie-task-controls`} data-testid="task-card-secondary-controls">
-        <button type="button" className={secondaryButtonClassName} onClick={onAdjustDirection}>
-          {t('chat_task_adjust_direction')}
-        </button>
-      </div>
-    ) : null;
+  // Follow-ups go through the composer. Do not put 调整方向 on the live card.
+  const taskControls = null;
+  void onAdjustDirection;
 
   return (
     <section
       data-testid="task-status"
       data-task-id={snapshot.id}
       data-round-id={round?.id}
-      data-status={showPartialComplete ? 'waiting_user' : showUnverifiedComplete ? 'failed' : snapshot.status}
+      data-status={showPartialComplete ? 'waiting_user' : snapshot.status}
       data-coverage={showVerifiedDone ? goalCoverage.coverage : undefined}
-      data-attention={needsAttention || showPartialComplete || showUnverifiedComplete ? 'true' : 'false'}
+      data-attention={needsAttention || showPartialComplete ? 'true' : 'false'}
       data-primary-organism={primaryOrganism}
       data-readonly={readOnly ? 'true' : undefined}
       className={taskCardClassName}>
-      {/* 1. Status strip: what phase + where (one glance) */}
-      <header className="chijie-task-head" data-interrupted={snapshot.status === 'interrupted' ? 'true' : undefined}>
-        {snapshot.status !== 'interrupted' && (
+      {/* Status pill is for live / waiting / done. Failed 结果 is the verdict. */}
+      {snapshot.status !== 'interrupted' && snapshot.status !== 'running' && snapshot.status !== 'failed' && (
+        <header className="chijie-task-head">
           <span
             className="chijie-task-status-pill"
             data-testid="task-status-label"
-            data-status={showPartialComplete ? 'waiting_user' : showUnverifiedComplete ? 'failed' : snapshot.status}
+            data-status={showPartialComplete ? 'waiting_user' : snapshot.status}
             data-partial={showPartialComplete ? 'true' : 'false'}>
-            {showPartialComplete
-              ? t('chat_task_partial_title')
-              : showUnverifiedComplete
-                ? '完成未验证'
-                : t(statusLabelKey(snapshot.status))}
+            {showPartialComplete ? t('chat_task_partial_title') : t(statusLabelKey(snapshot.status))}
           </span>
-        )}
-        {/* Site chip is live context for running work only; paused/interrupted use Health + composer bind. */}
-        {snapshot.status === 'running' && (
-          <span className="chijie-task-site-chip" data-testid="task-site" title={siteLabel(snapshot)}>
-            {siteHostLabel(snapshot)}
-          </span>
-        )}
-      </header>
+        </header>
+      )}
 
       {/* 2. Stable mission + durable gates + health. Follow-ups never replace Mission. */}
       <TaskProgressOverview
@@ -613,77 +647,22 @@ export function TaskStatusCard({
         now={nowTick}
         controls={taskControls}
         interrupted={snapshot.status === 'interrupted'}
+        result={primaryOrganism === 'completion' || snapshot.status === 'failed' ? completionBlock : null}
+        nowBody={nowTraceBody}
       />
 
-      {/* 3b. Public action summaries only. Never expose model chain-of-thought or raw browser selectors. */}
-      {primaryOrganism === 'activity' && showActivityPanel && (
-        <div data-testid="task-activity-panel" className="chijie-activity-panel" data-secondary="true">
-          {thinkingReasoning}
-        </div>
-      )}
-
-      {/* 3c. Verified / partial completion before step history (honest result first). */}
-      {primaryOrganism === 'completion' && completionBlock}
-
-      {/* 3d. Approval / recovery / completion: steps stay secondary and usually collapsed. */}
-      {primaryOrganism !== 'activity' && showActivityPanel && (
-        <div
-          data-testid="task-activity-panel"
-          className="chijie-activity-panel"
-          data-secondary={primaryOrganism === 'completion' ? 'true' : undefined}>
-          {thinkingReasoning}
-        </div>
-      )}
-
-      {/* Optional outcome rating after verified done (Tabbit-class) */}
-      {showRating && round?.receipt && (
-        <div data-testid="task-outcome-rating" className="chijie-task-section">
-          <div className={monoLabelClassName}>{t('chat_task_rating_prompt')}</div>
-          <div className="chijie-rating-control" role="radiogroup" aria-label={t('chat_task_rating_prompt')}>
-            {(['success', 'partial', 'fail'] as const).map(rating => (
-              <label
-                key={rating}
-                className="chijie-rating-option"
-                data-active={outcomeRating === rating ? 'true' : 'false'}>
-                <input
-                  type="radio"
-                  name={`task-outcome-${round.receipt?.id}`}
-                  data-testid={`task-rate-${rating}`}
-                  checked={outcomeRating === rating}
-                  onChange={() => selectRating(rating)}
-                />
-                <span>{t(`chat_task_rate_${rating}`)}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Completion and rating live in the 结果 block. */}
 
       {/* Recovery surface: human hint + exactly one primary CTA per waitReason (design/006 §5 #4).
           Stop remains only in chijie-task-controls below. */}
-      {(snapshot.status === 'failed' ||
-        snapshot.status === 'cancelled' ||
+      {(snapshot.status === 'cancelled' ||
         snapshot.status === 'waiting_user' ||
-        snapshot.status === 'inputs_required' ||
-        showUnverifiedComplete) && (
+        snapshot.status === 'inputs_required') && (
         <div data-testid="task-next-step" className="chijie-next-step" data-primary-organism="recovery">
-          <div className="font-medium">
-            {snapshot.status === 'failed' || showUnverifiedComplete
-              ? t('chat_task_failure_title')
-              : t('chat_task_next_step_title')}
-          </div>
+          <div className="font-medium">{t('chat_task_next_step_title')}</div>
           <div className="mt-1" data-testid="task-failure-reason">
             {recoveryNextStep}
           </div>
-          {/* Product taxonomy only — never raw failureCategory as primary copy. */}
-          {snapshot.status === 'failed' && distinctCategoryLabel && round?.failureCategory && (
-            <div
-              className="mt-1 text-[11px] opacity-70"
-              data-testid="task-failure-category"
-              data-product-code={toProductFailureCode(round.failureCategory)}>
-              {distinctCategoryLabel}
-            </div>
-          )}
 
           {/* One valid CTA: proof command or a composer follow-up. Stop stays in composer controls. */}
           {!readOnly &&

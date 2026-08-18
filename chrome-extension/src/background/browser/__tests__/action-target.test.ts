@@ -552,9 +552,10 @@ describe('Page action target observation', () => {
     };
     const observations = await page.observeCompletionCriteria([criterion]);
 
-    expect(observations[0]).toMatchObject({ targetRefId: 'tab-8' });
+    expect(observations[0]).toMatchObject({ targetRefId: 'tab-8', value: 'https://example.test/success' });
+    // URL criteria follow the current page. A frozen tab id must not block a matching URL.
     expect(
       checkCompletion({ now: Date.now(), currentRoundId: 'round-1', criteria: [criterion], observations }),
-    ).toMatchObject({ passed: false, evidence: [{ reason: 'wrong_target' }] });
+    ).toMatchObject({ passed: true });
   });
 });

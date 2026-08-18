@@ -20,9 +20,9 @@ export const doneActionSchema: ActionSchema = {
   name: 'done',
   description: 'Complete task',
   whenToUse:
-    'When the user goal is met with verifiable browser evidence (page state, URL, visible text, media paused/playing), or when the task is blocked after reasonable retries.',
+    'When you have written the user-facing result, or an open/click/fill goal already happened on the page, or the task is blocked after retries.',
   whenNotToUse:
-    'Do not call done after a single click or navigation without checking outcome; model text alone is not completion.',
+    'Do not call done with 好的我来 / I will… / empty text. Open/click/fill still need the page to have changed.',
   examples: [
     'done { text: "Form submitted; confirmation banner visible", success: true }',
     'done { text: "Login wall blocks the page; need credentials", success: false }',
@@ -85,58 +85,96 @@ export const goBackActionSchema: ActionSchema = {
   }),
 };
 
-export const clickElementActionSchema: ActionSchema = {
-  name: 'click_element',
-  description: 'Click element by index',
-  whenToUse: 'Click the indexed element shown in the latest Snapshot frame.',
-  whenNotToUse: 'Do not use a stale index from an earlier frame; re-observe first.',
-  examples: ['click_element { index: 3, intent: "open first video" }'],
-  returns: 'Action result summary and observed page change.',
-  costHint: 'One DOM click plus re-observe.',
+export const observeActionSchema: ActionSchema = {
+  name: 'observe',
+  description:
+    'Re-read the current page. Optional query keeps only matching clickable controls. Indexes stay the original highlight numbers.',
+  whenToUse:
+    'Before clicking when the Interactive elements list is long, or when looking for a named control such as 提交 or Search.',
+  whenNotToUse:
+    'Do not use observe instead of extract_content when you need a table or named list of records. Empty query returns the full page summary.',
+  examples: ['observe { query: "提交", intent: "find submit control" }', 'observe { intent: "re-read full page" }'],
+  returns: 'Visible page text plus filtered or full interactive indexes. Does not complete the task.',
+  costHint: 'One page read; no DOM mutation.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
-    // coerce: MiniMax / mid models often emit "1" instead of 1
-    index: z.coerce.number().int().describe('index of the element'),
-    xpath: z.string().nullable().optional().describe('xpath of the element'),
+    query: z.string().optional().describe('keep only clickable controls matching this text'),
   }),
+};
+
+export const clickElementActionSchema: ActionSchema = {
+  name: 'click_element',
+  description: 'Click a control by current-page index, or by query text such as 提交.',
+  whenToUse: 'Click the indexed element, or pass query when you know the visible label and not the number.',
+  whenNotToUse:
+    'Do not use a stale index from an earlier frame; re-observe first. Do not guess an index when query is available.',
+  examples: [
+    'click_element { index: 3, intent: "open first video" }',
+    'click_element { query: "提交", intent: "submit form" }',
+  ],
+  returns:
+    'Action result summary, or an error listing candidates when query does not resolve to one control. Does not click on a failed query.',
+  costHint: 'One DOM click plus re-observe, or no click when query is unresolved.',
+  schema: z
+    .object({
+      intent: z.string().default('').describe('purpose of this action'),
+      index: z.coerce.number().int().optional().describe('index of the element'),
+      query: z.string().optional().describe('visible label or role to resolve on the current page'),
+      xpath: z.string().nullable().optional().describe('xpath of the element'),
+    })
+    .superRefine((value, ctx) => {
+      const hasIndex = value.index !== undefined && Number.isFinite(value.index);
+      const hasQuery = Boolean(value.query && value.query.trim());
+      if (!hasIndex && !hasQuery) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'click_element needs index or query' });
+      }
+    }),
 };
 
 export const inputTextActionSchema: ActionSchema = {
   name: 'input_text',
-  description:
-    'Clear and fill an indexed field. Works on input, textarea, select, and contenteditable (rich editors).',
+  description: 'Clear and fill an indexed field. Works on input, textarea, select, and contenteditable (rich editors).',
   whenToUse:
     'When Form fields or Interactive elements list a textbox/input/textarea/contenteditable that should receive the user-provided value. Prefer the index whose label matches the field name.',
   whenNotToUse:
-    'Never pass passwords/secrets. Do not use this to click submit. If the user only asked to fill, stop after fields show the new values.',
+    'Never pass passwords/secrets. Do not use this on checkbox, radio, file, or submit — those need click_element. If the user only asked to fill, stop after Form fields show the new values.',
   examples: [
     'input_text { index: 1, text: "Alex", intent: "fill first name" }',
     'input_text { index: 4, text: "hello in the editor", intent: "fill contenteditable" }',
   ],
   returns: 'Filled value/contenteditable; re-observe Form fields to confirm the value stuck.',
   costHint: 'One evaluate call; page frameworks see input/change events.',
-  schema: z.object({
-    intent: z.string().default('').describe('purpose of this action'),
-    index: z.coerce.number().int().describe('index of the element'),
-    text: z.string().describe('text to input'),
-    xpath: z.string().nullable().optional().describe('xpath of the element'),
-  }),
+  schema: z
+    .object({
+      intent: z.string().default('').describe('purpose of this action'),
+      index: z.coerce.number().int().optional().describe('index of the element'),
+      query: z.string().optional().describe('visible label of the field to fill'),
+      text: z.string().describe('text to input'),
+      xpath: z.string().nullable().optional().describe('xpath of the element'),
+    })
+    .superRefine((value, ctx) => {
+      const hasIndex = value.index !== undefined && Number.isFinite(value.index);
+      const hasQuery = Boolean(value.query && value.query.trim());
+      if (!hasIndex && !hasQuery) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'input_text needs index or query' });
+      }
+    }),
 };
 
 // Tab Management Actions
 export const switchTabActionSchema: ActionSchema = {
   name: 'switch_tab',
-  description: 'Focus/switch to a tab by tab id (task-bound tab when tab_id omitted)',
+  description: 'Bind the task to an existing tab by id without bringing it to the front',
   whenToUse:
     'When the needed page already exists in another open tab (compare two docs, return to B站/YouTube after opening a login popup tab).',
   whenNotToUse:
-    'Do not switch to an unbound/unrelated tab; wrong_tab is a product failure. Prefer open_tab only when no suitable tab exists.',
+    'Do not switch to an unbound/unrelated tab; wrong_tab is a product failure. Prefer open_tab only when no suitable tab exists. Do not use this to steal the tab the user is looking at.',
   examples: [
-    'switch_tab { tab_id: 42, intent: "return to video tab" }',
-    'switch_tab { intent: "focus task-bound tab" }',
+    'switch_tab { tab_id: 42, intent: "work on the video tab" }',
+    'switch_tab { intent: "bind task-bound tab" }',
   ],
-  returns: 'Focused tab id; re-observe that tab only.',
-  costHint: 'Cheap focus change; always re-observe after switch.',
+  returns: 'Task is bound to that tab; the user\'s current tab stays put; re-observe that tab only.',
+  costHint: 'Cheap bind; the user keeps their current tab; always re-observe after switch.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
     tab_id: z.coerce.number().int().optional().describe('id of the tab to switch to; defaults to task tab'),
@@ -145,13 +183,13 @@ export const switchTabActionSchema: ActionSchema = {
 
 export const openTabActionSchema: ActionSchema = {
   name: 'open_tab',
-  description: 'Open URL in new tab',
+  description: 'Open URL in a new background tab without stealing the current tab',
   whenToUse:
     'When the task needs a parallel page without destroying the current one (docs beside form, second video, OAuth callback tab).',
   whenNotToUse:
     'Do not open a new tab when navigating the current tab is enough; avoid tab sprawl. Prefer go_to_url for single-path flows.',
   examples: ['open_tab { url: "https://www.bilibili.com", intent: "open bilibili in new tab" }'],
-  returns: 'New tab opened and usually focused; re-observe the new tab.',
+  returns: 'New tab opened in the background and bound; the user\'s current tab stays put; re-observe the new tab.',
   costHint: 'Full page load plus a new tab to track; higher risk of wrong_tab later.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
@@ -173,15 +211,22 @@ export const closeTabActionSchema: ActionSchema = {
   }),
 };
 
-// Content Actions, not used currently
-// export const extractContentActionSchema: ActionSchema = {
-//   name: 'extract_content',
-//   description:
-//     'Extract page content to retrieve specific information from the page, e.g. all company names, a specific description, all information about, links with companies in structured format or simply links',
-//   schema: z.object({
-//     goal: z.string(),
-//   }),
-// };
+export const extractContentActionSchema: ActionSchema = {
+  name: 'extract_content',
+  description:
+    'Extract structured records from the current page (tables, lists, repeating cards) as JSON. Writes an artifact. Does not mark the task complete.',
+  whenToUse: 'When the goal needs numbers, a table, or a named list from the current page.',
+  whenNotToUse:
+    'Do not use to click or to declare the task done. Do not use for a single button label; use observe with a query.',
+  examples: ['extract_content { goal: "product name, price, rating", schema: "name,price,rating" }'],
+  returns: 'JSON array of records plus artifact id. Task stays in progress.',
+  costHint: 'One page HTML read and local parse; one worker-model call only when the local parse finds no rows.',
+  schema: z.object({
+    goal: z.string().describe('what to extract'),
+    schema: z.string().optional().describe('optional field names, comma-separated or JSON array'),
+    intent: z.string().default('').describe('purpose of this action'),
+  }),
+};
 
 // Cache Actions
 export const cacheContentActionSchema: ActionSchema = {
@@ -555,7 +600,8 @@ export const recordResearchDecisionActionSchema: ActionSchema = {
   examples: [
     'record_research_decision { capabilities: [{ title: "Source-grounded explanation", user_moment: "...", behavior_change: "...", why_now: "...", why_others_later: "...", implementation_distance: "...", mvp: "...", success_metric: "...", user_evidence_ids: ["id-1", "id-2"], product_evidence_ids: ["id-3"], repository_evidence_ids: ["id-4"] }, { ... }, { ... }], deferred: ["Generic PDF chat"], contradictions: ["Some readers prefer external notes"] }',
   ],
-  returns: 'Accepted only when there are exactly three unique capabilities and every item passes 2 user + 1 product + 1 repository evidence coverage.',
+  returns:
+    'Accepted only when there are exactly three unique capabilities and every item passes 2 user + 1 product + 1 repository evidence coverage.',
   costHint: 'Local durable write; invalid evidence references are rejected without changing the decision.',
   normalizeInput: normalizeResearchDecisionInput,
   schema: z.object({
@@ -605,6 +651,41 @@ export const readPageTextActionSchema: ActionSchema = {
   costHint: 'One local page read; larger text uses more model context. Maximum 30000 characters.',
   schema: z.object({
     max_chars: z.coerce.number().int().min(1000).max(30000).default(20000),
+  }),
+};
+
+export const findTabActionSchema: ActionSchema = {
+  name: 'find_tab',
+  description: 'Bind the task to an already-open tab by URL, or to the tab the user sent this task from',
+  whenToUse: 'When the user says 这个页面 / current tab, or you need to return to a tab this task already opened.',
+  whenNotToUse:
+    'Do not invent a URL. If the page is not open, use go_to_url or open_tab instead. Do not follow the user if they switch to another tab mid-task.',
+  examples: [
+    'find_tab { active: true, intent: "use the page the user sent the task from" }',
+    'find_tab { url: "https://www.bilibili.com", intent: "return to home" }',
+  ],
+  returns: 'The bound tab id, title and URL. borrowed=true when it is the send-time page (stays put if the user left).',
+  costHint: 'One tab bind; no navigation; does not bring the tab to the front.',
+  schema: z.object({
+    url: z.string().optional().describe('full URL or site prefix to match'),
+    active: z.boolean().optional().describe('true: use the tab the user sent this task from'),
+    intent: z.string().default(''),
+  }),
+};
+
+export const evaluateActionSchema: ActionSchema = {
+  name: 'evaluate',
+  description: 'Run JavaScript in the current page and return the JSON result',
+  whenToUse: 'When you need titles, attributes, or computed page data that Visible page text does not list cleanly.',
+  whenNotToUse: 'Do not use for clicking or filling. Prefer observe / extract_content for ordinary reading.',
+  examples: [
+    'evaluate { code: "(() => [...document.querySelectorAll(\'a\')].slice(0,10).map(a => a.textContent))()" }',
+  ],
+  returns: 'JSON value from the page script, truncated.',
+  costHint: 'One in-page script. Keep the return small.',
+  schema: z.object({
+    code: z.string().min(1).describe('JS expression or IIFE; return JSON-serializable data'),
+    intent: z.string().default(''),
   }),
 };
 
@@ -843,16 +924,20 @@ export const ALL_ACTION_SCHEMAS: ActionSchema[] = [
   searchGoogleActionSchema,
   goToUrlActionSchema,
   goBackActionSchema,
+  observeActionSchema,
   clickElementActionSchema,
   inputTextActionSchema,
   switchTabActionSchema,
   openTabActionSchema,
   closeTabActionSchema,
+  extractContentActionSchema,
   cacheContentActionSchema,
   recordEvidenceActionSchema,
   inspectEvidenceSpaceActionSchema,
   readPageTextActionSchema,
   inspectOpenTabsActionSchema,
+  findTabActionSchema,
+  evaluateActionSchema,
   scrollToPercentActionSchema,
   scrollToTopActionSchema,
   scrollToBottomActionSchema,

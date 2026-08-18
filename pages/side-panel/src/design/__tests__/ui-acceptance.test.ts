@@ -45,6 +45,7 @@ const componentsCss = readFileSync(resolve(here, '../chijie-components.css'), 'u
 const taskStatusCardSource = readFileSync(resolve(here, '../../components/TaskStatusCard.tsx'), 'utf8');
 const taskProgressOverviewSource = readFileSync(resolve(here, '../../components/TaskProgressOverview.tsx'), 'utf8');
 const thinkingReasoningSource = readFileSync(resolve(here, '../../components/ThinkingReasoning.tsx'), 'utf8');
+const nowTraceSource = readFileSync(resolve(here, '../../components/NowTrace.tsx'), 'utf8');
 const sidePanelSource = readFileSync(resolve(here, '../../SidePanel.tsx'), 'utf8');
 const chatHistorySource = readFileSync(resolve(here, '../../components/ChatHistoryList.tsx'), 'utf8');
 const bookmarkListSource = readFileSync(resolve(here, '../../components/BookmarkList.tsx'), 'utf8');
@@ -87,11 +88,11 @@ describe('Feature: Side panel uses 持节 design system', () => {
       for (const name of YISHU_TOKEN_NAMES) {
         expect(tokensCss, `missing token ${name}`).toContain(`${name}:`);
       }
-      expect(tokensCss).toMatch(/--chijie-background:\s*#fbfaf7/i);
+      expect(tokensCss).toMatch(/--chijie-background:\s*#f6f6f5/i);
       expect(tokensCss).toMatch(/--chijie-paper:\s*#ffffff/i);
-      expect(tokensCss).toMatch(/--chijie-accent:\s*#166f4e/i);
+      expect(tokensCss).toMatch(/--chijie-accent:\s*#1c1b19/i);
       expect(tokensCss).toMatch(/--chijie-surface:\s*#ffffff/i);
-      expect(tokensCss).toMatch(/--chijie-foreground:\s*#1f2d2a/i);
+      expect(tokensCss).toMatch(/--chijie-foreground:\s*#1c1b19/i);
       expect(tokensCss).toMatch(/--chijie-warning:\s*#855600/i);
     });
 
@@ -111,8 +112,8 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(componentsCss).toContain('.chijie-paper-card');
       expect(componentsCss).toContain('.chijie-btn-primary');
       expect(componentsCss).toMatch(/border-radius:\s*var\(--chijie-radius-pill\)/);
-      expect(tokensCss).toMatch(/--chijie-radius-pill:\s*999px/);
-      expect(tokensCss).toMatch(/--chijie-radius-xl:\s*16px/);
+      expect(tokensCss).toMatch(/--chijie-radius-pill:\s*60px/);
+      expect(tokensCss).toMatch(/--chijie-radius-xl:\s*20px/);
     });
   });
 
@@ -275,7 +276,12 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(sidePanelSource).toContain('data-task-active={liveTaskConsole || showStopButton');
       expect(sidePanelSource).toContain('data-testid="composer-continuous-controls"');
       expect(sidePanelSource).toContain('data-testid="composer-stop"');
-      expect(sidePanelSource).toContain('data-testid="empty-composer-spacer"');
+      expect(sidePanelSource).toContain('IdleHome');
+      expect(readFileSync(resolve(here, '../../components/IdleHome.tsx'), 'utf8')).toContain(
+        'data-testid="empty-composer-spacer"',
+      );
+      expect(readFileSync(resolve(here, '../../components/IdleHome.tsx'), 'utf8')).toContain('idle-examples');
+      expect(sidePanelSource).not.toMatch(/Chat\s*\/\s*Claw|data-testid="claw-rail"/);
     });
 
     it('removes upstream promotion surfaces from the product shell', () => {
@@ -292,7 +298,8 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskProgressOverviewSource).toContain('task-goal-block');
     expect(taskProgressOverviewSource).toContain('MissionPlanList');
     expect(readFileSync(resolve(here, '../../components/MissionPlanList.tsx'), 'utf8')).toContain('mission-plan');
-    expect(taskStatusCardSource).toContain('ThinkingReasoning');
+    expect(taskStatusCardSource).toContain('NowTrace');
+    expect(nowTraceSource).toContain('ThinkingReasoning');
     expect(thinkingReasoningSource).toContain('task-thinking-reasoning');
     expect(taskStatusCardSource).toContain('completion-receipt');
     expect(taskStatusCardSource).toContain('completion-receipt-meta');
@@ -356,12 +363,16 @@ describe('Feature: design/003 task main blocks', () => {
     expect(overview).toMatch(/可验证任务配方/);
   });
 
-  it('failed task shows failureCategory surface (not empty chat-only hint)', () => {
-    expect(taskStatusCardSource).toContain('failureCategory');
-    expect(taskStatusCardSource).toContain('failureCategoryHint');
-    expect(taskStatusCardSource).toContain('task-failure-reason');
-    expect(taskStatusCardSource).toContain('chat_task_fail_observe');
+  it('failed task shows one human result sentence and 再说一次, not stacked failure chrome', () => {
+    expect(taskStatusCardSource).toContain('deriveFailedResult');
+    expect(taskStatusCardSource).toContain('is-failed');
+    expect(taskStatusCardSource).toContain('task-retry');
+    expect(taskStatusCardSource).toContain('chijie-failed-result');
     expect(taskStatusCardSource).not.toMatch(/可看上方聊天里的失败说明/);
+    expect(taskStatusCardSource).not.toMatch(/snapshot\.status === 'failed' \? \(\s*ratingBlock/);
+    expect(taskStatusCardSource).toContain("snapshot.status !== 'failed'");
+    expect(taskProgressOverviewSource).toContain("failedAudit ? '做过' : '现在'");
+    expect(t('chat_task_product_fail_model_loop')).not.toMatch(/模型反复|步数耗尽/);
   });
 
   it('waiting_user controls follow the TaskManager transition contract', () => {
@@ -489,17 +500,24 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(chatInput).toContain('onSendMessage(messageContent, displayContent)');
     expect(chatInput).toContain('onClick={onMicClick}');
     expect(chatInput).toContain('accept=".txt,.md,.markdown,.json,.csv,.log,.xml,.yaml,.yml"');
+    expect(chatInput).toContain('data-testid="composer-mention-menu"');
+    expect(chatInput).toContain('data-testid="composer-mention-button"');
+    expect(chatInput).toContain('expandCurrentPageMention');
     expect(componentsCss).toContain('.chijie-prompt-frame');
     expect(componentsCss).toContain('.chijie-prompt-menu');
+    expect(componentsCss).toContain('.chijie-mention-menu');
     expect(componentsCss).toContain('.chijie-prompt-chip');
     expect(componentsCss).toContain('.chijie-composer .chijie-prompt-field:focus-visible');
     expect(componentsCss).not.toContain('.chijie-prompt-frame:focus-within');
     expect(chatInput).not.toMatch(/Planner|Navigator|step_failed/);
   });
 
-  it('TaskStatusCard has a collapsible public work stream and outcome rating after receipt', () => {
+  it('TaskStatusCard has a live tool log while running and outcome rating after receipt', () => {
     expect(thinkingReasoningSource).toContain('aria-expanded={open}');
-    expect(thinkingReasoningSource).toContain('任务处理过程，工作时长 ${elapsed}');
+    expect(thinkingReasoningSource).toContain('${title}，工作时长 ${elapsed}');
+    expect(thinkingReasoningSource).toContain('data-testid="live-tool-log"');
+    expect(thinkingReasoningSource).toContain('data-testid="live-stop-generating"');
+    expect(thinkingReasoningSource).toContain('接管');
     expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
     expect(taskStatusCardSource).toContain('data-testid="task-outcome-rating"');
     expect(taskStatusCardSource).toContain('data-testid={`task-rate-${rating}`}');
@@ -516,6 +534,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toContain('attemptDisplayTitle');
     expect(taskStatusCardSource).toContain('displaySummary');
     expect(thinkingReasoningSource).toContain('never model chain-of-thought');
+    expect(thinkingReasoningSource).toContain('chijie-tool-chip');
     expect(thinkingReasoningSource).not.toContain('SENTENCES');
     expect(thinkingReasoningSource).not.toContain('DELAYS');
     expect(thinkingReasoningSource).not.toMatch(/setTimeout/);
@@ -531,45 +550,58 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(componentsCss).toContain('.chijie-completion-deliverable');
   });
 
-  it('completion block is gated on receipt helper (no bare model done)', () => {
-    expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
-    expect(taskStatusCardSource).toMatch(/shouldShowVerifiedDone\(snapshot,\s*round\?\.receipt\)/);
+  it('completion block shows a result sentence and rating after the task finishes', () => {
+    expect(taskStatusCardSource).toContain('shouldShowDeliveredResult');
+    expect(taskStatusCardSource).toContain('shouldShowOutcomeRating');
+    expect(taskStatusCardSource).toContain('data-testid="task-outcome-rating"');
+    expect(t('chat_task_rate_success')).toBe('成功交付');
+    expect(t('chat_task_rate_partial')).toBe('部分完成');
+    expect(t('chat_task_rate_fail')).toBe('未完成');
+    expect(t('chat_task_thinking_heading')).toBe('思考过程');
+    expect(t('chat_task_steps_heading')).toBe('执行步骤');
   });
 
   it('progress-console hierarchy: status → durable progress → collapsed audit; composer remains usable', () => {
     const returnIdx = taskStatusCardSource.lastIndexOf('return (');
     const tree = taskStatusCardSource.slice(returnIdx);
     // Stable mission and durable progress stay above raw browser operations.
-    expect(tree.indexOf('TaskProgressOverview')).toBeLessThan(tree.indexOf('task-activity-panel'));
+    expect(tree.indexOf('TaskProgressOverview')).toBeGreaterThan(-1);
     expect(taskStatusCardSource).toContain('data-primary-organism={primaryOrganism}');
     expect(taskStatusCardSource).toContain('taskPrimaryOrganism');
     expect(taskStatusCardSource).toContain("snapshot.status === 'running' || showSteps");
-    // Completion honesty remains above the secondary audit history.
-    expect(tree.indexOf("primaryOrganism === 'completion' && completionBlock")).toBeLessThan(
-      tree.indexOf("primaryOrganism !== 'activity' && showActivityPanel"),
-    );
-    // Running action summaries stay secondary; health + Now are the fixed live-status lines.
-    expect(tree).toContain("primaryOrganism === 'activity' && showActivityPanel");
-    expect(tree).toContain('data-secondary="true"');
-    expect(tree).toContain('{thinkingReasoning}');
+    // Result is the completion slot; audit stays below the console.
+    expect(tree).toContain('nowBody={nowTraceBody}');
+    expect(nowTraceSource).toContain('task-now-trace');
+    expect(nowTraceSource).toContain('task-thinking-process');
+    expect(nowTraceSource).toContain('task-execution-steps');
+    expect(nowTraceSource).toContain("t('chat_task_thinking_heading')");
+    expect(nowTraceSource).toContain("t('chat_task_steps_heading')");
     expect(taskProgressOverviewSource).toContain('task-progress-current-activity');
     expect(taskProgressOverviewSource).toContain('task-progress-health');
-    // The progress workspace gets meaningful height while chat and the fixed composer remain usable.
+    expect(taskProgressOverviewSource).toContain('task-result-block');
+    // The progress workspace gets meaningful height while the fixed composer remains usable.
     expect(componentsCss).toMatch(/\.chijie-chat-log[\s\S]{0,120}min-height:\s*8\.5rem/);
-    expect(componentsCss).toMatch(/\.chijie-paper-card[\s\S]{0,200}max-height:\s*min\(58vh,\s*560px\)/);
+    expect(componentsCss).toMatch(/\.chijie-paper-card[\s\S]{0,220}max-height:\s*none/);
     expect(componentsCss).toMatch(/flex:\s*0\s+0\s+auto/);
     expect(sidePanelSource).toContain('chijie-workspace');
     expect(sidePanelSource).toContain('chijie-chat-log');
     expect(sidePanelSource).toContain('chijie-composer');
-    // S4: live-task chat folds by default; S6: pause/resume beside composer, stop demoted.
-    expect(sidePanelSource).toContain('data-testid="chat-log-fold"');
+    // Live task hides the chat transcript. Pause/resume stay beside the composer.
+    expect(sidePanelSource).not.toContain('对话 {messages.length} 条');
+    expect(sidePanelSource).toContain("data-live={liveTaskConsole ? 'true' : 'false'}");
     expect(sidePanelSource).toContain("data-collapsed={chatCollapsed ? 'true' : 'false'}");
+    expect(componentsCss).toContain(".chijie-chat-log[data-live='true']");
     expect(sidePanelSource).toContain('data-testid="composer-continuous-controls"');
+    expect(sidePanelSource).toContain('data-testid="composer-follow"');
+    expect(sidePanelSource).toContain('data-testid="composer-takeover"');
     expect(sidePanelSource).toContain('data-testid="composer-pause"');
     expect(sidePanelSource).toContain('data-testid="composer-resume"');
     expect(sidePanelSource).toContain('data-testid="composer-stop"');
     expect(sidePanelSource).toContain("type: 'pause'");
     expect(sidePanelSource).toContain("type: 'resume'");
+    const runPresenceSource = readFileSync(resolve(here, '../../presentation/run-presence.ts'), 'utf8');
+    expect(runPresenceSource).toContain("type: 'set_follow'");
+    expect(runPresenceSource).toContain("type: 'takeover'");
     expect(componentsCss).toContain('.chijie-chat-fold');
     expect(componentsCss).toContain('.chijie-composer-controls');
     expect(sidePanelSource).toContain('taskAllowsDirectionChange(');
@@ -580,6 +612,13 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskProgressOverviewSource).toContain('data-testid="task-direction-change"');
     expect(t('chat_task_adjust_prompt')).toBe('我想调整：');
     expect(t('chat_task_bind_kicker')).toBe('当前页面');
+    expect(sidePanelSource).toContain("t('chat_task_follow')");
+    expect(sidePanelSource).toContain("t('chat_task_takeover')");
+    const zhCnMessages = JSON.parse(
+      readFileSync(resolve(here, '../../../../../packages/i18n/locales/zh_CN/messages.json'), 'utf8'),
+    ) as Record<string, { message: string }>;
+    expect(zhCnMessages.chat_task_follow.message).toBe('跟随');
+    expect(zhCnMessages.chat_task_takeover.message).toBe('接管');
   });
 
   it('generic mission plan hides phase-ratio pie without durable gates (design/008 S3)', () => {

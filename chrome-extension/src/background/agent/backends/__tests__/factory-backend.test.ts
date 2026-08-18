@@ -30,7 +30,7 @@ vi.mock('@extension/storage', () => ({
   agentModelStore: {},
   llmProviderStore: {},
   firewallStore: {},
-  AgentNameEnum: { Navigator: 'navigator', Planner: 'planner' },
+  AgentNameEnum: { Navigator: 'navigator', Planner: 'planner', Validator: 'validator' },
 }));
 
 vi.mock('../../../browser/context', () => ({

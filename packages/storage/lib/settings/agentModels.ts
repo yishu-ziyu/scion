@@ -95,27 +95,20 @@ export const agentModelStore: AgentModelStorage = {
   },
   getConfiguredAgents: async () => {
     const data = await storage.get();
-    // Filter out any legacy validator entries for backward compatibility
-    return Object.keys(data.agents).filter(
-      agentKey => agentKey !== 'validator' && Object.values(AgentNameEnum).includes(agentKey as AgentNameEnum),
+    return Object.keys(data.agents).filter(agentKey =>
+      Object.values(AgentNameEnum).includes(agentKey as AgentNameEnum),
     ) as AgentNameEnum[];
   },
   getAllAgentModels: async () => {
     const data = await storage.get();
-    // Filter out any legacy validator entries for backward compatibility
     const filteredAgents: Partial<Record<AgentNameEnum, ModelConfig>> = {};
     for (const [agentKey, config] of Object.entries(data.agents)) {
-      if (agentKey !== 'validator' && Object.values(AgentNameEnum).includes(agentKey as AgentNameEnum)) {
+      if (Object.values(AgentNameEnum).includes(agentKey as AgentNameEnum)) {
         filteredAgents[agentKey as AgentNameEnum] = config;
       }
     }
     return filteredAgents as Record<AgentNameEnum, ModelConfig>;
   },
-  cleanupLegacyValidatorSettings: async () => {
-    await storage.set(current => {
-      const newAgents = { ...current.agents };
-      delete newAgents['validator' as keyof typeof newAgents];
-      return { agents: newAgents };
-    });
-  },
+  /** Kept so older callers compile. Validator is a first-class agent again. */
+  cleanupLegacyValidatorSettings: async () => undefined,
 };

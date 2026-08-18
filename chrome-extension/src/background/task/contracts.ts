@@ -77,6 +77,14 @@ export interface ExecutorHooks {
   getMissionPlan?(roundId: string): Promise<ExecutorMissionPlan | undefined>;
   onPlan(roundId: string, criteria: CompletionCriterionDraft[]): Promise<void>;
   dispatchAction(roundId: string, action: Action, rawArgs: unknown): Promise<DispatchResult>;
+  /**
+   * Persist observe/decide/reobserve as live 执行步骤 before the work runs.
+   * Optional so scripted tests that only dispatch actions can omit it.
+   */
+  reportLoopPhase?(
+    roundId: string,
+    event: { phase: 'observe' | 'decide' | 'act' | 'reobserve'; step: number; detail?: string },
+  ): Promise<void>;
 }
 
 export interface ExecutorDriver {

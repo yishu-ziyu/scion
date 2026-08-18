@@ -40,7 +40,9 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
         reobserveCount += 1;
         return 'url=https://www.youtube.com/';
       },
-      onPhase: e => phases.push(e),
+      onPhase: e => {
+        phases.push(e);
+      },
     });
 
     expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'YouTube opened' });
@@ -48,6 +50,30 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
     expect(observeCount).toBe(1);
     expect(reobserveCount).toBe(1);
     expect(decideCount).toBe(2);
+  });
+
+  it('awaits onPhase before observe so a live step can persist first', async () => {
+    const order: string[] = [];
+    const outcome = await runObserveActLoop({
+      maxSteps: 2,
+      maxFailures: 1,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => {
+        order.push('observe');
+        return 'ok';
+      },
+      decide: async () => ({ kind: 'done', summary: 'ok' }),
+      act: async () => ({ error: null }),
+      onPhase: async event => {
+        if (event.phase === 'observe') {
+          await Promise.resolve();
+          order.push('phase');
+        }
+      },
+    });
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'ok' });
+    expect(order).toEqual(['phase', 'observe']);
   });
 
   it('retries recoverable parse failures then succeeds without killing the task', async () => {

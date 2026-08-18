@@ -16,6 +16,10 @@ export interface InteractiveElementDigest {
   label?: string;
   contentEditable?: boolean;
   checked?: string;
+  tabId?: number;
+  cdpFrameId?: string;
+  backendNodeId?: number;
+  cdpTargetId?: string;
 }
 
 export interface ViewportState {
@@ -97,6 +101,13 @@ export interface ObserveOptions {
   includeAttributes?: string[] | null;
   /** Optional enrichment text already computed by Skill Runtime. */
   enrichment?: string;
+  /** Keep only clickable controls matching this text. Empty = full page list. */
+  query?: string;
+  /**
+   * When false, skip waitForPageAndFramesLoad.
+   * Use for the first look at a page the user already opened.
+   */
+  waitForLoad?: boolean;
 }
 
 export interface KernelActionResult {
