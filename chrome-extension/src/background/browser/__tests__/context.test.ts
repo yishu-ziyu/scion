@@ -491,6 +491,24 @@ describe('BrowserContext tab selection', () => {
     expect(tabsApi.update).not.toHaveBeenCalled();
   });
 
+  it('does not steal a background http tab when the active tab is chrome://newtab', async () => {
+    const newTab = {
+      id: 8,
+      active: true,
+      url: 'chrome://newtab/',
+      title: 'New Tab',
+    } as chrome.tabs.Tab;
+    tabsApi.query.mockResolvedValue([newTab, contentTab]);
+    tabsApi.create.mockResolvedValue(blankTab);
+    tabsApi.get.mockResolvedValue({ ...blankTab, status: 'complete' });
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(false);
+    const context = new BrowserContext({});
+
+    await context.getCurrentPage();
+    expect(tabsApi.create).toHaveBeenCalledWith({ url: context.getConfig().homePageUrl, active: false });
+    expect(context.getBoundTabId()).not.toBe(contentTab.id);
+  });
+
   it('opens and bootstraps tabs in the background', async () => {
     tabsApi.query.mockResolvedValue([extensionTab]);
     tabsApi.create.mockResolvedValue(blankTab);

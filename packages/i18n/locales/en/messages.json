@@ -1345,6 +1345,9 @@
   "chat_task_bind_missing": {
     "message": "No usable page tab. Open a website tab and try again."
   },
+  "chat_task_bind_this_page": {
+    "message": "This tab is not a web page, so I cannot read “this page”. Open a website, or ask me to search."
+  },
   "chat_task_cancel": {
     "message": "Stop this task"
   },

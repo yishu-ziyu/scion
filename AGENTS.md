@@ -2,7 +2,7 @@
 
 Personal second-dev lab (接穗). Maintainer: yishu-ziyu · remote: `origin` → https://github.com/yishu-ziyu/scion.git
 
-持节 = Chrome MV3 **long-horizon task Agent**：把交出去的事做完，交出能核对的结果。侧栏按发生的事往下长（你说的那句、思考、搜索板、打开的页、交出来的那句）。不是预印栏目，不是侧栏聊天，不是逐步审批。
+持节 = Chrome MV3 **浏览器自动化 Agent**。角色对齐美团 Tabbit 的任务模式：用户派发任务，它操作相关标签页把任务做完。壳是用户日常 Chrome 上的扩展，不是第二只整机浏览器。侧栏是这次工作的窗口。不是预印栏目，不是侧栏聊天，不是逐步审批。不抄 Tabbit 的「仅聊天 / 执行」闸门，默认不跟随前台。
 
 Owner 指哪打哪。不要为了编号、闸门、索引、里程碑去写文档。
 

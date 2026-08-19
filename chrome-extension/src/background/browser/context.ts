@@ -241,9 +241,14 @@ export default class BrowserContext {
         this._boundWindowId === null ? { currentWindow: true as const } : { windowId: this._boundWindowId };
       let tab: chrome.tabs.Tab | undefined = (await chrome.tabs.query({ active: true, ...windowQuery }))[0];
       if (!this._getAllowedTabUrl(tab)) {
-        const tabs = await chrome.tabs.query(windowQuery);
-        // ponytail: first allowed tab is the fallback; track last allowed activation if multi-tab precision matters.
-        tab = tabs.find(candidate => this._getAllowedTabUrl(candidate));
+        const activeUrl = tab?.url || tab?.pendingUrl || '';
+        if (activeUrl.startsWith('chrome-extension://')) {
+          const tabs = await chrome.tabs.query(windowQuery);
+          tab = tabs.find(candidate => this._getAllowedTabUrl(candidate));
+        } else {
+          // chrome:// new tab / settings: do not steal another tab in this window.
+          tab = undefined;
+        }
       }
       if (!tab?.id) {
         // open a new tab with blank page; keep it in the background

@@ -2,6 +2,8 @@
  * Parse mid-model control-loop JSON (design/002).
  * Tolerant of MiniMax free text + <think> (stripped upstream via extractJsonFromModelOutput).
  */
+import { renderActionSchemaPrompt } from '../actions/action-prompt';
+import { ALL_ACTION_SCHEMAS } from '../actions/schemas';
 import type { CompletionCriterionDraft } from '../../task/contracts';
 import type { ObservationFrame } from '../../browser/kernel';
 
@@ -14,7 +16,57 @@ export interface ControlPolicyDecision {
   waitingUser: 'login_required' | 'captcha_required' | null;
 }
 
-export const CONTROL_PROMPT_VERSION = 'chijie-control-v0.4.2';
+export const CONTROL_PROMPT_VERSION = 'chijie-control-v0.4.4';
+
+/** Everyday schemas whose Action.prompt() text is appended to the default control system prompt. */
+export const EVERYDAY_CONTROL_ACTION_NAMES = [
+  'done',
+  'input_text',
+  'click_element',
+  'control_media',
+  'save_screenshot',
+  'go_to_url',
+  'go_back',
+  'observe',
+  'extract_content',
+  'send_keys',
+  'wait',
+  'scroll_to_text',
+  'scroll_to_percent',
+  'scroll_to_top',
+  'scroll_to_bottom',
+  'open_tab',
+  'switch_tab',
+  'close_tab',
+  'get_dropdown_options',
+  'select_dropdown_option',
+  'read_page_text',
+  'inspect_open_tabs',
+  'find_tab',
+  'search_google',
+  'previous_page',
+  'next_page',
+] as const;
+
+const RESEARCH_ONLY_CONTROL_ACTION_NAMES = new Set([
+  'record_evidence',
+  'inspect_evidence_space',
+  'cache_content',
+  'record_research_decision',
+  'record_research_delivery',
+]);
+
+function renderEverydayActionCatalog(): string {
+  const byName = new Map(ALL_ACTION_SCHEMAS.map(schema => [schema.name, schema]));
+  const prompts: string[] = [];
+  for (const name of EVERYDAY_CONTROL_ACTION_NAMES) {
+    if (RESEARCH_ONLY_CONTROL_ACTION_NAMES.has(name)) continue;
+    const schema = byName.get(name);
+    if (!schema) continue;
+    prompts.push(renderActionSchemaPrompt(schema));
+  }
+  return `<available_actions>\n${prompts.join('\n\n')}\n</available_actions>`;
+}
 
 export interface AgentStatusBarInput {
   url?: string;
@@ -108,7 +160,7 @@ export function observationSupportsWaitingUser(
 export function renderControlSystemPrompt(options: ControlSystemPromptOptions = {}): string {
   const statusBlock = options.statusBar ? `\n\n<agent_status>\n${options.statusBar}\n</agent_status>` : '';
   const researchBlock = options.research ? `\n\n${CONTROL_RESEARCH_PROMPT_BODY}` : '';
-  return `${CONTROL_SYSTEM_PROMPT_BODY}${researchBlock}\n\nPrompt version: ${CONTROL_PROMPT_VERSION}.${statusBlock}`;
+  return `${CONTROL_SYSTEM_PROMPT_BODY}\n\n${renderEverydayActionCatalog()}${researchBlock}\n\nPrompt version: ${CONTROL_PROMPT_VERSION}.${statusBlock}`;
 }
 
 const ALLOWED_ACTIONS = new Set([
@@ -360,6 +412,8 @@ Rules:
 14. Each observation includes visible page wording plus clickable indexes. Write the user-facing result from the wording. Indexes are for clicking, not for quoting. Call read_page_text only if the visible window is empty or too short, or after you scrolled to new content. Do not click around to start reading. When the user asks to include already-open browser context, use inspect_open_tabs and switch only to clearly relevant tabs.
 15. Before click_element, if the Interactive elements list is long or you need a named control, call observe with a query (for example "提交" or "Search") so only matching controls remain. Indexes stay the original highlight numbers. You may also pass the same query on click_element or input_text instead of an index. If the query does not resolve to one control, you get candidates and no click. An empty observe query returns the full page list.
 16. When the user wants numbers, a table, a named list, or what the videos/items on the current page are about, call extract_content with a goal and optional schema field names. That writes JSON records into an artifact. extract_content does not finish the task; do not set done true just because rows came back. Then write the result in observation and set done.
+17. Choose action_name from <available_actions>. Follow that action's When to use and Do NOT use.
+18. If the user asked to 搜 / 搜索 / search and did not give a URL, use search_google with a short query. Do not invent wikipedia, github, docs, or other destination URLs.
 `;
 
 const CONTROL_RESEARCH_PROMPT_BODY = `Research-only:

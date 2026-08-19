@@ -107,6 +107,7 @@ import {
   isIndependentTabOpenFailure,
   type IndependentTabOpenAttempt,
 } from './independent-urls';
+import { classifyCreateExecutorError } from './executor-start-error';
 
 export type { ExecutorDriver } from './contracts';
 
@@ -144,6 +145,8 @@ interface TaskManagerDeps {
    * Called from dispatch() before this.transition so pause/cancel are not blocked.
    */
   decideUserTurn?: (input: { text: string; chatSessionId?: string }) => Promise<UserTurnDecision>;
+  /** Open a background about:blank tab when start has no usable content tab. */
+  openBlankTaskTab?: () => Promise<number>;
 }
 
 const TERMINAL_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled'];
@@ -1019,14 +1022,28 @@ export class TaskManager {
         error: 'invalid_input',
       };
     }
-    if (command.tabId < 0) {
-      return {
-        accepted: false,
-        commandId: command.commandId,
-        taskId: command.taskId,
-        revision: 0,
-        error: 'invalid_input',
-      };
+    let tabId = command.tabId;
+    if (tabId < 0) {
+      if (instructionPointsAtCurrentPage(command.instruction)) {
+        return {
+          accepted: false,
+          commandId: command.commandId,
+          taskId: command.taskId,
+          revision: 0,
+          error: 'invalid_input',
+          userVisibleText: '当前标签不是网页，读不了「这个页面」。打开一个网页再派，或改成搜一下。',
+        };
+      }
+      if (!this.deps.openBlankTaskTab) {
+        return {
+          accepted: false,
+          commandId: command.commandId,
+          taskId: command.taskId,
+          revision: 0,
+          error: 'invalid_input',
+        };
+      }
+      tabId = await this.deps.openBlankTaskTab();
     }
 
     const now = this.deps.now();
@@ -1057,7 +1074,7 @@ export class TaskManager {
       instructionMessageId: command.instructionMessageId,
       status: 'running',
       revision: 1,
-      activeTabId: command.tabId,
+      activeTabId: tabId,
       currentRoundId: roundId,
       targetRefs: [],
       rounds: [round],
@@ -1069,14 +1086,14 @@ export class TaskManager {
     // (Phase 1 S1). Digest stays empty until observe; label is title-only for display.
     try {
       await this.deps.setFollowForeground?.(false);
-      await this.deps.switchTab(command.tabId);
+      await this.deps.switchTab(tabId);
       try {
         const groupId = await this.deps.beginTaskTabGroup?.(plan.goal || '任务');
         if (typeof groupId === 'number') task.tabGroupId = groupId;
       } catch {
         // Grouping is visible organization only; the task still runs.
       }
-      const tab = await chrome.tabs.get(command.tabId);
+      const tab = await chrome.tabs.get(tabId);
       let urlOrigin = 'null';
       let normalizedUrl: string | undefined;
       let queryIdentityDigest: string | undefined;
@@ -1093,9 +1110,9 @@ export class TaskManager {
       const label = (tab.title ?? '').trim() || undefined;
       task.targetRefs = [
         {
-          id: `tab-${command.tabId}`,
+          id: `tab-${tabId}`,
           kind: 'page',
-          tabId: command.tabId,
+          tabId,
           frameId: 0,
           urlOrigin,
           ...(normalizedUrl ? { normalizedUrl } : {}),
@@ -2412,10 +2429,7 @@ export class TaskManager {
       await this.runDriver(taskId, driver, roundId, instruction);
     } catch (error) {
       // Surface start failures (missing model, createExecutor throw) on the round for UI.
-      const category =
-        error instanceof Error && /noApiKeys|noNavigator|noProvider|setup/i.test(error.message)
-          ? 'setup_failed'
-          : 'executor_start_failed';
+      const category = classifyCreateExecutorError(error);
       await this.queueTransition(async () => {
         const task = await getTask(taskId);
         if (!task || task.status !== 'running') return;

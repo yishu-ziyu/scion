@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { classifyRetry } from '../../retry-policy';
 import {
   isForbiddenTaskContentUrl,
   runObserveActLoop,
@@ -134,6 +135,45 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
       shouldRetryFailure: () => false,
     });
     expect(outcome).toEqual({ kind: 'failed', category: 'action_failed' });
+  });
+
+  it('retries Element-not-found clicks when classifyRetry says retry, then can finish', async () => {
+    let acts = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 5,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'ok',
+      decide: async () => ({ kind: 'action', name: 'click_element', args: { index: 1 } }),
+      act: async () => {
+        acts += 1;
+        if (acts === 1) return { error: 'Element: foo not found' };
+        return { error: null, isDone: true, summary: 'clicked' };
+      },
+      shouldRetryFailure: error => classifyRetry(error) === 'retry',
+    });
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'clicked' });
+    expect(acts).toBe(2);
+  });
+
+  it('still stops immediately on unknown action when classifyRetry says no_retry', async () => {
+    let acts = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 5,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'ok',
+      decide: async () => ({ kind: 'action', name: 'frob', args: {} }),
+      act: async () => {
+        acts += 1;
+        return { error: 'unknown action frob' };
+      },
+      shouldRetryFailure: error => classifyRetry(error) === 'retry',
+    });
+    expect(outcome).toEqual({ kind: 'failed', category: 'action_failed' });
+    expect(acts).toBe(1);
   });
 
   it('thrown act errors still map to dispatch_failed (soft backends must return {error})', async () => {

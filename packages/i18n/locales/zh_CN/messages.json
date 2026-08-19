@@ -1345,6 +1345,9 @@
   "chat_task_bind_missing": {
     "message": "没有可用的网页标签。请先打开目标网站，再发送。"
   },
+  "chat_task_bind_this_page": {
+    "message": "当前标签不是网页，读不了「这个页面」。打开一个网页再派，或改成搜一下。"
+  },
   "chat_task_cancel": {
     "message": "结束任务"
   },

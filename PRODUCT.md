@@ -18,7 +18,7 @@ Product name for this Chrome extension fork (formerly Nanobrowser / briefly å¥•æ
 
 ## One-liner
 
-Personal **long-horizon task agent**: mission/plan-based web tasks in daily Chrome, task-scoped autonomy, verified delivery only.
+Personal **browser automation agent** in daily Chrome. Same job as Tabbit's task mode: the user assigns a task; it operates the relevant tabs until the task is done. The side panel is the window onto that work, not the product.
 
 ## For UI redesign agents
 

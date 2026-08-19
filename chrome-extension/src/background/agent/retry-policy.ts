@@ -1,27 +1,24 @@
 /**
- * Error -> retry decision mapping (book ch5: classify before retrying).
- * The loop keeps retrying recoverable infrastructure noise and fails fast on
- * deterministic input/authorization errors.
+ * Error -> retry decision mapping.
+ * Default is retry. Only fail-fast on deterministic invalid/authorization errors,
+ * and escalate when the loop budget is already exhausted.
+ *
+ * page.ts wraps click/input throws as `Failed to click element: … Error: …`.
+ * Do not put a prefix match on that wrap ahead of no_retry, or permission/invalid
+ * input inside the wrap would be retried.
+ * Do not use a bare `not found`: `Element: … not found` is a stale locate and must retry.
  */
 
 export type RetryDecision = 'retry' | 'no_retry' | 'escalate';
 
-const RETRY_PATTERNS: Array<{ pattern: RegExp; decision: RetryDecision }> = [
-  {
-    pattern: /timeout|timed out|network|fetch|connection|429|50[0-9]|llm_failed|json_parse_failed|no_action/i,
-    decision: 'retry',
-  },
-  {
-    pattern: /invalid input|invalid_input|unknown action|permission|forbidden|unauthorized|not found|not_found/i,
-    decision: 'no_retry',
-  },
-  { pattern: /max failures|max_failures|max steps|max_steps/i, decision: 'escalate' },
-];
+const ESCALATE_PATTERN = /max failures|max_failures|max steps|max_steps/i;
+
+const NO_RETRY_PATTERN =
+  /invalid input|invalid_input|unknown action|permission|forbidden|unauthorized|model_not_found|session not found/i;
 
 export function classifyRetry(error: unknown): RetryDecision {
   const message = error instanceof Error ? error.message : String(error ?? '');
-  for (const rule of RETRY_PATTERNS) {
-    if (rule.pattern.test(message)) return rule.decision;
-  }
+  if (ESCALATE_PATTERN.test(message)) return 'escalate';
+  if (NO_RETRY_PATTERN.test(message)) return 'no_retry';
   return 'retry';
 }

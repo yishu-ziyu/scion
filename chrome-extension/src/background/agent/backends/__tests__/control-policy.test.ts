@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { renderActionSchemaPrompt } from '../../actions/action-prompt';
+import { ALL_ACTION_SCHEMAS, clickElementActionSchema, searchGoogleActionSchema } from '../../actions/schemas';
 import {
   buildAgentStatusBar,
   instructionLooksLikeResearch,
@@ -6,6 +8,7 @@ import {
   parseControlPolicyDecision,
   renderControlSystemPrompt,
   CONTROL_PROMPT_VERSION,
+  EVERYDAY_CONTROL_ACTION_NAMES,
 } from '../control-policy';
 import type { ObservationFrame } from '../../../browser/kernel';
 
@@ -228,7 +231,7 @@ describe('agent status bar / prompt versioning', () => {
 
   it('includes prompt version and optional status block', () => {
     const prompt = renderControlSystemPrompt({ statusBar: 'url: https://example.com' });
-    expect(CONTROL_PROMPT_VERSION).toBe('chijie-control-v0.4.2');
+    expect(CONTROL_PROMPT_VERSION).toBe('chijie-control-v0.4.4');
     expect(prompt).toContain(CONTROL_PROMPT_VERSION);
     expect(prompt).toContain('<agent_status>');
     expect(prompt).toContain('url: https://example.com');
@@ -258,6 +261,37 @@ describe('agent status bar / prompt versioning', () => {
     expect(prompt).toContain('do not bring that tab to the front');
     expect(prompt).toContain('Do not require tab_state active');
     expect(prompt).toContain('do not follow them if they switch away');
+    expect(prompt).toContain('Choose action_name from <available_actions>');
+    expect(prompt).toContain('use search_google with a short query');
+    expect(prompt).toContain('Do not invent wikipedia');
+  });
+
+  it('appends everyday Action.prompt() catalog and keeps research actions out of the default prompt', () => {
+    const prompt = renderControlSystemPrompt();
+    const catalog = prompt.match(/<available_actions>([\s\S]*?)<\/available_actions>/)?.[1] ?? '';
+    const presentNames = EVERYDAY_CONTROL_ACTION_NAMES.filter(name =>
+      ALL_ACTION_SCHEMAS.some(schema => schema.name === name),
+    );
+
+    expect(catalog.length).toBeGreaterThan(0);
+    expect(catalog).toContain('When to use:');
+    expect(catalog).toContain(renderActionSchemaPrompt(clickElementActionSchema));
+    expect(catalog).toContain(renderActionSchemaPrompt(searchGoogleActionSchema));
+    expect(catalog).toContain('input_text');
+    expect(catalog).toContain('go_to_url');
+    expect(presentNames).toEqual([...EVERYDAY_CONTROL_ACTION_NAMES]);
+    for (const name of presentNames) {
+      expect(catalog).toContain(name);
+    }
+    expect((catalog.match(/When to use:/g) ?? []).length).toBe(presentNames.length);
+
+    expect(prompt).not.toContain('record_evidence');
+    expect(catalog).not.toContain('{inspect_evidence_space');
+    expect(catalog).not.toContain('{cache_content');
+    expect(catalog).not.toContain('{record_research_decision');
+    expect(catalog).not.toContain('{record_research_delivery');
+    expect(catalog).not.toContain('{evaluate');
+    expect(catalog).not.toContain("'type': 'undefined'");
   });
 
   it('appends the research script only for research-shaped instructions', () => {
@@ -271,6 +305,9 @@ describe('agent status bar / prompt versioning', () => {
     expect(instructionLooksLikeResearch('把结论回写到飞书决策文档')).toBe(true);
     expect(instructionLooksLikeResearch('把调研结果写入飞书')).toBe(true);
     const research = renderControlSystemPrompt({ research: true });
+    expect(research).toContain('<available_actions>');
+    expect(research).toContain('When to use:');
+    expect(research).toContain('search_google');
     expect(research).toContain('record_evidence');
     expect(research).toContain('search snippets');
     expect(research).toContain('MUST be recorded before leaving');

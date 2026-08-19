@@ -83,7 +83,8 @@ export async function buildObservationFrame(input: ObservationBuildInput): Promi
   const query = input.query?.trim() ?? '';
   const digested = digestInteractiveElements(input.browserState, query ? 2000 : 80);
   const interactiveElements = filterInteractiveElements(digested, query);
-  const formFieldsBlock = renderFormFieldsBlock(interactiveElements);
+  const formDigest = digestInteractiveElements(input.browserState, 2000);
+  const formFieldsBlock = renderFormFieldsBlock(query ? filterInteractiveElements(formDigest, query) : formDigest);
   const visibleText = input.visibleText?.trim() ?? '';
   const visibleBlock = visibleText
     ? `Visible page text:\n${wrapUntrustedContent(visibleText)}`
@@ -124,6 +125,7 @@ export async function buildObservationFrame(input: ObservationBuildInput): Promi
     pageRevision: frame.pageRevision,
     targetCount: frame.targetCount,
     interactiveElements,
+    formFieldsText: formFieldsBlock || undefined,
     visibleText: visibleText || undefined,
     text,
     viewport: input.viewport,
@@ -152,7 +154,7 @@ export function renderContextForModel(input: {
   const visibleBlock = visibleText
     ? `Visible page text:\n${wrapUntrustedContent(visibleText)}`
     : '';
-  const formFieldsBlock = renderFormFieldsBlock(input.frame.interactiveElements);
+  const formFieldsBlock = input.frame.formFieldsText || renderFormFieldsBlock(input.frame.interactiveElements);
   const header = [
     `Current tab: {id: ${input.frame.tab.id}, url: ${input.frame.tab.url}, title: ${input.frame.tab.title}}`,
     `Snapshot frame: ${input.frame.pageRevision} (${input.frame.targetCount} indexed targets)`,

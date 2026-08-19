@@ -1345,6 +1345,9 @@
   "chat_task_bind_missing": {
     "message": "Nenhuma aba de página utilizável. Abra um site e tente de novo."
   },
+  "chat_task_bind_this_page": {
+    "message": "Esta aba não é uma página da web. Abra um site ou peça uma busca."
+  },
   "chat_task_cancel": {
     "message": "Encerrar tarefa"
   },

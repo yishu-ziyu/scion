@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { renderActionSchemaPrompt } from '../action-prompt';
 import { Action } from '../builder';
 import { ActionResult } from '../../types';
 import {
   ALL_ACTION_SCHEMAS,
   clickElementActionSchema,
+  inputTextActionSchema,
   recordEvidenceActionSchema,
   recordResearchDecisionActionSchema,
   searchGoogleActionSchema,
@@ -19,10 +21,21 @@ function promptFor(schema: ActionSchema): string {
 describe('action ACI prompt', () => {
   it('renders when/not-when/examples/boundary into the model-facing prompt', () => {
     const prompt = promptFor(clickElementActionSchema);
+    expect(prompt).toBe(renderActionSchemaPrompt(clickElementActionSchema));
     expect(prompt).toContain('When to use:');
     expect(prompt).toContain('Do NOT use when:');
     expect(prompt).toContain('Examples:');
     expect(prompt).toContain('stale index');
+    expect(prompt).toContain("'index'");
+    expect(prompt).toContain("'query'");
+  });
+
+  it('exposes input_text fields after ZodEffects unwrap', () => {
+    const prompt = renderActionSchemaPrompt(inputTextActionSchema);
+    expect(prompt).toContain("{input_text: {");
+    expect(prompt).toContain("'text'");
+    expect(prompt).toContain("'index'");
+    expect(prompt).toContain("'query'");
   });
 
   it.each([
@@ -46,6 +59,7 @@ describe('action ACI prompt', () => {
       expect(schema.examples?.length, `${schema.name}.examples`).toBeGreaterThan(0);
       expect(schema.returns, `${schema.name}.returns`).toBeTruthy();
       expect(schema.costHint, `${schema.name}.costHint`).toBeTruthy();
+      expect(renderActionSchemaPrompt(schema), `${schema.name} type labels`).not.toContain("'type': 'undefined'");
     }
   });
 

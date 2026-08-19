@@ -40,6 +40,7 @@ import {
   parseControlPolicyDecision,
   renderControlSystemPrompt,
 } from './control-policy';
+import { rewriteInventedLookupNavigation } from './lookup-navigation';
 import { JUDGE_PAGE_THEN_WRITE, resolveControlDelivery } from './control-delivery';
 import {
   SUPERVISE_SYSTEM_PROMPT,
@@ -170,6 +171,23 @@ const CONTROL_LLM_TIMEOUT_MS = 90_000;
 
 export function shouldKeepActionResultInContext(actionName: string): boolean {
   return CONTENT_RESULT_ACTIONS.has(actionName);
+}
+
+/**
+ * Next-turn lastActionMemory after one act.
+ * Failures always feed decide; click/nav success must not keep a summary or a prior failure.
+ */
+export function memoryAfterAction(
+  name: string,
+  result: { error?: string | null; summary?: string | null },
+): string | null {
+  if (result.error) {
+    return compactStateText(`${name} failed: ${result.error}`, 24_000);
+  }
+  if (result.summary && shouldKeepActionResultInContext(name)) {
+    return compactStateText(result.summary, 24_000);
+  }
+  return null;
 }
 
 export async function invokeWithTimeout<T>(
@@ -775,6 +793,12 @@ export async function createLlmControlDriver(
           try {
             const parsed = extractJsonFromModelOutput(rawText);
             decision = parseControlPolicyDecision(parsed);
+            if (decision.action) {
+              decision = {
+                ...decision,
+                action: rewriteInventedLookupNavigation(instruction, decision.action),
+              };
+            }
           } catch (error) {
             logger.error('control JSON parse failed', error);
             return { kind: 'recoverable', category: 'json_parse_failed' };
@@ -913,9 +937,7 @@ export async function createLlmControlDriver(
               const last = agentContext.actionResults[agentContext.actionResults.length - 1];
               if (last?.artifact) artifacts.push(last.artifact);
             }
-            if (!result.error && result.summary && shouldKeepActionResultInContext(name)) {
-              lastActionMemory = compactStateText(result.summary, 24_000);
-            }
+            lastActionMemory = memoryAfterAction(name, result);
             return {
               error: result.error ?? null,
               isDone: Boolean(result.isDone),
@@ -942,6 +964,7 @@ export async function createLlmControlDriver(
                 url: currentFrame?.tab.url,
               });
             }
+            lastActionMemory = memoryAfterAction(name, { error: message });
             return { error: message };
           }
         },
