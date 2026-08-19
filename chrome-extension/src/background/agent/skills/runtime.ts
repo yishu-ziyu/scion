@@ -10,12 +10,15 @@ import type {
   SkillCandidate,
   SkillContext,
   SkillDecision,
+  SkillLoopDecision,
   SkillResult,
   SkillRunRecord,
   SkillRuntimeFlags,
   SkillTrace,
 } from './types';
 import type { BrowserKernel, ObservationFrame } from '../../browser/kernel';
+import type { CompletionCriterionDraft } from '../../task/contracts';
+import type { TaskArtifact } from '../../task/artifact';
 
 export interface SkillRuntimeOptions {
   registry: SkillRegistry;
@@ -42,12 +45,25 @@ export interface SkillTryInput {
 
 export interface SkillTryResult {
   handled: boolean;
-  decision?: SkillDecision;
+  /** Present when handled: same shape the observe-act loop consumes. */
+  decision?: SkillLoopDecision;
+  criteria?: CompletionCriterionDraft[];
+  artifact?: TaskArtifact;
   record?: SkillRunRecord;
   /** Updated skill state map. */
   skillState: Map<string, unknown>;
   candidates: SkillCandidate[];
   fallbackUsed: boolean;
+}
+
+export function toLoopDecision(decision: SkillDecision): SkillLoopDecision | null {
+  if (decision.kind === 'action') {
+    return { kind: 'action', name: decision.name, args: decision.args, observation: decision.observation };
+  }
+  if (decision.kind === 'done') {
+    return { kind: 'done', summary: decision.summary };
+  }
+  return null;
 }
 
 function noopTrace(): SkillTrace {
@@ -178,19 +194,24 @@ export class SkillRuntime {
         return { handled: false, skillState, candidates, fallbackUsed: true, record };
       }
 
-      // action | done
+      const loopDecision = toLoopDecision(result.decision);
+      if (!loopDecision) {
+        continue;
+      }
       const record: SkillRunRecord = {
         skillId: skill.manifest.id,
         skillVersion: skill.manifest.version,
         candidateCount: candidates.length,
         selectedReason: candidate.reason,
         durationMs: Date.now() - started,
-        outcome: result.decision.kind,
+        outcome: loopDecision.kind,
         fallbackUsed: false,
       };
       return {
         handled: true,
-        decision: result.decision,
+        decision: loopDecision,
+        criteria: 'criteria' in result.decision ? result.decision.criteria : undefined,
+        artifact: result.decision.kind === 'done' ? result.decision.artifact : undefined,
         record,
         skillState,
         candidates,

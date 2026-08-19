@@ -548,8 +548,8 @@ export async function createLlmControlDriver(
                 if (decision.kind === 'done') {
                   const settled = await settleProposedDone(decision.summary, stateText);
                   if (settled.kind !== 'done') return settled;
-                  if (decision.artifact) {
-                    artifacts.push(decision.artifact);
+                  if (skillTry.artifact) {
+                    artifacts.push(skillTry.artifact);
                     const artSpan = await traceStore.beginSpan({
                       taskId: input.taskId,
                       roundId,
@@ -557,15 +557,15 @@ export async function createLlmControlDriver(
                       name: 'artifact.create',
                       startedAt: Date.now(),
                       data: {
-                        artifact_id: decision.artifact.id,
-                        artifact_type: decision.artifact.type,
+                        artifact_id: skillTry.artifact.id,
+                        artifact_type: skillTry.artifact.type,
                       },
                     });
                     await traceStore.finishSpan(artSpan, 'ok');
                   }
-                  if (!criteriaLocked && decision.criteria && decision.criteria.length > 0) {
+                  if (!criteriaLocked && skillTry.criteria && skillTry.criteria.length > 0) {
                     try {
-                      await hooks.onPlan(roundId, decision.criteria);
+                      await hooks.onPlan(roundId, skillTry.criteria);
                       criteriaLocked = true;
                     } catch {
                       /* still complete */
@@ -578,9 +578,9 @@ export async function createLlmControlDriver(
                   return settled;
                 }
                 if (decision.kind === 'action') {
-                  if (!criteriaLocked && decision.criteria && decision.criteria.length > 0) {
+                  if (!criteriaLocked && skillTry.criteria && skillTry.criteria.length > 0) {
                     try {
-                      await hooks.onPlan(roundId, decision.criteria);
+                      await hooks.onPlan(roundId, skillTry.criteria);
                       criteriaLocked = true;
                     } catch (error) {
                       logger.error('onPlan failed (skill)', error);
@@ -591,12 +591,7 @@ export async function createLlmControlDriver(
                     logger.warning('skill action missing from registry; fallback', { name: decision.name });
                   } else {
                     logger.info('skill action', { skill: skillTry.record?.skillId, name: decision.name });
-                    return {
-                      kind: 'action',
-                      name: decision.name,
-                      args: decision.args,
-                      observation: decision.observation,
-                    };
+                    return decision;
                   }
                 }
               }

@@ -169,7 +169,15 @@ describe('Feature: Side panel uses 持节 design system', () => {
     it('turns rejected command enums into user-facing recovery copy', () => {
       expect(commandRejectionMessage('stale_revision')).not.toContain('stale_revision');
       expect(commandRejectionMessage('invalid_transition')).not.toContain('invalid_transition');
+      expect(commandRejectionMessage('not_executable', '你好，需要我帮你在页面上做什么？')).toBe(
+        '你好，需要我帮你在页面上做什么？',
+      );
       expect(sidePanelSource).not.toContain('Command rejected:');
+    });
+
+    it('does not decide user turns in the side panel; start/follow_up is classified in TaskManager.dispatch', () => {
+      expect(sidePanelSource).not.toContain("type: 'user_turn_decision'");
+      expect(sidePanelSource).toContain('forceExecute');
     });
   });
 

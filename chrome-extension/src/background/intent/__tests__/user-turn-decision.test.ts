@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { enforcePageObservationInvariant, parseUserTurnDecision } from '../user-turn-decision';
+import {
+  CHEAP_GREETING_REPLY_TEXT,
+  CHEAP_STOP_TEXT,
+  EMPTY_TURN_CLARIFY_TEXT,
+  enforcePageObservationInvariant,
+  parseUserTurnDecision,
+  resolveUserTurnCheap,
+} from '../user-turn-decision';
 
 describe('parseUserTurnDecision', () => {
   it('accepts valid reply JSON', () => {
@@ -40,6 +47,46 @@ describe('parseUserTurnDecision', () => {
   it('rejects garbage', () => {
     expect(parseUserTurnDecision('not json at all').ok).toBe(false);
     expect(parseUserTurnDecision('').ok).toBe(false);
+  });
+});
+
+describe('resolveUserTurnCheap', () => {
+  it('clarifies an empty sentence without a model', () => {
+    expect(resolveUserTurnCheap('   ')).toEqual({
+      kind: 'clarify',
+      userVisibleText: EMPTY_TURN_CLARIFY_TEXT,
+    });
+  });
+
+  it('replies to a whole-message greeting without a model', () => {
+    expect(resolveUserTurnCheap('你好')).toEqual({
+      kind: 'reply',
+      userVisibleText: CHEAP_GREETING_REPLY_TEXT,
+    });
+    expect(resolveUserTurnCheap('谢谢')).toMatchObject({ kind: 'reply' });
+  });
+
+  it('stops on a whole-message stop without a model', () => {
+    expect(resolveUserTurnCheap('停止')).toEqual({
+      kind: 'stop',
+      userVisibleText: CHEAP_STOP_TEXT,
+    });
+    expect(resolveUserTurnCheap('cancel')).toMatchObject({ kind: 'stop' });
+  });
+
+  it('executes obvious page work without a model', () => {
+    expect(resolveUserTurnCheap('打开 YouTube')).toEqual({ kind: 'execute', userVisibleText: '' });
+    expect(resolveUserTurnCheap('open https://example.com')).toEqual({ kind: 'execute', userVisibleText: '' });
+    expect(resolveUserTurnCheap('用一句话说明当前 AICSS 页面展示的内容。不要点击或修改页面。')).toEqual({
+      kind: 'execute',
+      userVisibleText: '',
+    });
+  });
+
+  it('leaves ambiguous chat for the model', () => {
+    expect(resolveUserTurnCheap('帮我看看')).toBeNull();
+    expect(resolveUserTurnCheap('请用一句话说明什么是 AICSS。')).toBeNull();
+    expect(resolveUserTurnCheap('打开')).toBeNull();
   });
 });
 

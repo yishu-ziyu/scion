@@ -43,7 +43,6 @@ import {
   shouldShowMainTaskSurface,
 } from './presentation/task-loop-ui';
 import { completionChatDelivery, hasCompletionChatDelivery } from './presentation/completion-chat-delivery';
-import { isStatusOnlyAnswer } from './presentation/goal-coverage';
 import { taskAllowsDirectionChange, taskLocksComposer, taskNeedsDirectStop } from './presentation/wait-affordance';
 import { isFollowingForeground, setFollowCommand, takeoverCommand } from './presentation/run-presence';
 import {
@@ -59,7 +58,6 @@ import {
   isCurrentAsyncSessionResult,
   isRejectedTaskLaunchAck,
   mergeAuthoritativeTaskSnapshot,
-  modelHistoryForTurn,
   newChatCancellationTarget,
   ownsAsyncSessionOperation,
   pendingStartAfterPostFailure,
@@ -84,9 +82,10 @@ declare global {
   }
 }
 
-type CommandRejection = 'not_found' | 'stale_revision' | 'invalid_transition' | 'invalid_input';
+type CommandRejection = 'not_found' | 'stale_revision' | 'invalid_transition' | 'invalid_input' | 'not_executable';
 
-export function commandRejectionMessage(error: CommandRejection): string {
+export function commandRejectionMessage(error: CommandRejection, userVisibleText?: string): string {
+  if (error === 'not_executable' && userVisibleText?.trim()) return userVisibleText.trim();
   switch (error) {
     case 'stale_revision':
       return t('chat_task_command_stale');
@@ -96,6 +95,8 @@ export function commandRejectionMessage(error: CommandRejection): string {
       return t('chat_task_command_not_found');
     case 'invalid_input':
       return t('chat_task_command_invalid_input');
+    case 'not_executable':
+      return t('chat_task_command_not_executable');
   }
 }
 
@@ -189,15 +190,6 @@ const SidePanel = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<number | null>(null);
-  const pendingUserTurnRef = useRef(
-    new Map<
-      string,
-      {
-        resolve: (d: { kind: string; userVisibleText: string }) => void;
-        reject: (e: Error) => void;
-      }
-    >(),
-  );
 
   const refreshBindPreview = useCallback(async () => {
     const bound = await resolveActiveContentTab({ allowLastFocused: false });
@@ -862,7 +854,36 @@ const SidePanel = () => {
               portRef.current?.postMessage({ type: 'get_task', taskId: message.ack.taskId });
             }
           }
+          if (
+            message.ack.accepted &&
+            ownsPendingAck &&
+            typeof message.ack.userVisibleText === 'string' &&
+            message.ack.userVisibleText.trim()
+          ) {
+            void appendMessage({
+              actor: Actors.SYSTEM,
+              content: message.ack.userVisibleText.trim(),
+              timestamp: Date.now(),
+            });
+          }
           if (!message.ack.accepted) {
+            if (message.ack.error === 'not_executable' && ownsPendingAck) {
+              if (pendingStartCommandRef.current?.taskId === message.ack.taskId) {
+                pendingStartCommandRef.current = null;
+                pendingTaskIdRef.current = null;
+              }
+              pendingAsyncLaunchRef.current = null;
+              setTaskLaunchPending(false);
+              setInputEnabled(true);
+              setShowStopButton(false);
+              setTaskSnapshotLoaded(true);
+              void appendMessage({
+                actor: Actors.SYSTEM,
+                content: commandRejectionMessage(message.ack.error, message.ack.userVisibleText),
+                timestamp: Date.now(),
+              });
+              return;
+            }
             const rejectsTaskLaunch = ownsPendingAck && isRejectedTaskLaunchAck(pendingCommand, message.ack);
             if (
               pendingNewChatCancellation?.taskId === message.ack.taskId &&
@@ -917,7 +938,7 @@ const SidePanel = () => {
             ) {
               void appendMessage({
                 actor: Actors.SYSTEM,
-                content: commandRejectionMessage(message.ack.error),
+                content: commandRejectionMessage(message.ack.error, message.ack.userVisibleText),
                 timestamp: Date.now(),
               });
             }
@@ -947,24 +968,6 @@ const SidePanel = () => {
           setIsProcessingSpeech(false);
         } else if (message && message.type === 'heartbeat_ack') {
           console.log('Heartbeat acknowledged');
-        } else if (message && message.type === 'user_turn_decision_result') {
-          const requestId = typeof message.requestId === 'string' ? message.requestId : '';
-          const pending = pendingUserTurnRef.current.get(requestId);
-          if (!pending) return;
-          pendingUserTurnRef.current.delete(requestId);
-          if (message.error) {
-            pending.reject(new Error(String(message.error)));
-            return;
-          }
-          const decision = message.decision;
-          if (!decision || typeof decision.kind !== 'string' || typeof decision.userVisibleText !== 'string') {
-            pending.reject(new Error(t('errors_unknown')));
-            return;
-          }
-          pending.resolve({
-            kind: decision.kind,
-            userVisibleText: decision.userVisibleText,
-          });
         }
       });
 
@@ -1169,49 +1172,6 @@ const SidePanel = () => {
     }
   };
 
-  const requestUserTurnDecision = useCallback(
-    (latestText: string, history: Array<{ role: 'user' | 'assistant'; content: string }>) => {
-      return new Promise<{ kind: string; userVisibleText: string }>((resolve, reject) => {
-        if (!portRef.current) {
-          setupConnection();
-        }
-        const port = portRef.current;
-        if (!port) {
-          reject(new Error(t('errors_conn_serviceWorker')));
-          return;
-        }
-        const requestId = crypto.randomUUID();
-        const timer = window.setTimeout(() => {
-          pendingUserTurnRef.current.delete(requestId);
-          reject(new Error('判断超时，请再试一次。'));
-        }, 90000);
-        pendingUserTurnRef.current.set(requestId, {
-          resolve: d => {
-            window.clearTimeout(timer);
-            resolve(d);
-          },
-          reject: e => {
-            window.clearTimeout(timer);
-            reject(e);
-          },
-        });
-        try {
-          port.postMessage({
-            type: 'user_turn_decision',
-            requestId,
-            text: latestText,
-            history,
-          });
-        } catch (error) {
-          window.clearTimeout(timer);
-          pendingUserTurnRef.current.delete(requestId);
-          reject(error instanceof Error ? error : new Error(String(error)));
-        }
-      });
-    },
-    [setupConnection],
-  );
-
   const handleSendMessage = async (
     text: string,
     displayText?: string,
@@ -1317,8 +1277,6 @@ const SidePanel = () => {
         timestamp: Date.now(),
       };
 
-      const historyForModel = modelHistoryForTurn(messages, startingFreshSession);
-
       const storedMessage = await appendMessage(userMessage, turnSessionId, text, true, startingFreshSession);
       if (!storedMessage) throw new Error('Failed to persist message');
       if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
@@ -1327,84 +1285,9 @@ const SidePanel = () => {
         setupConnection();
       }
 
-      // LLM decides: reply / clarify / execute / stop (no keyword router).
-      // 再说一次 already knows this is the same task - skip the hop.
-      const decision = options?.execute
-        ? { kind: 'execute' as const, userVisibleText: '' }
-        : await requestUserTurnDecision(trimmedText, historyForModel);
-      // A delayed decision from a superseded chat must never append or start work in the new chat.
-      if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
-
-      if (decision.kind === 'reply' || decision.kind === 'clarify') {
-        await appendMessage(
-          {
-            actor: Actors.SYSTEM,
-            content: decision.userVisibleText,
-            timestamp: Date.now(),
-          },
-          turnSessionId,
-        );
-        setInputEnabled(true);
-        setShowStopButton(false);
-        launchResolved = true;
-        return;
-      }
-
-      if (decision.kind === 'stop') {
-        if (taskSnapshot && isActiveTaskStatus(taskSnapshot.status)) {
-          sendTaskCommand({
-            type: 'cancel',
-            commandId: crypto.randomUUID(),
-            taskId: taskSnapshot.id,
-            expectedRevision: taskSnapshot.revision,
-          });
-        }
-        if (decision.userVisibleText) {
-          await appendMessage(
-            {
-              actor: Actors.SYSTEM,
-              content: decision.userVisibleText,
-              timestamp: Date.now(),
-            },
-            turnSessionId,
-          );
-        }
-        setInputEnabled(true);
-        setShowStopButton(false);
-        launchResolved = true;
-        return;
-      }
-
-      // execute (or unknown kind treated as execute only if model said execute)
-      if (decision.kind !== 'execute') {
-        await appendMessage(
-          {
-            actor: Actors.SYSTEM,
-            content: decision.userVisibleText || '我没太理解，请再说一遍你想在页面上做什么。',
-            timestamp: Date.now(),
-          },
-          turnSessionId,
-        );
-        setInputEnabled(true);
-        setShowStopButton(false);
-        launchResolved = true;
-        return;
-      }
-
-      if (decision.userVisibleText && !isStatusOnlyAnswer(decision.userVisibleText)) {
-        await appendMessage(
-          {
-            actor: Actors.SYSTEM,
-            content: decision.userVisibleText,
-            timestamp: Date.now(),
-          },
-          turnSessionId,
-        );
-      }
-
+      // classify lives on TaskManager.dispatch (start / follow_up). 再说一次 already knows this is the same task.
       const currentTask = taskSnapshotRef.current;
       const canFollowUp = canFollowUpInOwnedSession(currentTask, turnSessionId);
-      setShowStopButton(true);
       if (canFollowUp && currentTask) {
         sendTaskCommand({
           type: 'follow_up',
@@ -1415,12 +1298,12 @@ const SidePanel = () => {
           chatSessionId: turnSessionId,
           instructionMessageId: storedMessage.id,
           changeType: isDirectionChange ? 'direction_change' : 'follow_up',
+          forceExecute: options?.execute === true,
         });
       } else {
         const bound = await resolveActiveContentTab({ allowLastFocused: false });
         if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
         setBindPreview(bound);
-        if (!bound) throw new Error(t('chat_task_bind_missing'));
         sendTaskCommand({
           type: 'start',
           commandId: crypto.randomUUID(),
@@ -1428,7 +1311,8 @@ const SidePanel = () => {
           instruction: text,
           chatSessionId: turnSessionId,
           instructionMessageId: storedMessage.id,
-          tabId: bound.tabId,
+          tabId: bound?.tabId ?? -1,
+          forceExecute: options?.execute === true,
         });
       }
       launchResolved = true;

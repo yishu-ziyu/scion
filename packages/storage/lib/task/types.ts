@@ -136,13 +136,15 @@ export interface MissionPlan {
 }
 
 export type CommandAck =
-  | { accepted: true; commandId: string; taskId: string; revision: number }
+  | { accepted: true; commandId: string; taskId: string; revision: number; userVisibleText?: string }
   | {
       accepted: false;
       commandId: string;
       taskId: string;
       revision: number;
-      error: 'not_found' | 'stale_revision' | 'invalid_transition' | 'invalid_input';
+      error: 'not_found' | 'stale_revision' | 'invalid_transition' | 'invalid_input' | 'not_executable';
+      /** User-facing sentence when this command is not a page task. */
+      userVisibleText?: string;
     };
 
 type ExistingTaskCommand = { commandId: string; taskId: string; expectedRevision: number };
@@ -156,6 +158,8 @@ export type TaskCommand =
       chatSessionId: string;
       instructionMessageId: string;
       tabId: number;
+      /** Skip classify (再说一次 already knows this is the same task). */
+      forceExecute?: boolean;
     }
   | (ExistingTaskCommand & {
       type: 'follow_up';
@@ -163,6 +167,8 @@ export type TaskCommand =
       chatSessionId: string;
       instructionMessageId: string;
       changeType?: 'follow_up' | 'direction_change';
+      /** Skip classify (再说一次 already knows this is the same task). */
+      forceExecute?: boolean;
     })
   | (ExistingTaskCommand & { type: 'pause' | 'resume' | 'cancel' | 'takeover' })
   | (ExistingTaskCommand & { type: 'set_follow'; follow: boolean })

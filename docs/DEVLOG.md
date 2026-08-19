@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-08-19 用户那一句在 TaskManager.dispatch 里分类
+
+侧栏不再发 `user_turn_decision`。`TaskManager.dispatch` 在 `this.transition` 外调用 `decideUserTurn`（先 `resolveUserTurnCheap`）。不是页面任务则 `not_executable`，不建任务。`follow_up` 的「停止」走 `cancel`。技能接住时 `tryDecide.decision` 就是 `LoopDecision`。`understandingAnswerSkill` / `themeCitationSkill` 不进 `defaultSkills()`。
+
+### 验证
+
+`user-turn-decision`、`manager` 的 classify 用例、`runtime`、`ui-acceptance`。
+
+---
+
 ## 2026-08-18 失败后只留目标和结果
 
 ### 用户场景

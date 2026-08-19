@@ -82,6 +82,7 @@ import {
   instructionAffirmsTarget,
 } from '../instruction-language';
 import { isAcknowledgementOnly, isPlaceholderDelivery } from './result-text';
+import type { UserTurnDecision } from '../intent/user-turn-decision';
 
 export type { ExecutorDriver } from './contracts';
 
@@ -107,6 +108,13 @@ interface TaskManagerDeps {
   probeTabState?: (tabId: number) => Promise<TabStateProbe>;
   /** Probe recent downloads API state; default 'none' never false-completes. */
   probeDownloadState?: () => Promise<DownloadStateProbe>;
+  /**
+   * Classify a start/follow_up sentence before a round is created.
+   * Missing in tests: treat as execute. Production wires decideUserTurn
+   * (resolveUserTurnCheap first; model only when that returns null).
+   * Called from dispatch() before this.transition so pause/cancel are not blocked.
+   */
+  decideUserTurn?: (input: { text: string; chatSessionId?: string }) => Promise<UserTurnDecision>;
 }
 
 const TERMINAL_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled'];
@@ -732,16 +740,75 @@ export class TaskManager {
   private readonly unsafeSkillCriteriaRounds = new Set<string>();
   private readonly listeners = new Set<(event: TaskEvent) => void>();
   private transition: Promise<void> = Promise.resolve();
+  private readonly userTurnByCommand = new Map<string, UserTurnDecision>();
 
   constructor(private readonly deps: TaskManagerDeps) {}
 
   dispatch(command: TaskCommand): Promise<CommandAck> {
-    const result = this.transition.then(() => this.dispatchNow(command));
+    const run = async () => {
+      const preflight = await this.classifyStartOrFollowUp(command);
+      if (preflight) return preflight;
+      return this.enqueueTransition(() => this.dispatchNow(command));
+    };
+    return run();
+  }
+
+  private enqueueTransition<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.transition.then(work);
     this.transition = result.then(
       () => undefined,
       () => undefined,
     );
     return result;
+  }
+
+  private notExecutableAck(
+    commandId: string,
+    taskId: string,
+    revision: number,
+    userVisibleText: string,
+  ): CommandAck {
+    return {
+      accepted: false,
+      commandId,
+      taskId,
+      revision,
+      error: 'not_executable',
+      userVisibleText,
+    };
+  }
+
+  private async classifyStartOrFollowUp(command: TaskCommand): Promise<CommandAck | null> {
+    if (command.type !== 'start' && command.type !== 'follow_up') return null;
+    if (command.forceExecute || !this.deps.decideUserTurn) return null;
+
+    let decision: UserTurnDecision;
+    try {
+      decision = await this.deps.decideUserTurn({
+        text: command.instruction,
+        chatSessionId: command.chatSessionId,
+      });
+    } catch (error) {
+      const text = error instanceof Error ? error.message : '模型返回无法解析，请再说一遍你想做什么。';
+      if (command.type === 'start') {
+        return this.notExecutableAck(command.commandId, command.taskId, 0, text);
+      }
+      decision = { kind: 'clarify', userVisibleText: text };
+    }
+
+    if (command.type === 'start' && decision.kind !== 'execute') {
+      return this.notExecutableAck(
+        command.commandId,
+        command.taskId,
+        0,
+        decision.userVisibleText ||
+          (decision.kind === 'stop' ? '好的，已停止。' : '我没太理解，请再说一遍你想在页面上做什么。'),
+      );
+    }
+    if (command.type === 'follow_up') {
+      this.userTurnByCommand.set(command.commandId, decision);
+    }
+    return null;
   }
 
   async snapshot(taskId: string): Promise<TaskSnapshot | null> {
@@ -877,7 +944,16 @@ export class TaskManager {
   }
 
   private async start(command: Extract<TaskCommand, { type: 'start' }>): Promise<CommandAck> {
-    if (!command.instruction.trim() || command.tabId < 0) {
+    if (!command.instruction.trim()) {
+      return {
+        accepted: false,
+        commandId: command.commandId,
+        taskId: command.taskId,
+        revision: 0,
+        error: 'invalid_input',
+      };
+    }
+    if (command.tabId < 0) {
       return {
         accepted: false,
         commandId: command.commandId,
@@ -1191,6 +1267,21 @@ export class TaskManager {
     ) {
       return this.reject(task, command.commandId, 'invalid_transition');
     }
+
+    const classified = this.userTurnByCommand.get(command.commandId);
+    this.userTurnByCommand.delete(command.commandId);
+    if (classified?.kind === 'stop') {
+      return this.cancel(task, command.commandId, classified.userVisibleText || '好的，已停止。');
+    }
+    if (classified?.kind === 'reply' || classified?.kind === 'clarify') {
+      return this.reject(
+        task,
+        command.commandId,
+        'not_executable',
+        classified.userVisibleText || '我没太理解，请再说一遍你想在页面上做什么。',
+      );
+    }
+
     const previousStatus = task.status;
     const roundId = crypto.randomUUID();
     const now = this.deps.now();
@@ -1225,23 +1316,24 @@ export class TaskManager {
     return ack;
   }
 
-  private async cancel(task: TaskSession, commandId: string): Promise<CommandAck> {
+  private async cancel(task: TaskSession, commandId: string, userVisibleText?: string): Promise<CommandAck> {
     if (TERMINAL_STATUSES.includes(task.status)) return this.reject(task, commandId, 'invalid_transition');
     task.status = 'cancelled';
     this.currentRound(task).status = 'cancelled';
-    const ack = this.accept(task, commandId);
+    const ack = this.accept(task, commandId, userVisibleText);
     await this.persist(task);
     await this.stopTaskRuntime(task.id);
     return ack;
   }
 
-  private accept(task: TaskSession, commandId: string): CommandAck {
+  private accept(task: TaskSession, commandId: string, userVisibleText?: string): CommandAck {
     task.revision += 1;
     const ack: CommandAck = {
       accepted: true,
       commandId,
       taskId: task.id,
       revision: task.revision,
+      ...(userVisibleText ? { userVisibleText } : {}),
     };
     this.currentRound(task).commandAcks[commandId] = ack;
     return ack;
@@ -1250,7 +1342,8 @@ export class TaskManager {
   private async reject(
     task: TaskSession,
     commandId: string,
-    error: 'stale_revision' | 'invalid_transition' | 'invalid_input',
+    error: 'stale_revision' | 'invalid_transition' | 'invalid_input' | 'not_executable',
+    userVisibleText?: string,
   ): Promise<CommandAck> {
     const ack: CommandAck = {
       accepted: false,
@@ -1258,6 +1351,7 @@ export class TaskManager {
       taskId: task.id,
       revision: task.revision,
       error,
+      ...(userVisibleText ? { userVisibleText } : {}),
     };
     this.currentRound(task).commandAcks[commandId] = ack;
     await this.persist(task);

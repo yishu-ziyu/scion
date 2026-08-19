@@ -326,6 +326,172 @@ describe('TaskManager lifecycle', () => {
     expect(JSON.stringify(store.sessions.get('task-1'))).not.toContain('open the form');
   });
 
+  it('does not create a task when decideUserTurn says reply, even without a tab', async () => {
+    const createExecutor = vi.fn(async () => fakeDriver());
+    const decideUserTurn = vi.fn(async () => ({
+      kind: 'reply' as const,
+      userVisibleText: '你好，需要我帮你在页面上做什么？',
+    }));
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      decideUserTurn,
+      ...noPostCommitBackoff,
+    });
+    const ack = await manager.dispatch({
+      type: 'start',
+      commandId: 'cmd-classify-reply',
+      taskId: 'task-classify-reply',
+      instruction: '你好',
+      chatSessionId: 'chat-classify',
+      instructionMessageId: 'msg-classify',
+      tabId: -1,
+    });
+    expect(ack).toMatchObject({
+      accepted: false,
+      error: 'not_executable',
+      userVisibleText: '你好，需要我帮你在页面上做什么？',
+    });
+    expect(decideUserTurn).toHaveBeenCalledTimes(1);
+    expect(createExecutor).not.toHaveBeenCalled();
+    expect(store.sessions.get('task-classify-reply')).toBeUndefined();
+  });
+
+  it('skips decideUserTurn when forceExecute is set', async () => {
+    const createExecutor = vi.fn(async () => fakeDriver());
+    const decideUserTurn = vi.fn(async () => ({
+      kind: 'reply' as const,
+      userVisibleText: 'should not run',
+    }));
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      decideUserTurn,
+      ...noPostCommitBackoff,
+    });
+    const ack = await manager.dispatch({
+      type: 'start',
+      commandId: 'cmd-force',
+      taskId: 'task-force',
+      instruction: '你好',
+      chatSessionId: 'chat-force',
+      instructionMessageId: 'msg-force',
+      tabId: 7,
+      forceExecute: true,
+    });
+    expect(ack.accepted).toBe(true);
+    expect(decideUserTurn).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
+  });
+
+  it('cancels the live task when follow_up is classified as stop', async () => {
+    const driver = fakeDriver();
+    const manager = new TaskManager({
+      createExecutor: async () => driver,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      decideUserTurn: async ({ text }) =>
+        text === '停止'
+          ? { kind: 'stop', userVisibleText: '好的，已停止。' }
+          : { kind: 'execute', userVisibleText: '' },
+      ...noPostCommitBackoff,
+    });
+    const started = await manager.dispatch({
+      type: 'start',
+      commandId: 'cmd-run',
+      taskId: 'task-stop-follow',
+      instruction: '打开 YouTube',
+      chatSessionId: 'chat-stop',
+      instructionMessageId: 'msg-run',
+      tabId: 7,
+    });
+    expect(started.accepted).toBe(true);
+    await vi.waitFor(async () => {
+      const live = await manager.snapshot('task-stop-follow');
+      expect(live?.status).toBe('running');
+    });
+    let stopped: Awaited<ReturnType<TaskManager['dispatch']>> | undefined;
+    await vi.waitFor(async () => {
+      const current = await manager.snapshot('task-stop-follow');
+      stopped = await manager.dispatch({
+        type: 'follow_up',
+        commandId: `cmd-stop-${current?.revision ?? 0}`,
+        taskId: 'task-stop-follow',
+        expectedRevision: current?.revision ?? 0,
+        instruction: '停止',
+        chatSessionId: 'chat-stop',
+        instructionMessageId: 'msg-stop',
+      });
+      expect(stopped.accepted || (stopped.accepted === false && stopped.error === 'stale_revision')).toBe(true);
+      expect(stopped.accepted).toBe(true);
+    });
+    expect(stopped).toMatchObject({ accepted: true, userVisibleText: '好的，已停止。' });
+    const snapshot = await manager.snapshot('task-stop-follow');
+    expect(snapshot?.status).toBe('cancelled');
+  });
+
+  it('does not hold this.transition while decideUserTurn is still running', async () => {
+    const driver = fakeDriver();
+    let finishClassify!: (decision: { kind: 'execute'; userVisibleText: string }) => void;
+    const decideUserTurn = vi.fn(
+      () =>
+        new Promise<{ kind: 'execute'; userVisibleText: string }>(resolve => {
+          finishClassify = resolve;
+        }),
+    );
+    const manager = new TaskManager({
+      createExecutor: async () => driver,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      decideUserTurn,
+      ...noPostCommitBackoff,
+    });
+    const started = await manager.dispatch({
+      type: 'start',
+      commandId: 'cmd-lock-start',
+      taskId: 'task-lock',
+      instruction: '打开 YouTube',
+      chatSessionId: 'chat-lock',
+      instructionMessageId: 'msg-lock-start',
+      tabId: 7,
+      forceExecute: true,
+    });
+    expect(started.accepted).toBe(true);
+    await vi.waitFor(async () => {
+      const live = await manager.snapshot('task-lock');
+      expect(live?.status).toBe('running');
+    });
+    const live = await manager.snapshot('task-lock');
+    const followPromise = manager.dispatch({
+      type: 'follow_up',
+      commandId: 'cmd-lock-follow',
+      taskId: 'task-lock',
+      expectedRevision: live?.revision ?? 0,
+      instruction: '再搜一次',
+      chatSessionId: 'chat-lock',
+      instructionMessageId: 'msg-lock-follow',
+    });
+    await vi.waitFor(() => expect(decideUserTurn).toHaveBeenCalled());
+    const beforePause = await manager.snapshot('task-lock');
+    const paused = await manager.dispatch({
+      type: 'pause',
+      commandId: 'cmd-lock-pause',
+      taskId: 'task-lock',
+      expectedRevision: beforePause?.revision ?? 0,
+    });
+    // Must settle while decideUserTurn is still hanging. stale_revision is
+    // still a dispatch result; hanging would mean this.transition held the classify.
+    expect(paused.accepted || (paused.accepted === false && paused.error === 'stale_revision')).toBe(true);
+    finishClassify({ kind: 'execute', userVisibleText: '' });
+    await followPromise;
+  });
+
   it('writes a live 获取页面快照 step on start before createExecutor returns', async () => {
     let finishCreate!: (driver: ExecutorDriver) => void;
     const createExecutor = vi.fn(() => new Promise<ExecutorDriver>(resolve => (finishCreate = resolve)));
@@ -3685,3 +3851,4 @@ describe('TaskManager lifecycle', () => {
     });
   });
 });
+
