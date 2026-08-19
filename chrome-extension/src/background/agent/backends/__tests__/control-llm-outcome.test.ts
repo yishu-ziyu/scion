@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CONTROL_MAX_NO_PROGRESS,
   decideVisiblePageWithoutAction,
   invokeWithTimeout,
   mapLoopOutcomeToExecutor,
+  memoryAfterAction,
   readCurrentMissionContext,
   shouldKeepActionResultInContext,
 } from '../control-llm';
@@ -75,6 +79,51 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
     expect(shouldKeepActionResultInContext('observe')).toBe(true);
     expect(shouldKeepActionResultInContext('extract_content')).toBe(true);
     expect(shouldKeepActionResultInContext('click_element')).toBe(false);
+  });
+
+  it('writes a failed click_element into lastActionMemory and does not keep a successful click', () => {
+    expect(shouldKeepActionResultInContext('click_element')).toBe(false);
+    expect(
+      memoryAfterAction('click_element', { error: 'Needs index or query. Did not click.' }),
+    ).toBe('click_element failed: Needs index or query. Did not click.');
+    expect(memoryAfterAction('click_element', { summary: 'Clicked Submit' })).toBeNull();
+    expect(memoryAfterAction('input_text', { summary: 'typed: secret' })).toBeNull();
+    expect(memoryAfterAction('go_to_url', { summary: 'Opened https://example.test' })).toBeNull();
+    expect(memoryAfterAction('read_page_text', { summary: 'IANA home' })).toBe('IANA home');
+  });
+
+  it('clears lastActionMemory after a failed click then a successful click that is not kept', () => {
+    const afterFail = memoryAfterAction('click_element', {
+      error: 'Needs index or query. Did not click.',
+    });
+    expect(afterFail).toBe('click_element failed: Needs index or query. Did not click.');
+    expect(memoryAfterAction('click_element', { summary: 'Clicked Submit' })).toBeNull();
+  });
+
+  it('uses the thrown dispatch message as the failure text', () => {
+    expect(memoryAfterAction('click_element', { error: 'stale_task_round' })).toBe(
+      'click_element failed: stale_task_round',
+    );
+  });
+
+  it('prefers the error over a keep-action summary and caps huge errors', () => {
+    expect(
+      memoryAfterAction('read_page_text', { error: 'timeout', summary: 'IANA home' }),
+    ).toBe('read_page_text failed: timeout');
+    const memory = memoryAfterAction('click_element', { error: 'x'.repeat(30_000) });
+    expect(memory).toContain('click_element failed:');
+    expect(memory).toContain('[compacted');
+    expect(memory!.length).toBeLessThan(30_000);
+  });
+
+  it('writes lastActionMemory through memoryAfterAction on the act result and catch', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const source = readFileSync(join(here, '../control-llm.ts'), 'utf8');
+    expect(source).toMatch(/lastActionMemory = memoryAfterAction\(name, result\)/);
+    expect(source).toMatch(/lastActionMemory = memoryAfterAction\(name, \{ error: message \}\)/);
+    expect(source).not.toMatch(
+      /if \(!result\.error && result\.summary && shouldKeepActionResultInContext\(name\)\)/,
+    );
   });
 
   it.each(['no_progress', 'max_steps'] as const)(

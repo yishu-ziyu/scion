@@ -1345,6 +1345,9 @@
   "chat_task_bind_missing": {
     "message": "沒有可用的網頁分頁。請先開啟目標網站，再傳送。"
   },
+  "chat_task_bind_this_page": {
+    "message": "目前分頁不是網頁，讀不了「這個頁面」。打開一個網頁再派，或改成搜一下。"
+  },
   "chat_task_cancel": {
     "message": "結束任務"
   },

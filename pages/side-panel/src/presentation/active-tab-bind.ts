@@ -78,6 +78,34 @@ export function pickActiveContentTab(
   };
 }
 
+/** Side panel opened as a tab is active; chrome://newtab is the user's page and must not borrow another tab. */
+export function shouldBorrowBackgroundContentTab(activeUrl?: string | null): boolean {
+  if (!activeUrl) return false;
+  return activeUrl.startsWith('chrome-extension://');
+}
+
+/**
+ * Bind the tab the user is looking at.
+ * chrome:// new tab / settings stay unbound. Do not steal a background http tab.
+ */
+export function bindTabForTask(tabs: ContentTabCandidate[]): BoundContentTab | null {
+  const active = tabs.find(tab => tab.active);
+  if (isUsableContentTabUrl(active?.url)) {
+    return pickActiveContentTab(active ? [active] : [], { requireActive: true });
+  }
+  if (shouldBorrowBackgroundContentTab(active?.url)) {
+    return pickActiveContentTab(tabs, { requireActive: false });
+  }
+  return null;
+}
+
+export function instructionPointsAtCurrentPage(instruction: string): boolean {
+  return (
+    /(?:当前|这个|本)(?:的)?(?:页面|网页|网站|页)|(?:页面|网页)(?:上|中|展示|内容)/.test(instruction) ||
+    /\b(?:this|the|current)\s+(?:page|webpage|site)\b/i.test(instruction)
+  );
+}
+
 /** One-line chip copy: host · short title */
 export function formatBindChip(bind: BoundContentTab | null, emptyLabel: string): string {
   if (!bind) return emptyLabel;

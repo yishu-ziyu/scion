@@ -54,6 +54,11 @@ const taskManager = new TaskManager({
       return 'closed';
     }
   },
+  openBlankTaskTab: async () => {
+    const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
+    if (!tab.id) throw new Error('No tab ID available');
+    return tab.id;
+  },
   decideUserTurn: async ({ text, chatSessionId }) => {
     let history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
     if (chatSessionId) {

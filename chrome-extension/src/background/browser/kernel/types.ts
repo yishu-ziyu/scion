@@ -52,6 +52,8 @@ export interface ObservationFrame {
   pageRevision: string;
   targetCount: number;
   interactiveElements: InteractiveElementDigest[];
+  /** Form-control list from the full selector map, not the 80-item click digest. */
+  formFieldsText?: string;
   /** Visible document wording (innerText), bounded. Empty when the page has no body. */
   visibleText?: string;
   /** Compact text for model prompts (existing control path). */

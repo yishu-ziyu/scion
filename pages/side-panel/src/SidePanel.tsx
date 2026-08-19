@@ -33,7 +33,8 @@ import { PROGRESS_MESSAGE_CONTENT, classifyAgentEvent, shouldMergeFailure } from
 import {
   formatBindChip,
   formatBindDetail,
-  pickActiveContentTab,
+  bindTabForTask,
+  instructionPointsAtCurrentPage,
   taskBoundContentTab,
   type BoundContentTab,
 } from './presentation/active-tab-bind';
@@ -85,7 +86,12 @@ declare global {
 type CommandRejection = 'not_found' | 'stale_revision' | 'invalid_transition' | 'invalid_input' | 'not_executable';
 
 export function commandRejectionMessage(error: CommandRejection, userVisibleText?: string): string {
-  if (error === 'not_executable' && userVisibleText?.trim()) return userVisibleText.trim();
+  if (
+    userVisibleText?.trim() &&
+    (error === 'not_executable' || error === 'invalid_input')
+  ) {
+    return userVisibleText.trim();
+  }
   switch (error) {
     case 'stale_revision':
       return t('chat_task_command_stale');
@@ -107,18 +113,14 @@ export { confirmsNewChatCancellation, shouldAcceptTaskSignal } from './presentat
 export async function resolveActiveContentTab(
   options: { allowLastFocused?: boolean } = {},
 ): Promise<BoundContentTab | null> {
-  const attempts: Array<{ query: chrome.tabs.QueryInfo; requireActive: boolean }> = [
-    { query: { active: true, currentWindow: true }, requireActive: true },
-    // Side panel as a tab makes itself active. Still bind the page in this window.
-    { query: { currentWindow: true }, requireActive: false },
-  ];
+  const attempts: chrome.tabs.QueryInfo[] = [{ currentWindow: true }];
   if (options.allowLastFocused !== false) {
-    attempts.push({ query: { active: true, lastFocusedWindow: true }, requireActive: true });
+    attempts.push({ lastFocusedWindow: true });
   }
-  for (const { query, requireActive } of attempts) {
+  for (const query of attempts) {
     try {
       const tabs = await chrome.tabs.query(query);
-      const bound = pickActiveContentTab(tabs, { requireActive });
+      const bound = bindTabForTask(tabs);
       if (bound) return bound;
     } catch {
       /* try next query */
@@ -1303,6 +1305,20 @@ const SidePanel = () => {
       } else {
         const bound = await resolveActiveContentTab({ allowLastFocused: false });
         if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
+        if (!bound && instructionPointsAtCurrentPage(text)) {
+          appendMessage(
+            {
+              actor: Actors.SYSTEM,
+              content: t('chat_task_bind_this_page'),
+              timestamp: Date.now(),
+            },
+            turnSessionId,
+          );
+          setInputEnabled(true);
+          setShowStopButton(false);
+          launchResolved = true;
+          return;
+        }
         setBindPreview(bound);
         sendTaskCommand({
           type: 'start',

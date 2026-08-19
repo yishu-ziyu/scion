@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   classifyCreateExecutorError,
@@ -32,5 +35,12 @@ describe('classifyCreateExecutorError (engine-start surface)', () => {
     expect(classifyCreateExecutorError(new Error('boom'))).toBe('executor_start_failed');
     expect(classifyCreateExecutorError('string-throw')).toBe('executor_start_failed');
     expect(classifyCreateExecutorError(null)).toBe('executor_start_failed');
+  });
+
+  it('TaskManager createExecutor catch uses classifyCreateExecutorError', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const source = readFileSync(join(here, '../manager.ts'), 'utf8');
+    expect(source).toMatch(/const category = classifyCreateExecutorError\(error\)/);
+    expect(source).not.toMatch(/noApiKeys\|noNavigator\|noProvider\|setup/);
   });
 });

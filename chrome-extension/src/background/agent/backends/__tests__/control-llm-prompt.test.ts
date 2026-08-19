@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildControlUserPrompt } from '../control-llm';
+import { buildControlUserPrompt, memoryAfterAction } from '../control-llm';
 
 describe('control user prompt verified pages', () => {
   it('inserts verified IANA url and title after Task and before the current page', () => {
@@ -21,5 +21,46 @@ describe('control user prompt verified pages', () => {
     expect(prompt).toContain('Current page: https://www.iana.org');
     expect(prompt.indexOf('Task:')).toBeLessThan(prompt.indexOf('Verified pages:'));
     expect(prompt.indexOf('Verified pages:')).toBeLessThan(prompt.indexOf('Current page:'));
+  });
+
+  it('puts a failed click_element error in last_action_result for the next decide', () => {
+    const lastActionMemory = memoryAfterAction('click_element', {
+      error: 'Needs index or query. Did not click.',
+    });
+    expect(lastActionMemory).toBe('click_element failed: Needs index or query. Did not click.');
+    const prompt = buildControlUserPrompt({
+      instruction: 'click submit',
+      step: 0,
+      maxSteps: 20,
+      criteriaLocked: true,
+      contextBlock: 'Current page: https://example.test',
+      lastActionMemory,
+      statusBar: '',
+      verifiedPages: [],
+    });
+    expect(prompt).toContain(
+      '<last_action_result>\nclick_element failed: Needs index or query. Did not click.\n</last_action_result>',
+    );
+  });
+
+  it('omits last_action_result after a successful click that is not kept', () => {
+    const afterFail = memoryAfterAction('click_element', {
+      error: 'Needs index or query. Did not click.',
+    });
+    const afterSuccess = memoryAfterAction('click_element', { summary: 'Clicked Submit' });
+    expect(afterFail).toContain('Needs index or query. Did not click.');
+    expect(afterSuccess).toBeNull();
+    const prompt = buildControlUserPrompt({
+      instruction: 'click submit',
+      step: 1,
+      maxSteps: 20,
+      criteriaLocked: true,
+      contextBlock: 'Current page: https://example.test',
+      lastActionMemory: afterSuccess,
+      statusBar: '',
+      verifiedPages: [],
+    });
+    expect(prompt).not.toContain('<last_action_result>');
+    expect(prompt).not.toContain('Needs index or query. Did not click.');
   });
 });

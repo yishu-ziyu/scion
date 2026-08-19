@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bindTabForTask,
   formatBindChip,
+  instructionPointsAtCurrentPage,
   isUsableContentTabUrl,
   pickActiveContentTab,
   tabHost,
@@ -23,6 +25,29 @@ describe('active-tab-bind', () => {
     expect(bound?.tabId).toBe(2);
     expect(bound?.host).toBe('bilibili.com');
     expect(bound?.title).toContain('进球');
+  });
+
+  it('does not steal a background http tab from chrome:// new tab', () => {
+    expect(
+      bindTabForTask([
+        { id: 1, url: 'chrome://newtab/', title: 'New Tab', active: true },
+        { id: 2, url: 'https://www.bilibili.com/video/BV1', title: '进球集锦', active: false },
+      ]),
+    ).toBeNull();
+  });
+
+  it('still binds a window content tab when the side panel tab itself is active', () => {
+    expect(
+      bindTabForTask([
+        { id: 1, url: 'chrome-extension://abc/side-panel/index.html', title: '持节', active: true },
+        { id: 2, url: 'https://example.com/', title: 'Example', active: false },
+      ])?.tabId,
+    ).toBe(2);
+  });
+
+  it('recognizes 这个页面 as pointing at the current tab', () => {
+    expect(instructionPointsAtCurrentPage('这个页面讲什么')).toBe(true);
+    expect(instructionPointsAtCurrentPage('搜一下北京天气')).toBe(false);
   });
 
   it('never borrows a background content tab when active-only binding is required', () => {

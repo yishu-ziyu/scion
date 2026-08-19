@@ -125,6 +125,33 @@ describe('buildObservationFrame', () => {
     expect(none.text).not.toContain('[3]<button type=submit>提交</button>');
   });
 
+  it('lists a form field past the first 80 clickable nav controls', async () => {
+    const selectorMap = new Map(
+      Array.from({ length: 80 }, (_, index) => [
+        index + 1,
+        node('a', {}, `Nav ${index + 1}`),
+      ]),
+    );
+    selectorMap.set(81, node('input', { type: 'text', accname: 'Company', value: '' }, ''));
+    const state = {
+      tabId: 3,
+      url: 'https://example.test/form',
+      title: 'Form under chrome',
+      elementTree: { clickableElementsToString: () => '[81]<input />' } as never,
+      selectorMap,
+    } as unknown as PageState;
+    const frame = await buildObservationFrame({
+      browserState: state,
+      elementsText: '[1] a Nav 1\n[81]<input type=text />',
+      visibleText: 'Request a demo',
+    });
+    expect(frame.interactiveElements).toHaveLength(80);
+    expect(frame.interactiveElements.map(item => item.index)).not.toContain(81);
+    expect(frame.formFieldsText).toContain('[81] text "Company" value=(empty)');
+    expect(frame.text).toContain('Form fields:');
+    expect(frame.text).toContain('[81] text "Company" value=(empty)');
+  });
+
   it('keeps an empty wording slot when the body is blank', async () => {
     const frame = await buildObservationFrame({
       browserState: browserState(),

@@ -1,6 +1,7 @@
 import { ActionResult, type AgentContext } from '@src/background/agent/types';
 import { normalizeVisiblePageText } from '../../browser/kernel/visible-text';
 import { t } from '@extension/i18n';
+import { renderActionSchemaPrompt } from './action-prompt';
 import {
   clickElementActionSchema,
   doneActionSchema,
@@ -284,23 +285,7 @@ export class Action {
    * @returns {string} The prompt for the action
    */
   prompt() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const schemaShape = (this.schema.schema as z.ZodObject<any>).shape || {};
-    const schemaProperties = Object.entries(schemaShape).map(([key, value]) => {
-      const zodValue = value as z.ZodTypeAny;
-      return `'${key}': {'type': '${zodValue.description}', ${zodValue.isOptional() ? "'optional': true" : "'required': true"}}`;
-    });
-
-    const schemaStr =
-      schemaProperties.length > 0 ? `{${this.name()}: {${schemaProperties.join(', ')}}}` : `{${this.name()}: {}}`;
-
-    const lines = [this.schema.description];
-    if (this.schema.whenToUse) lines.push(`When to use: ${this.schema.whenToUse}`);
-    if (this.schema.whenNotToUse) lines.push(`Do NOT use when: ${this.schema.whenNotToUse}`);
-    if (this.schema.examples?.length) lines.push(`Examples: ${this.schema.examples.join(' | ')}`);
-    if (this.schema.returns) lines.push(`Returns: ${this.schema.returns}`);
-    if (this.schema.costHint) lines.push(`Cost hint: ${this.schema.costHint}`);
-    return `${lines.join('\n')}:\n${schemaStr}`;
+    return renderActionSchemaPrompt(this.schema);
   }
 
   /**

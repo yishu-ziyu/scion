@@ -3850,6 +3850,86 @@ describe('TaskManager lifecycle', () => {
       expect(snap?.rounds[0]?.failureCategory).toBe('executor_start_failed');
     });
   });
+
+  it('persists setup_failed when createExecutor throws the localized API key message', async () => {
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => {
+        throw new Error('请先在设置页面中完成 API 密钥的设置。');
+      }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-setup-fail',
+      taskId: 'task-setup-fail',
+      instruction: 'open youtube',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(async () => {
+      const snap = await manager.snapshot('task-setup-fail');
+      expect(snap?.status).toBe('failed');
+      expect(snap?.rounds[0]?.failureCategory).toBe('setup_failed');
+    });
+  });
+
+  it('opens a blank task tab when start has no content tab and the user asked to search', async () => {
+    const switchTab = vi.fn();
+    const openBlankTaskTab = vi.fn(async () => 42);
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => fakeDriver()),
+      switchTab,
+      openBlankTaskTab,
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    const ack = await manager.dispatch({
+      type: 'start',
+      commandId: 'start-search-blank',
+      taskId: 'task-search-blank',
+      instruction: '搜一下北京天气',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: -1,
+    });
+    expect(ack.accepted).toBe(true);
+    expect(openBlankTaskTab).toHaveBeenCalledTimes(1);
+    expect(switchTab).toHaveBeenCalledWith(42);
+    expect(store.sessions.get('task-search-blank')).toMatchObject({ activeTabId: 42 });
+  });
+
+  it('refuses 这个页面 when there is no usable content tab', async () => {
+    const openBlankTaskTab = vi.fn(async () => 42);
+    const manager = new TaskManager({
+      createExecutor: vi.fn(async () => fakeDriver()),
+      switchTab: vi.fn(),
+      openBlankTaskTab,
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    const ack = await manager.dispatch({
+      type: 'start',
+      commandId: 'start-this-page',
+      taskId: 'task-this-page',
+      instruction: '这个页面讲什么',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: -1,
+    });
+    expect(ack).toMatchObject({
+      accepted: false,
+      error: 'invalid_input',
+    });
+    expect(ack.accepted === false && ack.userVisibleText).toContain('这个页面');
+    expect(openBlankTaskTab).not.toHaveBeenCalled();
+    expect(store.sessions.get('task-this-page')).toBeUndefined();
+  });
 });
 
 describe('TaskManager independent URL opens', () => {
