@@ -17,6 +17,16 @@ export interface UserTurnDecision {
   userVisibleText: string;
 }
 
+export const EMPTY_TURN_CLARIFY_TEXT = '你想让我具体做什么？可以说要打开、搜索、点击或填写什么。';
+export const CHEAP_GREETING_REPLY_TEXT = '你好，需要我帮你在页面上做什么？';
+export const CHEAP_STOP_TEXT = '好的，已停止。';
+
+const WHOLE_GREETING =
+  /^(?:你好|您好|嗨+|哈喽|在吗|在不在|谢谢(?:你|您)?|感谢|早上好|晚上好|下午好|hi|hello|hey|thanks|thank\s+you|ok(?:ay)?|好的)[.!?。！？~]*$/i;
+const WHOLE_STOP = /^(?:停止|停下|停一下|取消|取消任务|停止任务|别做了|不要做了|停|stop|cancel)(?:吧|啊|呀)?[.!?。！？]*$/i;
+const BROWSER_VERB =
+  /打开|开启|搜索|查找|点击|点开|填写|填入|播放|暂停|关闭|关掉|提取|摘录|滚动|跳转|前往|访问|\bopen\b|\bsearch\b|\bclick\b|\bfill\b|\bplay\b|\bpause\b|\bclose\b|\bextract\b|\bscroll\b|\bnavigate\b|go\s+to/i;
+
 export type ParseUserTurnResult =
   | { ok: true; decision: UserTurnDecision }
   | { ok: false; error: string };
@@ -86,6 +96,21 @@ export interface HistoryTurn {
   content: string;
 }
 
+export function historyTurnsFromMessages(
+  messages: Array<{ actor?: string; content?: string }>,
+): HistoryTurn[] {
+  return messages
+    .filter(
+      (message): message is { actor?: string; content: string } =>
+        typeof message.content === 'string' && Boolean(message.content.trim()),
+    )
+    .slice(-12)
+    .map(message => ({
+      role: message.actor === 'user' ? 'user' : 'assistant',
+      content: message.content.trim(),
+    }));
+}
+
 /**
  * Reading the bound page requires browser observation even when the classifier
  * mistakenly writes a conversational acknowledgement.
@@ -106,6 +131,38 @@ export function enforcePageObservationInvariant(
     /\b(?:summari[sz]e|describe|read|extract|quote|list|tell me|what(?:'s| is)|what are)\b/i.test(text);
 
   return referencesPage && requestsReading ? { kind: 'execute', userVisibleText: '' } : decision;
+}
+
+function hasCheapExecutableGoal(text: string): boolean {
+  if (/https?:\/\//i.test(text)) return true;
+  if (!BROWSER_VERB.test(text)) return false;
+  const remainder = text.replace(BROWSER_VERB, '').replace(/\s+/g, '');
+  return remainder.length >= 2;
+}
+
+/**
+ * High-precision classify without a model. Returns null when the sentence is
+ * ambiguous and decideUserTurn still needs llm.invoke.
+ */
+export function resolveUserTurnCheap(text: string): UserTurnDecision | null {
+  const latest = text.replace(/\s+/g, ' ').trim();
+  if (!latest) {
+    return { kind: 'clarify', userVisibleText: EMPTY_TURN_CLARIFY_TEXT };
+  }
+  if (WHOLE_GREETING.test(latest)) {
+    return { kind: 'reply', userVisibleText: CHEAP_GREETING_REPLY_TEXT };
+  }
+  if (WHOLE_STOP.test(latest)) {
+    return { kind: 'stop', userVisibleText: CHEAP_STOP_TEXT };
+  }
+  const pageForced = enforcePageObservationInvariant(latest, { kind: 'reply', userVisibleText: '' });
+  if (pageForced.kind === 'execute') {
+    return { kind: 'execute', userVisibleText: '' };
+  }
+  if (hasCheapExecutableGoal(latest)) {
+    return { kind: 'execute', userVisibleText: '' };
+  }
+  return null;
 }
 
 function contentFromLlmResponse(response: unknown): string {
@@ -133,12 +190,8 @@ export async function decideUserTurn(input: {
   history?: HistoryTurn[];
 }): Promise<UserTurnDecision> {
   const latest = input.latestUserText.trim();
-  if (!latest) {
-    return {
-      kind: 'clarify',
-      userVisibleText: '你想让我具体做什么？可以说要打开、搜索、点击或填写什么。',
-    };
-  }
+  const cheap = resolveUserTurnCheap(latest);
+  if (cheap) return cheap;
 
   await ensurePersonalDefaults();
   const providers = await llmProviderStore.getAllProviders();

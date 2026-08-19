@@ -63,10 +63,10 @@ function frame(url: string, text = 'Interactive elements:\n[1]<input name=Name>\
 describe('Skill discovery + runtime', () => {
   it('registers default skills including site adapters', () => {
     const registry = createSkillRegistry(defaultSkills());
-    expect(registry.size()).toBeGreaterThanOrEqual(7);
     expect(registry.get('sites.youtube.open-first-video')).toBeTruthy();
     expect(registry.get('builtin.form-fill-submit')).toBeTruthy();
-    expect(registry.get('builtin.theme-citation')).toBeTruthy();
+    expect(registry.get('builtin.theme-citation')).toBeUndefined();
+    expect(registry.get('builtin.understanding-answer')).toBeUndefined();
   });
 
   it('does not preempt the loop by matching the user utterance', async () => {

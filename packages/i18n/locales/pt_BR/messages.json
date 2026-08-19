@@ -1170,6 +1170,9 @@
   "chat_task_command_invalid_input": {
     "message": "Essa ação não tem todas as informações necessárias. Envie a instrução novamente."
   },
+  "chat_task_command_not_executable": {
+    "message": "Não entendi o que fazer na página. Diga de novo."
+  },
   "chat_task_confirm_done": {
     "message": "Confirmo que está concluído"
   },

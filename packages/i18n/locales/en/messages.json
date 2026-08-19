@@ -1239,6 +1239,9 @@
   "chat_task_command_invalid_input": {
     "message": "That action is missing required information. Send the instruction again."
   },
+  "chat_task_command_not_executable": {
+    "message": "I didn't catch what you want done on the page. Say it again."
+  },
   "chat_task_fail_llm": {
     "message": "Model call failed (network, timeout, or quota). Check API key and network, then retry."
   },

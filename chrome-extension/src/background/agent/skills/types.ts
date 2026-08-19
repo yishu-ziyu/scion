@@ -6,6 +6,9 @@
 import type { BrowserKernel, ObservationFrame } from '../../browser/kernel';
 import type { CompletionCriterionDraft } from '../../task/contracts';
 import type { TaskArtifact } from '../../task/artifact';
+import type { LoopDecision } from '../backends/observe-act-loop';
+
+export type SkillLoopDecision = Extract<LoopDecision, { kind: 'action' | 'done' }>;
 
 export type SkillRisk = 'read' | 'reversible' | 'external_commit';
 
@@ -51,22 +54,16 @@ export interface SkillRuntimeFlags {
 }
 
 export type SkillDecision =
-  | {
-      kind: 'action';
-      name: string;
-      args: Record<string, unknown>;
-      observation?: string;
+  | (Extract<SkillLoopDecision, { kind: 'action' }> & {
       criteria?: CompletionCriterionDraft[];
       /** Internal phase token the skill wants retained across steps. */
       state?: unknown;
-    }
-  | {
-      kind: 'done';
-      summary: string;
+    })
+  | (Extract<SkillLoopDecision, { kind: 'done' }> & {
       criteria?: CompletionCriterionDraft[];
       artifact?: TaskArtifact;
       state?: unknown;
-    }
+    })
   | { kind: 'continue'; reason?: string; state?: unknown }
   | { kind: 'fail'; reason: string; failureClass?: string; state?: unknown };
 
