@@ -1,7 +1,8 @@
 import type { Action } from '../agent/actions/builder';
 import { ActionResult } from '../agent/types';
-import type { ActionAttempt, BrowserTargetRef, CompletionEvidence } from '@extension/storage/lib/task';
+import type { ActionAttempt, AttemptFinding, BrowserTargetRef, CompletionEvidence } from '@extension/storage/lib/task';
 import type { ActOutcome, DispatchResult } from './contracts';
+import { isSearchResultsUrl } from '../browser/search-results';
 import { buildAttemptDisplaySummary, buildAttemptTargetLabel } from './attempt-display';
 import { sha256 } from './digest';
 import { assertMutableStateBinding, classifyActOutcome, makePageRevision, readClaimedState } from './page-state';
@@ -21,6 +22,39 @@ interface EffectTarget {
   hasSemanticName?: boolean;
   semanticCommit?: boolean;
   semanticNavigation?: boolean;
+}
+
+/** Persist origin+path only. Query tokens must not land on ActionAttempt. */
+function persistableTargetUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+    return (url.origin + url.pathname).replace(/\/+$/, '') || url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function pageFindingFromObservation(
+  actionName: string,
+  existing: AttemptFinding[] | undefined,
+  after: TargetObservation,
+  observedUrl?: string,
+): AttemptFinding[] | undefined {
+  if (existing?.length) return existing;
+  if (observedUrl && isSearchResultsUrl(observedUrl)) return existing;
+  if (!['go_to_url', 'open_tab', 'switch_tab', 'focus_tab'].includes(actionName)) return existing;
+  const title = after.target?.label?.replace(/\s+/g, ' ').trim();
+  if (!title || title.length < 2) return existing;
+  let host: string | undefined;
+  try {
+    if (observedUrl) host = new URL(observedUrl).hostname.replace(/^www\./, '') || undefined;
+  } catch {
+    host = undefined;
+  }
+  if (host && title.toLowerCase() === host.toLowerCase()) return existing;
+  return [{ title: title.slice(0, 160), url: observedUrl, host }];
 }
 
 const COMMIT_SIGNAL =
@@ -152,6 +186,11 @@ export class ActionDispatcher {
       },
       urlOrigin: before.target?.urlOrigin,
     };
+    const targetUrl = persistableTargetUrl(
+      this.readHttpUrl(parsedArgs, 'url') ||
+        before.target?.normalizedUrl ||
+        (before.target?.urlOrigin && before.target.urlOrigin !== 'null' ? before.target.urlOrigin : undefined),
+    );
     let attempt: ActionAttempt = {
       id: crypto.randomUUID(),
       roundId: request.roundId,
@@ -161,6 +200,7 @@ export class ActionDispatcher {
       argsDigest,
       displaySummary: buildAttemptDisplaySummary(displayInput),
       targetLabel: buildAttemptTargetLabel(displayInput),
+      ...(targetUrl ? { targetUrl } : {}),
       state: 'proposed',
       proposedAt: this.deps.now(),
     };
@@ -262,7 +302,24 @@ export class ActionDispatcher {
         });
       }
       const after = this.withPageRevision(await this.deps.observe(request, parsedArgs, 'after'));
-      attempt = { ...attempt, state: 'observed', observedAt: this.deps.now() };
+      const observedUrl = persistableTargetUrl(
+        attempt.targetUrl ||
+          after.target?.normalizedUrl ||
+          (after.target?.urlOrigin && after.target.urlOrigin !== 'null' ? after.target.urlOrigin : undefined),
+      );
+      const findings = pageFindingFromObservation(
+        request.action.name(),
+        actionResult.findings?.length ? actionResult.findings : undefined,
+        after,
+        observedUrl,
+      );
+      attempt = {
+        ...attempt,
+        state: 'observed',
+        observedAt: this.deps.now(),
+        ...(findings ? { findings } : {}),
+        ...(observedUrl ? { targetUrl: observedUrl } : {}),
+      };
       await this.deps.persistAttempt(attempt);
       const hasExpect = claimed.hasExpectFlag || after.evidence.length > 0;
       const actOutcome = classifyActOutcome({
@@ -318,6 +375,18 @@ export class ActionDispatcher {
       pageRevision: observation.pageRevision,
       actOutcome: extra?.actOutcome,
     };
+  }
+
+  private readHttpUrl(parsedArgs: unknown, key: string): string | undefined {
+    const raw = this.readString(parsedArgs, key);
+    if (!raw) return undefined;
+    try {
+      const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+      return parsed.toString().slice(0, 500);
+    } catch {
+      return undefined;
+    }
   }
 
   private readString(parsedArgs: unknown, key: string): string | undefined {

@@ -44,8 +44,8 @@ const tokensCss = readFileSync(resolve(here, '../chijie-tokens.css'), 'utf8');
 const componentsCss = readFileSync(resolve(here, '../chijie-components.css'), 'utf8');
 const taskStatusCardSource = readFileSync(resolve(here, '../../components/TaskStatusCard.tsx'), 'utf8');
 const taskProgressOverviewSource = readFileSync(resolve(here, '../../components/TaskProgressOverview.tsx'), 'utf8');
-const thinkingReasoningSource = readFileSync(resolve(here, '../../components/ThinkingReasoning.tsx'), 'utf8');
-const nowTraceSource = readFileSync(resolve(here, '../../components/NowTrace.tsx'), 'utf8');
+const workStreamSource = readFileSync(resolve(here, '../../components/WorkStream.tsx'), 'utf8');
+const answerProseSource = readFileSync(resolve(here, '../../components/AnswerProse.tsx'), 'utf8');
 const sidePanelSource = readFileSync(resolve(here, '../../SidePanel.tsx'), 'utf8');
 const chatHistorySource = readFileSync(resolve(here, '../../components/ChatHistoryList.tsx'), 'utf8');
 const bookmarkListSource = readFileSync(resolve(here, '../../components/BookmarkList.tsx'), 'utf8');
@@ -186,9 +186,7 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(taskStatusCardSource).toContain("from '../design/contracts'");
       expect(taskStatusCardSource).toContain('taskCardClassName');
       expect(taskStatusCardSource).toContain('primaryButtonClassName');
-      expect(taskStatusCardSource).toContain('actionStackClassName');
-      expect(taskStatusCardSource).toContain('statusLabelKey');
-      expect(taskStatusCardSource).toContain('completionVisibleText');
+      expect(taskStatusCardSource).toContain('AnswerProse');
       // stock tailwind sky primary is banned on this card
       expect(taskStatusCardSource).not.toMatch(/bg-sky-600/);
       expect(taskStatusCardSource).not.toMatch(/bg-emerald-100/);
@@ -304,15 +302,18 @@ describe('Feature: Side panel uses 持节 design system', () => {
 describe('Feature: design/003 task main blocks', () => {
   it('progress console and TaskStatusCard include mission, public work stream, and completion testids', () => {
     expect(taskProgressOverviewSource).toContain('task-goal-block');
-    expect(taskProgressOverviewSource).toContain('MissionPlanList');
-    expect(readFileSync(resolve(here, '../../components/MissionPlanList.tsx'), 'utf8')).toContain('mission-plan');
-    expect(taskStatusCardSource).toContain('NowTrace');
-    expect(nowTraceSource).toContain('ThinkingReasoning');
-    expect(thinkingReasoningSource).toContain('task-thinking-reasoning');
+    expect(taskProgressOverviewSource).not.toContain('>目标<');
+    expect(taskProgressOverviewSource).not.toContain('MissionPlanList');
+    expect(taskStatusCardSource).not.toContain('NowTrace');
+    expect(taskStatusCardSource).not.toContain('ThinkingReasoning');
+    expect(taskStatusCardSource).toContain('WorkStream');
+    expect(workStreamSource).toContain('task-work-stream');
+    expect(workStreamSource).toContain('task-search-board');
     expect(taskStatusCardSource).toContain('completion-receipt');
-    expect(taskStatusCardSource).toContain('completion-receipt-meta');
-    expect(taskStatusCardSource).toContain('completion-receipt-details');
-    expect(taskStatusCardSource).toContain('completion-evidence-list');
+    expect(taskStatusCardSource).toContain('AnswerProse');
+    expect(taskStatusCardSource).not.toContain('completion-receipt-meta');
+    expect(taskStatusCardSource).not.toContain('completion-receipt-details');
+    expect(taskStatusCardSource).not.toContain('completion-evidence-list');
     expect(taskStatusCardSource).not.toContain('批准一次');
   });
 
@@ -323,23 +324,15 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskProgressOverviewSource).toContain('task-now-purpose');
     expect(componentsCss).toContain('.chijie-progress-health');
     expect(componentsCss).toContain('.chijie-progress-now');
-    expect(thinkingReasoningSource).not.toContain('思考中');
-    expect(thinkingReasoningSource).not.toContain('is-shimmer');
+    expect(workStreamSource).not.toContain('思考中');
+    expect(workStreamSource).not.toContain('is-shimmer');
   });
 
-  it('mission plan is collapsible and driven by truthful runtime status rather than demo timers', () => {
-    const missionPlanListSource = readFileSync(resolve(here, '../../components/MissionPlanList.tsx'), 'utf8');
-    expect(missionPlanListSource).toContain('aria-expanded={!collapsed}');
-    expect(missionPlanListSource).toContain('missionPlanItemStatus');
-    expect(missionPlanListSource).toContain("taskStatus === 'paused'");
-    expect(missionPlanListSource).toContain("taskStatus === 'needs_user'");
-    expect(missionPlanListSource).toContain("taskStatus === 'failed'");
-    expect(missionPlanListSource).not.toContain('START_DELAY');
-    expect(missionPlanListSource).not.toContain('STEP_MS');
-    expect(missionPlanListSource).not.toMatch(/setTimeout\(\(\)\s*=>\s*setCurrent/);
-    expect(componentsCss).toContain('.chijie-plan-collapsible.is-collapsed');
-    expect(componentsCss).toContain("li[data-status='waiting_user']");
-    expect(componentsCss).toContain("li[data-status='failed']");
+  it('live path does not render the unused plan list or now-trace', () => {
+    expect(taskProgressOverviewSource).not.toContain('MissionPlanList');
+    expect(taskStatusCardSource).not.toContain('deriveNowTrace');
+    expect(taskStatusCardSource).not.toContain('data-testid="skill-save"');
+    expect(workStreamSource).toContain('task-work-stream');
   });
 
   it('humanActionLabel maps machine actions to Chinese product copy', async () => {
@@ -378,8 +371,9 @@ describe('Feature: design/003 task main blocks', () => {
     expect(taskStatusCardSource).toContain('chijie-failed-result');
     expect(taskStatusCardSource).not.toMatch(/可看上方聊天里的失败说明/);
     expect(taskStatusCardSource).not.toMatch(/snapshot\.status === 'failed' \? \(\s*ratingBlock/);
-    expect(taskStatusCardSource).toContain("snapshot.status !== 'failed'");
-    expect(taskProgressOverviewSource).toContain("failedAudit ? '做过' : '现在'");
+    expect(taskStatusCardSource).not.toContain('task-status-label');
+    expect(taskProgressOverviewSource).not.toContain("failedAudit ? '做过' : '现在'");
+    expect(taskProgressOverviewSource).not.toContain('做过');
     expect(t('chat_task_product_fail_model_loop')).not.toMatch(/模型反复|步数耗尽/);
   });
 
@@ -454,14 +448,8 @@ describe('Feature: design/003 task main blocks', () => {
   });
 
   it('keeps primary controls at least 40px and collapsed content out of the accessibility tree', () => {
-    expect(componentsCss).toMatch(/\.chijie-plan-head[\s\S]{0,160}min-height:\s*40px/);
-    expect(componentsCss).toMatch(/\.chijie-thinking-head[\s\S]{0,160}min-height:\s*40px/);
     expect(componentsCss).toMatch(/\.chijie-prompt-icon-button[\s\S]{0,180}width:\s*40px[\s\S]{0,50}height:\s*40px/);
     expect(componentsCss).toMatch(/\.chijie-prompt-chip-remove[\s\S]{0,160}width:\s*40px[\s\S]{0,50}height:\s*40px/);
-    expect(readFileSync(resolve(here, '../../components/MissionPlanList.tsx'), 'utf8')).toContain(
-      'aria-hidden={collapsed}',
-    );
-    expect(thinkingReasoningSource).toContain('aria-hidden={!open}');
     expect(taskProgressOverviewSource).not.toContain('aria-live="polite"');
   });
 
@@ -520,53 +508,43 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(chatInput).not.toMatch(/Planner|Navigator|step_failed/);
   });
 
-  it('TaskStatusCard has a live tool log while running and outcome rating after receipt', () => {
-    expect(thinkingReasoningSource).toContain('aria-expanded={open}');
-    expect(thinkingReasoningSource).toContain('${title}，工作时长 ${elapsed}');
-    expect(thinkingReasoningSource).toContain('data-testid="live-tool-log"');
-    expect(thinkingReasoningSource).toContain('data-testid="live-stop-generating"');
-    expect(thinkingReasoningSource).toContain('接管');
+  it('TaskStatusCard has a live tool log while running and no rating form after delivery', () => {
+    expect(workStreamSource).toContain('data-testid="live-tool-log"');
+    expect(workStreamSource).toContain('data-testid="live-stop-generating"');
+    expect(workStreamSource).toContain("t('chat_task_takeover')");
     expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
-    expect(taskStatusCardSource).toContain('data-testid="task-outcome-rating"');
-    expect(taskStatusCardSource).toContain('data-testid={`task-rate-${rating}`}');
-    expect(taskStatusCardSource).toContain('t(`chat_task_rate_${rating}`)');
-    expect(taskStatusCardSource).toContain('chijie-rating-control');
-    expect(taskStatusCardSource).toContain('role="radiogroup"');
-    expect(taskStatusCardSource).toContain('type="radio"');
+    expect(taskStatusCardSource).not.toContain('data-testid="task-outcome-rating"');
+    expect(taskStatusCardSource).not.toContain('data-testid={`task-rate-${rating}`}');
+    expect(taskStatusCardSource).not.toContain('chijie-rating-control');
   });
 
   it('TaskStatusCard activity panel uses elapsed, privacy-safe real action summaries', () => {
     expect(taskStatusCardSource).toContain('data-testid="task-activity-panel"');
-    expect(taskStatusCardSource).toContain('publicActivityItems');
-    expect(taskStatusCardSource).toContain('formatActivityDuration');
-    expect(taskStatusCardSource).toContain('attemptDisplayTitle');
+    expect(taskStatusCardSource).toContain('deriveWorkStream');
     expect(taskStatusCardSource).toContain('displaySummary');
-    expect(thinkingReasoningSource).toContain('never model chain-of-thought');
-    expect(thinkingReasoningSource).toContain('chijie-tool-chip');
-    expect(thinkingReasoningSource).not.toContain('SENTENCES');
-    expect(thinkingReasoningSource).not.toContain('DELAYS');
-    expect(thinkingReasoningSource).not.toMatch(/setTimeout/);
+    expect(workStreamSource).toContain('task-search-board');
+    expect(workStreamSource).not.toContain('SENTENCES');
+    expect(workStreamSource).not.toContain('DELAYS');
     expect(taskStatusCardSource).not.toMatch(/Planner|Navigator|step_failed/);
   });
 
   it('completion block always shows result sentence and copyable deliverable slot', () => {
     expect(taskStatusCardSource).toContain('requiredCompletionResult');
-    expect(taskStatusCardSource).toContain('data-testid="completion-result"');
+    expect(taskStatusCardSource).toContain('AnswerProse');
+    expect(answerProseSource).toContain('data-testid={testId}');
     expect(taskStatusCardSource).toContain('completion-deliverable');
     expect(taskStatusCardSource).toContain('chijie-completion-deliverable');
     expect(taskStatusCardSource).toContain('completion-deliverable-copy');
-    expect(componentsCss).toContain('.chijie-completion-deliverable');
+    expect(componentsCss).toContain('.chijie-answer');
   });
 
-  it('completion block shows a result sentence and rating after the task finishes', () => {
+  it('completion block shows a delivered sentence without a rating form', () => {
     expect(taskStatusCardSource).toContain('shouldShowDeliveredResult');
-    expect(taskStatusCardSource).toContain('shouldShowOutcomeRating');
-    expect(taskStatusCardSource).toContain('data-testid="task-outcome-rating"');
-    expect(t('chat_task_rate_success')).toBe('成功交付');
-    expect(t('chat_task_rate_partial')).toBe('部分完成');
-    expect(t('chat_task_rate_fail')).toBe('未完成');
+    expect(taskStatusCardSource).toContain('AnswerProse');
+    expect(taskStatusCardSource).not.toContain('shouldShowOutcomeRating');
+    expect(taskStatusCardSource).not.toContain('data-testid="task-outcome-rating"');
     expect(t('chat_task_thinking_heading')).toBe('思考过程');
-    expect(t('chat_task_steps_heading')).toBe('执行步骤');
+    expect(workStreamSource).toContain("t('chat_task_thinking_heading')");
   });
 
   it('progress-console hierarchy: status → durable progress → collapsed audit; composer remains usable', () => {
@@ -576,17 +554,17 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(tree.indexOf('TaskProgressOverview')).toBeGreaterThan(-1);
     expect(taskStatusCardSource).toContain('data-primary-organism={primaryOrganism}');
     expect(taskStatusCardSource).toContain('taskPrimaryOrganism');
-    expect(taskStatusCardSource).toContain("snapshot.status === 'running' || showSteps");
-    // Result is the completion slot; audit stays below the console.
+    expect(taskStatusCardSource).toContain("snapshot.status === 'running' || workStream.blocks.length > 0");
     expect(tree).toContain('nowBody={nowTraceBody}');
-    expect(nowTraceSource).toContain('task-now-trace');
-    expect(nowTraceSource).toContain('task-thinking-process');
-    expect(nowTraceSource).toContain('task-execution-steps');
-    expect(nowTraceSource).toContain("t('chat_task_thinking_heading')");
-    expect(nowTraceSource).toContain("t('chat_task_steps_heading')");
+    expect(workStreamSource).toContain('task-work-stream');
+    expect(workStreamSource).toContain('task-thinking-process');
+    expect(workStreamSource).toContain('task-search-board');
+    expect(workStreamSource).toContain('task-commit-note');
+    expect(answerProseSource).toContain('answer-sources');
     expect(taskProgressOverviewSource).toContain('task-progress-current-activity');
     expect(taskProgressOverviewSource).toContain('task-progress-health');
     expect(taskProgressOverviewSource).toContain('task-result-block');
+    expect(taskProgressOverviewSource).not.toContain('做完会出现在这里');
     // The progress workspace gets meaningful height while the fixed composer remains usable.
     expect(componentsCss).toMatch(/\.chijie-chat-log[\s\S]{0,120}min-height:\s*8\.5rem/);
     expect(componentsCss).toMatch(/\.chijie-paper-card[\s\S]{0,220}max-height:\s*none/);
@@ -601,7 +579,9 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(componentsCss).toContain(".chijie-chat-log[data-live='true']");
     expect(sidePanelSource).toContain('data-testid="composer-continuous-controls"');
     expect(sidePanelSource).toContain('data-testid="composer-follow"');
-    expect(sidePanelSource).toContain('data-testid="composer-takeover"');
+    expect(sidePanelSource).not.toContain('data-testid="composer-takeover"');
+    expect(workStreamSource).toContain('data-testid="live-stop-generating"');
+    expect(workStreamSource).toContain("t('chat_task_takeover')");
     expect(sidePanelSource).toContain('data-testid="composer-pause"');
     expect(sidePanelSource).toContain('data-testid="composer-resume"');
     expect(sidePanelSource).toContain('data-testid="composer-stop"');
@@ -621,7 +601,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(t('chat_task_adjust_prompt')).toBe('我想调整：');
     expect(t('chat_task_bind_kicker')).toBe('当前页面');
     expect(sidePanelSource).toContain("t('chat_task_follow')");
-    expect(sidePanelSource).toContain("t('chat_task_takeover')");
+    expect(sidePanelSource).toContain('handleTakeoverTask');
     const zhCnMessages = JSON.parse(
       readFileSync(resolve(here, '../../../../../packages/i18n/locales/zh_CN/messages.json'), 'utf8'),
     ) as Record<string, { message: string }>;
@@ -629,12 +609,10 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(zhCnMessages.chat_task_takeover.message).toBe('接管');
   });
 
-  it('generic mission plan hides phase-ratio pie without durable gates (design/008 S3)', () => {
-    const missionPlanListSource = readFileSync(resolve(here, '../../components/MissionPlanList.tsx'), 'utf8');
-    expect(missionPlanListSource).toContain('data-durable-progress');
-    expect(missionPlanListSource).toContain('showPie={hasDurableGates}');
-    expect(missionPlanListSource).toContain('里程碑');
-    expect(missionPlanListSource).toContain('no phase-count pie');
+  it('generic result surface does not render a reserved plan list', () => {
+    expect(taskProgressOverviewSource).not.toContain('MissionPlanList');
+    expect(taskProgressOverviewSource).not.toContain('showPie');
+    expect(taskProgressOverviewSource).not.toContain('里程碑');
   });
 
   it('side-panel tokens expose a compact type + space ladder (design/008 S5)', () => {
@@ -648,10 +626,10 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(tokensCss).toContain('--chijie-weight-semibold');
   });
 
-  it('keeps Skill form input until the save command is acknowledged', () => {
-    expect(taskStatusCardSource).toContain('skillSavePendingId');
-    expect(taskStatusCardSource).toContain('round?.commandAcks[skillSavePendingId]');
-    expect(taskStatusCardSource).not.toMatch(/type: 'save_skill',[\s\S]{0,700}setSkillTemplate\(''\);/);
+  it('does not put a save-as-recipe form on the completed card', () => {
+    expect(taskStatusCardSource).not.toContain('data-testid="skill-save"');
+    expect(taskStatusCardSource).not.toContain('skillSavePendingId');
+    expect(taskStatusCardSource).not.toContain("type: 'save_skill'");
   });
 
   it('keeps the composer compact at rest', () => {

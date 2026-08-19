@@ -3,6 +3,7 @@ import {
   advanceMissionPhase,
   applyFinalDeliverableToMissionPlan,
   applyPassedCriteriaToMissionPlan,
+  closeEmptySkeletonPhasesOnReceipt,
   applySinglePhaseEvidence,
   attachCriteriaAcrossMissionPlan,
   attachCriteriaToActivePhase,
@@ -11,7 +12,10 @@ import {
   countMissionPhases,
   derivePhaseTitle,
   extendReconciledMissionProof,
+  isSkeletonPhaseTitle,
   markActivePhase,
+  missionPlanHasUnverifiedRequiredProof,
+  numberedStepSegments,
   reconcileMissionPlanWithFrozenContract,
   refineMissionPlanFromInstruction,
   renderMissionPlanForAgent,
@@ -150,6 +154,27 @@ describe('mission plan', () => {
     expect(derivePhaseTitle('阅读当前产品列表页', 1)).toBe('阶段 2');
   });
 
+  it('exposes numbered step wording for the prompt without putting it on the plan', () => {
+    const instruction =
+      '这是一个多阶段任务：1) 进入英文维基；2) 搜索并打开 Artificial intelligence 条目；3) 在回复中写出当前页标题';
+    const labels = numberedStepSegments(instruction);
+    expect(labels.length).toBe(3);
+    expect(labels[0]).toContain('进入英文维基');
+    expect(JSON.stringify(refineMissionPlanFromInstruction(instruction, 1910))).not.toContain('进入英文维基');
+    expect(isSkeletonPhaseTitle('阶段 2')).toBe(true);
+    expect(isSkeletonPhaseTitle('执行')).toBe(true);
+    expect(isSkeletonPhaseTitle('调研')).toBe(false);
+  });
+
+  it('does not treat empty-criteria skeleton phases as missing proof', () => {
+    const plan = refineMissionPlanFromInstruction(
+      '1) 打开首页 2) 点第一个视频 3) 写下标题',
+      1920,
+    );
+    expect(plan.phases).toHaveLength(3);
+    expect(missionPlanHasUnverifiedRequiredProof(plan)).toBe(false);
+  });
+
   it('attaches criteria to the active phase only when empty', () => {
     let plan = buildMissionPlanFromPhaseTitles(['调研', '输出', '验证'], 2300);
     plan = attachCriteriaToActivePhase(plan, ['c1', 'c2'], 2301);
@@ -266,6 +291,38 @@ describe('mission plan', () => {
     plan = applyFinalDeliverableToMissionPlan(plan, 'deliverable:d1', 2702);
     expect(plan.phases.map(p => p.status)).toEqual(['planned', 'planned', 'active']);
     expect(plan.phases[2]?.evidenceIds).toEqual([]);
+  });
+
+  it('lets a written result close numbered skeleton phases that never received criteria', () => {
+    let plan = refineMissionPlanFromInstruction('1) 打开首页 2) 点第一个视频 3) 写下标题', 2710);
+    plan = markActivePhase(plan, 2, 2711);
+    plan = applyFinalDeliverableToMissionPlan(plan, 'deliverable:title', 2712);
+    expect(plan.phases.map(phase => phase.status)).toEqual(['done', 'done', 'done']);
+    expect(plan.phases[2]?.evidenceIds).toEqual(['deliverable:title']);
+    expect(missionPlanHasUnverifiedRequiredProof(plan)).toBe(false);
+    expect(JSON.stringify(plan)).not.toContain('打开首页');
+  });
+
+  it('closes numbered skeleton phases from the first active row when a written result arrives', () => {
+    let plan = refineMissionPlanFromInstruction('1) 打开首页 2) 点第一个视频 3) 写下标题', 2720);
+    expect(plan.phases.map(phase => phase.status)).toEqual(['active', 'planned', 'planned']);
+    plan = applyFinalDeliverableToMissionPlan(plan, 'deliverable:title', 2721);
+    expect(plan.phases.map(phase => phase.status)).toEqual(['done', 'done', 'done']);
+    expect(plan.phases[2]?.evidenceIds).toEqual(['deliverable:title']);
+    expect(missionPlanHasUnverifiedRequiredProof(plan)).toBe(false);
+  });
+
+  it('closes leftover empty skeleton rows without a digest', () => {
+    const plan = closeEmptySkeletonPhasesOnReceipt(
+      refineMissionPlanFromInstruction('1) 打开首页 2) 点第一个视频 3) 写下标题', 2730),
+      2731,
+    );
+    expect(plan.phases.map(phase => phase.status)).toEqual(['done', 'done', 'done']);
+  });
+
+  it('does not close custom-titled unfinished phases without evidence', () => {
+    const plan = closeEmptySkeletonPhasesOnReceipt(buildMissionPlanFromPhaseTitles(['调研', '验证', '输出'], 2740), 2741);
+    expect(plan.phases.map(phase => phase.status)).toEqual(['active', 'planned', 'planned']);
   });
 
   it('preserves blocked phases when later evidence arrives', () => {

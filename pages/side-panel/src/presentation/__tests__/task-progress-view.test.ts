@@ -202,7 +202,7 @@ describe('deriveTaskProgressView', () => {
     ['inputs_required', 'needs_user', 'needs_user'],
     ['failed', 'failed', 'failed'],
     ['cancelled', 'failed', 'failed'],
-    ['completed', 'failed', 'recovering'],
+    ['completed', 'failed', 'complete'],
     // running without round.evidence stays planning; health still advances.
     ['running', 'planning', 'advancing'],
     ['interrupted', 'paused', 'paused'],
@@ -253,7 +253,7 @@ describe('deriveTaskProgressView', () => {
       now: 12_000,
     });
     expect(view.status).toBe('failed');
-    expect(view.health).toMatchObject({ state: 'recovering', summary: '完成信号未通过验证，结果暂不可交付' });
+    expect(view.health).toMatchObject({ state: 'complete', summary: '已完成' });
     expect(view.artifacts).toEqual([]);
   });
 

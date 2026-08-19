@@ -1,7 +1,7 @@
 /**
- * Failed 结果 = one human sentence + one action.
- * Goal already sits in 目标. Do not quote it again.
- * Never "模型反复失败或步数耗尽". Never an empty 结果 box.
+ * Failed run = one human sentence + one action.
+ * The original sentence already sits above. Do not quote it again.
+ * Never "模型反复失败或步数耗尽". Never an empty reserved box.
  */
 
 import { toProductFailureCode } from './failure-taxonomy';

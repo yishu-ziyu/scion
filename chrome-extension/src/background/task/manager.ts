@@ -53,6 +53,8 @@ import { toRedactedTaskSnapshot, traceStore } from './trace';
 import {
   applyFinalDeliverableToMissionPlan,
   applyPassedCriteriaToMissionPlan,
+  closeEmptySkeletonPhasesOnReceipt,
+  missionPlanHasUnverifiedRequiredProof,
   applySinglePhaseEvidence,
   attachCriteriaAcrossMissionPlan,
   extendReconciledMissionProof,
@@ -83,6 +85,28 @@ import {
 } from '../instruction-language';
 import { isAcknowledgementOnly, isPlaceholderDelivery } from './result-text';
 import type { UserTurnDecision } from '../intent/user-turn-decision';
+import type { ObservedPageSnapshot, VerifiedPageRecord } from './contracts';
+import {
+  checkVerifiedRecordDeliverable,
+  instructionAsksVerifiedQuote,
+  instructionAsksVerifiedTitles,
+  instructionPointsAtCurrentPage,
+  isRecordablePageUrl,
+  pageMatchesInstruction,
+  pickVerifiedQuote,
+  shouldCommitVerifiedPage,
+  stripQueryTokensFromRecordText,
+  upsertVerifiedPageTarget,
+  verifiedPageRecordsFromTargets,
+  verifiedStepRecordsEnabled,
+  VERIFIED_TITLE_MAX_CHARS,
+} from './verified-step-records';
+import {
+  independentTabRecords,
+  instructionUrlsStillToOpen,
+  isIndependentTabOpenFailure,
+  type IndependentTabOpenAttempt,
+} from './independent-urls';
 
 export type { ExecutorDriver } from './contracts';
 
@@ -108,6 +132,11 @@ interface TaskManagerDeps {
   probeTabState?: (tabId: number) => Promise<TabStateProbe>;
   /** Probe recent downloads API state; default 'none' never false-completes. */
   probeDownloadState?: () => Promise<DownloadStateProbe>;
+  /**
+   * Open several independent http(s) tabs together. Tests inject this.
+   * Production falls back to BrowserContext.openIndependentTabs.
+   */
+  openIndependentTabs?: (urls: string[]) => Promise<IndependentTabOpenAttempt[]>;
   /**
    * Classify a start/follow_up sentence before a round is created.
    * Missing in tests: treat as execute. Production wires decideUserTurn
@@ -239,6 +268,33 @@ export function deriveInstructionUrlPlan(instruction: string): InstructionUrlPla
     currentPageUrls: requiresOrderedSourceProof ? sourceUrls.slice(-1) : sourceUrls,
     requiresOrderedSourceProof,
   };
+}
+
+/** Host for a bare wiki/Slug. 「飞书维基」 is not Wikipedia. */
+function wikipediaOriginFromInstruction(instruction: string): string | null {
+  if (/中文维基|zh\.wikipedia/i.test(instruction)) return 'https://zh.wikipedia.org';
+  if (/英文维基|en\.wikipedia/i.test(instruction)) return 'https://en.wikipedia.org';
+  if (/维基百科/.test(instruction)) return 'https://zh.wikipedia.org';
+  if (/(?<!zh\.)\bwikipedia\b/i.test(instruction)) return 'https://en.wikipedia.org';
+  return null;
+}
+
+/**
+ * wiki/Slug that is not already inside an http(s) URL.
+ * Full Feishu / GitHub wiki URLs stay as written.
+ */
+export function bareWikipediaUrlsFromInstruction(instruction: string): string[] {
+  const origin = wikipediaOriginFromInstruction(instruction);
+  if (!origin) return [];
+  const urls: string[] = [];
+  for (const match of instruction.matchAll(/\bwiki\/([A-Za-z0-9_().%-]+)/g)) {
+    const slug = match[1];
+    if (!slug) continue;
+    const prefix = instruction.slice(0, match.index ?? 0);
+    if (/https?:\/\/\S+$/i.test(prefix)) continue;
+    urls.push(`${origin}/wiki/${slug}`);
+  }
+  return urls;
 }
 
 const EMPTY_DELIVERABLE_CONTRACT: InstructionDeliverableContract = {
@@ -480,6 +536,8 @@ export interface DeliverablePageEvidence {
   pageRevision?: string;
   visitSeq?: number;
   label?: string;
+  title?: string;
+  quote?: string;
 }
 
 type DeliverableEvidenceInput = string | DeliverablePageEvidence;
@@ -646,7 +704,7 @@ async function quoteMatchesEvidence(quote: string, evidence: DeliverablePageEvid
 /**
  * Page proof: a quote or sentence from the answer appears in live visible wording.
  * Digest equality is only a fallback when live text is unavailable.
- * Do not persist page wording — BrowserTargetRef forbids it.
+ * Do not persist page HTML. Verified title/quote on BrowserTargetRef are bounded fields.
  */
 export async function findAnswerSpanOnPage(
   answer: string,
@@ -704,6 +762,14 @@ export async function checkInstructionDeliverable(
       reasons.push('url_not_visited');
     }
   }
+  const verifiedRecords = evidence
+    .filter(item => item.title?.trim())
+    .map(item => ({
+      title: item.title!.replace(/\s+/g, ' ').trim(),
+      ...(item.quote ? { quote: item.quote } : {}),
+    }));
+  const verified = checkVerifiedRecordDeliverable(instruction, answer, verifiedRecords);
+  reasons.push(...verified.reasons);
   return { passed: reasons.length === 0, reasons };
 }
 
@@ -1481,6 +1547,24 @@ export class TaskManager {
       reportLoopPhase: async (roundId, event) => {
         await this.applyLoopPhase(taskId, roundId, event.phase, event.step);
       },
+      recordObservedPage: async (roundId, observation) => this.recordVerifiedPageFromObservation(taskId, roundId, observation),
+      recordOpenedPages: async (roundId, pages) => {
+        await this.recordOpenedIndependentTabs(
+          taskId,
+          roundId,
+          pages.map(page => ({
+            tabId: page.tabId,
+            requestedUrl: page.url,
+            pageUrl: page.url,
+            title: page.title,
+          })),
+        );
+      },
+      getVerifiedPages: async roundId => {
+        const task = await getTask(taskId);
+        if (!task || task.currentRoundId !== roundId) return [];
+        return verifiedPageRecordsFromTargets(task.targetRefs);
+      },
       onPlan: async (roundId, criteria) => {
         let task = await getTask(taskId);
         if (!task || task.status !== 'running' || task.currentRoundId !== roundId) {
@@ -1791,6 +1875,186 @@ export class TaskManager {
     }
   }
 
+  private async recordVerifiedPageFromObservation(
+    taskId: string,
+    roundId: string,
+    observation: ObservedPageSnapshot,
+  ): Promise<VerifiedPageRecord[]> {
+    const empty = async (): Promise<VerifiedPageRecord[]> => {
+      const task = await getTask(taskId);
+      return verifiedPageRecordsFromTargets(task?.targetRefs ?? []);
+    };
+    const instruction = this.instructions.get(taskId) ?? '';
+    if (!verifiedStepRecordsEnabled(instruction)) return empty();
+    if (!isRecordablePageUrl(observation.url)) return empty();
+    const identity = await redactedHttpUrlIdentity(observation.url);
+    if (!identity) return empty();
+    const title = stripQueryTokensFromRecordText(observation.title.replace(/\s+/g, ' ').trim()).slice(
+      0,
+      VERIFIED_TITLE_MAX_CHARS,
+    );
+    if (
+      !shouldCommitVerifiedPage({
+        title,
+        url: identity.normalizedUrl,
+        visibleText: observation.visibleText,
+      })
+    ) {
+      return empty();
+    }
+    const current = await getTask(taskId);
+    if (!current) return [];
+    const existingTitled = current.targetRefs.some(item => item.kind === 'page' && Boolean(item.title?.trim()));
+    if (
+      !existingTitled &&
+      !pageMatchesInstruction(instruction, observation.url) &&
+      !instructionPointsAtCurrentPage(instruction)
+    ) {
+      return empty();
+    }
+    const quote = instructionAsksVerifiedQuote(instruction)
+      ? pickVerifiedQuote(observation.visibleText ?? '')
+      : undefined;
+    const digest = await sha256(
+      JSON.stringify({
+        tabId: current.activeTabId,
+        normalizedUrl: identity.normalizedUrl,
+        title,
+      }),
+    );
+    let urlOrigin = identity.normalizedUrl;
+    try {
+      urlOrigin = new URL(identity.normalizedUrl).origin;
+    } catch {
+      urlOrigin = current.targetRefs.find(item => item.kind === 'page')?.urlOrigin ?? 'null';
+    }
+    await this.queueTransition(async () => {
+      const task = await getTask(taskId);
+      if (!task) return;
+      if (task.currentRoundId !== roundId) {
+        const sourceIndex = task.rounds.findIndex(item => item.id === roundId);
+        const currentIndex = task.rounds.findIndex(item => item.id === task.currentRoundId);
+        const currentRound = task.rounds[currentIndex];
+        if (
+          sourceIndex !== currentIndex - 1 ||
+          !currentRound ||
+          currentRound.criteria.length > 0 ||
+          currentRound.attempts.length > 0
+        ) {
+          return;
+        }
+      }
+      task.targetRefs = upsertVerifiedPageTarget(task.targetRefs, {
+        id: `page-${digest.slice(0, 16)}`,
+        kind: 'page',
+        tabId: task.activeTabId,
+        frameId: 0,
+        urlOrigin,
+        normalizedUrl: identity.normalizedUrl,
+        ...(identity.queryIdentityDigest ? { queryIdentityDigest: identity.queryIdentityDigest } : {}),
+        title,
+        ...(quote ? { quote } : {}),
+        label: title,
+        digest,
+        observedAt: this.deps.now(),
+      });
+      task.revision += 1;
+      await this.persist(task);
+    });
+    return empty();
+  }
+
+  private alreadyOpenPageUrls(task: TaskSession): string[] {
+    const urls: string[] = [];
+    for (const ref of task.targetRefs) {
+      if (ref.kind !== 'page') continue;
+      if (ref.normalizedUrl) urls.push(ref.normalizedUrl);
+      if (ref.urlOrigin && ref.urlOrigin !== 'null') urls.push(ref.urlOrigin);
+    }
+    return urls;
+  }
+
+  private async prepareIndependentInstructionTabs(
+    taskId: string,
+    roundId: string,
+    instruction: string,
+  ): Promise<void> {
+    try {
+      const task = await getTask(taskId);
+      if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return;
+      const alreadyOpen = this.alreadyOpenPageUrls(task);
+      try {
+        const tab = await chrome.tabs.get(task.activeTabId);
+        if (tab.url) alreadyOpen.push(tab.url);
+      } catch {
+        // Current tab may be gone; planned URLs still open.
+      }
+      const urls = instructionUrlsStillToOpen(deriveInstructionUrlPlan(instruction), alreadyOpen);
+      if (urls.length === 0) return;
+      const opened = await this.openIndependentTabsViaContext(urls);
+      await this.recordOpenedIndependentTabs(taskId, roundId, opened);
+    } catch {
+      // Opening is best-effort. The loop still runs; a failed page is not a task failure.
+    }
+  }
+
+  private async openIndependentTabsViaContext(urls: string[]): Promise<IndependentTabOpenAttempt[]> {
+    if (this.deps.openIndependentTabs) return this.deps.openIndependentTabs(urls);
+    try {
+      const { browserContext } = await import('../agent/factory');
+      if (typeof browserContext.openIndependentTabs !== 'function') return [];
+      const results = await browserContext.openIndependentTabs(urls);
+      const mapped: IndependentTabOpenAttempt[] = [];
+      for (const result of results) {
+        if (!result.ok) {
+          mapped.push({ requestedUrl: result.requestedUrl, error: result.error });
+          continue;
+        }
+        let title = '';
+        let pageUrl = result.page.url();
+        try {
+          title = (await result.page.title()).replace(/\s+/g, ' ').trim();
+        } catch {
+          title = '';
+        }
+        try {
+          const tab = await chrome.tabs.get(result.page.tabId);
+          if (tab.title) title = tab.title.replace(/\s+/g, ' ').trim();
+          if (tab.url) pageUrl = tab.url;
+        } catch {
+          // Page.url / Page.title remain.
+        }
+        mapped.push({
+          tabId: result.page.tabId,
+          requestedUrl: result.requestedUrl,
+          pageUrl,
+          title,
+        });
+      }
+      return mapped;
+    } catch {
+      return [];
+    }
+  }
+
+  private async recordOpenedIndependentTabs(
+    taskId: string,
+    roundId: string,
+    opened: IndependentTabOpenAttempt[],
+  ): Promise<void> {
+    for (const item of opened) {
+      if (isIndependentTabOpenFailure(item)) continue;
+      const records = await independentTabRecords({
+        tab: item,
+        roundId,
+        now: this.deps.now(),
+      });
+      if (!records) continue;
+      await this.persistTarget(taskId, roundId, records.target);
+      await this.persistAttempt(taskId, records.attempt);
+    }
+  }
+
   private async persistTarget(
     taskId: string,
     roundId: string,
@@ -1814,12 +2078,14 @@ export class TaskManager {
             // Keep the page-observer origin.
           }
         }
+        const title = (target.title || label || '').replace(/\s+/g, ' ').trim();
         enrichedTarget = {
           ...target,
           urlOrigin,
           ...(normalizedUrl ? { normalizedUrl } : {}),
           ...(queryIdentityDigest ? { queryIdentityDigest } : {}),
           ...(label ? { label } : {}),
+          ...(title ? { title } : {}),
         };
       } catch {
         // A tab may close between observation and persistence; the observed
@@ -2089,6 +2355,7 @@ export class TaskManager {
       }
 
       const roundId = round.id;
+      await this.prepareIndependentInstructionTabs(taskId, roundId, instruction);
       await this.ensureLiveObserveAttempt(taskId, roundId);
       const isSkillRun = task.sourceSkillId !== undefined;
       // Freeze instruction-derived success text before the agent acts so baseline is pre-submit.
@@ -2328,14 +2595,14 @@ export class TaskManager {
             currentRound.instructionSummary = (await redactDeliverableUrlsForPersistence(answer)).slice(0, 2000);
             delete currentRound.waitReason;
             delete currentRound.failureCategory;
-            await this.persistVerifiedReceipt(
+            const receiptOk = await this.persistVerifiedReceipt(
               current,
               currentRound,
               [],
               true,
               artifacts.map(artifact => 'artifact:' + artifact.id),
             );
-            return;
+            if (receiptOk) return;
           }
           if (verificationRetries < 1) {
             current.revision += 1;
@@ -2539,19 +2806,22 @@ export class TaskManager {
           checked.evidence.some(item => item.criterionId === criterion.id && item.passed),
         );
         const asksWritten = this.instructionAsksWrittenResult(instructionForRound);
-        const resultOk = deliverableOk || (requiredAction.length > 0 && !asksWritten);
+        const resultOk =
+          deliverableOk ||
+          (requiredAction.length > 0 && !asksWritten) ||
+          (checked.passed && !asksWritten);
         if (resultOk && orderedSourceProof && artifactsVerified && actionPassed) {
           if (outcomeAnswer.length > 0) {
             currentRound.instructionSummary = (await redactDeliverableUrlsForPersistence(outcomeAnswer)).slice(0, 2000);
           }
-          await this.persistVerifiedReceipt(
+          const receiptOk = await this.persistVerifiedReceipt(
             current,
             currentRound,
             checked.evidence,
             true,
             candidateArtifacts.map(artifact => 'artifact:' + artifact.id),
           );
-          return;
+          if (receiptOk) return;
         }
         if (verificationRetries < 1) {
           current.revision += 1;
@@ -2683,6 +2953,8 @@ export class TaskManager {
               ...(target.pageRevision ? { pageRevision: target.pageRevision } : {}),
               ...(target.visitSeq !== undefined ? { visitSeq: target.visitSeq } : {}),
               ...(target.label ? { label: target.label } : {}),
+              ...(target.title ? { title: target.title } : {}),
+              ...(target.quote ? { quote: target.quote } : {}),
             },
           ]
         : [],
@@ -2711,7 +2983,7 @@ export class TaskManager {
     return (
       instructionAsksPageAbout(instruction) ||
       this.instructionRequestsReadOnlyPageDeliverable(instruction) ||
-      /复制|拷贝|\bcopy\b|告诉我|tell me|写出|总结|主题|有关|评论|\bcomment\b/i.test(instruction)
+      /复制|拷贝|\bcopy\b|告诉我|tell me|写出|写下|总结|主题|有关|评论|\bcomment\b/i.test(instruction)
     );
   }
 
@@ -3220,50 +3492,18 @@ export class TaskManager {
 
     // Current-tab URL is instantaneous state. Earlier URLs in an ordered
     // multi-source delivery are instead proven by persisted page captures.
-    for (const expected of deriveInstructionUrlPlan(instruction).currentPageUrls) {
+    const plannedUrls = deriveInstructionUrlPlan(instruction);
+    const wikiUrls = bareWikipediaUrlsFromInstruction(instruction);
+    const currentPageUrls =
+      wikiUrls.length > 0 && plannedUrls.currentPageUrls.length > 0 && /再|然后|先.{0,12}再|\bthen\b/i.test(instruction)
+        ? [...plannedUrls.currentPageUrls, ...wikiUrls].slice(-1)
+        : [...plannedUrls.currentPageUrls, ...wikiUrls];
+    for (const expected of currentPageUrls) {
       if (!seen.has(expected)) {
         seen.add(expected);
         drafts.push({ kind: 'url', operator: 'starts_with', expected, required: true });
       }
     }
-    // Wikipedia article path without full host: wiki/Artificial_intelligence
-    for (const match of instruction.matchAll(/\bwiki\/([A-Za-z0-9_().%-]+)/g)) {
-      const slug = match[1];
-      if (!slug) continue;
-      const expected = `https://en.wikipedia.org/wiki/${slug}`;
-      if (!seen.has(expected)) {
-        seen.add(expected);
-        drafts.push({ kind: 'url', operator: 'starts_with', expected, required: true });
-      }
-    }
-    // Common long-horizon wiki title without URL: "Artificial intelligence 条目"
-    if (
-      /Artificial\s+intelligence/i.test(instruction) &&
-      /条目|wiki|维基/i.test(instruction) &&
-      !seen.has('https://en.wikipedia.org/wiki/Artificial_intelligence')
-    ) {
-      seen.add('https://en.wikipedia.org/wiki/Artificial_intelligence');
-      drafts.push({
-        kind: 'url',
-        operator: 'starts_with',
-        expected: 'https://en.wikipedia.org/wiki/Artificial_intelligence',
-        required: true,
-      });
-    }
-    if (
-      /Artificial\s+intelligence/i.test(instruction) &&
-      /条目|wiki|维基/i.test(instruction) &&
-      !seen.has('Artificial intelligence')
-    ) {
-      seen.add('Artificial intelligence');
-      drafts.push({
-        kind: 'page_text',
-        operator: 'present',
-        expected: 'Artificial intelligence',
-        required: true,
-      });
-    }
-
     let completionUrl = this.extractOpenSiteCompletionUrl(instruction);
     // Already on bilibili/youtube + "open first video" (no "打开 bilibili" in text).
     if (!completionUrl && tabOrigin && this.instructionRequestsOpenMedia(instruction)) {
@@ -3620,27 +3860,31 @@ export class TaskManager {
       answerDigest = await sha256(visibleAnswer);
     }
 
+    const instructionForReceipt = this.instructions.get(task.id) ?? '';
+    if (
+      verifiedStepRecordsEnabled(instructionForReceipt) &&
+      (instructionAsksVerifiedTitles(instructionForReceipt) || instructionAsksVerifiedQuote(instructionForReceipt))
+    ) {
+      const verifiedRecords = verifiedPageRecordsFromTargets(task.targetRefs);
+      const verified = checkVerifiedRecordDeliverable(instructionForReceipt, visibleAnswer, verifiedRecords, {
+        requireRecords: instructionAsksVerifiedTitles(instructionForReceipt),
+      });
+      if (!verified.passed) return false;
+    }
+
     if (task.plan) {
+      // Required page/url criteria must already be evidenced. Do not mutate the
+      // plan with a final digest before that, or a retry would persist a half-closed plan.
+      if (missionPlanHasUnverifiedRequiredProof(task.plan)) {
+        return false;
+      }
       const deliverableProof =
         artifactProofIds[0] ?? (answerDigest ? 'deliverable:' + answerDigest.slice(0, 16) : undefined);
       if (deliverableProof) {
         task.plan = applyFinalDeliverableToMissionPlan(task.plan, deliverableProof, this.deps.now());
       }
-      // Every phase must carry its own criterion/evidence. A final answer may
-      // close only an explicit active deliverable phase.
-      const phaseWithoutOwnProof = task.plan.phases.some(
-        phase =>
-          phase.status !== 'done' ||
-          phase.criteriaIds.length === 0 ||
-          !phase.criteriaIds.every(id => phase.evidenceIds.includes(id)),
-      );
-      if (phaseWithoutOwnProof) {
-        task.status = 'failed';
-        round.status = 'failed';
-        round.failureCategory = 'mission_plan_unverified';
-        round.waitReason = undefined;
-        if (incrementRevision) task.revision += 1;
-        await this.persist(task);
+      task.plan = closeEmptySkeletonPhasesOnReceipt(task.plan, this.deps.now());
+      if (missionPlanHasUnverifiedRequiredProof(task.plan)) {
         return false;
       }
     }

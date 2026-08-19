@@ -119,6 +119,7 @@ export class ActionResult {
   includeInMemory: boolean;
   interactedElement: DOMHistoryElement | null;
   artifact: TaskArtifact | null;
+  findings: Array<{ title: string; url?: string; host?: string }>;
 
   constructor(params: Partial<ActionResult> = {}) {
     this.isDone = params.isDone ?? false;
@@ -128,6 +129,7 @@ export class ActionResult {
     this.error = params.error ?? null;
     this.includeInMemory = params.includeInMemory ?? false;
     this.artifact = params.artifact ?? null;
+    this.findings = params.findings ?? [];
   }
 }
 

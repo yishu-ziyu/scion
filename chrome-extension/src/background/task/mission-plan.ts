@@ -56,6 +56,40 @@ export function derivePhaseTitle(_segment: string, phaseIndex: number): string {
   return `阶段 ${phaseIndex + 1}`;
 }
 
+/** Display-only titles the framework invented. They are not proof gates. */
+export function isSkeletonPhaseTitle(title: string): boolean {
+  return /^(?:执行|阶段\s*\d+)$/.test(title.trim());
+}
+
+/**
+ * Numbered step wording for the model prompt only.
+ * Never persist the return value on MissionPlan (raw instruction / secrets).
+ */
+export function numberedStepSegments(instruction: string): string[] {
+  const text = instruction.trim();
+  if (!text) return [];
+  const hits = [...text.matchAll(NUMBERED_STEP)];
+  if (hits.length < 2) return [];
+  const segments: string[] = [];
+  for (let i = 0; i < hits.length; i += 1) {
+    const start = (hits[i].index ?? 0) + hits[i][0].length;
+    const end = i + 1 < hits.length ? (hits[i + 1].index ?? text.length) : text.length;
+    const raw = sanitizePlanText(text.slice(start, end).replace(/[；;。]\s*$/, '')).slice(0, 24);
+    if (!raw) continue;
+    segments.push(raw);
+    if (segments.length >= MAX_PHASES) break;
+  }
+  return segments.length >= 2 ? segments : [];
+}
+
+/** Empty-criteria phases are a sidebar skeleton, not missing proof. */
+export function missionPlanHasUnverifiedRequiredProof(plan: MissionPlan): boolean {
+  return plan.phases.some(phase => {
+    if (phase.criteriaIds.length === 0) return false;
+    return phase.status !== 'done' || !phase.criteriaIds.every(id => phase.evidenceIds.includes(id));
+  });
+}
+
 export function deriveMissionGoal(_instruction?: string, _phaseTitles?: string[]): string {
   return GENERIC_GOAL;
 }
@@ -320,20 +354,75 @@ function isDeliveryPhaseTitle(title: string): boolean {
   return /^(?:输出|总结|提取|output|extract)$/i.test(title.trim());
 }
 
-/** A written result may close the last active phase once earlier phases are done. */
+function unfinishedPhasesAreEmptySkeleton(plan: MissionPlan): boolean {
+  const unfinished = plan.phases.filter(phase => phase.status !== 'done');
+  return (
+    unfinished.length > 0 &&
+    unfinished.every(phase => phase.criteriaIds.length === 0 && isSkeletonPhaseTitle(phase.title))
+  );
+}
+
+/**
+ * Numbered 阶段 N / 执行 rows are a sidebar skeleton. A verified receipt
+ * may close them even when the frontier is still the first row.
+ */
+export function closeEmptySkeletonPhasesOnReceipt(plan: MissionPlan, now: number): MissionPlan {
+  if (!unfinishedPhasesAreEmptySkeleton(plan)) return plan;
+  return {
+    ...plan,
+    phases: plan.phases.map(phase =>
+      phase.status === 'done' || (phase.criteriaIds.length === 0 && isSkeletonPhaseTitle(phase.title))
+        ? { ...phase, status: 'done' as const }
+        : phase,
+    ),
+    updatedAt: now,
+  };
+}
+
+/** A written result may close leftover empty-criteria skeleton rows, or the last active phase. */
 export function applyFinalDeliverableToMissionPlan(plan: MissionPlan, deliverableId: string, now: number): MissionPlan {
   if (!deliverableId) return plan;
+
+  if (unfinishedPhasesAreEmptySkeleton(plan)) {
+    const lastIndex = plan.phases.length - 1;
+    const last = plan.phases[lastIndex];
+    const criteriaIds = [...new Set([...last.criteriaIds, deliverableId])];
+    const evidenceIds = [...new Set([...last.evidenceIds, deliverableId])];
+    const phases = plan.phases.map((phase, index) => {
+      if (index === lastIndex) return { ...phase, criteriaIds, evidenceIds, status: 'done' as const };
+      if (phase.status !== 'done' && phase.criteriaIds.length === 0 && isSkeletonPhaseTitle(phase.title)) {
+        return { ...phase, status: 'done' as const };
+      }
+      return phase;
+    });
+    return { ...plan, phases, updatedAt: now };
+  }
+
   const activeIndex = plan.phases.findIndex(phase => phase.status === 'active');
   if (activeIndex < 0) return plan;
   if (activeIndex !== plan.phases.length - 1) return plan;
   const active = plan.phases[activeIndex];
-  if (plan.phases.slice(0, activeIndex).some(phase => phase.status !== 'done')) return plan;
+  const earlierBlocks = plan.phases.slice(0, activeIndex).some(phase => {
+    if (phase.status === 'done') return false;
+    if (phase.criteriaIds.length === 0 && isSkeletonPhaseTitle(phase.title)) return false;
+    return true;
+  });
+  if (earlierBlocks) return plan;
   const criteriaIds = [...new Set([...active.criteriaIds, deliverableId])];
   const evidenceIds = [...new Set([...active.evidenceIds, deliverableId])];
   if (!criteriaIds.every(id => evidenceIds.includes(id))) return plan;
-  const phases = plan.phases.map((phase, index) =>
-    index === activeIndex ? { ...phase, criteriaIds, evidenceIds, status: 'done' as const } : phase,
-  );
+  const phases = plan.phases.map((phase, index) => {
+    if (index === activeIndex) return { ...phase, criteriaIds, evidenceIds, status: 'done' as const };
+    if (
+      index < activeIndex &&
+      phase.status !== 'done' &&
+      phase.criteriaIds.length === 0 &&
+      isSkeletonPhaseTitle(phase.title)
+    ) {
+      return { ...phase, status: 'done' as const };
+    }
+    return phase;
+  });
   return { ...plan, phases, updatedAt: now };
 }
 

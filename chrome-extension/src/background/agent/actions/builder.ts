@@ -61,6 +61,7 @@ import { formatResolveIntentError, resolveIntent } from '../../browser/kernel/re
 import { runExtractContent } from './extract-content';
 import { preferBoundTabForActiveFind, tabUrlMatchesQuery } from '../../browser/kernel/find-tab';
 import { tableRowCount } from '../../task/artifact';
+import { collectSearchFindings, isSearchResultsUrl } from '../../browser/search-results';
 
 const logger = createLogger('Action');
 
@@ -404,13 +405,18 @@ export class ActionBuilder {
       const intent = input.intent || t('act_searchGoogle_start', [input.query]);
       context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
-      await context.browserContext.navigateTo(`https://www.google.com/search?q=${input.query}`);
+      const query = encodeURIComponent(input.query);
+      await context.browserContext.navigateTo(`https://www.google.com/search?q=${query}`);
+
+      const page = await context.browserContext.getCurrentPage();
+      const findings = await collectSearchFindings(page);
 
       const msg2 = t('act_searchGoogle_ok', [input.query]);
       context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg2);
       return new ActionResult({
         extractedContent: msg2,
         includeInMemory: true,
+        findings,
       });
     }, searchGoogleActionSchema);
     actions.push(searchGoogle);
@@ -420,11 +426,15 @@ export class ActionBuilder {
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
       await this.context.browserContext.navigateTo(input.url);
+      const page = await this.context.browserContext.getCurrentPage();
+      const findings =
+        isSearchResultsUrl(page.url()) || isSearchResultsUrl(input.url) ? await collectSearchFindings(page) : [];
       const msg2 = t('act_goToUrl_ok', [input.url]);
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg2);
       return new ActionResult({
         extractedContent: msg2,
         includeInMemory: true,
+        ...(findings.length > 0 ? { findings } : {}),
       });
     }, goToUrlActionSchema);
     actions.push(goToUrl);

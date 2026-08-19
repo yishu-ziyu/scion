@@ -83,6 +83,57 @@ describe('TaskStatusCard identity markers', () => {
     );
     expect(html).toMatch(/data-testid="completion-receipt"[^>]*data-receipt-id="receipt-current"/);
     expect(html).not.toContain('data-receipt-id="receipt-old"');
+    expect(html).not.toContain('已验证任务回执');
+    expect(html).not.toContain('data-testid="task-outcome-rating"');
+    expect(html).not.toContain('data-testid="completion-receipt-details"');
+    expect(html).not.toContain('data-testid="completion-evidence-list"');
+    expect(html).not.toContain('结果暂不可');
+    expect(html).not.toContain('本次任务完成得怎么样');
+    expect(html).not.toContain('data-testid="skill-save"');
+  });
+
+  it('lists opened sources under the delivered sentence', () => {
+    const currentRound = completedRound('round-current', 'receipt-current');
+    currentRound.attempts = [
+      {
+        id: 'search-1',
+        roundId: currentRound.id,
+        actionName: 'search_google',
+        effect: 'read',
+        argsDigest: 'args',
+        displaySummary: '搜索：报名',
+        findings: [{ title: '报名页', host: 'qingcheng.ai', url: 'https://qingcheng.ai/apply' }],
+        state: 'observed',
+        proposedAt: 1,
+        observedAt: 2,
+      },
+    ];
+    const snapshot = {
+      id: 'task-current',
+      goalSummary: 'Verify the current result',
+      status: 'completed',
+      revision: 3,
+      activeTabId: 7,
+      currentRoundId: currentRound.id,
+      targetRefs: [],
+      rounds: [currentRound],
+      createdAt: 1,
+      updatedAt: 2,
+    } satisfies TaskSnapshot;
+
+    const html = renderToStaticMarkup(
+      createElement(TaskStatusCard, {
+        snapshot,
+        send: vi.fn(),
+        defaultInstruction: '找到报名页',
+        readOnly: true,
+      }),
+    );
+
+    expect(html).toContain('data-testid="answer-sources"');
+    expect(html).toContain('qingcheng.ai');
+    expect(html).toContain('报名页');
+    expect(html).not.toContain('已验证任务回执');
   });
 
   it('does not tell the user to rewrite the goal when page proof failed without a confirm button', () => {
@@ -190,18 +241,24 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).toContain('chijie-user-bubble');
     expect(html).toContain('打开 etsy 搜相框，抽出前 5 个商品写进表格');
     expect(html).toContain('data-live-log="true"');
+    expect(html).toContain('data-testid="task-work-stream"');
+    expect(html).toContain('data-testid="task-page-card"');
     expect(html).toContain('data-testid="live-tool-log"');
     expect(html).toContain('data-testid="live-cursor"');
     expect(html).toContain('data-testid="live-stop-generating"');
     expect(html).toContain('接管');
     expect(html).toContain('etsy.com');
-    expect(html).toContain('打开');
+    expect(html).not.toContain('打开 etsy.com');
+    expect(html).toContain('https://etsy.com');
+    expect(html).not.toContain('>目标<');
+    expect(html).not.toContain('>现在<');
+    expect(html).not.toContain('>结果<');
     expect(html).not.toContain('做完会出现在这里');
-    expect(html).not.toContain('is-collapsed');
+    expect(html).not.toContain('获取页面快照');
     expect(html).not.toContain('data-testid="task-status-label"');
   });
 
-  it('failed card is 目标 + 结果 + 再说一次, not stacked 失败了 chrome', () => {
+  it('failed card is the original sentence + one verdict + 再说一次', () => {
     const snapshot = {
       id: 'task-failed',
       goalSummary: 'User task',
@@ -254,9 +311,11 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).toContain('再说一次');
     expect(html).toContain('data-testid="task-retry"');
     expect(html).toContain('chijie-failed-result');
-    expect(html).toContain('做过');
+    expect(html).not.toContain('>目标<');
     expect(html).not.toContain('>现在<');
-    expect(html.indexOf('>结果<')).toBeLessThan(html.indexOf('做过'));
+    expect(html).not.toContain('>结果<');
+    expect(html).not.toContain('做过');
+    expect(html).not.toContain('获取页面快照');
     expect(html).not.toContain('data-testid="task-status-label"');
     expect(html).not.toContain('失败了');
     expect(html).not.toContain('本次任务完成得怎么样');
@@ -266,6 +325,72 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).not.toContain('data-testid="task-thinking-process"');
     expect(html).not.toContain('data-testid="task-outcome-rating"');
     expect(html).toMatch(/data-testid="completion-result"[^>]*>试了几轮，还是没做成。</);
+  });
+
+  it('search attempt becomes a board of query plus result rows', () => {
+    const snapshot = {
+      id: 'task-search',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      status: 'running',
+      revision: 2,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      rounds: [
+        {
+          id: 'round-1',
+          instructionSummary: 'User task',
+          status: 'running',
+          commandAcks: {},
+          criteria: [],
+          attempts: [
+            {
+              id: 'attempt-1',
+              roundId: 'round-1',
+              actionName: 'search_google',
+              effect: 'read',
+              argsDigest: 'args',
+              displaySummary: '搜索：清程极智 深圳 黑客松',
+              targetLabel: '清程极智 深圳 黑客松',
+              findings: [
+                {
+                  title: 'MoonStone2026 AI黑客松正式官宣',
+                  host: 'example.com',
+                  url: 'https://example.com/hackathon',
+                },
+              ],
+              state: 'observed',
+              proposedAt: 1,
+              observedAt: 2,
+            },
+          ],
+          evidence: [],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 3,
+    } satisfies TaskSnapshot;
+
+    const html = renderToStaticMarkup(
+      createElement(TaskStatusCard, {
+        snapshot,
+        send: vi.fn(),
+        defaultInstruction: '帮我找到清程极智，他们有在深圳办一个黑客松。然后找到那个黑客松之后，我需要找到那个报名链接。',
+        onStop: vi.fn(),
+      }),
+    );
+
+    expect(html).toContain('帮我找到清程极智');
+    expect(html).not.toContain('>目标<');
+    expect(html).toContain('data-testid="task-search-board"');
+    expect(html).toContain('清程极智 深圳 黑客松');
+    expect(html).toContain('MoonStone2026 AI黑客松正式官宣');
+    expect(html).toContain('已完成网页搜索');
+    expect(html).toContain('https://example.com/hackathon');
+    expect(html).not.toContain('获取页面快照');
+    expect(html).not.toContain('做完会出现在这里');
   });
 
   it('does not repeat the same failure sentence as both hint and product label', () => {

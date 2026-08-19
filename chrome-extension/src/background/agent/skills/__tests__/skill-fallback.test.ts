@@ -60,7 +60,7 @@ describe('022-SKILL-02 skill fallback', () => {
 
     expect(result.handled).toBe(false);
     expect(result.fallbackUsed).toBe(true);
-    expect(result.candidates).toEqual([]);
+    expect(result.candidates.map(item => item.skill.manifest.id)).toEqual(['test.always-fail']);
   });
 
   it('throwing skill also falls back after recovery budget', async () => {
@@ -99,6 +99,6 @@ describe('022-SKILL-02 skill fallback', () => {
     });
     expect(result.handled).toBe(false);
     expect(result.fallbackUsed).toBe(true);
-    expect(result.candidates).toEqual([]);
+    expect(result.candidates.map(item => item.skill.manifest.id)).toEqual(['test.throw']);
   });
 });

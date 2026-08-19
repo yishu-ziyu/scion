@@ -72,6 +72,20 @@ export class StaleTaskRoundError extends Error {
   }
 }
 
+/** One observed http(s) page whose URL and title were written after observe. */
+export interface VerifiedPageRecord {
+  normalizedUrl: string;
+  title: string;
+  quote?: string;
+  visitSeq?: number;
+}
+
+export interface ObservedPageSnapshot {
+  url: string;
+  title: string;
+  visibleText?: string;
+}
+
 export interface ExecutorHooks {
   /** Read the authoritative plan for this round; undefined means it is no longer available. */
   getMissionPlan?(roundId: string): Promise<ExecutorMissionPlan | undefined>;
@@ -84,6 +98,21 @@ export interface ExecutorHooks {
   reportLoopPhase?(
     roundId: string,
     event: { phase: 'observe' | 'decide' | 'act' | 'reobserve'; step: number; detail?: string },
+  ): Promise<void>;
+  /**
+   * After observe, write a verified page record when this instruction uses step records.
+   * Returns the task's current verified pages. Control must not invent records.
+   */
+  recordObservedPage?(roundId: string, observation: ObservedPageSnapshot): Promise<VerifiedPageRecord[]>;
+  /** Read-only verified pages for the next control prompt. */
+  getVerifiedPages?(roundId: string): Promise<VerifiedPageRecord[]>;
+  /**
+   * Persist pages opened together before the first decide (URL + title).
+   * Optional so scripted tests can omit it.
+   */
+  recordOpenedPages?(
+    roundId: string,
+    pages: Array<{ tabId: number; url: string; title: string }>,
   ): Promise<void>;
 }
 

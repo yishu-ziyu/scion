@@ -2,6 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { buildAttemptDisplaySummary, buildAttemptTargetLabel, sanitizeIntent } from '../attempt-display';
 
 describe('buildAttemptDisplaySummary', () => {
+  it('uses the search query, not intent', () => {
+    expect(
+      buildAttemptDisplaySummary({
+        actionName: 'search_google',
+        args: { query: '清程极智 深圳 黑客松', intent: 'find event' },
+      }),
+    ).toBe('搜索：清程极智 深圳 黑客松');
+    expect(
+      buildAttemptTargetLabel({
+        actionName: 'search_google',
+        args: { query: '清程极智 深圳 黑客松' },
+      }),
+    ).toBe('清程极智 深圳 黑客松');
+  });
+
   it('opens host for navigate', () => {
     expect(
       buildAttemptDisplaySummary({
@@ -9,6 +24,15 @@ describe('buildAttemptDisplaySummary', () => {
         args: { url: 'https://www.bilibili.com/video/BV1', intent: 'open bili' },
       }),
     ).toBe('打开 bilibili.com');
+  });
+
+  it('treats a search-engine results URL as a search, not a page open', () => {
+    expect(
+      buildAttemptDisplaySummary({
+        actionName: 'go_to_url',
+        args: { url: 'https://www.google.com/search?q=example.com+是什么', intent: 'search' },
+      }),
+    ).toBe('搜索：example.com 是什么');
   });
 
   it('plays media with command', () => {

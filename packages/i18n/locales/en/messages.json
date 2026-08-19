@@ -73,6 +73,9 @@
   "chat_task_input_placeholder": {
     "message": "What should I do?"
   },
+  "chat_task_input_continue": {
+    "message": "Add more, or change direction"
+  },
   "chat_task_input_attach_placeholder": {
     "message": "Add a note (optional)..."
   },
@@ -991,7 +994,7 @@
     "message": "Only part of the goal is done"
   },
   "chat_task_partial_body": {
-    "message": "Some checks passed, but the goal still has undelivered content. Rate it, then add a follow-up."
+    "message": "Some checks passed, but the goal still has undelivered content. Add a follow-up in the composer."
   },
   "chat_task_partial_done_label": {
     "message": "Done"

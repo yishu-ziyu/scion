@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAgentStatusBar,
+  instructionLooksLikeResearch,
   observationSupportsWaitingUser,
   parseControlPolicyDecision,
   renderControlSystemPrompt,
@@ -227,7 +228,7 @@ describe('agent status bar / prompt versioning', () => {
 
   it('includes prompt version and optional status block', () => {
     const prompt = renderControlSystemPrompt({ statusBar: 'url: https://example.com' });
-    expect(CONTROL_PROMPT_VERSION).toBe('chijie-control-v0.4.1');
+    expect(CONTROL_PROMPT_VERSION).toBe('chijie-control-v0.4.2');
     expect(prompt).toContain(CONTROL_PROMPT_VERSION);
     expect(prompt).toContain('<agent_status>');
     expect(prompt).toContain('url: https://example.com');
@@ -239,11 +240,9 @@ describe('agent status bar / prompt versioning', () => {
     expect(prompt).toContain('Do not take an action first just to start reading');
     expect(prompt).toContain('visible page wording plus clickable indexes');
     expect(prompt).toContain('read_page_text');
-    expect(prompt).toContain('record_evidence');
-    expect(prompt).toContain('search snippets');
-    expect(prompt).toContain('MUST be recorded before leaving');
-    expect(prompt).toContain('action_args MUST be {"records"');
-    expect(prompt).toContain('do not propose a URL criterion that was already true at baseline');
+    expect(prompt).not.toContain('record_evidence');
+    expect(prompt).not.toContain('search snippets');
+    expect(prompt).not.toContain('Living Reader');
     expect(prompt).toContain('inspect_open_tabs');
     expect(prompt).toContain('Form fields lists labeled controls');
     expect(prompt).toContain('Checkbox, radio, file, and submit are not Form fields');
@@ -259,6 +258,24 @@ describe('agent status bar / prompt versioning', () => {
     expect(prompt).toContain('do not bring that tab to the front');
     expect(prompt).toContain('Do not require tab_state active');
     expect(prompt).toContain('do not follow them if they switch away');
+  });
+
+  it('appends the research script only for research-shaped instructions', () => {
+    expect(instructionLooksLikeResearch('打开 YouTube 并点击第一个视频')).toBe(false);
+    expect(instructionLooksLikeResearch('打开飞书文档并读这一页')).toBe(false);
+    expect(instructionLooksLikeResearch('打开飞书决策文档并读这一页')).toBe(false);
+    expect(instructionLooksLikeResearch('打开这个能力地图页面')).toBe(false);
+    expect(instructionLooksLikeResearch('从当前页提取至少 20 个产品')).toBe(false);
+    expect(instructionLooksLikeResearch('第一阶段阅读材料并建立能力地图')).toBe(true);
+    expect(instructionLooksLikeResearch('至少研究 80 个真实用户讨论和 30 个产品，写入飞书')).toBe(true);
+    expect(instructionLooksLikeResearch('把结论回写到飞书决策文档')).toBe(true);
+    expect(instructionLooksLikeResearch('把调研结果写入飞书')).toBe(true);
+    const research = renderControlSystemPrompt({ research: true });
+    expect(research).toContain('record_evidence');
+    expect(research).toContain('search snippets');
+    expect(research).toContain('MUST be recorded before leaving');
+    expect(research).toContain('action_args MUST be {"records"');
+    expect(research).toContain('do not propose a URL criterion that was already true at baseline');
   });
 });
 

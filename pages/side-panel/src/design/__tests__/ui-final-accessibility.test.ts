@@ -8,9 +8,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = (relativePath: string) => readFileSync(resolve(here, relativePath), 'utf8');
 
 const chatInput = source('../../components/ChatInput.tsx');
-const missionPlan = source('../../components/MissionPlanList.tsx');
 const progressOverview = source('../../components/TaskProgressOverview.tsx');
-const thinking = source('../../components/ThinkingReasoning.tsx');
+const workStream = source('../../components/WorkStream.tsx');
 const messageList = source('../../components/MessageList.tsx');
 const chatHistory = source('../../components/ChatHistoryList.tsx');
 const bookmarkList = source('../../components/BookmarkList.tsx');
@@ -60,13 +59,10 @@ describe('final side-panel accessibility gates', () => {
     expect(restoreFocus).toHaveBeenCalledOnce();
   });
 
-  it('gives plan and audit disclosures stateful labels with useful counts and duration', () => {
-    expect(missionPlan).toContain('planToggleLabel');
-    expect(missionPlan).toContain('任务未交付');
-    expect(missionPlan).toContain("collapsed ? '已收起，按下展开' : '已展开，按下收起'");
-    expect(thinking).toContain('工作时长 ${elapsed}');
-    expect(thinking).toContain('disclosureLabel');
-    expect(thinking).toContain('执行步骤');
+  it('gives the live stream a thinking fold and a takeover control', () => {
+    expect(workStream).toContain('chat_task_thinking_heading');
+    expect(workStream).toContain('chat_task_takeover');
+    expect(workStream).toContain('data-testid="live-stop-generating"');
   });
 
   it('keeps visible health time outside a semantic-only live announcer', () => {
@@ -120,7 +116,7 @@ describe('final side-panel accessibility gates', () => {
   it('keeps compact supporting text readable and attachment controls rigid', () => {
     expect(componentsCss).toMatch(/\.chijie-progress-direction-change[\s\S]{0,300}font-size:\s*11px/);
     expect(componentsCss).toMatch(/\.chijie-progress-milestone-summary[\s\S]{0,120}font-size:\s*12px/);
-    expect(componentsCss).toMatch(/\.chijie-skill-save-row p[\s\S]{0,120}var\(--chijie-paper-muted\)/);
+    expect(componentsCss).toMatch(/\.chijie-stream-caption[\s\S]{0,120}var\(--chijie-muted\)/);
     expect(componentsCss).toMatch(/\.chijie-prompt-chip-remove[\s\S]{0,180}flex-basis:\s*40px/);
     expect(componentsCss).toMatch(/\.chijie-prompt-menu small[\s\S]{0,120}font-size:\s*11px/);
   });

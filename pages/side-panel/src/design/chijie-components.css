@@ -69,7 +69,7 @@
 }
 
 .chijie-paper-card[data-status='completed'] {
-  border-color: #a9c7bb;
+  border-color: var(--chijie-border);
 }
 
 .chijie-paper-card[data-coverage='partial'],
@@ -282,7 +282,225 @@ summary:focus-visible,
 .chijie-progress-overview {
   display: flex;
   flex-direction: column;
-  gap: var(--chijie-space-section);
+  gap: 20px;
+}
+
+.chijie-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.chijie-stream-caption {
+  margin: 0 0 8px;
+  color: var(--chijie-muted);
+  font-size: var(--chijie-text-sm);
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+.chijie-thinking-fold {
+  margin: 0;
+}
+
+.chijie-thinking-fold > summary {
+  cursor: pointer;
+  color: var(--chijie-muted);
+  font-size: var(--chijie-text-sm);
+  font-weight: 400;
+  list-style: none;
+}
+
+.chijie-thinking-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chijie-thinking-fold > p {
+  margin: 8px 0 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--chijie-border-strong);
+  color: var(--chijie-ink-mid, #5c5c5c);
+  font-size: var(--chijie-text-md);
+  line-height: 1.65;
+}
+
+.chijie-search-board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chijie-search-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chijie-search-query {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--chijie-sand, #e8ddd4);
+  color: var(--chijie-ink-soft, #3d342c);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.chijie-search-query svg {
+  flex-shrink: 0;
+}
+
+.chijie-search-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chijie-search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--chijie-found);
+  color: var(--chijie-foreground);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.chijie-search-hit:hover {
+  background: var(--chijie-border);
+}
+
+.chijie-search-host {
+  overflow: hidden;
+  color: var(--chijie-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chijie-page-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--chijie-found);
+}
+
+button.chijie-page-card {
+  width: 100%;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.chijie-page-card:hover {
+  background: var(--chijie-border);
+}
+
+.chijie-commit-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--chijie-warning);
+  background: var(--chijie-warning-subtle);
+}
+
+.chijie-commit-note strong {
+  color: var(--chijie-ink-soft);
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.35;
+}
+
+.chijie-system-note {
+  margin: 0;
+  color: var(--chijie-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chijie-system-note p {
+  margin: 0;
+}
+
+.chijie-answer-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+
+.chijie-answer-sources ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chijie-answer-source,
+.chijie-answer-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chijie-answer-source {
+  padding: 6px 0;
+}
+
+.chijie-answer-link {
+  display: inline;
+  color: var(--chijie-ink-soft);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.chijie-page-host {
+  color: var(--chijie-muted);
+  font-size: 11px;
+}
+
+.chijie-page-card strong {
+  color: var(--chijie-foreground);
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.35;
+}
+
+.chijie-page-card p {
+  margin: 0;
+  color: var(--chijie-ink-mid, #5c5c5c);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.chijie-stream-live {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .chijie-progress-overview[data-surface='result'] {
@@ -296,17 +514,19 @@ summary:focus-visible,
 }
 
 .chijie-user-bubble {
-  align-self: flex-end;
-  max-width: 94%;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(42, 36, 28, 0.07);
+  align-self: stretch;
+  max-width: 100%;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--chijie-sand, #e8ddd4);
 }
 
 .chijie-user-bubble h2 {
-  font-size: 13px;
+  margin: 0;
+  color: var(--chijie-ink-soft, #3d342c);
+  font-size: 14px;
   font-weight: 450;
-  line-height: 1.45;
+  line-height: 1.5;
   letter-spacing: 0;
 }
 
@@ -1537,19 +1757,57 @@ summary:focus-visible,
 }
 
 .chijie-done-block {
-  padding: 9px 10px;
-  border: 1px solid #a9c7bb;
-  border-radius: var(--chijie-radius-lg);
-  background: #edf6f1;
-  color: var(--chijie-accent-signal);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--chijie-paper-ink);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.chijie-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chijie-answer p,
+.chijie-answer li {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.65;
+}
+
+.chijie-answer ul,
+.chijie-answer ol {
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+.chijie-answer strong {
+  font-weight: 600;
+}
+
+.chijie-answer-copy {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--chijie-paper-muted);
   font-size: 12px;
-  line-height: 1.4;
+  cursor: pointer;
+}
+
+.chijie-answer-copy:hover {
+  color: var(--chijie-foreground);
 }
 
 .chijie-done-block.is-partial {
-  border-color: #e8c98f;
-  background: #fff8ec;
-  color: var(--chijie-warning, #93641a);
+  border-color: var(--chijie-warning-subtle);
+  background: var(--chijie-warning-subtle);
+  color: var(--chijie-warning);
 }
 
 .chijie-failed-result {

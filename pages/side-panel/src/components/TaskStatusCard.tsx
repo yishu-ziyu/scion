@@ -1,39 +1,18 @@
 import type { ActionAttempt, EvidenceSpace, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
 import { t } from '@extension/i18n';
 import { useEffect, useState } from 'react';
-import { FiCheck } from 'react-icons/fi';
-import {
-  actionStackClassName,
-  completionVisibleText,
-  monoLabelClassName,
-  primaryButtonClassName,
-  secondaryButtonClassName,
-  statusLabelKey,
-  taskCardClassName,
-} from '../design/contracts';
-import {
-  type TaskOutcomeRating,
-  ratingStorageKey,
-  shouldShowDeliveredResult,
-  shouldShowExecutionSteps,
-  shouldShowOutcomeRating,
-  shouldShowVerifiedDone,
-  taskPrimaryOrganism,
-} from '../presentation/task-loop-ui';
-import { deriveNowTrace } from '../presentation/now-trace';
+import { primaryButtonClassName, taskCardClassName } from '../design/contracts';
+import { shouldShowDeliveredResult, shouldShowVerifiedDone, taskPrimaryOrganism } from '../presentation/task-loop-ui';
 import { deriveFailedResult } from '../presentation/failed-result';
-import {
-  activityElapsedSeconds,
-  formatActivityDuration,
-  looksLikeActionName,
-  toActivityLogItem,
-} from '../presentation/activity-stream';
+import { looksLikeActionName } from '../presentation/activity-stream';
 import { requiredCompletionResult } from '../presentation/completion-outcome';
 import { assessGoalCoverage, resolveDeliverableAnswer } from '../presentation/goal-coverage';
 import { productFailureLabel, toProductFailureCode } from '../presentation/failure-taxonomy';
 import { waitUserAction } from '../presentation/wait-affordance';
 import { deriveTaskProgressView } from '../presentation/task-progress-view';
-import { NowTrace } from './NowTrace';
+import { collectStreamSources, deriveWorkStream } from '../presentation/work-stream';
+import { WorkStream } from './WorkStream';
+import { AnswerProse } from './AnswerProse';
 import { TaskProgressOverview } from './TaskProgressOverview';
 
 export interface TaskStatusCardProps {
@@ -159,7 +138,7 @@ export function failureNextStep(snapshot: TaskSnapshot): string {
   }
   if (snapshot.status === 'cancelled') return t('chat_task_hint_cancelled');
   if (snapshot.status === 'interrupted') return t('chat_task_hint_interrupted');
-  if (snapshot.status === 'completed') return '完成信号缺少完整、匹配的验证回执；结果暂不可作为已完成交付。';
+  if (snapshot.status === 'completed') return '';
   return t('chat_task_hint_generic');
 }
 
@@ -223,20 +202,6 @@ export function attemptDisplayTitle(attempt: Pick<ActionAttempt, 'actionName' | 
   return humanActionLabel(attempt.actionName);
 }
 
-function evidenceLabel(kind: string): string {
-  const labels: Record<string, Parameters<typeof t>[0]> = {
-    url: 'chat_task_evidence_url',
-    page_text: 'chat_task_evidence_text',
-    element_state: 'chat_task_evidence_element',
-    media_state: 'chat_task_evidence_media',
-    // Reuse media/generic until dedicated tab/download copy is localized.
-    tab_state: 'chat_task_evidence_generic',
-    download_state: 'chat_task_evidence_generic',
-    user_confirmed: 'chat_task_evidence_user',
-  };
-  return t(labels[kind] ?? 'chat_task_evidence_generic');
-}
-
 function boundPageRef(snapshot: TaskSnapshot) {
   return (
     [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page' && ref.tabId === snapshot.activeTabId) ??
@@ -298,16 +263,10 @@ export function TaskStatusCard({
   pendingCommandTypes = new Set(),
   readOnly = false,
 }: TaskStatusCardProps) {
-  const [showSkillForm, setShowSkillForm] = useState(false);
-  const [skillTitle, setSkillTitle] = useState('');
-  const [skillTemplate, setSkillTemplate] = useState('');
-  const [outcomeRating, setOutcomeRating] = useState<TaskOutcomeRating | null>(null);
-  const [skillSavePendingId, setSkillSavePendingId] = useState<string | null>(null);
   const [deliverableCopied, setDeliverableCopied] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
   const attempts = round?.attempts ?? [];
-  const skillSaveAck = skillSavePendingId ? round?.commandAcks[skillSavePendingId] : undefined;
   const confirmations =
     round?.criteria.filter(
       criterion =>
@@ -318,7 +277,6 @@ export function TaskStatusCard({
     ) ?? [];
   const waitAction = snapshot.status === 'waiting_user' ? waitUserAction(round?.waitReason) : null;
 
-  const isTerminal = ['completed', 'failed', 'cancelled'].includes(snapshot.status);
   const needsAttention =
     snapshot.status === 'waiting_user' ||
     snapshot.status === 'inputs_required' ||
@@ -339,55 +297,6 @@ export function TaskStatusCard({
     return () => window.clearInterval(id);
   }, [snapshot.status, snapshot.id]);
 
-  useEffect(() => {
-    const ratingId = round?.receipt?.id ?? snapshot.id;
-    if (!ratingId || typeof localStorage === 'undefined') {
-      setOutcomeRating(null);
-      return;
-    }
-    const stored = localStorage.getItem(ratingStorageKey(ratingId));
-    if (stored === 'success' || stored === 'partial' || stored === 'fail') {
-      setOutcomeRating(stored);
-    } else {
-      setOutcomeRating(null);
-    }
-  }, [round?.receipt?.id, snapshot.id]);
-
-  useEffect(() => {
-    if (!skillSaveAck) return;
-    setSkillSavePendingId(null);
-    if (skillSaveAck.accepted) {
-      setShowSkillForm(false);
-      setSkillTitle('');
-      setSkillTemplate('');
-    }
-  }, [skillSaveAck]);
-
-  useEffect(() => {
-    if (!skillSavePendingId) return;
-    const timeout = window.setTimeout(() => setSkillSavePendingId(null), 2_000);
-    return () => window.clearTimeout(timeout);
-  }, [skillSavePendingId]);
-
-  const openSkillForm = () => {
-    setShowSkillForm(true);
-    setSkillTitle(previous => previous || snapshot.goalSummary.slice(0, 48) || t('chat_skills_defaultTitle'));
-    setSkillTemplate(previous => {
-      if (previous.trim()) return previous;
-      return instructionToSkillTemplate(defaultInstruction) || defaultInstruction;
-    });
-  };
-
-  // Contract helper: title without receipt id leakage (ui-acceptance).
-  const completionChrome = completionVisibleText({
-    doneTitle: t('chat_task_done_title'),
-    doneBody: t('chat_task_done_body'),
-    receiptId: round?.receipt?.id ?? '',
-  });
-  const doneTitleLine = completionChrome.split('\n')[0] || t('chat_task_done_title');
-
-  const showSteps = shouldShowExecutionSteps(attempts);
-  const visibleAttempts = attempts;
   const passedEvidence =
     round?.evidence
       .filter(evidence => evidence.passed)
@@ -397,7 +306,6 @@ export function TaskStatusCard({
       })) ?? [];
   const showVerifiedDone = shouldShowVerifiedDone(snapshot, round?.receipt);
   const showDelivered = shouldShowDeliveredResult(snapshot);
-  const showRating = !readOnly && shouldShowOutcomeRating(snapshot, round?.receipt);
   const evidenceForUi = passedEvidence.map(item => ({
     kind: item.criterion?.kind,
     passed: item.passed,
@@ -427,12 +335,6 @@ export function TaskStatusCard({
         health: { state: 'needs_user' as const, summary: '部分完成，仍需补充未覆盖的要求' },
       }
     : progressView;
-  const activityEndAt = round?.receipt?.verifiedAt ?? (isTerminal ? snapshot.updatedAt : undefined);
-  const activitySeconds = activityElapsedSeconds({
-    createdAt: snapshot.createdAt,
-    endAt: activityEndAt,
-    now: nowTick,
-  });
   // Feature-first primary organism (design/004+005): activity | completion | recovery.
   const primaryOrganism = taskPrimaryOrganism({
     status: snapshot.status,
@@ -440,9 +342,6 @@ export function TaskStatusCard({
   });
 
   const recoveryNextStep = failureNextStep(snapshot);
-  const publicActivityItems = visibleAttempts.map(attempt =>
-    toActivityLogItem(attempt, attemptDisplayTitle(attempt)),
-  );
 
   const copyDeliverable = async () => {
     if (!deliverableAnswer) return;
@@ -457,62 +356,28 @@ export function TaskStatusCard({
     }
   };
 
-  const ratingId = round?.receipt?.id ?? snapshot.id;
-  const selectRating = (rating: TaskOutcomeRating) => {
-    setOutcomeRating(rating);
-    if (ratingId && typeof localStorage !== 'undefined') {
-      localStorage.setItem(ratingStorageKey(ratingId), rating);
-    }
-  };
-
-  const nowTrace = deriveNowTrace({
+  const workStream = deriveWorkStream({
     status: snapshot.status,
     attempts,
-    currentSummary: progressViewForUi.currentActivity?.summary,
+    pageLabel: boundPageRef(snapshot) ? siteHostLabel(snapshot) : undefined,
   });
+  const answerSources = collectStreamSources(workStream);
   const failedResult = deriveFailedResult({
     failureCategory: round?.failureCategory,
-    lastStepTitle: nowTrace.steps[nowTrace.steps.length - 1]?.title,
+    lastStepTitle: attempts.at(-1)?.displaySummary,
   });
   const nowTraceBody =
-    snapshot.status === 'running' || showSteps ? (
+    snapshot.status === 'running' || workStream.blocks.length > 0 ? (
       <div data-testid="task-activity-panel" className="chijie-activity-panel">
-        <NowTrace
-          view={nowTrace}
-          items={publicActivityItems}
+        <WorkStream
+          view={workStream}
           running={snapshot.status === 'running'}
-          elapsed={formatActivityDuration(activitySeconds)}
           onStop={!readOnly && snapshot.status === 'running' ? onStop : undefined}
-          audit={snapshot.status === 'failed'}
         />
       </div>
     ) : null;
 
-  const ratingBlock = showRating ? (
-    <div data-testid="task-outcome-rating" className="chijie-task-section">
-      <div className={monoLabelClassName}>{t('chat_task_rating_prompt')}</div>
-      <div className="chijie-rating-control" role="radiogroup" aria-label={t('chat_task_rating_prompt')}>
-        {(['success', 'partial', 'fail'] as const).map(rating => (
-          <label
-            key={rating}
-            className="chijie-rating-option"
-            data-active={outcomeRating === rating ? 'true' : 'false'}>
-            <input
-              type="radio"
-              name={`task-outcome-${ratingId}`}
-              data-testid={`task-rate-${rating}`}
-              checked={outcomeRating === rating}
-              onChange={() => selectRating(rating)}
-            />
-            <span>{t(`chat_task_rate_${rating}`)}</span>
-          </label>
-        ))}
-      </div>
-    </div>
-  ) : null;
-
-  const resultSentence =
-    deliverableAnswer || completionOutcome || nowTrace.steps[nowTrace.steps.length - 1]?.title || '已完成';
+  const resultSentence = deliverableAnswer ?? '';
 
   const completionBlock =
     showDelivered || (showVerifiedDone && round?.receipt) ? (
@@ -548,59 +413,23 @@ export function TaskStatusCard({
               </div>
             )}
           </>
-        ) : (
+        ) : resultSentence || answerSources.length > 0 ? (
           <>
-            <div className="font-medium" data-testid="completion-title">
-              {doneTitleLine}
-            </div>
-            <div className="mt-0.5 text-sm font-medium" data-testid="completion-result">
-              {resultSentence}
-            </div>
-            {deliverableAnswer && deliverableAnswer !== resultSentence && (
+            <AnswerProse text={resultSentence} sources={answerSources} />
+            {resultSentence ? (
               <div className="chijie-completion-deliverable" data-testid="completion-deliverable">
                 <button
                   type="button"
-                  className="chijie-completion-deliverable-text"
+                  className="chijie-answer-copy"
                   data-testid="completion-deliverable-copy"
                   title={deliverableCopied ? '已复制' : '复制成果'}
                   onClick={() => void copyDeliverable()}>
-                  {deliverableAnswer}
+                  {deliverableCopied ? '已复制' : '复制'}
                 </button>
-                <span className="chijie-completion-deliverable-hint" aria-live="polite">
-                  {deliverableCopied ? '已复制' : '点击复制'}
-                </span>
               </div>
-            )}
+            ) : null}
           </>
-        )}
-        {passedEvidence.length > 0 && !showPartialComplete && (
-          <ul className="chijie-evidence-list" data-testid="completion-evidence-list">
-            {passedEvidence.map(evidence => (
-              <li key={`${evidence.criterionId}-${evidence.observedAt}`}>
-                <span className="chijie-evidence-mark" aria-hidden>
-                  <FiCheck />
-                </span>
-                <span>{evidenceLabel(evidence.criterion?.kind ?? '')}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {round?.receipt && (
-          <details className="chijie-receipt-details" data-testid="completion-receipt-details">
-            <summary>{t('chat_task_receipt_technical')}</summary>
-            <dl className="chijie-receipt-meta" data-testid="completion-receipt-meta">
-              <div>
-                <dt>{t('chat_task_receipt_time')}</dt>
-                <dd>{new Date(round.receipt.verifiedAt).toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt>{t('chat_task_current_site')}</dt>
-                <dd>{siteHostLabel(snapshot)}</dd>
-              </div>
-            </dl>
-          </details>
-        )}
-        {ratingBlock}
+        ) : null}
       </div>
     ) : snapshot.status === 'failed' ? (
       <div data-testid="completion-receipt" className="chijie-failed-result is-failed">
@@ -628,33 +457,18 @@ export function TaskStatusCard({
       data-primary-organism={primaryOrganism}
       data-readonly={readOnly ? 'true' : undefined}
       className={taskCardClassName}>
-      {/* Status pill is for live / waiting / done. Failed 结果 is the verdict. */}
-      {snapshot.status !== 'interrupted' && snapshot.status !== 'running' && snapshot.status !== 'failed' && (
-        <header className="chijie-task-head">
-          <span
-            className="chijie-task-status-pill"
-            data-testid="task-status-label"
-            data-status={showPartialComplete ? 'waiting_user' : snapshot.status}
-            data-partial={showPartialComplete ? 'true' : 'false'}>
-            {showPartialComplete ? t('chat_task_partial_title') : t(statusLabelKey(snapshot.status))}
-          </span>
-        </header>
-      )}
-
       {/* 2. Stable mission + durable gates + health. Follow-ups never replace Mission. */}
       <TaskProgressOverview
         view={progressViewForUi}
         now={nowTick}
+        utterance={goalText}
         controls={taskControls}
         interrupted={snapshot.status === 'interrupted'}
         result={primaryOrganism === 'completion' || snapshot.status === 'failed' ? completionBlock : null}
         nowBody={nowTraceBody}
       />
 
-      {/* Completion and rating live in the 结果 block. */}
-
-      {/* Recovery surface: human hint + exactly one primary CTA per waitReason (design/006 §5 #4).
-          Stop remains only in chijie-task-controls below. */}
+      {/* Recovery: one human hint + one CTA. Stop stays beside the composer. */}
       {(snapshot.status === 'cancelled' ||
         snapshot.status === 'waiting_user' ||
         snapshot.status === 'inputs_required') && (
@@ -706,71 +520,6 @@ export function TaskStatusCard({
         <div className="chijie-next-step" data-testid="completion-partial-follow-up">
           <button type="button" className={primaryButtonClassName} onClick={onContinueInComposer}>
             补充未完成的要求
-          </button>
-        </div>
-      )}
-
-      {!readOnly && showVerifiedDone && !showSkillForm && (
-        <div className="chijie-skill-save-row">
-          <button type="button" data-testid="skill-save" className={secondaryButtonClassName} onClick={openSkillForm}>
-            {t('chat_skills_save')}
-          </button>
-          <p className="text-xs opacity-80">{t('chat_task_skill_save_hint')}</p>
-        </div>
-      )}
-
-      {!readOnly && round?.receipt && showSkillForm && (
-        <div className={actionStackClassName}>
-          <label className="flex flex-col gap-1 text-xs">
-            {t('chat_skills_titlePlaceholder')}
-            <input
-              data-testid="skill-title"
-              value={skillTitle}
-              onChange={event => setSkillTitle(event.target.value)}
-              placeholder={t('chat_skills_titlePlaceholder')}
-              className="chijie-field"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs">
-            {t('chat_skills_templatePlaceholder')}
-            <textarea
-              data-testid="skill-template"
-              value={skillTemplate}
-              onChange={event => setSkillTemplate(event.target.value)}
-              rows={3}
-              placeholder={t('chat_skills_templatePlaceholder')}
-              className="chijie-field"
-            />
-          </label>
-          <p className="text-xs opacity-70">{t('chat_task_skill_template_help')}</p>
-          <button
-            type="button"
-            data-testid="skill-save-confirm"
-            className={primaryButtonClassName}
-            disabled={!skillTemplate.trim() || Boolean(skillSavePendingId)}
-            aria-busy={Boolean(skillSavePendingId)}
-            onClick={() => {
-              if (skillSavePendingId) return;
-              const commandId = crypto.randomUUID();
-              setSkillSavePendingId(commandId);
-              send({
-                type: 'save_skill',
-                commandId,
-                taskId: snapshot.id,
-                expectedRevision: snapshot.revision,
-                roundId: round.id,
-                title: skillTitle.trim() || t('chat_skills_defaultTitle'),
-                instructionTemplate: skillTemplate,
-              });
-            }}>
-            {skillSavePendingId ? t('chat_task_skill_saving') : t('chat_skills_saveConfirm')}
-          </button>
-          <button
-            type="button"
-            className={secondaryButtonClassName}
-            disabled={Boolean(skillSavePendingId)}
-            onClick={() => setShowSkillForm(false)}>
-            {t('chat_task_cancel_edit')}
           </button>
         </div>
       )}

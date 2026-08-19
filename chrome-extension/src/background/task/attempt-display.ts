@@ -3,6 +3,8 @@
  * Safe for side panel: hostnames, verbs, short intents — never passwords, digests, selectors.
  */
 
+import { searchQueryFromResultsUrl } from '../browser/search-results';
+
 export type AttemptDisplayInput = {
   actionName: string;
   args?: unknown;
@@ -89,12 +91,18 @@ export function buildAttemptDisplaySummary(input: AttemptDisplayInput): string {
 
   switch (name) {
     case 'go_to_url':
-    case 'open_tab':
+    case 'open_tab': {
+      const searchQuery = searchQueryFromResultsUrl(readString(args, 'url'));
+      if (searchQuery) return `搜索：${searchQuery.length > 48 ? `${searchQuery.slice(0, 47)}…` : searchQuery}`;
       if (host) return `打开 ${host}`;
       if (intent) return intent;
       return '打开页面';
-    case 'search_google':
+    }
+    case 'search_google': {
+      const query = readString(args, 'query');
+      if (query) return `搜索：${query.length > 48 ? `${query.slice(0, 47)}…` : query}`;
       return intent ? `搜索：${intent}` : '搜索网页';
+    }
     case 'switch_tab':
     case 'focus_tab':
       return host ? `切换到 ${host}` : '切换标签';
@@ -157,6 +165,10 @@ export function buildAttemptDisplaySummary(input: AttemptDisplayInput): string {
 
 /** Optional short target chip (host or field), never a secret. */
 export function buildAttemptTargetLabel(input: AttemptDisplayInput): string | undefined {
+  if (input.actionName === 'search_google') {
+    const query = readString(input.args, 'query');
+    if (query) return query.length > 36 ? `${query.slice(0, 35)}…` : query;
+  }
   const host = hostFromUrl(readString(input.args, 'url')) || hostFromOrigin(input.urlOrigin);
   if (host) return host;
   const field = fieldKindLabel(input.effectTarget?.type, input.effectTarget?.tag);
