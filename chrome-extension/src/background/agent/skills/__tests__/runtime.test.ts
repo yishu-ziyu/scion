@@ -96,7 +96,7 @@ describe('Skill discovery + runtime', () => {
     expect(decided.fallbackUsed).toBe(true);
   });
 
-  it('does not discover form skill from instruction text', () => {
+  it('discovers form skill from an atomic fill-and-submit instruction', () => {
     const registry = createSkillRegistry([formFillSubmitSkill]);
     const found = discoverSkills({
       registry,
@@ -104,11 +104,18 @@ describe('Skill discovery + runtime', () => {
       url: 'https://localhost/form.html',
       flags: { enableDeterministicFormFill: true },
     });
-    expect(found).toEqual([]);
+    expect(found.map(item => item.skill.manifest.id)).toEqual(['builtin.form-fill-submit']);
   });
 
   it('keeps a concise single-quota workflow eligible for skills', () => {
     expect(isAtomicSkillInstruction('Extract at least 20 product rows into a table.')).toBe(true);
+    expect(isAtomicSkillInstruction('打开 YouTube 并点击第一个视频')).toBe(true);
+  });
+
+  it('does not let a second written-result clause look atomic', () => {
+    expect(isAtomicSkillInstruction('打开第一个视频并写出标题')).toBe(false);
+    expect(isAtomicSkillInstruction('打开第一个视频并且把标题写下来')).toBe(false);
+    expect(isAtomicSkillInstruction('搜索评论并写下总结')).toBe(false);
   });
 
   it('does not let deterministic skills preempt a long-horizon instruction', () => {
@@ -158,8 +165,12 @@ describe('Skill discovery + runtime', () => {
       frame: frame('https://localhost/form.html'),
       skillState,
     });
-    expect(first.handled).toBe(false);
-    expect(first.fallbackUsed).toBe(true);
+    expect(first.handled).toBe(true);
+    expect(first.fallbackUsed).toBe(false);
+    expect(first.decision).toEqual(
+      expect.objectContaining({ kind: 'action', name: 'input_text' }),
+    );
+    expect(first.criteria?.some(item => item.kind === 'page_text')).toBe(true);
   });
 
   it('extracts product table artifact via list skill', async () => {
@@ -182,8 +193,9 @@ describe('Skill discovery + runtime', () => {
       url: 'https://shop.test/list',
       frame: frame('https://shop.test/list'),
     });
-    expect(result.handled).toBe(false);
-    expect(result.fallbackUsed).toBe(true);
+    expect(result.handled).toBe(true);
+    expect(result.fallbackUsed).toBe(false);
+    expect(result.decision).toMatchObject({ kind: 'action', name: 'extract_content' });
   });
 
   it('does not finish LH-04 after the IANA hop', async () => {
@@ -196,7 +208,7 @@ describe('Skill discovery + runtime', () => {
     });
     const instruction =
       '这是一个双来源交付任务，请在当前任务绑定标签页中依次完成：1) 点击 More information 访问 IANA Example Domains；2) 记录 IANA 页面标题和完整 URL；3) 再打开 https://en.wikipedia.org/wiki/Web_browser；4) 读取 Wikipedia 标题和首段定义的第一句。最终交付必须只在完成两站后输出，包含两个完整 URL、IANA 标题 Example Domains、Wikipedia 标题 Web browser、Wikipedia 首段第一句英文原文，以及“观察一：”和“观察二：”开头的两条中文观察。任一项缺失都不得完成。';
-    expect(isAtomicSkillInstruction(instruction)).toBe(true);
+    expect(isAtomicSkillInstruction(instruction)).toBe(false);
     const fromExample = await runtime.tryDecide({
       roundId: 'r1',
       instruction,
@@ -221,8 +233,9 @@ describe('Skill discovery + runtime', () => {
       url: 'https://www.iana.org/help/example-domains',
       frame: frame('https://www.iana.org/help/example-domains'),
     });
-    expect(result.handled).toBe(false);
-    expect(result.fallbackUsed).toBe(true);
+    expect(result.handled).toBe(true);
+    expect(result.fallbackUsed).toBe(false);
+    expect(result.decision?.kind).toBe('done');
   });
 
   it('completes the full LH-03 deliverable with a row-derived highest-price conclusion', async () => {

@@ -2037,7 +2037,7 @@ const SidePanel = () => {
                   aria-atomic="true">
                   {taskSnapshot && showTaskCard
                     ? taskSnapshot.status === 'completed' || taskSnapshot.status === 'failed'
-                      ? '任务结果'
+                      ? t('chat_task_header_idle')
                       : t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
                     : t('chat_task_header_idle')}
                 </span>
@@ -2208,7 +2208,7 @@ const SidePanel = () => {
                     data-live={liveTaskConsole ? 'true' : 'false'}
                     data-collapsed={chatCollapsed ? 'true' : 'false'}
                     data-idle={!showMainTaskSurface ? 'true' : 'false'}>
-                    {liveTaskConsole ? null : showLiveMessages ? (
+                    {showTaskCard ? null : showLiveMessages ? (
                       <>
                         <MessageList
                           messages={displayMessages.filter(message => message.content !== progressMessage)}
@@ -2288,27 +2288,16 @@ const SidePanel = () => {
                       data-testid="composer-continuous-controls"
                       data-status={taskSnapshot.status}>
                       {taskSnapshot.status === 'running' ? (
-                        <>
-                          <button
-                            type="button"
-                            className="chijie-btn-secondary"
-                            data-testid="composer-follow"
-                            aria-pressed={isFollowingForeground(taskSnapshot)}
-                            disabled={lifecycleCommandPending}
-                            aria-busy={lifecycleCommandPending}
-                            onClick={handleFollowTask}>
-                            {t('chat_task_follow')}
-                          </button>
-                          <button
-                            type="button"
-                            className="chijie-btn-primary"
-                            data-testid="composer-takeover"
-                            disabled={lifecycleCommandPending}
-                            aria-busy={lifecycleCommandPending}
-                            onClick={handleTakeoverTask}>
-                            {t('chat_task_takeover')}
-                          </button>
-                        </>
+                        <button
+                          type="button"
+                          className="chijie-btn-secondary"
+                          data-testid="composer-follow"
+                          aria-pressed={isFollowingForeground(taskSnapshot)}
+                          disabled={lifecycleCommandPending}
+                          aria-busy={lifecycleCommandPending}
+                          onClick={handleFollowTask}>
+                          {t('chat_task_follow')}
+                        </button>
                       ) : taskSnapshot.status === 'paused' || taskSnapshot.status === 'interrupted' ? (
                         <button
                           type="button"
@@ -2369,6 +2358,7 @@ const SidePanel = () => {
                     isProcessingSpeech={isProcessingSpeech}
                     disabled={!taskSnapshotLoaded || !inputEnabled || isHistoricalSession}
                     showStopButton={false}
+                    live={taskSnapshot?.status === 'running'}
                     currentPage={visibleBindPreview}
                     setContent={setter => {
                       setInputTextRef.current = setter;

@@ -20,6 +20,7 @@ interface ChatInputProps {
   isProcessingSpeech?: boolean;
   disabled: boolean;
   showStopButton: boolean;
+  live?: boolean;
   setContent?: (setter: (text: string) => void) => void;
   isDarkMode?: boolean;
   currentPage?: MentionPage | null;
@@ -52,6 +53,7 @@ export default function ChatInput({
   isProcessingSpeech = false,
   disabled,
   showStopButton,
+  live = false,
   setContent,
   currentPage = null,
 }: ChatInputProps) {
@@ -281,7 +283,11 @@ export default function ChatInput({
           rows={2}
           className="chijie-prompt-field"
           placeholder={
-            attachedFiles.length > 0 ? t('chat_task_input_attach_placeholder') : t('chat_task_input_placeholder')
+            attachedFiles.length > 0
+              ? t('chat_task_input_attach_placeholder')
+              : showStopButton || live
+                ? t('chat_task_input_continue')
+                : t('chat_task_input_placeholder')
           }
           aria-label={t('chat_input_editor')}
         />

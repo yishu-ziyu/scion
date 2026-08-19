@@ -312,6 +312,50 @@ describe('ActionDispatcher', () => {
     expect(phases).toEqual(['before', 'after']);
   });
 
+  it('persists the opened http(s) page on go_to_url so the side panel can open it', async () => {
+    const action = new Action(
+      vi.fn(async () => new ActionResult({ success: true })),
+      goToUrlActionSchema,
+      true,
+    );
+    const persisted: Array<string | undefined> = [];
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      persistAttempt: vi.fn(async attempt => {
+        persisted.push(attempt.targetUrl);
+      }),
+      observe: vi.fn(async () => ({
+        target: {
+          id: 'page-1',
+          kind: 'page' as const,
+          tabId: 7,
+          frameId: 0 as const,
+          urlOrigin: 'https://example.test',
+          normalizedUrl: 'https://example.test/',
+          digest: 'page-1',
+          label: 'Example Domain',
+        },
+        effectTarget: {},
+        evidence: [],
+      })),
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action,
+      rawArgs: { intent: 'open example', url: 'https://example.test/docs?q=secret' },
+    });
+
+    expect(result.attempt.targetUrl).toBe('https://example.test/docs');
+    expect(persisted.at(-1)).toBe('https://example.test/docs');
+    expect(result.attempt.findings?.[0]).toMatchObject({
+      title: 'Example Domain',
+      url: 'https://example.test/docs',
+      host: 'example.test',
+    });
+  });
+
   it('persists uncertain after an executing action throws (soft return, no rethrow)', async () => {
     const action = new Action(
       vi.fn(async () => {

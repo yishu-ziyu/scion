@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   checkOrderedSourceVisitProof,
   checkInstructionDeliverable,
@@ -1055,7 +1055,7 @@ describe('TaskManager lifecycle', () => {
       'LH-01',
       '进入英文维基；搜索并打开 Artificial intelligence 条目；确认 URL 在 wiki/Artificial_intelligence 后再完成。',
       ['执行'],
-      ['url', 'page_text'],
+      ['url'],
     ],
     [
       'LH-04',
@@ -3849,6 +3849,191 @@ describe('TaskManager lifecycle', () => {
       expect(snap?.status).toBe('failed');
       expect(snap?.rounds[0]?.failureCategory).toBe('executor_start_failed');
     });
+  });
+});
+
+describe('TaskManager independent URL opens', () => {
+  const dualTitleInstruction =
+    '打开 https://www.iana.org 和 https://en.wikipedia.org/wiki/Web_browser，写出两个页面的标题';
+
+  beforeEach(() => {
+    store.sessions.clear();
+    store.chatSessions.clear();
+    store.evidenceSpaces.clear();
+    store.saveTask.mockClear();
+    vi.stubGlobal('chrome', {
+      tabs: {
+        get: vi.fn(async (id: number) => {
+          if (id === 7) return { id: 7, url: 'chrome-extension://test/side-panel/index.html', title: '持节' };
+          if (id === 21) {
+            return { id: 21, url: 'https://www.iana.org/', title: 'Internet Assigned Numbers Authority' };
+          }
+          if (id === 22) {
+            return { id: 22, url: 'https://en.wikipedia.org/wiki/Web_browser', title: 'Web browser' };
+          }
+          if (id === 23) return { id: 23, url: 'https://missing.test/gone', title: '404 Not Found' };
+          throw new Error('missing tab');
+        }),
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('writes two page records before the first decide', async () => {
+    const openIndependentTabs = vi.fn(async (urls: string[]) => [
+      {
+        tabId: 21,
+        requestedUrl: urls[0]!,
+        pageUrl: 'https://www.iana.org/',
+        title: 'Internet Assigned Numbers Authority',
+      },
+      {
+        tabId: 22,
+        requestedUrl: urls[1]!,
+        pageUrl: 'https://en.wikipedia.org/wiki/Web_browser',
+        title: 'Web browser',
+      },
+    ]);
+    let manager!: TaskManager;
+    const driver = fakeDriver();
+    const run = vi.fn(async (): Promise<ExecutorOutcome> => {
+      const snap = await manager.snapshot('task-parallel-urls');
+      const pages = (snap?.targetRefs ?? []).filter(ref => ref.kind === 'page');
+      expect(pages.find(ref => ref.normalizedUrl === 'https://www.iana.org')?.title).toBe(
+        'Internet Assigned Numbers Authority',
+      );
+      expect(pages.find(ref => ref.normalizedUrl === 'https://en.wikipedia.org/wiki/Web_browser')?.title).toBe(
+        'Web browser',
+      );
+      return { kind: 'paused' };
+    });
+    driver.run = run;
+    manager = new TaskManager({
+      createExecutor: async () => driver,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      openIndependentTabs,
+      ...noPostCommitBackoff,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'cmd-parallel',
+      taskId: 'task-parallel-urls',
+      instruction: dualTitleInstruction,
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    expect(openIndependentTabs).toHaveBeenCalledWith([
+      'https://www.iana.org',
+      'https://en.wikipedia.org/wiki/Web_browser',
+    ]);
+    expect(openIndependentTabs.mock.invocationCallOrder[0]).toBeLessThan(run.mock.invocationCallOrder[0]);
+    const snap = await manager.snapshot('task-parallel-urls');
+    expect(
+      snap?.rounds[0]?.attempts.some(
+        attempt => attempt.actionName === 'open_tab' && attempt.targetUrl === 'https://www.iana.org',
+      ),
+    ).toBe(true);
+  });
+
+  it('does not open ordered first-then-next URLs together', async () => {
+    const openIndependentTabs = vi.fn(async () => []);
+    const driver = fakeDriver();
+    const manager = new TaskManager({
+      createExecutor: async () => driver,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      openIndependentTabs,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'cmd-ordered',
+      taskId: 'task-ordered-urls',
+      instruction: '先打开 https://one.test/a 再打开 https://two.test/b',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledOnce());
+    expect(openIndependentTabs).not.toHaveBeenCalled();
+  });
+
+  it('does not open a YouTube first-video sentence in parallel', async () => {
+    const openIndependentTabs = vi.fn(async () => []);
+    const driver = fakeDriver();
+    const manager = new TaskManager({
+      createExecutor: async () => driver,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      openIndependentTabs,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'cmd-yt',
+      taskId: 'task-youtube-skill',
+      instruction: '打开 YouTube 并点击第一个视频',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledOnce());
+    expect(openIndependentTabs).not.toHaveBeenCalled();
+  });
+
+  it('records the good page when the other tab is a 404 and keeps the task running', async () => {
+    const openIndependentTabs = vi.fn(async () => [
+      {
+        tabId: 21,
+        requestedUrl: 'https://www.iana.org',
+        pageUrl: 'https://www.iana.org/',
+        title: 'Internet Assigned Numbers Authority',
+      },
+      {
+        tabId: 23,
+        requestedUrl: 'https://missing.test/gone',
+        pageUrl: 'https://missing.test/gone',
+        title: '404 Not Found',
+      },
+    ]);
+    const driver = fakeDriver();
+    const manager = new TaskManager({
+      createExecutor: async () => driver,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      openIndependentTabs,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'cmd-404',
+      taskId: 'task-one-404',
+      instruction: '打开 https://www.iana.org 和 https://missing.test/gone，写出两个页面的标题',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(driver.run).toHaveBeenCalledOnce());
+    const snap = await manager.snapshot('task-one-404');
+    const pages = (snap?.targetRefs ?? []).filter(ref => ref.kind === 'page');
+    expect(
+      pages.some(
+        ref => ref.normalizedUrl === 'https://www.iana.org' && ref.title === 'Internet Assigned Numbers Authority',
+      ),
+    ).toBe(true);
+    expect(pages.some(ref => ref.normalizedUrl === 'https://missing.test/gone')).toBe(false);
+    expect(snap?.status).toBe('running');
   });
 });
 

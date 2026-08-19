@@ -252,20 +252,16 @@ export function deriveProgressHealth(
         lastMeaningfulProgressAt: lastAt,
       };
     case 'completed':
-      return shouldShowVerifiedDone(
-        snapshot,
-        snapshot.rounds.find(item => item.id === snapshot.currentRoundId)?.receipt,
-      )
-        ? {
-            state: 'complete',
-            summary: '已验证完成',
-            lastMeaningfulProgressAt: lastAt,
-          }
-        : {
-            state: 'recovering',
-            summary: '完成信号未通过验证，结果暂不可交付',
-            lastMeaningfulProgressAt: lastAt,
-          };
+      return {
+        state: 'complete',
+        summary: shouldShowVerifiedDone(
+          snapshot,
+          snapshot.rounds.find(item => item.id === snapshot.currentRoundId)?.receipt,
+        )
+          ? '已验证完成'
+          : '已完成',
+        lastMeaningfulProgressAt: lastAt,
+      };
     case 'running':
     default: {
       const attempt = latestAttempt(snapshot);
@@ -348,17 +344,6 @@ function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressVi
   });
   const active = milestones.find(milestone => milestone.status === 'active');
   const verified = shouldShowVerifiedDone(snapshot, round?.receipt);
-  const artifacts: ProgressArtifact[] =
-    verified && round?.receipt
-      ? [
-          {
-            id: round.receipt.id,
-            title: '已验证任务回执',
-            kind: 'receipt',
-            status: 'verified',
-          },
-        ]
-      : [];
   const currentActivity = deriveCurrentActivity(snapshot, milestones);
   return {
     kind: 'generic',
@@ -373,7 +358,7 @@ function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressVi
     ...(currentActivity ? { currentActivity } : {}),
     milestones,
     findings: [],
-    artifacts,
+    artifacts: [],
     nextStep:
       snapshot.status === 'failed' || snapshot.status === 'cancelled'
         ? '没有完成交付'

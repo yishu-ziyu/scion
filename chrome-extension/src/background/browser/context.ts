@@ -14,6 +14,14 @@ import { isGroupableTabUrl, taskTabGroupTitle } from './task-tab-group';
 import { analytics } from '../services/analytics';
 
 const logger = createLogger('BrowserContext');
+
+/** Same cap as task/independent-urls. Do not open dozens of tabs at once. */
+export const MAX_INDEPENDENT_TABS = 5;
+
+export type IndependentTabOpenResult =
+  | { ok: true; page: Page; requestedUrl: string }
+  | { ok: false; requestedUrl: string; error: string };
+
 export default class BrowserContext {
   private _config: BrowserContextConfig;
   private _currentTabId: number | null = null;
@@ -468,6 +476,56 @@ export default class BrowserContext {
     await this.waitForTabEvents(tab.id, { waitForActivation: this._revealForeground });
 
     return await this._attachAllowedPage(tab.id);
+  }
+
+  /**
+   * Create several tabs first, then wait and attach together.
+   * One URL failing (denied, attach, timeout) does not abort the rest.
+   */
+  public async openIndependentTabs(urls: string[]): Promise<IndependentTabOpenResult[]> {
+    const requested = [...new Set(urls.map(value => value.trim()).filter(Boolean))].slice(0, MAX_INDEPENDENT_TABS);
+    const created = await Promise.all(requested.map(url => this._createIndependentTab(url)));
+    return Promise.all(created.map(item => this._waitAndAttachIndependentTab(item)));
+  }
+
+  private async _createIndependentTab(
+    url: string,
+  ): Promise<{ requestedUrl: string; tabId?: number; error?: string }> {
+    if (!isUrlAllowed(url, this._config.allowedUrls, this._config.deniedUrls)) {
+      return { requestedUrl: url, error: 'url_not_allowed' };
+    }
+    try {
+      const tab = await chrome.tabs.create({
+        url,
+        active: this._revealForeground,
+        ...(this._boundWindowId === null ? {} : { windowId: this._boundWindowId }),
+      });
+      if (!tab.id) return { requestedUrl: url, error: 'no_tab_id' };
+      return { requestedUrl: url, tabId: tab.id };
+    } catch (error) {
+      return { requestedUrl: url, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private async _waitAndAttachIndependentTab(item: {
+    requestedUrl: string;
+    tabId?: number;
+    error?: string;
+  }): Promise<IndependentTabOpenResult> {
+    if (item.tabId == null) {
+      return { ok: false, requestedUrl: item.requestedUrl, error: item.error || 'create_failed' };
+    }
+    try {
+      await this.waitForTabEvents(item.tabId, { waitForActivation: this._revealForeground });
+      const page = await this._attachAllowedPage(item.tabId);
+      return { ok: true, page, requestedUrl: item.requestedUrl };
+    } catch (error) {
+      return {
+        ok: false,
+        requestedUrl: item.requestedUrl,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   public async closeTab(tabId: number): Promise<void> {

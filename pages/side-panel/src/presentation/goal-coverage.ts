@@ -71,6 +71,7 @@ export function isStatusOnlyAnswer(answer: string | undefined): boolean {
   if (/^(视频|媒体).{0,12}(播放|暂停|核对)/.test(s)) return true;
   if (/^(目标)?标签已关闭/.test(s)) return true;
   if (/^页面(地址|状态)已/.test(s)) return true;
+  if (/^页面结果已核对/.test(s)) return true;
   if (/^下载已(开始|完成)/.test(s)) return true;
   if (/^(Browser opened|Switched to|Playing video|Opened )/i.test(s)) return true;
   return false;

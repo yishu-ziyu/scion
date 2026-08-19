@@ -14,9 +14,10 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 
 - Given a task snapshot with status `running`
 - When the status card is rendered
-- Then the user goal is a bubble
-- And 现在 is an expanded tool log (icon + verb + optional chip)
-- And a live cursor and 停止生成 pill are visible
+- Then the user's original sentence is a sand card with no 目标 label
+- And the stream shows what happened (search board / opened page), not 获取页面快照
+- And a live cursor and 接管 are visible on the stream
+- And the composer shows 跟随, not a second 接管
 - And the page overlay says 持节正在操作这个页面
 
 ## Scenario: Idle home is a hero plus example rows
@@ -32,27 +33,42 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - When the status label is rendered
 - Then the user sees "进行中" / localized human copy, not the string `running`
 
-## Scenario: Failed task is 目标 + 结果 + 再说一次
+## Scenario: Failed task is the original sentence + one verdict + 再说一次
 
 - Given a task snapshot with status `failed`
 - When the status card is rendered
 - Then there is no 失败了 pill and no rating form
-- And 结果 is one human sentence
+- And the verdict is one human sentence
 - And the primary action is 再说一次
-- And any steps sit under 做过, after 结果
+- And there is no 目标 / 现在 / 结果 / 做过 label
 
 ## Scenario: Completion is plain language, not a receipt id
 
 - Given a completed round with a receipt
 - When the completion block is rendered
-- Then the visible text contains a done title/body
+- Then the visible text is the delivered sentence
 - And the visible text does not contain `receipt:`
+- And there is no rating form and no receipt details
+- And opened pages or search hits appear under the answer as 对核 sources
 
-## Scenario: Skill template prefilled from last goal
+## Scenario: Thinking follows what already happened
+
+- Given a running task that has already opened a page
+- When the work stream is derived
+- Then 思考过程 comes after the page card, not above it
+
+## Scenario: High-risk click is previewed
+
+- Given a live `external_commit` click
+- When the work stream is derived
+- Then the user sees 下一步要提交或确认 and the action title
+
+## Scenario: Skill template helper still replaces field tokens
 
 - Given the last user instruction contains `FIELD_SENTINEL_8472`
-- When opening save-as-template
-- Then the template prefill replaces that token with `{{name}}`
+- When `instructionToSkillTemplate` runs
+- Then it replaces that token with `{{name}}`
+- And the completed card does not show 保存为可再运行
 
 ## Scenario: Design tokens are the only color source for the shell
 

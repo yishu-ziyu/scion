@@ -67,6 +67,11 @@ export interface ObserveActLoopOptions {
    * error is recoverable. Defaults to true to preserve existing behavior.
    */
   shouldRetryFailure?: (error: string) => boolean;
+  /**
+   * Called once when the page observation stops changing.
+   * Return `continue` to reset the no-progress streak and keep deciding.
+   */
+  onStuck?: () => Promise<'continue' | 'stop'>;
 }
 
 /**
@@ -91,9 +96,25 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
   // Successful reobserve feeds the next decide; avoids a redundant observe.
   let carriedState: string | undefined;
   let noProgressStreak = 0;
+  let stuckReplanUsed = false;
   const seenProgressKeys = new Set<string>();
   /** When reobserve is absent, compare the next full observe to this fingerprint. */
   let pendingNoProgressBefore: string | undefined;
+
+  const failIfStillStuck = async (): Promise<boolean> => {
+    if (stuckReplanUsed || !options.onStuck) return true;
+    stuckReplanUsed = true;
+    try {
+      const verdict = await options.onStuck();
+      if (verdict === 'continue') {
+        noProgressStreak = 0;
+        return false;
+      }
+    } catch {
+      return true;
+    }
+    return true;
+  };
 
   for (let step = 0; step < maxSteps; step++) {
     if (isStopped()) return { kind: 'cancelled' };
@@ -118,7 +139,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
     if (noProgressEnabled && pendingNoProgressBefore !== undefined) {
       if (stateText.trim() === pendingNoProgressBefore) {
         noProgressStreak += 1;
-        if (noProgressStreak >= maxNoProgress) {
+        if (noProgressStreak >= maxNoProgress && (await failIfStillStuck())) {
           return { kind: 'failed', category: 'no_progress' };
         }
       } else {
@@ -197,7 +218,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
         if (noProgressEnabled) {
           if ((carriedState ?? '').trim() === stateBeforeAct && !semanticProgress) {
             noProgressStreak += 1;
-            if (noProgressStreak >= maxNoProgress) {
+            if (noProgressStreak >= maxNoProgress && (await failIfStillStuck())) {
               return { kind: 'failed', category: 'no_progress' };
             }
           } else {

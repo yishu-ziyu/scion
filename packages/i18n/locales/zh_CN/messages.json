@@ -73,6 +73,9 @@
   "chat_task_input_placeholder": {
     "message": "要做什么"
   },
+  "chat_task_input_continue": {
+    "message": "继续说，或纠正方向"
+  },
   "chat_task_input_attach_placeholder": {
     "message": "添加说明（可选）..."
   },
@@ -991,7 +994,7 @@
     "message": "只完成了部分目标"
   },
   "chat_task_partial_body": {
-    "message": "有一部分已经核对，但目标里还有未交付的内容。你可以评分后继续补充说明。"
+    "message": "有一部分已经核对，但目标里还有未交付的内容。可以在输入框补一句。"
   },
   "chat_task_partial_done_label": {
     "message": "已做到"

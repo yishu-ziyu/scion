@@ -14,7 +14,7 @@ export interface ControlPolicyDecision {
   waitingUser: 'login_required' | 'captcha_required' | null;
 }
 
-export const CONTROL_PROMPT_VERSION = 'chijie-control-v0.4.1';
+export const CONTROL_PROMPT_VERSION = 'chijie-control-v0.4.2';
 
 export interface AgentStatusBarInput {
   url?: string;
@@ -48,6 +48,22 @@ export function buildAgentStatusBar(input: AgentStatusBarInput): string {
 
 export interface ControlSystemPromptOptions {
   statusBar?: string;
+  /** Append the evidence-recording / Feishu research script. Default off. */
+  research?: boolean;
+}
+
+/** Quotas, evidence ledgers, and Feishu write-back — not every browser task. */
+export function instructionLooksLikeResearch(instruction: string): boolean {
+  const text = instruction.replace(/\s+/g, ' ').trim();
+  if (!text) return false;
+  if (/record_evidence|inspect_evidence_space|record_research_decision|record_research_delivery/i.test(text)) {
+    return true;
+  }
+  if (/证据空间|建立能力地图/.test(text)) return true;
+  if (/飞书/.test(text) && /回写|写入|写进/.test(text)) return true;
+  if (/至少.{0,12}\d+\s*(?:个|条)?(?:真实用户|用户讨论)/.test(text)) return true;
+  if (/at\s+least\s+\d+\s+user discussions?/i.test(text)) return true;
+  return false;
 }
 
 /**
@@ -91,7 +107,8 @@ export function observationSupportsWaitingUser(
 
 export function renderControlSystemPrompt(options: ControlSystemPromptOptions = {}): string {
   const statusBlock = options.statusBar ? `\n\n<agent_status>\n${options.statusBar}\n</agent_status>` : '';
-  return `${CONTROL_SYSTEM_PROMPT_BODY}\n\nPrompt version: ${CONTROL_PROMPT_VERSION}.${statusBlock}`;
+  const researchBlock = options.research ? `\n\n${CONTROL_RESEARCH_PROMPT_BODY}` : '';
+  return `${CONTROL_SYSTEM_PROMPT_BODY}${researchBlock}\n\nPrompt version: ${CONTROL_PROMPT_VERSION}.${statusBlock}`;
 }
 
 const ALLOWED_ACTIONS = new Set([
@@ -340,15 +357,17 @@ Rules:
     - Finish current-phase evidence before advancing to the next phase.
     - Never invent done without observable page/tab/download evidence that matches the criteria.
 13. When done is true, "observation" is the user-facing result. The user will check it against the page. Acknowledgements, promises, and "I will…" / "好的我来…" are not results. Never return an acknowledgement or future promise.
-14. For long research tasks, use record_evidence only after opening and reading the actual source page. Never count search snippets or unopened links. Every useful source MUST be recorded before leaving its URL; never plan to reconstruct records later from memory. Repository files/pages use record_type "repository", user discussions use "user_discussion", and product pages use "product". Use inspect_evidence_space after recovery and before claiming a source quota is met.
-15. Each observation includes visible page wording plus clickable indexes. Write the user-facing result from the wording. Indexes are for clicking, not for quoting. Call read_page_text only if the visible window is empty or too short, or after you scrolled to new content. Do not click around to start reading. When the user asks to include already-open browser context, use inspect_open_tabs and switch only to clearly relevant tabs.
-15b. Before click_element, if the Interactive elements list is long or you need a named control, call observe with a query (for example "提交" or "Search") so only matching controls remain. Indexes stay the original highlight numbers. You may also pass the same query on click_element or input_text instead of an index. If the query does not resolve to one control, you get candidates and no click. An empty observe query returns the full page list.
-15c. When the user wants numbers, a table, a named list, or what the videos/items on the current page are about, call extract_content with a goal and optional schema field names. That writes JSON records into an artifact. extract_content does not finish the task; do not set done true just because rows came back. Then write the result in observation and set done.
-16. For record_evidence, action_args MUST be {"records":[{"record_type":"user_discussion"|"product"|"repository"|"browser_context"|"product_principle","source":"the exact current page URL","source_title":"...","user_problem":"optional","raw_basis":"at least 20 characters copied from the page","observation":"at least 8 characters","inference":"...","confidence":"high"|"medium"|"low","related_product":"optional","living_reader_capability":"optional","priority":"high"|"medium"|"low","stance":"support"|"oppose"|"mixed"|"neutral","dedupe_key":"stable source-local key"}]}. Use these English field names and enum values exactly. Product records MUST set related_product to the actual product shown on the current source, never to Living Reader as a placeholder. For evidence-recording tasks, do not propose a URL criterion that was already true at baseline; verify progress with inspect_evidence_space instead.
-17. On an unavailable/404/error page during research, do not record evidence, wait, or finish. Use go_back to return to the last valid source, then choose a real alternative link.
-18. When research quotas are met, inspect filtered evidence pages, then use record_research_decision to persist exactly three capabilities. Each requires seven substantive decision answers plus IDs for 2 independent user sources, 1 product, and 1 repository source. Candidate completion is invalid until this action is accepted.
-19. After writing the Feishu research table and decision document, reopen each final page and call record_research_delivery. The table readback must show every required field and cover all evidence rows; the document readback must show 下一步做什么, 为什么, 暂时不做, and all three accepted capability titles.
-20. Never inspect or record unrelated private items from signed-in dashboards. For product research, use only generic product UI, public examples, official documentation, or demos; leave a private dashboard when those cannot be isolated.
+14. Each observation includes visible page wording plus clickable indexes. Write the user-facing result from the wording. Indexes are for clicking, not for quoting. Call read_page_text only if the visible window is empty or too short, or after you scrolled to new content. Do not click around to start reading. When the user asks to include already-open browser context, use inspect_open_tabs and switch only to clearly relevant tabs.
+15. Before click_element, if the Interactive elements list is long or you need a named control, call observe with a query (for example "提交" or "Search") so only matching controls remain. Indexes stay the original highlight numbers. You may also pass the same query on click_element or input_text instead of an index. If the query does not resolve to one control, you get candidates and no click. An empty observe query returns the full page list.
+16. When the user wants numbers, a table, a named list, or what the videos/items on the current page are about, call extract_content with a goal and optional schema field names. That writes JSON records into an artifact. extract_content does not finish the task; do not set done true just because rows came back. Then write the result in observation and set done.
 `;
+
+const CONTROL_RESEARCH_PROMPT_BODY = `Research-only:
+R1. Use record_evidence only after opening and reading the actual source page. Never count search snippets or unopened links. Every useful source MUST be recorded before leaving its URL; never plan to reconstruct records later from memory. Repository files/pages use record_type "repository", user discussions use "user_discussion", and product pages use "product". Use inspect_evidence_space after recovery and before claiming a source quota is met.
+R2. For record_evidence, action_args MUST be {"records":[{"record_type":"user_discussion"|"product"|"repository"|"browser_context"|"product_principle","source":"the exact current page URL","source_title":"...","user_problem":"optional","raw_basis":"at least 20 characters copied from the page","observation":"at least 8 characters","inference":"...","confidence":"high"|"medium"|"low","related_product":"optional","living_reader_capability":"optional","priority":"high"|"medium"|"low","stance":"support"|"oppose"|"mixed"|"neutral","dedupe_key":"stable source-local key"}]}. Use these English field names and enum values exactly. Product records MUST set related_product to the actual product shown on the current source, never to Living Reader as a placeholder. For evidence-recording tasks, do not propose a URL criterion that was already true at baseline; verify progress with inspect_evidence_space instead.
+R3. On an unavailable/404/error page during research, do not record evidence, wait, or finish. Use go_back to return to the last valid source, then choose a real alternative link.
+R4. When research quotas are met, inspect filtered evidence pages, then use record_research_decision to persist exactly three capabilities. Each requires seven substantive decision answers plus IDs for 2 independent user sources, 1 product, and 1 repository source. Candidate completion is invalid until this action is accepted.
+R5. After writing the Feishu research table and decision document, reopen each final page and call record_research_delivery. The table readback must show every required field and cover all evidence rows; the document readback must show 下一步做什么, 为什么, 暂时不做, and all three accepted capability titles.
+R6. Never inspect or record unrelated private items from signed-in dashboards. For product research, use only generic product UI, public examples, official documentation, or demos; leave a private dashboard when those cannot be isolated.`;
 
 export const CONTROL_SYSTEM_PROMPT = renderControlSystemPrompt();

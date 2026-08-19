@@ -243,6 +243,32 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
     expect(acts).toBe(3);
   });
 
+  it('lets onStuck replan once before no_progress fails', async () => {
+    let acts = 0;
+    let stuck = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 20,
+      maxFailures: 5,
+      maxNoProgress: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'url=stuck-page title=same',
+      decide: async () => ({ kind: 'action', name: 'click_element', args: { index: 1 } }),
+      act: async () => {
+        acts += 1;
+        return { error: null };
+      },
+      reobserve: async () => 'url=stuck-page title=same',
+      onStuck: async () => {
+        stuck += 1;
+        return 'continue';
+      },
+    });
+    expect(outcome).toEqual({ kind: 'failed', category: 'no_progress' });
+    expect(stuck).toBe(1);
+    expect(acts).toBe(6);
+  });
+
   it('E2: resets no_progress streak when reobserve text changes', async () => {
     let acts = 0;
     const outcome = await runObserveActLoop({

@@ -29,9 +29,13 @@ import type {
   ExecutorInput,
   ExecutorMissionPlan,
   ExecutorOutcome,
+  ObservedPageSnapshot,
+  VerifiedPageRecord,
 } from '../../task/contracts';
+import { formatVerifiedPagesForPrompt } from '../../task/verified-step-records';
 import {
   buildAgentStatusBar,
+  instructionLooksLikeResearch,
   observationSupportsWaitingUser,
   parseControlPolicyDecision,
   renderControlSystemPrompt,
@@ -68,6 +72,12 @@ import {
   summarizeActionResultForTrajectory,
   type TrajectoryStep,
 } from '../context';
+import { numberedStepSegments } from '../../task/mission-plan';
+import {
+  instructionUrlPlanFromText,
+  openAndDescribeIndependentPages,
+} from '../../task/independent-urls';
+import { collectSearchFindings, isSearchResultsUrl } from '../../browser/search-results';
 
 const logger = createLogger('ControlLlmBackend');
 
@@ -77,6 +87,31 @@ export const CONTROL_MAX_NO_PROGRESS = 3;
 export interface CurrentMissionContext {
   planMemory: string;
   activePhaseId?: string;
+}
+
+export function buildControlUserPrompt(input: {
+  instruction: string;
+  step: number;
+  maxSteps: number;
+  criteriaLocked: boolean;
+  contextBlock: string;
+  lastActionMemory: string | null;
+  statusBar: string;
+  verifiedPages: VerifiedPageRecord[];
+}): string {
+  return [
+    `Task:\n${input.instruction}`,
+    formatVerifiedPagesForPrompt(input.verifiedPages),
+    `Step: ${input.step + 1}/${input.maxSteps}`,
+    input.criteriaLocked
+      ? 'Completion criteria already frozen; do not change them.'
+      : 'Propose completion_criteria if possible.',
+    input.contextBlock,
+    input.lastActionMemory ? `<last_action_result>\n${input.lastActionMemory}\n</last_action_result>` : '',
+    input.statusBar,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function missionContextFromPlan(plan: ExecutorMissionPlan | undefined): CurrentMissionContext {
@@ -342,6 +377,21 @@ export async function createLlmControlDriver(
     }
   };
 
+  const snapshotFromFrame = (frame: ObservationFrame): ObservedPageSnapshot => ({
+    url: frame.tab.url,
+    title: frame.tab.title,
+    visibleText: frame.visibleText ?? '',
+  });
+
+  const recordObservedPageIfNeeded = async (roundId: string, frame: ObservationFrame): Promise<void> => {
+    if (!hooks.recordObservedPage) return;
+    try {
+      await hooks.recordObservedPage(roundId, snapshotFromFrame(frame));
+    } catch {
+      // Provenance write must not abort observe.
+    }
+  };
+
   const observeFrame = async (opts?: { waitForLoad?: boolean }): Promise<ObservationFrame> => {
     if (enableKernel) {
       const frame = await kernel.observe({ query: observeQuery, waitForLoad: opts?.waitForLoad });
@@ -466,12 +516,41 @@ export async function createLlmControlDriver(
         shouldRetryFailure: evalSettings.featureFlags.enableRetryRecovery
           ? error => classifyRetry(error) === 'retry'
           : () => false,
+        onStuck: async () => {
+          lastActionMemory = [
+            'Previous actions did not change the page.',
+            'Replan from the user request and the current page.',
+            'Do not repeat the last click or URL.',
+          ].join(' ');
+          return 'continue';
+        },
         onPhase: async event => {
           await hooks.reportLoopPhase?.(roundId, event);
         },
         observe: async () => {
           agentContext.nSteps = agentContext.nSteps ?? 0;
           const frame = await observeFrame({ waitForLoad: false });
+          await recordObservedPageIfNeeded(roundId, frame);
+          if (isSearchResultsUrl(frame.tab.url)) {
+            try {
+              const findings = await collectSearchFindings(await browserContext.getCurrentPage());
+              const opened = await openAndDescribeIndependentPages({
+                instruction,
+                plan: instructionUrlPlanFromText(instruction),
+                browserContext,
+                currentUrl: frame.tab.url,
+                searchFindings: findings,
+              });
+              if (opened.length > 0) {
+                await hooks.recordOpenedPages?.(
+                  roundId,
+                  opened.map(tab => ({ tabId: tab.tabId, url: tab.pageUrl, title: tab.title })),
+                );
+              }
+            } catch {
+              // Search-result opens are best-effort.
+            }
+          }
           const stateText = renderObservationForModel(frame, true);
           if (isForbiddenTaskContentUrl(frame.tab.url)) {
             logger.warning('observed forbidden content url; continue with state', { url: frame.tab.url });
@@ -498,6 +577,17 @@ export async function createLlmControlDriver(
           agentContext.stepInfo = new AgentStepInfo({ stepNumber: step, maxSteps });
 
           const { planMemory, activePhaseId } = await readCurrentMissionContext(hooks, roundId, input.plan);
+          const stepWording = numberedStepSegments(instruction);
+          const planBlock = [
+            planMemory,
+            stepWording.length
+              ? ['## Current step wording (not stored on the plan)', ...stepWording.map((label, index) => `- phase-${index + 1}: ${label}`)].join(
+                  '\n',
+                )
+              : '',
+          ]
+            .filter(Boolean)
+            .join('\n\n');
 
           // Skill Runtime first — site/task knowledge never inlined in this file.
           if (enableSkillRuntime) {
@@ -622,23 +712,29 @@ export async function createLlmControlDriver(
             ? buildLongHorizonContext({
                 observation: stateText,
                 trajectory: trajectorySteps,
-                planMemory: planMemory || undefined,
+                planMemory: planBlock || undefined,
                 maxChars: 28_000,
                 compressOptions: { keepRecent: 3, fieldMaxChars: 80 },
               })
-            : [stateText, planMemory].filter(Boolean).join('\n\n');
-          const userPrompt = [
-            `Task:\n${instruction}`,
-            `Step: ${step + 1}/${maxSteps}`,
-            criteriaLocked
-              ? 'Completion criteria already frozen; do not change them.'
-              : 'Propose completion_criteria if possible.',
+            : [stateText, planBlock].filter(Boolean).join('\n\n');
+          let verifiedPages: VerifiedPageRecord[] = [];
+          if (hooks.getVerifiedPages) {
+            try {
+              verifiedPages = await hooks.getVerifiedPages(roundId);
+            } catch {
+              verifiedPages = [];
+            }
+          }
+          const userPrompt = buildControlUserPrompt({
+            instruction,
+            step,
+            maxSteps,
+            criteriaLocked,
             contextBlock,
-            lastActionMemory ? `<last_action_result>\n${lastActionMemory}\n</last_action_result>` : '',
+            lastActionMemory,
             statusBar,
-          ]
-            .filter(Boolean)
-            .join('\n\n');
+            verifiedPages,
+          });
 
           let rawText = '';
           const llmSpan = await traceStore.beginSpan({
@@ -655,7 +751,15 @@ export async function createLlmControlDriver(
           try {
             const response = await invokeWithTimeout(
               signal =>
-                llm.invoke([new SystemMessage(renderControlSystemPrompt()), new HumanMessage(userPrompt)], { signal }),
+                llm.invoke(
+                  [
+                    new SystemMessage(
+                      renderControlSystemPrompt({ research: instructionLooksLikeResearch(instruction) }),
+                    ),
+                    new HumanMessage(userPrompt),
+                  ],
+                  { signal },
+                ),
               CONTROL_LLM_TIMEOUT_MS,
               agentContext.controller.signal,
             );
@@ -843,6 +947,7 @@ export async function createLlmControlDriver(
         },
         reobserve: async () => {
           const frame = await observeFrame();
+          await recordObservedPageIfNeeded(roundId, frame);
           const forceFull = !previousFrame || previousFrame.tab.url !== frame.tab.url;
           const stateText = renderObservationForModel(frame, forceFull);
           if (enableDiff && previousFrame) {

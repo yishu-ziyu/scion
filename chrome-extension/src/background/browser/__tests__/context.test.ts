@@ -580,3 +580,95 @@ describe('BrowserContext tab selection', () => {
     expect(tabsApi.create).toHaveBeenCalledWith(expect.objectContaining({ active: false }));
   });
 });
+
+describe('BrowserContext.openIndependentTabs', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    tabsApi.resetListeners();
+  });
+
+  function pendingTab(id: number, url: string): chrome.tabs.Tab {
+    return {
+      id,
+      active: false,
+      url: '',
+      pendingUrl: url,
+      title: '',
+      status: 'loading',
+    } as chrome.tabs.Tab;
+  }
+
+  function completeTab(id: number, url: string, title: string): chrome.tabs.Tab {
+    return { id, active: false, url, title, status: 'complete' } as chrome.tabs.Tab;
+  }
+
+  it('calls both chrome.tabs.create before either load completes', async () => {
+    const iana = 'https://www.iana.org';
+    const wiki = 'https://en.wikipedia.org/wiki/Web_browser';
+    const tabs = new Map<number, chrome.tabs.Tab>([
+      [21, pendingTab(21, iana)],
+      [22, pendingTab(22, wiki)],
+    ]);
+    let nextId = 21;
+    const createOrder: string[] = [];
+    tabsApi.create.mockImplementation(async ({ url }: { url: string }) => {
+      const id = nextId++;
+      createOrder.push(url);
+      return tabs.get(id);
+    });
+    tabsApi.get.mockImplementation(async (id: number) => tabs.get(id));
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const context = new BrowserContext({});
+
+    const resultPromise = context.openIndependentTabs([iana, wiki]);
+    await vi.waitFor(() => expect(tabsApi.create).toHaveBeenCalledTimes(2));
+    expect(createOrder).toEqual([iana, wiki]);
+    expect(Page.prototype.attachPuppeteer).not.toHaveBeenCalled();
+
+    const ianaDone = completeTab(21, iana, 'Internet Assigned Numbers Authority');
+    const wikiDone = completeTab(22, wiki, 'Web browser');
+    tabs.set(21, ianaDone);
+    tabs.set(22, wikiDone);
+    tabsApi.emitUpdated(21, { url: iana, title: ianaDone.title, status: 'complete' }, ianaDone);
+    tabsApi.emitUpdated(22, { url: wiki, title: wikiDone.title, status: 'complete' }, wikiDone);
+
+    const results = await resultPromise;
+    expect(results.filter(item => item.ok)).toHaveLength(2);
+    expect(tabsApi.create.mock.calls[0][0]).toMatchObject({ url: iana, active: false });
+    expect(tabsApi.create.mock.calls[1][0]).toMatchObject({ url: wiki, active: false });
+  });
+
+  it('creates background tabs when follow is off', async () => {
+    const first = completeTab(31, 'https://example.com/a', 'A');
+    const second = completeTab(32, 'https://example.com/b', 'B');
+    tabsApi.create.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    tabsApi.get.mockImplementation(async (id: number) => (id === 31 ? first : second));
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const context = new BrowserContext({});
+
+    await context.openIndependentTabs(['https://example.com/a', 'https://example.com/b']);
+    expect(tabsApi.create).toHaveBeenCalledWith(expect.objectContaining({ active: false }));
+    expect(tabsApi.create).not.toHaveBeenCalledWith(expect.objectContaining({ active: true }));
+  });
+
+  it('keeps the other tab when one attach fails', async () => {
+    const good = completeTab(41, 'https://one.test/ok', 'OK');
+    const bad = completeTab(42, 'https://two.test/fail', 'Fail');
+    tabsApi.create
+      .mockResolvedValueOnce(good)
+      .mockResolvedValueOnce(bad);
+    tabsApi.get.mockImplementation(async (id: number) => (id === 41 ? good : bad));
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockImplementation(async function (this: Page) {
+      if (this.tabId === 42) return false;
+      return true;
+    });
+    const context = new BrowserContext({});
+
+    const results = await context.openIndependentTabs(['https://one.test/ok', 'https://two.test/fail']);
+    expect(results).toEqual([
+      expect.objectContaining({ ok: true, requestedUrl: 'https://one.test/ok' }),
+      expect.objectContaining({ ok: false, requestedUrl: 'https://two.test/fail' }),
+    ]);
+  });
+});

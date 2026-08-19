@@ -15,6 +15,70 @@
 
 ---
 
+## 2026-08-18 审完未改的三条落地
+
+页卡片标题用页名或搜索命中，不再用「打开 etsy.com」。完成后不再画「保存为可再运行」。`NowTrace` / `MissionPlanList` / `ThinkingReasoning` 已不在活路径，文件删掉。
+
+### 验证
+
+`work-stream`、`task-status-card-identity`、`ui-acceptance`、`action-dispatcher`。
+
+---
+
+## 2026-08-18 同类残留：预印栏目和证书式完成卡
+
+### 用户场景
+
+任务做完后侧栏仍叠着「已完成」和「结果暂不可交付」，答案里露出 `**`，底下还冒出聊天里的「你」。同一次改动还在编「在想下一步怎么做」，完成卡仍挂打分和回执。
+
+### 怎么做
+
+侧栏只按发生的事往下长。思考没有真实原因就不画。完成卡只留交出来的那句和来源，不画打分、回执、证据清单。有任务卡时不画聊天「你」。开发收尾按 `AGENTS.md` Review：相对 `origin/main` 拆 Standards / Spec 两轴，不合成一张优先级表。
+
+### 验证
+
+`work-stream`、`task-status-card-identity`、`ui-acceptance`。
+
+---
+
+## 2026-08-18 对照书续：研究误判、wiki 冻结、并字抢跑、骨架回执
+
+复审上一轮后补四件事。不做新人选一界面，不加跨任务记忆。
+
+| 缺口 | 改法 |
+|---|---|
+| 「打开飞书读这一页」「打开飞书决策文档」「提取 20 个产品」「打开能力地图页面」被当成研究任务 | `instructionLooksLikeResearch` 只认证据空间 / 建立能力地图 / 飞书+写入或回写 / 真实用户讨论配额 |
+| 飞书 `wiki/…` 冻成 `en.wikipedia.org` | 只有「中文维基 / zh.wikipedia / 维基百科 / 英文维基 / Wikipedia」才把裸 `wiki/Slug` 冻成对应维基站。`zh.wikipedia` 里的 wikipedia 不再误冻英文站。已写在 `https://…/wiki/` 里的 slug 不改写。飞书维基不冻。 |
+| 「打开第一个视频并写出标题 / 并且把标题写下来」被 skill 直接做完 | `isAtomicSkillInstruction` 把「并 + 写出/写下/总结/搜索/记录」当连续动作；「并点击第一个视频」仍可走 skill。`instructionAsksWrittenResult` 认「写下」 |
+| 编号骨架还停在阶段 1，回执已经发出 | `applyFinalDeliverableToMissionPlan` / `closeEmptySkeletonPhasesOnReceipt` 在回执落地时合上全部空的「阶段 N」 |
+
+### 验证
+
+`mission-plan`、`control-policy`、`runtime`、`manager`（飞书 wiki 不冻维基、编号骨架回执合上）。
+
+---
+
+## 2026-08-18 对照书：堵住错误完成，接回已知流程
+
+对照 [xindoo/agentic-design-patterns](https://github.com/xindoo/agentic-design-patterns) 盘点后落地。书的分叉仍有效：做法已知走固定流程；做法未知才规划。不上第二只智能体。
+
+| 缺口 | 本轮改法 | 不改 |
+|---|---|---|
+| 编号阶段把已写完的结果判成 `mission_plan_unverified` | 空完成条件的骨架阶段不挡回执；最后一格有结果时可合上前面的「阶段 N」 | 计划里仍不写用户原句 |
+| 完成条件写死维基 Artificial intelligence | 删掉。用户写了 `wiki/…` 才冻 URL | 打开第一个视频仍可用 `/watch` 回执（现有核对） |
+| `discoverSkills` 恒为空 | 短、单步、已知做法（填表 / 抽表 / 打开第一个视频 / 播停）可以命中 skill | 读页概括、理解题、多阶段长句仍走模型 |
+| 页三次不变直接失败 | 先写回「不要重复上一步，按当前页改做法」，再给一轮 | 不解锁已冻住的完成条件 |
+| 研究流程写在所有任务的系统提示里 | 只有研究句（记证据 / 飞书 / 能力配额）才带上第 14–20 条 | 通用看页、点、填仍是同一份提示 |
+| 阶段标题是「阶段 N」，模型看不见步骤在说什么 | 决策时把编号步骤的短句放进提示，不写入计划对象 | 不做跨任务长期记忆；不做人选一的新侧栏 |
+
+人在登录墙之外被提问、跨任务记忆、`chrome.debugger` 节点句柄：本轮不新开界面，不另起存储。
+
+### 验证
+
+`mission-plan`、`observe-act-loop`、`runtime`/`discovery`、`control-policy`、`manager` 里 LH-01 与回执相关用例。
+
+---
+
 ## 2026-08-18 失败后只留目标和结果
 
 ### 用户场景

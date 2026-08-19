@@ -1,27 +1,22 @@
 import type { ReactNode } from 'react';
-import { FiActivity, FiExternalLink, FiFileText, FiPauseCircle } from 'react-icons/fi';
+import { FiExternalLink, FiFileText, FiPauseCircle } from 'react-icons/fi';
 import type { ProgressHealthState, TaskProgressView } from '../presentation/task-progress-view';
-import { MissionPlanList } from './MissionPlanList';
 
 interface TaskProgressOverviewProps {
   view: TaskProgressView;
   now?: number;
   controls?: ReactNode;
   interrupted?: boolean;
-  /** Verified or failed result body. Shown in the 结果 block. */
+  /** Delivered or failed sentence. Only rendered when it exists. */
   result?: ReactNode;
-  /** Live tool log. Replaces the one-line Now callout while the task is running. */
+  /** Growing work stream (search boards, pages). */
   nowBody?: ReactNode;
+  /** Full original sentence. Not a 目标 label. */
+  utterance?: string;
 }
 
 export function healthNeedsAttention(state: ProgressHealthState): boolean {
-  return (
-    state === 'needs_user' ||
-    state === 'failed' ||
-    state === 'stalled' ||
-    state === 'paused' ||
-    state === 'recovering'
-  );
+  return state === 'needs_user' || state === 'stalled' || state === 'paused';
 }
 
 function relativeTime(timestamp: number | undefined, now: number): string | null {
@@ -36,15 +31,12 @@ function relativeTime(timestamp: number | undefined, now: number): string | null
   return new Date(timestamp).toLocaleDateString();
 }
 
-export function healthLabel(state: TaskProgressView['health']['state']): string {
-  if (state === 'failed' || state === 'complete') return '结果';
-  if (state === 'paused' || state === 'needs_user') return '状态';
-  return '运行';
+export function healthLabel(_state: TaskProgressView['health']['state']): string {
+  return '';
 }
 
 export function healthAnnouncement(health: TaskProgressView['health']): string {
-  const prefix = healthLabel(health.state);
-  return prefix === '运行' ? `运行状态：${health.summary}` : `${prefix}：${health.summary}`;
+  return health.summary;
 }
 
 export function TaskProgressOverview({
@@ -54,53 +46,38 @@ export function TaskProgressOverview({
   interrupted = false,
   result,
   nowBody,
+  utterance,
 }: TaskProgressOverviewProps) {
-  const blocked = view.milestones.find(milestone => milestone.status === 'blocked');
   const lastProgress = relativeTime(view.health.lastMeaningfulProgressAt, now);
-  const isResultSurface = view.surface === 'result';
-  const healthVisible = healthNeedsAttention(view.health.state);
+  const healthVisible = healthNeedsAttention(view.health.state) && !result;
   const hideDuplicateHealth =
-    Boolean(result) && (view.health.state === 'failed' || view.health.state === 'complete');
+    Boolean(result) ||
+    view.status === 'completed' ||
+    view.status === 'failed' ||
+    view.health.state === 'failed' ||
+    view.health.state === 'complete' ||
+    view.health.state === 'recovering';
+  const visibleArtifacts = view.artifacts.filter(artifact => artifact.kind !== 'receipt');
   const hasDeliveredResult =
-    Boolean(result) || view.findings.length > 0 || (!isResultSurface && view.artifacts.length > 0);
-  const showPendingResult =
-    !hasDeliveredResult &&
-    !nowBody &&
-    view.status !== 'failed' &&
-    view.status !== 'completed' &&
-    view.health.state !== 'failed' &&
-    view.health.state !== 'complete';
-  const failedAudit = view.status === 'failed';
-  const nowKicker = failedAudit ? '做过' : '现在';
+    Boolean(result) || view.findings.length > 0 || visibleArtifacts.length > 0;
+  const spoken = (utterance ?? view.mission.title).replace(/\s+/g, ' ').trim();
   const showNow = Boolean(nowBody || view.currentActivity);
   const nowSection = showNow ? (
     <section
       className="chijie-progress-now"
       data-testid="task-progress-current-activity"
-      data-live-log={nowBody ? 'true' : undefined}
-      data-audit={failedAudit ? 'true' : undefined}>
-      {!(failedAudit && nowBody) && <span className="chijie-progress-kicker">{nowKicker}</span>}
-      {view.currentActivity && (
+      data-live-log={nowBody ? 'true' : undefined}>
+      {!nowBody && view.currentActivity ? (
         <>
-          <strong
-            data-testid="task-now-summary"
-            className={nowBody ? 'chijie-visually-hidden' : undefined}>
-            {view.currentActivity.summary}
-          </strong>
+          <strong data-testid="task-now-summary">{view.currentActivity.summary}</strong>
           {view.currentActivity.site && (
-            <span
-              className={nowBody ? 'chijie-visually-hidden' : 'chijie-progress-now-site'}
-              data-testid="task-now-site">
+            <span className="chijie-progress-now-site" data-testid="task-now-site">
               {view.currentActivity.site}
             </span>
           )}
-          <span
-            data-testid="task-now-purpose"
-            className={nowBody ? 'chijie-visually-hidden' : undefined}>
-            {view.currentActivity.purpose}
-          </span>
+          <span data-testid="task-now-purpose">{view.currentActivity.purpose}</span>
         </>
-      )}
+      ) : null}
       {nowBody}
     </section>
   ) : null;
@@ -112,41 +89,23 @@ export function TaskProgressOverview({
       data-surface={view.surface ?? 'console'}
       data-testid="task-progress-overview">
       <section className="chijie-progress-mission chijie-user-bubble" data-testid="task-goal-block">
-        <p className="chijie-progress-kicker">目标</p>
-        <h2 data-testid="task-goal-summary">{view.mission.title}</h2>
-        {!isResultSurface && view.kind === 'research' && <p>{view.mission.deliverable}</p>}
+        <h2 data-testid="task-goal-summary">{spoken}</h2>
       </section>
 
-      {view.directionChange && (
-        <section className="chijie-progress-direction-change" data-testid="task-direction-change">
-          <FiActivity aria-hidden />
-          <span>
-            <strong>方向已调整</strong>
-            <span>{view.directionChange.summary}</span>
-          </span>
-          <time>{relativeTime(view.directionChange.occurredAt, now)}</time>
+      {view.directionChange ? (
+        <section className="chijie-system-note" data-testid="task-direction-change">
+          <p>{view.directionChange.summary}</p>
         </section>
-      )}
+      ) : null}
 
-      {!isResultSurface && !failedAudit && view.milestones.length > 0 && (
-        <MissionPlanList
-          milestones={view.milestones}
-          status={view.status}
-          durableProgress={view.milestones.some(milestone =>
-            milestone.gates.some(gate => gate.target !== undefined && gate.target > 0),
-          )}
-        />
-      )}
-
-      {!failedAudit && nowSection}
+      {nowSection}
 
       <section
         className="chijie-progress-health"
         data-testid="task-progress-health"
         data-health={view.health.state}
         data-quiet={healthVisible && !hideDuplicateHealth ? undefined : 'true'}
-        hidden={hideDuplicateHealth || undefined}>
-        <span className="chijie-progress-health-label">{healthLabel(view.health.state)}</span>
+        hidden={hideDuplicateHealth || !healthVisible || undefined}>
         <strong className="chijie-progress-health-summary">{view.health.summary}</strong>
         {view.health.lastMeaningfulProgressAt ? (
           <time className="chijie-progress-health-time">
@@ -160,7 +119,7 @@ export function TaskProgressOverview({
         data-testid="task-health-announcer"
         role="status"
         aria-atomic="true">
-        {healthAnnouncement(view.health)}
+        {healthVisible && !hideDuplicateHealth ? healthAnnouncement(view.health) : ''}
       </span>
 
       {interrupted ? (
@@ -181,9 +140,14 @@ export function TaskProgressOverview({
         controls
       )}
 
-      {(result || hasDeliveredResult || showPendingResult) && (
+      {view.milestones.some(milestone => milestone.status === 'blocked') ? (
+        <div className="chijie-progress-blocked" role="alert">
+          当前阶段遇到阻塞，请调整任务方向或稍后重试。
+        </div>
+      ) : null}
+
+      {hasDeliveredResult ? (
         <section className="chijie-progress-result" data-testid="task-result-block">
-          <p className="chijie-progress-kicker">结果</p>
           {result}
           {view.findings.length > 0 && (
             <div className="chijie-progress-findings" data-testid="task-progress-findings">
@@ -197,10 +161,10 @@ export function TaskProgressOverview({
               </ul>
             </div>
           )}
-          {!isResultSurface && view.artifacts.length > 0 && (
+          {visibleArtifacts.length > 0 && (
             <div className="chijie-progress-artifacts" data-testid="task-progress-artifacts">
               <ul>
-                {view.artifacts.map(artifact => (
+                {visibleArtifacts.map(artifact => (
                   <li key={artifact.id}>
                     <FiFileText aria-hidden />
                     {artifact.url ? (
@@ -217,21 +181,8 @@ export function TaskProgressOverview({
               </ul>
             </div>
           )}
-          {showPendingResult && (
-            <p className="chijie-progress-result-pending" data-testid="task-result-pending">
-              做完会出现在这里
-            </p>
-          )}
         </section>
-      )}
-
-      {failedAudit && nowSection}
-
-      {blocked && (
-        <div className="chijie-progress-blocked" role="alert">
-          当前阶段遇到阻塞，请调整任务方向或稍后重试。
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -43,8 +43,18 @@ export interface BrowserTargetRef {
   visitSeq?: number;
   observedAt?: number;
   digest: string;
-  /** Optional human page title at bind time (UI only; not used for act/observe matching). */
+  /** Optional human page title at bind time (UI). Verified title for the model and completion is `title`. */
   label?: string;
+  /**
+   * document.title from a verified observation (trimmed). Used in the next
+   * control prompt and in completion checks. Empty title is never written.
+   */
+  title?: string;
+  /**
+   * One sentence from that observation's visible text, at most 160 characters.
+   * Only when the instruction asks to quote. Must be a substring of that observation.
+   */
+  quote?: string;
 }
 
 type CriterionBase = {
@@ -95,6 +105,13 @@ export interface CompletionReceipt {
 
 export type AttemptState = 'proposed' | 'authorized' | 'executing' | 'observed' | 'uncertain' | 'blocked';
 
+/** One row on a search board or opened page. Titles only; never page HTML. */
+export interface AttemptFinding {
+  title: string;
+  url?: string;
+  host?: string;
+}
+
 export interface ActionAttempt {
   id: string;
   roundId: string;
@@ -109,6 +126,10 @@ export interface ActionAttempt {
   displaySummary?: string;
   /** Optional short object chip (hostname / field kind). */
   targetLabel?: string;
+  /** http(s) page the attempt opened or acted on. Used so the side panel can open that page. */
+  targetUrl?: string;
+  /** Search hits or extracted titles left for the side panel board. */
+  findings?: AttemptFinding[];
   state: AttemptState;
   proposedAt: number;
   authorizedAt?: number;

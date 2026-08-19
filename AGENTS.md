@@ -2,7 +2,7 @@
 
 Personal second-dev lab (接穗). Maintainer: yishu-ziyu · remote: `origin` → https://github.com/yishu-ziyu/scion.git
 
-持节 = Chrome MV3 **long-horizon task Agent**：把交出去的事做完，交出能核对的结果。侧栏报目标 / 现在 / 结果。不是侧栏聊天，不是逐步审批。
+持节 = Chrome MV3 **long-horizon task Agent**：把交出去的事做完，交出能核对的结果。侧栏按发生的事往下长（你说的那句、思考、搜索板、打开的页、交出来的那句）。不是预印栏目，不是侧栏聊天，不是逐步审批。
 
 Owner 指哪打哪。不要为了编号、闸门、索引、里程碑去写文档。
 
@@ -33,5 +33,20 @@ This directory is the product. Commit from this root. Do not create a second ext
 
 ## Lessons
 
-- Do not bring the user's current tab or window to the front while the agent works, unless the user chose 跟随 (`TaskSession.followForeground`). Default `BrowserContext.switchTab` / `openTab` / `navigateTo` attach in the background. 接管 (`takeover`) pauses the task and reveals the page so the user can drive. Side panel shows 目标 / 现在 / 结果.
+- Do not bring the user's current tab or window to the front while the agent works, unless the user chose 跟随 (`TaskSession.followForeground`). Default `BrowserContext.switchTab` / `openTab` / `navigateTo` attach in the background. 接管 (`takeover`) pauses the task and reveals the page so the user can drive. Side panel grows from what happened; do not pre-print 目标 / 现在 / 结果 / 做过.
 - Computer-use (`orca computer`) must not steal the user's front app. Never `--restore-window`, `orca open`, or `osascript activate`. Prefer `orca serve` (no desktop window) and `get-app-state --no-screenshot`. If the target has no on-screen window, stop; do not restore it.
+
+## Review
+
+After a user-visible or multi-file change, before claiming done: two-axis review vs `origin/main` (or the last agreed commit). Run Standards and Spec as separate passes. Do not merge the two reports into one ranked list.
+
+- **Standards:** this file + `pages/side-panel/src/design/ui-acceptance.feature.md`. Fowler smells (Mysterious Name through Refused Bequest) are judgement only; a rule in this file wins. Skip what lint/typecheck already enforces.
+- **Spec:** the owner's last spoken scene. If there is no spec, write "no spec available". Do not invent one.
+
+How (Matt Pocock `code-review`):
+
+1. Pin the fixed point (`git rev-parse`). For uncommitted work, review the working tree against that point, including untracked product files.
+2. Launch two reviewers in parallel. One reads only Standards. One reads only Spec. Briefs stay under 400 words.
+3. Report `## Standards` and `## Spec` separately. Each axis ends with a count and the worst item.
+
+Playbook: `/Users/mahaoxuan/Desktop/coding/wiki/skills/code-review.md`. Do not copy that skill tree into this repo.
