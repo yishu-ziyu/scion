@@ -31,7 +31,8 @@ function relativeTime(timestamp: number | undefined, now: number): string | null
   return new Date(timestamp).toLocaleDateString();
 }
 
-export function healthLabel(_state: TaskProgressView['health']['state']): string {
+export function healthLabel(state: TaskProgressView['health']['state']): string {
+  void state;
   return '';
 }
 
@@ -58,8 +59,7 @@ export function TaskProgressOverview({
     view.health.state === 'complete' ||
     view.health.state === 'recovering';
   const visibleArtifacts = view.artifacts.filter(artifact => artifact.kind !== 'receipt');
-  const hasDeliveredResult =
-    Boolean(result) || view.findings.length > 0 || visibleArtifacts.length > 0;
+  const hasDeliveredResult = Boolean(result) || view.findings.length > 0 || visibleArtifacts.length > 0;
   const spoken = (utterance ?? view.mission.title).replace(/\s+/g, ' ').trim();
   const showNow = Boolean(nowBody || view.currentActivity);
   const nowSection = showNow ? (
@@ -129,9 +129,7 @@ export function TaskProgressOverview({
           </span>
           <span className="chijie-interrupted-status-copy">
             <strong>任务已中断，进度已经保存</strong>
-            {lastProgress ? (
-              <span data-testid="task-interrupted-last-progress">最后进展 {lastProgress}</span>
-            ) : null}
+            {lastProgress ? <span data-testid="task-interrupted-last-progress">最后进展 {lastProgress}</span> : null}
             <span data-testid="task-interrupted-next-step">继续后：{view.nextStep}</span>
           </span>
           {controls}

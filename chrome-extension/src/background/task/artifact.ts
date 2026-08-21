@@ -91,3 +91,36 @@ export function artifactContains(artifact: TaskArtifact, needle: string): boolea
     return false;
   }
 }
+
+function csvCell(value: unknown): string {
+  const text = value == null ? '' : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/** User-facing `TaskResult.body`: CSV for tables, body text, or a file name. */
+export function artifactToResultText(artifact: TaskArtifact): string {
+  if (artifact.type === 'text') {
+    if (!artifact.data || typeof artifact.data !== 'object') return '';
+    const text = (artifact.data as { text?: unknown }).text;
+    return typeof text === 'string' ? text.trim() : '';
+  }
+  if (artifact.type === 'table' || artifact.type === 'recordset') {
+    const columns = tableColumns(artifact);
+    const data = artifact.data as TableArtifactData | undefined;
+    const rows = Array.isArray(data?.rows) ? data.rows : [];
+    if (columns.length === 0 || rows.length === 0) return '';
+    return [
+      columns.map(csvCell).join(','),
+      ...rows.map(row => columns.map(column => csvCell(row[column])).join(',')),
+    ].join('\n');
+  }
+  if (artifact.type === 'file') {
+    const filename =
+      artifact.data && typeof artifact.data === 'object'
+        ? (artifact.data as { filename?: unknown }).filename
+        : undefined;
+    if (typeof filename === 'string' && filename.trim()) return filename.trim();
+    return artifact.title.replace(/\s+/g, ' ').trim();
+  }
+  return '';
+}

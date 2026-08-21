@@ -38,7 +38,13 @@ function numberedStepCount(instruction: string): number {
   for (let i = 0; i < hits.length; i += 1) {
     const start = (hits[i].index ?? 0) + hits[i][0].length;
     const end = i + 1 < hits.length ? (hits[i + 1].index ?? text.length) : text.length;
-    if (text.slice(start, end).replace(/[；;。]\s*$/, '').trim()) count += 1;
+    if (
+      text
+        .slice(start, end)
+        .replace(/[；;。]\s*$/, '')
+        .trim()
+    )
+      count += 1;
   }
   return count >= 2 ? Math.min(count, MAX_PHASES) : 0;
 }
@@ -90,7 +96,9 @@ export function missionPlanHasUnverifiedRequiredProof(plan: MissionPlan): boolea
   });
 }
 
-export function deriveMissionGoal(_instruction?: string, _phaseTitles?: string[]): string {
+export function deriveMissionGoal(instruction?: string, phaseTitles?: string[]): string {
+  void instruction;
+  void phaseTitles;
   return GENERIC_GOAL;
 }
 
@@ -126,8 +134,7 @@ export function buildMissionPlanFromPhaseTitles(titles: string[], now: number): 
  */
 export function refineMissionPlanFromInstruction(instruction: string, now: number): MissionPlan {
   const count = countMissionPhases(instruction);
-  const titles =
-    count > 1 ? Array.from({ length: count }, (_, index) => `阶段 ${index + 1}`) : [DEFAULT_PHASE_TITLE];
+  const titles = count > 1 ? Array.from({ length: count }, (_, index) => `阶段 ${index + 1}`) : [DEFAULT_PHASE_TITLE];
   return phasesFromTitles(titles, now);
 }
 

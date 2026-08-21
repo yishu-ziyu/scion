@@ -17,18 +17,20 @@ import type {
   TaskSnapshot,
   TaskStatus,
 } from '@extension/storage/lib/task';
-import type {
-  CompletionCriterionDraft,
-  DispatchResult,
-  ExecutorDriver,
-  ExecutorHooks,
-  ExecutorInput,
-  ExecutorMissionPlan,
-  ExecutorOutcome,
-  ObserveCriteria,
-  ProbeObservation,
+import {
+  StaleTaskRoundError,
+  type CompletionCriterionDraft,
+  type DispatchResult,
+  type ExecutorDriver,
+  type ExecutorHooks,
+  type ExecutorInput,
+  type ExecutorMissionPlan,
+  type ExecutorOutcome,
+  type ObserveCriteria,
+  type ObservedPageSnapshot,
+  type ProbeObservation,
+  type VerifiedPageRecord,
 } from './contracts';
-import { StaleTaskRoundError } from './contracts';
 import { buildAttemptDisplaySummary, buildAttemptTargetLabel } from './attempt-display';
 import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
 import {
@@ -44,8 +46,18 @@ import {
   redactedHttpUrlIdentity,
   type CompletionCheckInput,
 } from './completion';
-import type { TaskArtifact } from './artifact';
+import { artifactToResultText, type TaskArtifact } from './artifact';
 import { verifyCandidateComplete, type ArtifactCriterion } from './verification-engine';
+import {
+  acceptTask,
+  matchingStoredResult,
+  namedTakeawayText,
+  produceResult,
+  recordStep,
+  resultIsPresentAndMatches,
+  type AcceptedTask,
+  type TaskResult,
+} from './task-result';
 import { sha256 } from './digest';
 import { allowsVerifiedComplete } from './page-state';
 import { resolveMediaArgs, resolveTabArgs } from './media';
@@ -63,6 +75,7 @@ import {
 } from './mission-plan';
 import { ActionResult } from '../agent/types';
 import { isUnderstandingOnlyInstruction } from '../browser/sites/understanding-answer';
+import { csvOrMarkdownBlockSpans } from './table-shape';
 import { instructionAsksPageAbout } from '../browser/sites/theme-citation';
 import {
   isBilibiliWatchUrl,
@@ -72,8 +85,6 @@ import {
 import { hasUsablePageBody, normalizeVisiblePageText } from '../browser/kernel/visible-text';
 import {
   extractProductsFromHtml,
-  formatMostExpensiveProductConclusion,
-  instructionRequestsMostExpensive,
   parseProductTableInstruction,
   productRowEvidenceText,
 } from '../browser/sites/product-table';
@@ -83,9 +94,8 @@ import {
   instructionAffirmedTargetValue,
   instructionAffirmsTarget,
 } from '../instruction-language';
-import { isAcknowledgementOnly, isPlaceholderDelivery } from './result-text';
+import { isAcknowledgementOnly, isBasicSubstantiveAnswer, isPlaceholderDelivery } from './result-text';
 import type { UserTurnDecision } from '../intent/user-turn-decision';
-import type { ObservedPageSnapshot, VerifiedPageRecord } from './contracts';
 import {
   checkVerifiedRecordDeliverable,
   instructionAsksVerifiedQuote,
@@ -174,27 +184,6 @@ export interface InstructionDeliverableCheck {
   reasons: string[];
 }
 
-const COUNT_WORDS: Record<string, number> = {
-  一: 1,
-  二: 2,
-  两: 2,
-  三: 3,
-  四: 4,
-  五: 5,
-  六: 6,
-  七: 7,
-  八: 8,
-  九: 9,
-  十: 10,
-};
-
-function parseRequestedCount(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const numeric = Number(raw);
-  if (Number.isInteger(numeric) && numeric > 0 && numeric <= 20) return numeric;
-  return COUNT_WORDS[raw] ?? null;
-}
-
 export function normalizeProvenanceUrl(value: string): string | null {
   try {
     const url = new URL(value);
@@ -221,28 +210,6 @@ export async function redactDeliverableUrlsForPersistence(value: string): Promis
   }
   chunks.push(value.slice(cursor));
   return chunks.join('');
-}
-
-function transientUrlIdentityKey(value: string): string | null {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-    const rawSearch = url.search.startsWith('?') ? url.search.slice(1) : url.search;
-    if (/%(?![0-9a-f]{2})/i.test(rawSearch)) return null;
-    const pairs = rawSearch.split('&').map(pair => {
-      if (!pair) return '';
-      const separator = pair.indexOf('=');
-      const rawKey = separator >= 0 ? pair.slice(0, separator) : pair;
-      const rawValue = separator >= 0 ? pair.slice(separator + 1) : '';
-      const key = decodeURIComponent(rawKey.replace(/\+/g, '%20'));
-      const valuePart = decodeURIComponent(rawValue.replace(/\+/g, '%20'));
-      return `${encodeURIComponent(key)}=${encodeURIComponent(valuePart)}`;
-    });
-    const normalizedUrl = normalizeProvenanceUrl(value);
-    return normalizedUrl ? `${normalizedUrl}\n${pairs.join('&')}` : null;
-  } catch {
-    return null;
-  }
 }
 
 export interface InstructionUrlPlan {
@@ -320,11 +287,13 @@ const EMPTY_DELIVERABLE_CONTRACT: InstructionDeliverableContract = {
 /**
  * Decision 005: do not derive a task type or output shape from the utterance.
  */
-export function deriveInstructionDeliverableContract(_instruction: string): InstructionDeliverableContract {
+export function deriveInstructionDeliverableContract(instruction: string): InstructionDeliverableContract {
+  void instruction;
   return EMPTY_DELIVERABLE_CONTRACT;
 }
 
-export function instructionRequestsReturnedDeliverable(_instruction: string): boolean {
+export function instructionRequestsReturnedDeliverable(instruction: string): boolean {
+  void instruction;
   return true;
 }
 
@@ -336,200 +305,9 @@ function answerSegments(answer: string): string[] {
     .filter(Boolean);
 }
 
-function isMetadataOnlySegment(segment: string): boolean {
-  return (
-    /^(?:标题|title|域名|host|URL|url|网址|页面地址|站点)\s*[:：=]/i.test(segment) ||
-    /^页面(?:地址|状态).{0,24}(?:符合|到达|完成|正确|目标)/.test(segment) ||
-    /^(?:已完成|完成|done|success|opened|已打开)[.!。！]*$/i.test(segment)
-  );
-}
-
-function structuredTableCells(segment: string): string[] {
-  const value = segment.trim();
-  if (!value) return [];
-  if (value.startsWith('|') && value.endsWith('|')) {
-    return value
-      .slice(1, -1)
-      .split('|')
-      .map(cell => cell.replace(/\\\|/g, '|').trim())
-      .filter(Boolean);
-  }
-
-  const cells: string[] = [];
-  let cell = '';
-  let quoted = false;
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index];
-    if (character === '"') {
-      if (quoted && value[index + 1] === '"') {
-        cell += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (character === ',' && !quoted) {
-      cells.push(cell.trim());
-      cell = '';
-    } else {
-      cell += character;
-    }
-  }
-  cells.push(cell.trim());
-  return quoted ? [] : cells.filter(Boolean);
-}
-
-function canonicalTableField(value: string): string {
-  const field = value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
-  if (/^(?:name|title|名称|名字|商品)$/.test(field)) return 'name';
-  if (/^(?:price|cost|价格|价钱)$/.test(field)) return 'price';
-  if (/^(?:rating|score|评分|星级)$/.test(field)) return 'rating';
-  return field;
-}
-
-function tableHeaderMatches(segment: string, explicitFields: string[]): boolean {
-  const cells = structuredTableCells(segment).map(canonicalTableField);
-  const fields = explicitFields.map(canonicalTableField);
-  return fields.length > 0 && cells.length === fields.length && cells.every((cell, index) => cell === fields[index]);
-}
-
-function productRowFromTableSegment(segment: string, explicitFields: string[]) {
-  const cells = structuredTableCells(segment);
-  if (cells.length !== explicitFields.length) return null;
-  const fields = explicitFields.map(canonicalTableField);
-  const nameIndex = fields.indexOf('name');
-  const priceIndex = fields.indexOf('price');
-  const ratingIndex = fields.indexOf('rating');
-  if (nameIndex < 0 || priceIndex < 0 || ratingIndex < 0) return null;
-  return { name: cells[nameIndex], price: cells[priceIndex], rating: cells[ratingIndex] };
-}
-
 async function productRowSetEvidenceDigest(rows: Array<{ name: string; price: string; rating: string }>) {
   const rowDigests = await Promise.all(rows.map(row => sha256(productRowEvidenceText(row))));
   return sha256(`product-row-set-v1:${JSON.stringify([...new Set(rowDigests)].sort())}`);
-}
-
-function instructionRequestsCompleteProductTable(instruction: string): boolean {
-  return instructionAffirmsTarget(analyzeInstructionLanguage(instruction), 'complete_product_table');
-}
-
-function isStructuredTableMetadata(segment: string, explicitFields: string[]): boolean {
-  if (/^已提取\s*\d+\s*件商品（(?:CSV|Markdown)）：?$/i.test(segment.trim())) return true;
-  const cells = structuredTableCells(segment).map(cell => cell.toLowerCase());
-  if (cells.length === 0) return false;
-  if (cells.every(cell => /^:?-{3,}:?$/.test(cell))) return true;
-  return explicitFields.length > 0 ? tableHeaderMatches(segment, explicitFields) : looksLikeGenericTableHeader(segment);
-}
-
-function isMostExpensiveConclusionSegment(segment: string): boolean {
-  return (
-    /(?:最贵|价格最高|最高价(?:格)?)|\b(?:most\s+expensive|highest[-\s]+priced|highest\s+price)\b/i.test(segment) &&
-    !/(?:不是|并非|非最贵)|\b(?:not|isn't)\b/i.test(segment)
-  );
-}
-
-function isStructuredTableConclusionMetadata(segment: string): boolean {
-  return /^(?:最贵商品是\s+.+?，价格为\s+.+。|.+?\s+is\s+the\s+most\s+expensive\s+(?:product|item)(?:\s+(?:at|for)\s+.+)?[.!]?)$/i.test(
-    segment.trim(),
-  );
-}
-
-function normalizeConclusionText(value: string): string {
-  return value
-    .normalize('NFKC')
-    .replace(/\s+/g, ' ')
-    .replace(/^[\s*•-]+/, '')
-    .trim();
-}
-
-function matchesDerivedMostExpensiveConclusion(
-  conclusion: string,
-  tableSegments: string[],
-  explicitFields: string[],
-): boolean {
-  if (!isStructuredTableConclusionMetadata(conclusion)) return false;
-  const normalizedFields = explicitFields.map(canonicalTableField);
-  const nameIndex = normalizedFields.indexOf('name');
-  const priceIndex = normalizedFields.indexOf('price');
-  const ratingIndex = normalizedFields.indexOf('rating');
-  if (nameIndex < 0 || priceIndex < 0) return false;
-  const rows = tableSegments.flatMap(segment => {
-    const cells = structuredTableCells(segment);
-    if (cells.length !== explicitFields.length) return [];
-    return [
-      {
-        name: cells[nameIndex],
-        price: cells[priceIndex],
-        rating: ratingIndex >= 0 ? cells[ratingIndex] : '',
-      },
-    ];
-  });
-  const expected = formatMostExpensiveProductConclusion(rows);
-  return expected !== null && normalizeConclusionText(conclusion) === normalizeConclusionText(expected);
-}
-
-function isTableSeparator(segment: string): boolean {
-  const cells = structuredTableCells(segment);
-  return cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
-}
-
-function looksLikeGenericTableHeader(segment: string): boolean {
-  const cells = structuredTableCells(segment).map(canonicalTableField);
-  if (cells.length < 2) return false;
-  return cells.every(cell =>
-    /^(?:name|price|rating|source|result|competitor|product|feature|strength|weakness|url|名称|价格|评分|来源|结果|竞品|产品|商品|功能|优点|缺点|网址|链接|指标|维度)$/.test(
-      cell,
-    ),
-  );
-}
-
-function structuredTableShape(segments: string[], explicitFields: string[]) {
-  const headerIndex = segments.findIndex(segment =>
-    explicitFields.length > 0 ? tableHeaderMatches(segment, explicitFields) : looksLikeGenericTableHeader(segment),
-  );
-  if (headerIndex < 0) return { headerIndex, dataSegments: [] as string[] };
-  const width = structuredTableCells(segments[headerIndex]).length;
-  const dataSegments = segments
-    .slice(headerIndex + 1)
-    .filter(segment => !isTableSeparator(segment) && structuredTableCells(segment).length === width);
-  return { headerIndex, dataSegments };
-}
-
-function isCompletionBoilerplate(segment: string): boolean {
-  const value = segment.replace(/\s+/g, ' ').trim();
-  return (
-    /(?:相关工作|任务|调研|内容).{0,12}(?:已经|已)?(?:全部)?完成|请查看(?:以上|上述)信息|^这是最终结果[:：]?$/i.test(
-      value,
-    ) ||
-    /\b(?:all|the)\s+(?:work|task|research)\s+(?:is\s+)?(?:now\s+)?complete(?:d)?\b|\bsee\s+(?:the\s+)?(?:above|previous)\s+information\b/i.test(
-      value,
-    )
-  );
-}
-
-function isSubstantiveConclusion(segment: string): boolean {
-  if (isCompletionBoilerplate(segment)) return false;
-  const match = /(?:结论|建议|综合来看|总体而言|因此|conclusion|recommendation|overall|therefore)\s*[:：,]?(.*)/i.exec(
-    segment,
-  );
-  return Boolean(match?.[1]?.replace(/\s+/g, '').length && match[1].replace(/\s+/g, '').length >= 4);
-}
-
-function isBasicSubstantiveAnswer(summary: string, goalText: string): boolean {
-  const s = summary.replace(/\s+/g, ' ').trim();
-  if (s.length < 8) return false;
-  if (isAcknowledgementOnly(s)) return false;
-  if (/^Control loop candidate complete$/i.test(s)) return false;
-  if (/^(done|完成|ok|已完成|success|好了|opened|playing|paused)[.!。！]*$/i.test(s)) return false;
-  if (/^(视频|媒体).{0,12}(播放|暂停|核对)/.test(s)) return false;
-  if (/^(目标)?标签已关闭/.test(s)) return false;
-  if (/^页面(地址|状态)已/.test(s)) return false;
-  if (/^下载已(开始|完成)/.test(s)) return false;
-  if (/^(Browser opened|Switched to|Playing video|Opened |Paused video)/i.test(s)) return false;
-  if (/User instruction/i.test(s)) return false;
-  if (isCompletionBoilerplate(s)) return false;
-  const goal = goalText.replace(/\s+/g, ' ').trim();
-  if (goal && (s === goal || s.includes(goal) || (s.length <= goal.length + 4 && goal.includes(s)))) return false;
-  return true;
 }
 
 export interface DeliverablePageEvidence {
@@ -599,11 +377,6 @@ function quotedPassages(segment: string): string[] {
     .filter(Boolean);
 }
 
-async function firstSegmentIdentity(segment: string): Promise<DeliverablePageEvidence | null> {
-  const occurrence = extractInstructionUrlOccurrences(segment)[0];
-  return occurrence ? redactedHttpUrlIdentity(occurrence.value) : null;
-}
-
 function provenanceIdentityKey(identity: DeliverablePageEvidence): string {
   return `${identity.normalizedUrl}\n${identity.queryIdentityDigest ?? 'no-query'}`;
 }
@@ -615,78 +388,6 @@ function latestPageEvidence(items: DeliverablePageEvidence[]): DeliverablePageEv
     const latestSeq = latest.visitSeq ?? -1;
     return itemSeq >= latestSeq ? item : latest;
   }, undefined);
-}
-
-function hasUnsupportedUnquotedClaim(segment: string): boolean {
-  const residue = segment
-    .replace(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi, '')
-    .replace(/[“"「『][^”"」』]{8,240}[”"」』]/g, '')
-    .replace(/^\s*(?:[-*•]|\d{1,2}[.)、]|[一二两三四五六七八九十][、.])\s*/, '')
-    .replace(/^观察(?:[一二两三四五六七八九十]|\d{1,2})\s*[:：]\s*/, '')
-    .replace(/[：:。.!！?？]/g, ' ')
-    .trim();
-  if (!residue) return false;
-  const clauses = residue
-    .split(/[，,、]/)
-    .map(clause => clause.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
-  return clauses.some(clause => {
-    const sourceFrame =
-      /^(?:(?:[A-Za-z][A-Za-z0-9 ._-]{0,40}|[\u4e00-\u9fffA-Za-z0-9._-]{1,20})\s*)?(?:页面|条目)(?:的)?(?:正文|首段|原文|内容)?(?:写道|记载|提到|指出|引用|如下)?$/;
-    const contentFrame = /^(?:文章)?(?:核心|主题)?(?:与|和)?(?:正文)?(?:细节|内容|原文)(?:是|为|写道|如下)?$/;
-    const englishFrame =
-      /^(?:(?:[A-Za-z][A-Za-z0-9 ._-]{0,40})\s+)?(?:page|entry|body|lead|text|source)\s*(?:says|states|reads|shows|quote|excerpt)?$/i;
-    return !sourceFrame.test(clause) && !contentFrame.test(clause) && !englishFrame.test(clause);
-  });
-}
-
-function themeResidue(segment: string): string {
-  return segment
-    .replace(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi, '')
-    .replace(/[“"「『][^”"」』]{8,240}[”"」』]/g, '')
-    .replace(/^\s*(?:[-*•]|\d{1,2}[.)、]|[一二两三四五六七八九十][、.])\s*/, '')
-    .replace(/^(?:文章)?(?:的)?(?:核心)?(?:主题|主旨|大意)(?:是|为)?/, '')
-    .replace(/^(?:一句话)?(?:概括|总结|摘要)/, '')
-    .replace(/(?:文章)?(?:核心|主题)?(?:与|和)?(?:正文)?(?:细节|内容|原文)(?:是|为|写道|如下)?/g, ' ')
-    .replace(/(?:页面|条目)(?:的)?(?:正文|首段|原文|内容)?(?:写道|记载|提到|指出|引用|如下)?/g, ' ')
-    .replace(/[：:。.!！?？，,]/g, ' ')
-    .replace(/\s+/g, '')
-    .trim();
-}
-
-function sharesCitedContent(theme: string, quote: string): boolean {
-  const themeText = theme.replace(/\s+/g, '');
-  const quoteText = quote.replace(/\s+/g, '');
-  if (themeText.length < 3 || quoteText.length < 3) return false;
-  for (let index = 0; index <= themeText.length - 3; index += 1) {
-    const slice = themeText.slice(index, index + 3);
-    if (/[\u4e00-\u9fff]/.test(slice) && quoteText.includes(slice)) return true;
-  }
-  const themeWords = new Set((theme.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter(Boolean));
-  return (quote.toLowerCase().match(/[a-z]{4,}/g) ?? []).some(word => themeWords.has(word));
-}
-
-async function instructionSourcePosition(instruction: string, evidence: DeliverablePageEvidence): Promise<number> {
-  const lower = instruction.toLowerCase();
-  for (const occurrence of extractInstructionUrlOccurrences(instruction)) {
-    const identity = await redactedHttpUrlIdentity(occurrence.value);
-    if (identity && provenanceIdentityKey(identity) === provenanceIdentityKey(evidence)) return occurrence.start;
-  }
-  if (evidence.queryIdentityDigest) return -1;
-  const exact = lower.indexOf(evidence.normalizedUrl.toLowerCase());
-  if (exact >= 0) return exact;
-  try {
-    const hostname = new URL(evidence.normalizedUrl).hostname.replace(/^www\./, '');
-    const positions = hostname
-      .split('.')
-      .filter(part => part.length >= 3)
-      .map(part => lower.indexOf(part.toLowerCase()))
-      .filter(position => position >= 0);
-    if (positions.length > 0) return Math.min(...positions);
-  } catch {
-    return -1;
-  }
-  return -1;
 }
 
 function compactVisibleText(value: string): string {
@@ -744,6 +445,13 @@ export async function findAnswerSpanOnPage(
   return null;
 }
 
+function occurrenceIsInsideSpans(
+  occurrence: { start: number; end: number },
+  spans: Array<{ start: number; end: number }>,
+): boolean {
+  return spans.some(span => occurrence.start >= span.start && occurrence.end <= span.end);
+}
+
 export async function checkInstructionDeliverable(
   instruction: string,
   answer: string,
@@ -752,7 +460,10 @@ export async function checkInstructionDeliverable(
   const reasons: string[] = [];
   if (isPlaceholderDelivery(answer) || isAcknowledgementOnly(answer)) reasons.push('non_substantive');
 
-  const rawAnswerUrls = extractInstructionUrlOccurrences(answer).map(occurrence => occurrence.value);
+  const tableSpans = csvOrMarkdownBlockSpans(answer);
+  const rawAnswerUrls = extractInstructionUrlOccurrences(answer)
+    .filter(occurrence => !occurrenceIsInsideSpans(occurrence, tableSpans))
+    .map(occurrence => occurrence.value);
   const orderedIdentities = (await Promise.all(rawAnswerUrls.map(value => redactedHttpUrlIdentity(value)))).filter(
     (identity): identity is DeliverablePageEvidence => identity !== null,
   );
@@ -804,12 +515,15 @@ export class TaskManager {
   private readonly dispatchers = new Map<string, ActionDispatcher>();
   private readonly launches = new Map<string, symbol>();
   private readonly instructions = new Map<string, string>();
+  private readonly accepted = new Map<string, AcceptedTask>();
   private readonly criterionTemplates = new Map<string, CompletionCriterionTemplate[]>();
   private readonly lockedCriteriaRounds = new Set<string>();
   private readonly unsafeSkillCriteriaRounds = new Set<string>();
   private readonly listeners = new Set<(event: TaskEvent) => void>();
   private transition: Promise<void> = Promise.resolve();
   private readonly userTurnByCommand = new Map<string, UserTurnDecision>();
+  /** `produceResult` artifacts for the current `proof_required` wait; lost on worker restart. */
+  private readonly pendingConfirmArtifacts = new Map<string, TaskArtifact[]>();
 
   constructor(private readonly deps: TaskManagerDeps) {}
 
@@ -831,12 +545,7 @@ export class TaskManager {
     return result;
   }
 
-  private notExecutableAck(
-    commandId: string,
-    taskId: string,
-    revision: number,
-    userVisibleText: string,
-  ): CommandAck {
+  private notExecutableAck(commandId: string, taskId: string, revision: number, userVisibleText: string): CommandAck {
     return {
       accepted: false,
       commandId,
@@ -1126,7 +835,7 @@ export class TaskManager {
     } catch {
       // Keep empty targetRefs; runCurrentRound will attach or fail honestly.
     }
-    this.instructions.set(task.id, command.instruction);
+    this.rememberAcceptedTask(task.id, command.instruction);
     await this.persist(task);
     void this.runCurrentRound(task.id);
     return ack;
@@ -1236,7 +945,18 @@ export class TaskManager {
       createdAt: now,
       updatedAt: now,
     };
-    this.instructions.set(task.id, renderedInstruction);
+    this.rememberAcceptedTask(task.id, renderedInstruction);
+    const askedSkill = this.accepted.get(task.id);
+    if (askedSkill && !askedSkill.askedText) {
+      for (const template of skill.criteria) {
+        if (template.kind !== 'page_text') continue;
+        const takeaway = namedTakeawayText(template.expectedTemplate, template.required);
+        if (takeaway) {
+          this.writeAskedText(task.id, takeaway);
+          break;
+        }
+      }
+    }
     renderedInstruction = '';
     const templateKey = this.roundKey(task.id, roundId);
     this.criterionTemplates.set(templateKey, structuredClone(skill.criteria));
@@ -1318,7 +1038,10 @@ export class TaskManager {
     await this.persist(task);
     await this.deps.setFollowForeground?.(task.followForeground === true);
     try {
-      const groupId = await this.deps.beginTaskTabGroup?.(task.plan?.goal || task.goalSummary || '任务', task.tabGroupId);
+      const groupId = await this.deps.beginTaskTabGroup?.(
+        task.plan?.goal || task.goalSummary || '任务',
+        task.tabGroupId,
+      );
       if (typeof groupId === 'number' && groupId !== task.tabGroupId) {
         task.tabGroupId = groupId;
         await this.persist(task);
@@ -1326,6 +1049,8 @@ export class TaskManager {
     } catch {
       // Keep resuming even if the previous group was closed.
     }
+    const cachedInstruction = this.instructions.get(task.id);
+    if (cachedInstruction) this.rememberAcceptedTask(task.id, cachedInstruction);
     const driver = this.drivers.get(task.id);
     if (driver) driver.resume();
     else void this.runCurrentRound(task.id);
@@ -1335,10 +1060,11 @@ export class TaskManager {
   private async rehydrateInstruction(task: TaskSession, round: TaskRound): Promise<string | undefined> {
     const cached = this.instructions.get(task.id);
     if (cached) return cached;
-    if (!task.chatSessionId || !round.instructionMessageId) return undefined;
+    const messageId = round.instructionMessageId ?? task.instructionMessageId;
+    if (!task.chatSessionId || !messageId) return undefined;
     const { chatHistoryStore } = await import('@extension/storage/lib/chat');
     const session = await chatHistoryStore.getSession(task.chatSessionId);
-    return session?.messages.find(message => message.id === round.instructionMessageId)?.content;
+    return session?.messages.find(message => message.id === messageId)?.content;
   }
 
   private async followUp(task: TaskSession, command: Extract<TaskCommand, { type: 'follow_up' }>): Promise<CommandAck> {
@@ -1385,7 +1111,7 @@ export class TaskManager {
       evidence: [],
     });
     const ack = this.accept(task, command.commandId);
-    this.instructions.set(task.id, command.instruction);
+    this.rememberAcceptedTask(task.id, command.instruction);
     await this.persist(task);
     const driver = this.drivers.get(task.id);
     if (!driver) void this.runCurrentRound(task.id);
@@ -1393,7 +1119,7 @@ export class TaskManager {
       driver.addFollowUp(command.instruction);
       if (previousStatus === 'paused' || previousStatus === 'interrupted') driver.resume();
       if (['waiting_user', 'completed'].includes(previousStatus)) {
-        void this.runDriver(task.id, driver, roundId, command.instruction);
+        void this.runDriver(task.id, driver, roundId);
       }
     }
     return ack;
@@ -1564,7 +1290,8 @@ export class TaskManager {
       reportLoopPhase: async (roundId, event) => {
         await this.applyLoopPhase(taskId, roundId, event.phase, event.step);
       },
-      recordObservedPage: async (roundId, observation) => this.recordVerifiedPageFromObservation(taskId, roundId, observation),
+      recordObservedPage: async (roundId, observation) =>
+        this.recordVerifiedPageFromObservation(taskId, roundId, observation),
       recordOpenedPages: async (roundId, pages) => {
         await this.recordOpenedIndependentTabs(
           taskId,
@@ -1648,10 +1375,16 @@ export class TaskManager {
         } else if (result.actionResult.error === 'media_target_ambiguous') {
           await this.persistMediaWait(taskId, roundId, 'target_ambiguous');
         } else if (!result.actionResult.error && result.attempt.state === 'observed') {
-          // Page evidence beats model "done": settle when criteria already hold.
+          const artifact = result.actionResult.artifact;
+          if (artifact) {
+            const completed = await this.tryCompleteFromProducedResult(taskId, roundId, { artifacts: [artifact] });
+            if (completed) {
+              result.actionResult.isDone = true;
+              return result;
+            }
+          }
+          // Page evidence can produce a result (form success text, opened URL).
           // external_commit: retry with backoff (async form rewrite).
-          // reversible/read (nav, video click): one immediate probe so we stop on /watch
-          // without stalling the next step behind multi-second backoff.
           if (result.attempt.effect === 'external_commit') {
             await this.tryVerifyAfterSuccessfulAct(taskId, roundId);
           } else {
@@ -1714,16 +1447,20 @@ export class TaskManager {
       task.goalSummary ||
       (round.instructionSummary && round.instructionSummary !== 'User instruction' ? round.instructionSummary : '') ||
       '';
-    const deliverableBlocks =
-      this.instructionRequestsUserDeliverable(instructionForRound) &&
-      !(await this.hasSubstantiveDeliverableAnswer(
-        round.instructionSummary?.trim() ?? '',
-        instructionForRound,
-        this.visitedPageEvidence(task),
-      ));
+    const asked = this.acceptedTaskFor(taskId);
+    const produced = produceResult({
+      asked,
+      pageSuccessText: canComplete
+        ? this.askedSuccessSeenOnPage(asked, automaticCriteria, checked.evidence)
+        : undefined,
+      observedUrl: this.observedUrlForResult(checked.evidence),
+      observedOutcome: this.observedOutcomeForResult(checked.evidence, automaticCriteria),
+      summary: round.instructionSummary,
+    });
+    const resultMatches = resultIsPresentAndMatches(asked, produced);
     const orderedSourceProof = await checkOrderedSourceVisitProof(instructionForRound, this.visitedPageEvidence(task));
 
-    if (!canComplete || deliverableBlocks || !orderedSourceProof) {
+    if (!canComplete || !resultMatches || !orderedSourceProof) {
       // Partial evidence still advances mission phases before full task complete.
       const passedIds = checked.evidence.filter(item => item.passed).map(item => item.criterionId);
       if (task.plan && passedIds.length > 0) {
@@ -1746,7 +1483,7 @@ export class TaskManager {
       const currentRound = this.currentRound(current);
       currentRound.evidence.push(...checked.evidence);
       this.syncMissionPlanFromEvidence(current, checked.evidence);
-      completed = await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
+      completed = await this.persistMatchingResult(current, currentRound, checked.evidence, produced);
     });
     if (completed) await this.stopTaskRuntime(taskId);
     return completed;
@@ -1832,12 +1569,7 @@ export class TaskManager {
     await this.persistAttempt(taskId, createObservePhaseAttempt(roundId, this.deps.now()));
   }
 
-  private async applyLoopPhase(
-    taskId: string,
-    roundId: string,
-    phase: LoopPhaseName,
-    step: number,
-  ): Promise<void> {
+  private async applyLoopPhase(taskId: string, roundId: string, phase: LoopPhaseName, step: number): Promise<void> {
     const task = await getTask(taskId);
     if (!task || task.currentRoundId !== roundId) return;
     const round = task.rounds.find(item => item.id === roundId);
@@ -1872,8 +1604,8 @@ export class TaskManager {
             round.attempts[i] = { ...existing, state: 'observed', observedAt: this.deps.now() };
           }
         }
-        round.attempts.push(structuredClone(attempt));
-      } else round.attempts[index] = structuredClone(attempt);
+      }
+      round.attempts = recordStep(round.attempts, structuredClone(attempt));
       if (attempt.state === 'executing') {
         const notBefore = attempt.executingAt ?? this.deps.now();
         for (const criterion of round.criteria) criterion.notBefore = Math.max(criterion.notBefore, notBefore);
@@ -1991,11 +1723,7 @@ export class TaskManager {
     return urls;
   }
 
-  private async prepareIndependentInstructionTabs(
-    taskId: string,
-    roundId: string,
-    instruction: string,
-  ): Promise<void> {
+  private async prepareIndependentInstructionTabs(taskId: string, roundId: string, instruction: string): Promise<void> {
     try {
       const task = await getTask(taskId);
       if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return;
@@ -2174,7 +1902,7 @@ export class TaskManager {
         if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
         if (current.currentRoundId !== runRoundId) return;
         const currentRound = this.currentRound(current);
-        currentRound.instructionSummary = result.slice(0, 2000);
+        currentRound.instructionSummary = result;
         delete currentRound.waitReason;
         delete currentRound.failureCategory;
         const now = this.deps.now();
@@ -2222,7 +1950,14 @@ export class TaskManager {
             }),
           };
         }
-        completed = await this.persistVerifiedReceipt(current, currentRound, evidence, true, []);
+        const asked = this.acceptedTaskFor(current.id);
+        completed = await this.persistMatchingResult(
+          current,
+          currentRound,
+          evidence,
+          produceResult({ asked, summary: result }),
+          true,
+        );
       });
       return completed;
     } catch {
@@ -2361,6 +2096,7 @@ export class TaskManager {
         round = this.currentRound(task);
         instruction = this.instructions.get(taskId) ?? instruction;
       }
+      if (instruction) this.rememberAcceptedTask(taskId, instruction);
       if (!instruction) {
         // Dead-end if we wait for "proof" with no criteria UI. Fail honestly.
         task.status = 'failed';
@@ -2426,7 +2162,8 @@ export class TaskManager {
 
       this.drivers.set(taskId, driver);
       this.launches.delete(taskId);
-      await this.runDriver(taskId, driver, roundId, instruction);
+      await this.restoreAskedTextFromSkillMeta(task, this.currentRound(task));
+      await this.runDriver(taskId, driver, roundId);
     } catch (error) {
       // Surface start failures (missing model, createExecutor throw) on the round for UI.
       const category = classifyCreateExecutorError(error);
@@ -2445,12 +2182,7 @@ export class TaskManager {
     }
   }
 
-  private async runDriver(
-    taskId: string,
-    driver: ExecutorDriver,
-    initialRoundId: string,
-    instruction: string,
-  ): Promise<void> {
+  private async runDriver(taskId: string, driver: ExecutorDriver, initialRoundId: string): Promise<void> {
     let runRoundId = initialRoundId;
     let verificationRetries = 0;
     for (;;) {
@@ -2553,18 +2285,20 @@ export class TaskManager {
         const artifacts =
           outcome.kind === 'candidate_complete' && Array.isArray(outcome.artifacts) ? outcome.artifacts : [];
         const pageEvidenceForAnswer = this.visitedPageEvidence(task);
-        let answer = await this.selectCandidateDeliverableText(
+        const answer = await this.selectCandidateDeliverableText(
           rawAnswer,
           artifacts,
           instructionForRound,
           pageEvidenceForAnswer,
         );
-        const needsDeliverable = this.instructionRequestsUserDeliverable(instructionForRound);
-        const deliverableOk =
-          answer.length > 0 &&
-          isBasicSubstantiveAnswer(answer, instructionForRound) &&
-          (!needsDeliverable ||
-            (await this.hasSubstantiveDeliverableAnswer(answer, instructionForRound, pageEvidenceForAnswer)));
+        const asked = this.acceptedTaskFor(taskId);
+        const produced = produceResult({
+          asked,
+          artifacts,
+          summary: answer || rawAnswer,
+          observedUrl: this.observedUrlForResult([]),
+        });
+        const resultMatches = resultIsPresentAndMatches(asked, produced);
         let artifactVerified = artifacts.length === 0;
         if (artifacts.length > 0) {
           const artifactGate = this.verifyArtifactsIndependently(
@@ -2604,15 +2338,14 @@ export class TaskManager {
             return;
           }
           const currentRound = this.currentRound(current);
-          if (deliverableOk && artifactVerified) {
-            // Surface the answer on the round for UI; keep goalSummary generic.
-            currentRound.instructionSummary = (await redactDeliverableUrlsForPersistence(answer)).slice(0, 2000);
+          if (resultMatches && artifactVerified) {
             delete currentRound.waitReason;
             delete currentRound.failureCategory;
-            const receiptOk = await this.persistVerifiedReceipt(
+            const receiptOk = await this.persistMatchingResult(
               current,
               currentRound,
               [],
+              produced,
               true,
               artifacts.map(artifact => 'artifact:' + artifact.id),
             );
@@ -2735,6 +2468,30 @@ export class TaskManager {
             observations,
           }).evidence;
         }
+        const asked = this.acceptedTaskFor(taskId);
+        const rawOutcomeAnswer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
+        const instructionForRound =
+          this.instructions.get(taskId) ||
+          task.goalSummary ||
+          (round.instructionSummary && round.instructionSummary !== 'User instruction'
+            ? round.instructionSummary
+            : '') ||
+          '';
+        const pageEvidenceForAnswer = this.visitedPageEvidence(task);
+        const outcomeAnswer = await this.selectCandidateDeliverableText(
+          rawOutcomeAnswer,
+          candidateArtifacts,
+          instructionForRound,
+          pageEvidenceForAnswer,
+        );
+        const produced = produceResult({
+          asked,
+          artifacts: candidateArtifacts,
+          summary: outcomeAnswer || rawOutcomeAnswer,
+          pageSuccessText: this.askedSuccessSeenOnPage(asked, automaticCriteria, automaticEvidence),
+          observedUrl: this.observedUrlForResult(automaticEvidence),
+          observedOutcome: this.observedOutcomeForResult(automaticEvidence, automaticCriteria),
+        });
         let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
           const current = await getTask(taskId);
@@ -2746,6 +2503,10 @@ export class TaskManager {
           const currentRound = this.currentRound(current);
           currentRound.evidence.push(...automaticEvidence);
           this.syncMissionPlanFromEvidence(current, automaticEvidence);
+          if (produced && resultIsPresentAndMatches(asked, produced)) {
+            currentRound.produced = produced;
+          }
+          this.pendingConfirmArtifacts.set(this.roundKey(taskId, currentRound.id), candidateArtifacts);
           await this.persistWaitingUser(current, currentRound, 'proof_required');
         });
         if (handoffRoundId) {
@@ -2769,13 +2530,11 @@ export class TaskManager {
         observations,
       });
       const rawOutcomeAnswer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
-      // Multi-intent goals like "play + copy first comment" must not complete on media alone.
       const instructionForRound =
         this.instructions.get(taskId) ||
         task.goalSummary ||
         (round.instructionSummary && round.instructionSummary !== 'User instruction' ? round.instructionSummary : '') ||
         '';
-      const needsDeliverable = this.instructionRequestsUserDeliverable(instructionForRound);
       const pageEvidenceForAnswer = this.visitedPageEvidence(task);
       const outcomeAnswer = await this.selectCandidateDeliverableText(
         rawOutcomeAnswer,
@@ -2783,10 +2542,16 @@ export class TaskManager {
         instructionForRound,
         pageEvidenceForAnswer,
       );
-      const deliverableOk =
-        !needsDeliverable ||
-        (isBasicSubstantiveAnswer(outcomeAnswer, instructionForRound) &&
-          (await this.hasSubstantiveDeliverableAnswer(outcomeAnswer, instructionForRound, pageEvidenceForAnswer)));
+      const asked = this.acceptedTaskFor(taskId);
+      const produced = produceResult({
+        asked,
+        artifacts: candidateArtifacts,
+        summary: outcomeAnswer || rawOutcomeAnswer,
+        pageSuccessText: this.askedSuccessSeenOnPage(asked, round.criteria, checked.evidence),
+        observedUrl: this.observedUrlForResult(checked.evidence),
+        observedOutcome: this.observedOutcomeForResult(checked.evidence, round.criteria),
+      });
+      const resultMatches = resultIsPresentAndMatches(asked, produced);
       const artifactGate =
         candidateArtifacts.length > 0
           ? this.verifyArtifactsIndependently(candidateArtifacts, instructionForRound, {
@@ -2819,19 +2584,18 @@ export class TaskManager {
         const actionPassed = requiredAction.every(criterion =>
           checked.evidence.some(item => item.criterionId === criterion.id && item.passed),
         );
-        const asksWritten = this.instructionAsksWrittenResult(instructionForRound);
-        const resultOk =
-          deliverableOk ||
-          (requiredAction.length > 0 && !asksWritten) ||
-          (checked.passed && !asksWritten);
-        if (resultOk && orderedSourceProof && artifactsVerified && actionPassed) {
-          if (outcomeAnswer.length > 0) {
-            currentRound.instructionSummary = (await redactDeliverableUrlsForPersistence(outcomeAnswer)).slice(0, 2000);
-          }
-          const receiptOk = await this.persistVerifiedReceipt(
+        if (
+          resultMatches &&
+          orderedSourceProof &&
+          artifactsVerified &&
+          actionPassed &&
+          (checked.passed || Boolean(produced?.body))
+        ) {
+          const receiptOk = await this.persistMatchingResult(
             current,
             currentRound,
             checked.evidence,
+            produced,
             true,
             candidateArtifacts.map(artifact => 'artifact:' + artifact.id),
           );
@@ -2843,11 +2607,7 @@ export class TaskManager {
           retry = true;
           return;
         }
-        if (
-          !artifactsVerified ||
-          !orderedSourceProof ||
-          (needsDeliverable && !deliverableOk && (requiredAction.length === 0 || asksWritten))
-        ) {
+        if (!artifactsVerified || !orderedSourceProof || !resultMatches) {
           current.status = 'failed';
           currentRound.status = 'failed';
           currentRound.failureCategory = artifactsVerified ? 'no_action' : 'artifact_verification_failed';
@@ -2879,7 +2639,7 @@ export class TaskManager {
         continue;
       }
       verificationRetries += 1;
-      if (!deliverableOk) {
+      if (!resultMatches) {
         driver.addFollowUp('Write the user-facing result. Do not acknowledge.');
       } else {
         driver.addFollowUp('Completion was not verified; inspect the current page and continue.');
@@ -2931,9 +2691,7 @@ export class TaskManager {
   }
 
   private textFromArtifact(artifact: TaskArtifact): string {
-    if (artifact.type !== 'text' || !artifact.data || typeof artifact.data !== 'object') return '';
-    const text = (artifact.data as { text?: unknown }).text;
-    return typeof text === 'string' ? text.trim() : '';
+    return artifactToResultText(artifact);
   }
 
   /**
@@ -3238,6 +2996,20 @@ export class TaskManager {
       const copiedFieldCriterion = additions.some(
         draft => draft.kind === 'page_text' && userFieldValues.has(draft.expected.replace(/\s+/g, ' ').trim()),
       );
+      const asked = this.accepted.get(taskId);
+      if (asked && !asked.askedText) {
+        const successDraft = additions.find(
+          draft =>
+            draft.kind === 'page_text' &&
+            draft.operator === 'present' &&
+            draft.required &&
+            !userFieldValues.has(draft.expected.replace(/\s+/g, ' ').trim()),
+        );
+        if (successDraft?.kind === 'page_text') {
+          const takeaway = namedTakeawayText(successDraft.expected, successDraft.required);
+          this.writeAskedText(taskId, takeaway);
+        }
+      }
       const criteria = await Promise.all(
         additions.map(draft =>
           this.freezeCriterion(
@@ -3801,12 +3573,71 @@ export class TaskManager {
       item => item.criterionId === criterion.id && item.source === 'user' && item.passed,
     );
     if (!confirmedEvidence) return this.reject(task, command.commandId, 'invalid_transition');
+    const instruction = await this.rehydrateInstruction(task, round);
+    if (instruction) this.rememberAcceptedTask(task.id, instruction);
+    else if (!this.accepted.get(task.id)) this.rememberAcceptedTask(task.id, '');
+    await this.restoreAskedTextFromSkillMeta(task, round);
+    const asked = this.acceptedTaskFor(task.id);
+    const artifacts = this.pendingConfirmArtifacts.get(this.roundKey(task.id, round.id)) ?? [];
+    const produced = this.matchingConfirmResult(asked, round, artifacts, checked.evidence);
+    if (checked.passed) {
+      if (!produced) {
+        return {
+          accepted: false,
+          commandId: command.commandId,
+          taskId: task.id,
+          revision: task.revision,
+          error: 'invalid_transition',
+        };
+      }
+      const previousPlan = task.plan === undefined ? undefined : structuredClone(task.plan);
+      const previousAttempts = structuredClone(round.attempts);
+      const previousEvidence = round.evidence.slice();
+      round.evidence.push(confirmedEvidence);
+      this.syncMissionPlanFromEvidence(task, checked.evidence);
+      const completed = await this.persistMatchingResult(task, round, checked.evidence, produced, false);
+      if (!completed) {
+        if (previousPlan === undefined) delete task.plan;
+        else task.plan = previousPlan;
+        round.attempts = previousAttempts;
+        round.evidence = previousEvidence;
+        this.pendingConfirmArtifacts.set(this.roundKey(task.id, round.id), artifacts);
+        return {
+          accepted: false,
+          commandId: command.commandId,
+          taskId: task.id,
+          revision: task.revision,
+          error: 'invalid_transition',
+        };
+      }
+      this.pendingConfirmArtifacts.delete(this.roundKey(task.id, round.id));
+      const ack = this.accept(task, command.commandId);
+      await this.persist(task);
+      return ack;
+    }
     round.evidence.push(confirmedEvidence);
     this.syncMissionPlanFromEvidence(task, checked.evidence);
     const ack = this.accept(task, command.commandId);
-    if (checked.passed) await this.persistVerifiedReceipt(task, round, checked.evidence, false);
-    else await this.persist(task);
+    await this.persist(task);
     return ack;
+  }
+
+  /** Held matching `produceResult` first; else rebuild from artifacts and that body. */
+  private matchingConfirmResult(
+    asked: AcceptedTask,
+    round: TaskRound,
+    artifacts: TaskArtifact[],
+    evidence: CompletionEvidence[],
+  ): TaskResult | null {
+    if (round.produced && resultIsPresentAndMatches(asked, round.produced)) return round.produced;
+    const produced = produceResult({
+      asked,
+      artifacts,
+      summary: round.produced?.body,
+      pageSuccessText: this.askedSuccessSeenOnPage(asked, round.criteria, evidence),
+    });
+    if (produced && resultIsPresentAndMatches(asked, produced)) return produced;
+    return null;
   }
 
   private completeLiveObserveAttempts(round: TaskRound, now: number): void {
@@ -3856,6 +3687,154 @@ export class TaskManager {
     task.plan = plan;
   }
 
+  private rememberAcceptedTask(taskId: string, instruction: string): AcceptedTask {
+    const asked = acceptTask(instruction);
+    const previous = this.accepted.get(taskId);
+    if (previous?.askedText && !asked.askedText && previous.instruction === asked.instruction) {
+      asked.askedText = previous.askedText;
+    }
+    this.instructions.set(taskId, instruction);
+    this.accepted.set(taskId, asked);
+    return asked;
+  }
+
+  private writeAskedText(taskId: string, text: string | undefined): void {
+    const trimmed = text?.trim();
+    if (!trimmed) return;
+    let asked = this.accepted.get(taskId);
+    if (!asked) {
+      asked = acceptTask(this.instructions.get(taskId) ?? '');
+      this.accepted.set(taskId, asked);
+    }
+    asked.askedText = trimmed;
+  }
+
+  private async restoreAskedTextFromSkillMeta(task: TaskSession, round: TaskRound): Promise<void> {
+    if (this.accepted.get(task.id)?.askedText?.trim()) return;
+    const meta = await getSkillSaveMeta(task.id, round.id);
+    for (const template of meta?.templates ?? []) {
+      if (template.kind !== 'page_text') continue;
+      const named = namedTakeawayText(template.expectedTemplate, template.required);
+      if (named) {
+        this.writeAskedText(task.id, named);
+        return;
+      }
+    }
+  }
+
+  private requiredRoundCriteriaAreEvidenced(round: TaskRound, extra: CompletionEvidence[]): boolean {
+    const required = (round.criteria ?? []).filter(item => item.required);
+    if (required.length === 0) return true;
+    const passedIds = new Set([...round.evidence, ...extra].filter(item => item.passed).map(item => item.criterionId));
+    return required.every(item => passedIds.has(item.id));
+  }
+
+  private acceptedTaskFor(taskId: string): AcceptedTask {
+    return this.accepted.get(taskId) ?? acceptTask(this.instructions.get(taskId) ?? '');
+  }
+
+  /** Form success text only after required page_text actually passed — not from optional quotes. */
+  private askedSuccessSeenOnPage(
+    asked: AcceptedTask,
+    criteria: TaskRound['criteria'],
+    evidence: CompletionEvidence[],
+  ): string | undefined {
+    if (!asked.askedText) return undefined;
+    const requiredText = criteria.filter(item => item.kind === 'page_text' && item.required);
+    if (requiredText.length === 0) return undefined;
+    const passed = requiredText.every(item => evidence.some(entry => entry.criterionId === item.id && entry.passed));
+    return passed ? asked.askedText : undefined;
+  }
+
+  private observedUrlForResult(evidence: CompletionEvidence[]): string | undefined {
+    const passedUrl = evidence.find(
+      item => item.passed && typeof item.value === 'string' && /^https?:\/\//i.test(item.value),
+    );
+    return typeof passedUrl?.value === 'string' ? passedUrl.value : undefined;
+  }
+
+  private observedOutcomeForResult(
+    evidence: CompletionEvidence[],
+    criteria: TaskRound['criteria'],
+  ): string | undefined {
+    const passed = evidence.filter(item => item.passed);
+    const kindOf = (id: string) => criteria.find(criterion => criterion.id === id)?.kind;
+    if (passed.some(item => kindOf(item.criterionId) === 'tab_state' && item.value === 'closed'))
+      return '目标标签已关闭';
+    if (passed.some(item => kindOf(item.criterionId) === 'media_state' && item.value === 'paused')) return '视频已暂停';
+    if (passed.some(item => kindOf(item.criterionId) === 'media_state' && item.value === 'playing'))
+      return '视频正在播放';
+    if (passed.some(item => kindOf(item.criterionId) === 'download_state' && item.value === 'finished'))
+      return '下载已完成';
+    if (passed.some(item => kindOf(item.criterionId) === 'download_state' && item.value === 'started'))
+      return '下载已开始';
+    return undefined;
+  }
+
+  private async tryCompleteFromProducedResult(
+    taskId: string,
+    roundId: string,
+    input: { artifacts?: TaskArtifact[]; summary?: string },
+  ): Promise<boolean> {
+    const task = await getTask(taskId);
+    if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return false;
+    const asked = this.acceptedTaskFor(taskId);
+    const produced = produceResult({
+      asked,
+      artifacts: input.artifacts,
+      summary: input.summary,
+      observedUrl: this.observedUrlForResult([]),
+    });
+    if (!resultIsPresentAndMatches(asked, produced)) return false;
+    let completed = false;
+    await this.queueTransition(async () => {
+      const current = await getTask(taskId);
+      if (!current || current.status !== 'running' || current.currentRoundId !== roundId) return;
+      completed = await this.persistMatchingResult(current, this.currentRound(current), [], produced);
+    });
+    if (completed) await this.stopTaskRuntime(taskId);
+    return completed;
+  }
+
+  private async persistMatchingResult(
+    task: TaskSession,
+    round: TaskRound,
+    evidence: CompletionEvidence[],
+    produced: TaskResult | null | undefined,
+    incrementRevision = true,
+    artifactProofIds: string[] = [],
+  ): Promise<boolean> {
+    const asked = this.acceptedTaskFor(task.id);
+    if (!resultIsPresentAndMatches(asked, produced) || !produced) return false;
+    const instruction = this.instructions.get(task.id) || asked.instruction || '';
+    const pageEvidence = this.visitedPageEvidence(task);
+    if (!(await checkOrderedSourceVisitProof(instruction, pageEvidence))) return false;
+    if (!(await checkInstructionDeliverable(instruction, produced.body, pageEvidence)).passed) return false;
+    const redactedBody = await redactDeliverableUrlsForPersistence(produced.body);
+    const stored = matchingStoredResult(asked, produced, redactedBody);
+    if (!stored) return false;
+    const previousResult = round.result;
+    const previousSummary = round.instructionSummary;
+    const previousProduced = round.produced;
+    const previousPlan = task.plan === undefined ? undefined : structuredClone(task.plan);
+    const previousAttempts = structuredClone(round.attempts);
+    round.result = stored;
+    round.instructionSummary = stored.body;
+    delete round.produced;
+    const committed = await this.persistVerifiedReceipt(task, round, evidence, incrementRevision, artifactProofIds);
+    if (!committed) {
+      if (previousResult === undefined) delete round.result;
+      else round.result = previousResult;
+      round.instructionSummary = previousSummary;
+      if (previousProduced === undefined) delete round.produced;
+      else round.produced = previousProduced;
+      if (previousPlan === undefined) delete task.plan;
+      else task.plan = previousPlan;
+      round.attempts = previousAttempts;
+    }
+    return committed;
+  }
+
   private async persistVerifiedReceipt(
     task: TaskSession,
     round: TaskRound,
@@ -3863,12 +3842,16 @@ export class TaskManager {
     incrementRevision = true,
     artifactProofIds: string[] = [],
   ): Promise<boolean> {
+    const asked = this.acceptedTaskFor(task.id);
+    if (!resultIsPresentAndMatches(asked, round.result)) return false;
+    if (!this.requiredRoundCriteriaAreEvidenced(round, evidence)) return false;
     this.completeLiveObserveAttempts(round, this.deps.now());
     const passedEvidence = evidence.filter(item => item.passed);
     const visibleAnswer =
-      round.instructionSummary && !['User instruction', 'Direction changed'].includes(round.instructionSummary)
+      round.result?.body?.trim() ||
+      (round.instructionSummary && !['User instruction', 'Direction changed'].includes(round.instructionSummary)
         ? round.instructionSummary.trim()
-        : '';
+        : '');
     let answerDigest: string | null = null;
     if (visibleAnswer && isBasicSubstantiveAnswer(visibleAnswer, '')) {
       answerDigest = await sha256(visibleAnswer);

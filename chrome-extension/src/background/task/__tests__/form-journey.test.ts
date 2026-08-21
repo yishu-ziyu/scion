@@ -86,7 +86,10 @@ describe('verified form journey', () => {
     expect(events).toContain('task_completed_verified');
     expect(driver.stop).not.toHaveBeenCalled();
     expect(JSON.stringify(await manager.snapshot('task-form'))).not.toContain('FIELD_SENTINEL_8472');
-    expect(JSON.stringify(await manager.snapshot('task-form'))).not.toContain('Saved successfully');
+    expect((await manager.snapshot('task-form'))?.rounds[0]?.result).toEqual({
+      kind: 'summary',
+      body: 'Saved successfully',
+    });
   });
 
   it('accepts one idempotent dedicated confirmation command', async () => {
@@ -142,6 +145,7 @@ describe('verified form journey', () => {
         {
           evidence: [expect.objectContaining({ source: 'user', passed: true })],
           receipt: expect.any(Object),
+          result: { kind: 'summary', body: 'needs confirmation' },
         },
       ],
     });
@@ -502,7 +506,7 @@ describe('verified form journey', () => {
 
   it('combines automatic proof with one dedicated user confirmation', async () => {
     const driver: ExecutorDriver = {
-      run: vi.fn().mockResolvedValue({ kind: 'candidate_complete', summary: 'submitted' }),
+      run: vi.fn().mockResolvedValue({ kind: 'candidate_complete', summary: 'form submitted for your review' }),
       addFollowUp: vi.fn(),
       pause: vi.fn(),
       resume: vi.fn(),
@@ -561,7 +565,7 @@ describe('verified form journey', () => {
 
     await expect(manager.snapshot('task-mixed')).resolves.toMatchObject({
       status: 'completed',
-      rounds: [{ receipt: expect.any(Object) }],
+      rounds: [{ receipt: expect.any(Object), result: { kind: 'summary', body: 'Saved' } }],
     });
   });
 
@@ -636,6 +640,7 @@ describe('verified form journey', () => {
             expect.objectContaining({ criterionId: round.criteria[1].id, passed: true }),
           ],
           receipt: expect.any(Object),
+          result: { kind: 'summary', body: 'needs two confirmations' },
         },
       ],
     });
