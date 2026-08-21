@@ -518,6 +518,27 @@ function exactUrlOnlyFooter(line, requiredUrls) {
   return exactLabeledLine(line, requiredUrls, ['来源', '来源链接', 'Source', 'Sources', 'URL', 'URLs', '链接', '网址']);
 }
 
+export function recordNavigationEvidence(entries, observed) {
+  const previous = entries.at(-1);
+  if (previous?.url === observed.url) {
+    Object.assign(previous, {
+      ...observed,
+      captured_at: previous.captured_at,
+      sequence: previous.sequence,
+    });
+    return previous;
+  }
+  const previousTime = Date.parse(previous?.captured_at || '');
+  const observedTime = Date.parse(observed.captured_at || '');
+  const capturedAt =
+    Number.isFinite(previousTime) && (!Number.isFinite(observedTime) || observedTime <= previousTime)
+      ? new Date(previousTime + 1).toISOString()
+      : observed.captured_at;
+  const entry = { ...observed, captured_at: capturedAt, sequence: entries.length + 1 };
+  entries.push(entry);
+  return entry;
+}
+
 export function multiSourceDeliveryPass({ finalUrl, deliverable, navigationEvidence }) {
   const ianaUrl = 'https://www.iana.org/help/example-domains';
   const wikipediaUrl = 'https://en.wikipedia.org/wiki/Web_browser';

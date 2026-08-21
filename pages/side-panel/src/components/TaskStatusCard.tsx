@@ -96,10 +96,7 @@ export function failureCategoryHint(category: string | undefined): string | null
 }
 
 /** Avoid repeating the same recovery sentence as both hint and product label. */
-export function distinctFailureCategoryLabel(
-  nextStep: string,
-  category: string | undefined,
-): string | null {
+export function distinctFailureCategoryLabel(nextStep: string, category: string | undefined): string | null {
   if (!category) return null;
   const label = productFailureLabel(category);
   return label && label !== nextStep ? label : null;
@@ -209,6 +206,16 @@ function boundPageRef(snapshot: TaskSnapshot) {
   );
 }
 
+function isLoopbackSource(source: { host?: string; url: string }): boolean {
+  const host = (source.host ?? '').toLowerCase();
+  try {
+    const hostname = new URL(source.url).hostname.toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.localhost');
+  } catch {
+    return host === 'localhost' || host === '127.0.0.1';
+  }
+}
+
 /** Prefer hostname · title for the card chrome; full URL only when needed. */
 function siteHostLabel(snapshot: TaskSnapshot): string {
   const page = boundPageRef(snapshot);
@@ -278,9 +285,7 @@ export function TaskStatusCard({
   const waitAction = snapshot.status === 'waiting_user' ? waitUserAction(round?.waitReason) : null;
 
   const needsAttention =
-    snapshot.status === 'waiting_user' ||
-    snapshot.status === 'inputs_required' ||
-    snapshot.status === 'interrupted';
+    snapshot.status === 'waiting_user' || snapshot.status === 'inputs_required' || snapshot.status === 'interrupted';
 
   const stableInstruction = missionInstruction || defaultInstruction;
   const goalText = displayGoalText(snapshot, round?.instructionSummary, stableInstruction);
@@ -343,11 +348,18 @@ export function TaskStatusCard({
 
   const recoveryNextStep = failureNextStep(snapshot);
 
+  const workStream = deriveWorkStream({
+    status: snapshot.status,
+    attempts,
+    pageLabel: boundPageRef(snapshot) ? siteHostLabel(snapshot) : undefined,
+  });
+  const storedResult = round?.result?.body?.replace(/\r\n?/g, '\n').trim() ?? '';
+  const resultSentence = storedResult || deliverableAnswer || '';
   const copyDeliverable = async () => {
-    if (!deliverableAnswer) return;
+    if (!resultSentence) return;
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(deliverableAnswer);
+        await navigator.clipboard.writeText(resultSentence);
       }
       setDeliverableCopied(true);
       window.setTimeout(() => setDeliverableCopied(false), 1_500);
@@ -355,13 +367,9 @@ export function TaskStatusCard({
       // Clipboard may be blocked; still select-friendly via the text node.
     }
   };
-
-  const workStream = deriveWorkStream({
-    status: snapshot.status,
-    attempts,
-    pageLabel: boundPageRef(snapshot) ? siteHostLabel(snapshot) : undefined,
-  });
-  const answerSources = collectStreamSources(workStream);
+  const answerSources = resultSentence
+    ? collectStreamSources(workStream).filter(source => !isLoopbackSource(source))
+    : [];
   const failedResult = deriveFailedResult({
     failureCategory: round?.failureCategory,
     lastStepTitle: attempts.at(-1)?.displaySummary,
@@ -376,8 +384,6 @@ export function TaskStatusCard({
         />
       </div>
     ) : null;
-
-  const resultSentence = deliverableAnswer ?? '';
 
   const completionBlock =
     showDelivered || (showVerifiedDone && round?.receipt) ? (
@@ -413,7 +419,7 @@ export function TaskStatusCard({
               </div>
             )}
           </>
-        ) : resultSentence || answerSources.length > 0 ? (
+        ) : resultSentence ? (
           <>
             <AnswerProse text={resultSentence} sources={answerSources} />
             {resultSentence ? (
@@ -432,8 +438,8 @@ export function TaskStatusCard({
         ) : null}
       </div>
     ) : snapshot.status === 'failed' ? (
-      <div data-testid="completion-receipt" className="chijie-failed-result is-failed">
-        <p data-testid="completion-result">{failedResult.sentence}</p>
+      <div data-testid="failed-result" className="chijie-failed-result is-failed">
+        <p data-testid="failed-result-sentence">{failedResult.sentence}</p>
         {!readOnly && onRetry ? (
           <button type="button" data-testid="task-retry" className={primaryButtonClassName} onClick={onRetry}>
             {failedResult.action}

@@ -63,10 +63,10 @@ describe('Feature: Tabbit-class task loop UI (ticket 01, seam S1)', () => {
   });
 
   it('offers outcome rating only after a completed delivery', () => {
-    expect(shouldShowOutcomeRating({ ...completedSnapshot, status: 'running' }, receipt)).toBe(false);
-    expect(shouldShowOutcomeRating(completedSnapshot, undefined)).toBe(true);
-    expect(shouldShowOutcomeRating({ ...completedSnapshot, status: 'failed' }, undefined)).toBe(false);
-    expect(shouldShowOutcomeRating(completedSnapshot, receipt)).toBe(true);
+    expect(shouldShowOutcomeRating({ ...completedSnapshot, status: 'running' })).toBe(false);
+    expect(shouldShowOutcomeRating(completedSnapshot)).toBe(true);
+    expect(shouldShowOutcomeRating({ ...completedSnapshot, status: 'failed' })).toBe(false);
+    expect(shouldShowOutcomeRating(completedSnapshot)).toBe(true);
   });
 
   it('rejects mismatched or unsupported receipts even when task status says completed', () => {

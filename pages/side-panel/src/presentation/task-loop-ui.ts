@@ -35,10 +35,7 @@ export function shouldShowVerifiedDone(snapshot: TaskSnapshot, receipt: Completi
 }
 
 /** Rating is only for a delivered result. A failed run already has a verdict. */
-export function shouldShowOutcomeRating(
-  snapshot: TaskSnapshot,
-  _receipt?: CompletionReceipt | undefined | null,
-): boolean {
+export function shouldShowOutcomeRating(snapshot: TaskSnapshot): boolean {
   return snapshot.status === 'completed';
 }
 

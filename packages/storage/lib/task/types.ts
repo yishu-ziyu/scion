@@ -103,6 +103,14 @@ export interface CompletionReceipt {
   evidenceDigests: string[];
 }
 
+/** What the user can take when the task is done (`TaskRound.result`). */
+export type TaskResultKind = 'table' | 'summary' | 'report' | 'draft' | 'file';
+
+export interface TaskResult {
+  kind: TaskResultKind;
+  body: string;
+}
+
 export type AttemptState = 'proposed' | 'authorized' | 'executing' | 'observed' | 'uncertain' | 'blocked';
 
 /** One row on a search board or opened page. Titles only; never page HTML. */
@@ -216,6 +224,13 @@ export interface TaskRound {
   attempts: ActionAttempt[];
   evidence: CompletionEvidence[];
   receipt?: CompletionReceipt;
+  /** Take-away produced by steps. Done is derived from this matching the task. */
+  result?: TaskResult;
+  /**
+   * Matching `produceResult` held while status is waiting_user (`proof_required`).
+   * Not Done: `confirmCompletion` may persist this only after receipt commits.
+   */
+  produced?: TaskResult;
   waitReason?: WaitReason;
   /**
    * Machine category when status is failed (e.g. llm_failed, observe_failed).

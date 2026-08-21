@@ -298,6 +298,7 @@ export default function ChatInput({
               <button
                 type="button"
                 role="option"
+                aria-selected="true"
                 data-testid="composer-mention-current-page"
                 onClick={applyCurrentPageMention}>
                 <span>{CURRENT_PAGE_TOKEN}</span>

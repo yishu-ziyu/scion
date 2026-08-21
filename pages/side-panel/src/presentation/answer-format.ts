@@ -55,7 +55,7 @@ export function parseAnswerBlocks(raw: string): AnswerBlock[] {
       bullets.push(bullet[1]);
       continue;
     }
-    const numbered = /^\d+[\.、]\s*(.+)$/.exec(trimmed);
+    const numbered = /^\d+[.、]\s*(.+)$/.exec(trimmed);
     if (numbered?.[1]) {
       flushParagraph();
       flushBullets();
@@ -78,7 +78,7 @@ function normalizeAnswerSource(raw: string): string {
     .replace(/：\s*-\s+/g, '：\n- ')
     .replace(/:\s*-\s+/g, ':\n- ')
     .replace(/([。；;])\s*-\s+/g, '$1\n- ')
-    .replace(/\s+(\d+[\.、])\s+/g, '\n$1 ')
+    .replace(/\s+(\d+[.、])\s+/g, '\n$1 ')
     .replace(/\*\*\s+/g, '**')
     .replace(/([^\s.。])\s+\*\*/g, '$1**')
     .trim();

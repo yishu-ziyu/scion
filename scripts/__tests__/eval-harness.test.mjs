@@ -22,6 +22,7 @@ import {
   productDeliverablePass,
   productOracleRows,
   r1ProductDeliverablePass,
+  recordNavigationEvidence,
   scopedCompletionSnapshot,
   tabProvenanceWrongTab,
   taskSpecificVerificationPass,
@@ -29,7 +30,6 @@ import {
   wrongTabFromIds,
 } from '../../chrome-extension/scripts/lib/eval-verification.mjs';
 import { resolveEvalProxyArgs, validateEvalSeedReadback } from '../../chrome-extension/scripts/lib/eval-provider.mjs';
-import { recordNavigationEvidence } from '../../chrome-extension/scripts/eval-public-task.mjs';
 
 test('missing runner protocol is invalid even when the process exits zero', () => {
   const parsed = parseMatrixRows('runner completed successfully\n');

@@ -38,10 +38,12 @@ export function completionChatDelivery(input: {
   const latestUserMessage = [...input.messages].reverse().find(message => message.actor === Actors.USER);
   const goalText = (instructionMessage ?? latestUserMessage)?.content?.replace(/\s+/g, ' ').trim() ?? '';
 
-  const content = resolveDeliverableAnswer({
-    instructionSummary: round.instructionSummary,
-    goalText,
-  });
+  const content =
+    round.result?.body?.replace(/\r\n?/g, '\n').trim() ||
+    resolveDeliverableAnswer({
+      instructionSummary: round.instructionSummary,
+      goalText,
+    });
   if (!content) return null;
 
   return {
