@@ -151,11 +151,11 @@ export function resultIsPresentAndMatches(asked: AcceptedTask, result: TaskResul
 
   if (asked.askedKind === 'file') {
     if (asked.askedSideEffect === 'download' && navigationChromeMatchesAsked(asked, body)) return true;
-    return result.kind === 'file' || /\.\w{2,4}$/.test(body.split(/\s+/).pop() ?? '');
+    return looksLikeFilename(body);
   }
 
   if (asked.askedKind === 'report' || asked.askedKind === 'draft') {
-    return result.kind === asked.askedKind && body.length >= 2;
+    return result.kind === asked.askedKind && body.length > 2;
   }
 
   return body.length >= 2;
@@ -218,6 +218,10 @@ function askedSideEffectFrom(instruction: string): AskedSideEffect | undefined {
   }
   if (/(?:打开|前往|访问)/.test(instruction) || /\bopen\s+/i.test(instruction)) return 'open';
   return undefined;
+}
+
+function looksLikeFilename(body: string): boolean {
+  return /\.\w{2,4}$/.test(body.split(/\s+/).pop() ?? '');
 }
 
 function isNavigationChrome(body: string): boolean {

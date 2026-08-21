@@ -246,6 +246,35 @@ describe('task / steps / result chain', () => {
     expect(round?.instructionSummary === '已打开 example.com').toBe(false);
   });
 
+  it('does not complete a download from leftover summary or opened-host chrome', async () => {
+    const manager = new TaskManager({
+      createExecutor: async () =>
+        driver({
+          kind: 'candidate_complete',
+          summary: '页面上有一个下载按钮。',
+        }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: item.kind === 'url' ? 'https://example.com/file.pdf' : true,
+        })),
+      ),
+      now: () => 100,
+    });
+    await start(manager, 'task-download-leftover', 'download this file');
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-download-leftover'))?.status).toBe('failed');
+    });
+    const round = (await manager.snapshot('task-download-leftover'))?.rounds[0];
+    expect(round?.result).toBeUndefined();
+    expect(round?.receipt).toBeUndefined();
+  });
+
   it('restores acceptTask after resume so a table task cannot complete on a two-character summary', async () => {
     const instruction = 'Extract products to a CSV table with name, price, rating';
     store.sessions.set('task-rehydrate-table', {

@@ -132,13 +132,34 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
 
   it('does not treat a two-character summary as a file or report result', () => {
     expect(resultIsPresentAndMatches(acceptTask('download this file'), { kind: 'summary', body: 'hi' })).toBe(false);
+    expect(resultIsPresentAndMatches(acceptTask('download this file'), { kind: 'file', body: 'hi' })).toBe(false);
     expect(resultIsPresentAndMatches(acceptTask('写一份研究报告'), { kind: 'summary', body: 'hi' })).toBe(false);
+    expect(resultIsPresentAndMatches(acceptTask('写一份研究报告'), { kind: 'report', body: 'hi' })).toBe(false);
+    expect(resultIsPresentAndMatches(acceptTask('write a draft'), { kind: 'draft', body: 'hi' })).toBe(false);
     expect(
       resultIsPresentAndMatches(acceptTask('写一份研究报告'), {
         kind: 'report',
         body: '结论：样本不足，需要更多来源。',
       }),
     ).toBe(true);
+  });
+
+  it('does not complete a download from opened-host, pause chrome, or leftover summary', () => {
+    const asked = acceptTask('download this file');
+    expect(asked.askedKind).toBe('file');
+    expect(resultIsPresentAndMatches(asked, { kind: 'file', body: '已打开 example.com' })).toBe(false);
+    expect(resultIsPresentAndMatches(asked, { kind: 'file', body: '视频已暂停' })).toBe(false);
+    expect(resultIsPresentAndMatches(asked, { kind: 'file', body: '页面上有一个下载按钮。' })).toBe(false);
+    expect(
+      produceResult({
+        asked,
+        summary: '页面上有一个下载按钮。',
+        observedUrl: 'https://example.com/file',
+        observedOutcome: '视频已暂停',
+      }),
+    ).toBeNull();
+    expect(resultIsPresentAndMatches(asked, { kind: 'file', body: 'invoice.pdf' })).toBe(true);
+    expect(resultIsPresentAndMatches(asked, { kind: 'file', body: '下载已完成' })).toBe(true);
   });
 
   it('refuses a cut CSV body that no longer matches the produced table', () => {
