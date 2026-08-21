@@ -137,7 +137,9 @@ export function produceResult(input: ProduceResultInput): TaskResult | null {
 export function resultIsPresentAndMatches(asked: AcceptedTask, result: TaskResult | null | undefined): boolean {
   const body = result?.body?.replace(/\r\n?/g, '\n').trim() ?? '';
   if (!result || !body) return false;
-  if (isPlaceholderDelivery(body) || isAcknowledgementOnly(body) || BARE_STATUS.test(body)) return false;
+  const named = asked.askedText?.replace(/\r\n?/g, '\n').trim() ?? '';
+  if (isPlaceholderDelivery(body) || isAcknowledgementOnly(body)) return false;
+  if (BARE_STATUS.test(body) && body !== named) return false;
   if (/^User instruction$/i.test(body) || /^Direction changed$/i.test(body)) return false;
   if (/^页面(地址|状态|结果)已/.test(body) || /^Control loop candidate complete$/i.test(body)) return false;
   if (isNavigationChrome(body) && !navigationChromeMatchesAsked(asked, body)) return false;

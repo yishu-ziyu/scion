@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createTableArtifact, createTextArtifact } from '../artifact';
-import { acceptTask, matchingStoredResult, produceResult, recordStep, resultIsPresentAndMatches } from '../task-result';
+import {
+  acceptTask,
+  matchingStoredResult,
+  namedTakeawayText,
+  produceResult,
+  recordStep,
+  resultIsPresentAndMatches,
+} from '../task-result';
 import type { ActionAttempt } from '@extension/storage/lib/task';
 
 function step(id: string): ActionAttempt {
@@ -100,6 +107,28 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     ).toBe('Saved successfully');
     expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: '页面状态已确认' })).toBe(false);
     expect(produceResult({ asked, pageSuccessText: 'Saved successfully' })?.body).toBe('Saved successfully');
+  });
+
+  it('matches a named success or submitted takeaway even when that sentence is bare status', () => {
+    const submitted = acceptTask('Fill Name with Ada and submit; success is submitted.');
+    expect(submitted.askedText).toBe('submitted');
+    expect(produceResult({ asked: submitted, pageSuccessText: 'submitted' })?.body).toBe('submitted');
+    expect(resultIsPresentAndMatches(submitted, { kind: 'summary', body: 'submitted' })).toBe(true);
+    expect(resultIsPresentAndMatches(submitted, { kind: 'summary', body: 'Submitted.' })).toBe(false);
+
+    const success = acceptTask('Fill Name with Ada and submit; success is Success.');
+    expect(success.askedText).toBe('Success');
+    expect(produceResult({ asked: success, pageSuccessText: 'Success!' })?.body).toBe('Success');
+    expect(resultIsPresentAndMatches(success, { kind: 'summary', body: 'Success' })).toBe(true);
+
+    const skill = { ...acceptTask('Fill the form'), askedText: namedTakeawayText('Success!') };
+    expect(skill.askedText).toBe('Success!');
+    expect(produceResult({ asked: skill, pageSuccessText: 'Success!' })?.body).toBe('Success!');
+    expect(resultIsPresentAndMatches(skill, { kind: 'summary', body: 'Success!' })).toBe(true);
+
+    const saved = acceptTask('Fill Name with Ada and submit; success is Saved successfully.');
+    expect(resultIsPresentAndMatches(saved, { kind: 'summary', body: 'success' })).toBe(false);
+    expect(resultIsPresentAndMatches(saved, { kind: 'summary', body: 'submitted' })).toBe(false);
   });
 
   it('keeps a prefixed CSV summary as the table the user can take', () => {
