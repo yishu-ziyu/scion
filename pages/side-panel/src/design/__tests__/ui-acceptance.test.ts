@@ -22,7 +22,6 @@ import {
   sourceHasBannedSkyChrome,
 } from '../contracts';
 import { t } from '@extension/i18n';
-import type { TaskSnapshot } from '@extension/storage';
 import { instructionToSkillTemplate } from '../../components/TaskStatusCard';
 import { commandRejectionMessage, confirmsNewChatCancellation, shouldAcceptTaskSignal } from '../../SidePanel';
 

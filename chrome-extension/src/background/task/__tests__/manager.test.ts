@@ -5,8 +5,6 @@ import {
   findAnswerSpanOnPage,
   deriveInstructionDeliverableContract,
   deriveInstructionUrlPlan,
-  type DeliverablePageEvidence,
-  extractExplicitTableFields,
   instructionRequestsReturnedDeliverable,
   normalizeProvenanceUrl,
   queryIdentityDigestForUrl,
@@ -27,7 +25,6 @@ import { ActionResult } from '../../agent/types';
 import { sha256 } from '../digest';
 import { createTextArtifact } from '../artifact';
 import type { BrowserTargetRef } from '@extension/storage/lib/task';
-import { productRowEvidenceText } from '../../browser/sites/product-table';
 
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
@@ -139,16 +136,6 @@ async function taskRoundId(manager: TaskManager, taskId: string): Promise<string
   const task = await manager.snapshot(taskId);
   if (!task) throw new Error(`Expected task ${taskId}`);
   return task.currentRoundId;
-}
-
-async function productTableEvidenceDigests(rows: Array<{ name: string; price: string; rating: string }>) {
-  const rowDigests = await Promise.all(rows.map(row => sha256(productRowEvidenceText(row))));
-  const rowSetDigest = await sha256(`product-row-set-v1:${JSON.stringify([...new Set(rowDigests)].sort())}`);
-  return Promise.all([
-    ...rows.flatMap(row => [row.name, row.price, row.rating]).map(sha256),
-    ...rowDigests,
-    rowSetDigest,
-  ]);
 }
 
 describe('instruction deliverable contract', () => {
@@ -4039,7 +4026,6 @@ describe('TaskManager independent URL opens', () => {
         title: 'Web browser',
       },
     ]);
-    let manager!: TaskManager;
     const driver = fakeDriver();
     const run = vi.fn(async (): Promise<ExecutorOutcome> => {
       const snap = await manager.snapshot('task-parallel-urls');
@@ -4053,7 +4039,7 @@ describe('TaskManager independent URL opens', () => {
       return { kind: 'paused' };
     });
     driver.run = run;
-    manager = new TaskManager({
+    const manager = new TaskManager({
       createExecutor: async () => driver,
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),

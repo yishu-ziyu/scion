@@ -17,18 +17,20 @@ import type {
   TaskSnapshot,
   TaskStatus,
 } from '@extension/storage/lib/task';
-import type {
-  CompletionCriterionDraft,
-  DispatchResult,
-  ExecutorDriver,
-  ExecutorHooks,
-  ExecutorInput,
-  ExecutorMissionPlan,
-  ExecutorOutcome,
-  ObserveCriteria,
-  ProbeObservation,
+import {
+  StaleTaskRoundError,
+  type CompletionCriterionDraft,
+  type DispatchResult,
+  type ExecutorDriver,
+  type ExecutorHooks,
+  type ExecutorInput,
+  type ExecutorMissionPlan,
+  type ExecutorOutcome,
+  type ObserveCriteria,
+  type ObservedPageSnapshot,
+  type ProbeObservation,
+  type VerifiedPageRecord,
 } from './contracts';
-import { StaleTaskRoundError } from './contracts';
 import { buildAttemptDisplaySummary, buildAttemptTargetLabel } from './attempt-display';
 import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
 import {
@@ -73,13 +75,7 @@ import {
 } from './mission-plan';
 import { ActionResult } from '../agent/types';
 import { isUnderstandingOnlyInstruction } from '../browser/sites/understanding-answer';
-import {
-  canonicalTableField,
-  csvOrMarkdownBlockSpans,
-  isTableSeparator,
-  looksLikeGenericTableHeader,
-  structuredTableCells,
-} from './table-shape';
+import { csvOrMarkdownBlockSpans } from './table-shape';
 import { instructionAsksPageAbout } from '../browser/sites/theme-citation';
 import {
   isBilibiliWatchUrl,
@@ -89,8 +85,6 @@ import {
 import { hasUsablePageBody, normalizeVisiblePageText } from '../browser/kernel/visible-text';
 import {
   extractProductsFromHtml,
-  formatMostExpensiveProductConclusion,
-  instructionRequestsMostExpensive,
   parseProductTableInstruction,
   productRowEvidenceText,
 } from '../browser/sites/product-table';
@@ -100,14 +94,8 @@ import {
   instructionAffirmedTargetValue,
   instructionAffirmsTarget,
 } from '../instruction-language';
-import {
-  isAcknowledgementOnly,
-  isBasicSubstantiveAnswer,
-  isCompletionBoilerplate,
-  isPlaceholderDelivery,
-} from './result-text';
+import { isAcknowledgementOnly, isBasicSubstantiveAnswer, isPlaceholderDelivery } from './result-text';
 import type { UserTurnDecision } from '../intent/user-turn-decision';
-import type { ObservedPageSnapshot, VerifiedPageRecord } from './contracts';
 import {
   checkVerifiedRecordDeliverable,
   instructionAsksVerifiedQuote,
@@ -196,27 +184,6 @@ export interface InstructionDeliverableCheck {
   reasons: string[];
 }
 
-const COUNT_WORDS: Record<string, number> = {
-  一: 1,
-  二: 2,
-  两: 2,
-  三: 3,
-  四: 4,
-  五: 5,
-  六: 6,
-  七: 7,
-  八: 8,
-  九: 9,
-  十: 10,
-};
-
-function parseRequestedCount(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const numeric = Number(raw);
-  if (Number.isInteger(numeric) && numeric > 0 && numeric <= 20) return numeric;
-  return COUNT_WORDS[raw] ?? null;
-}
-
 export function normalizeProvenanceUrl(value: string): string | null {
   try {
     const url = new URL(value);
@@ -243,28 +210,6 @@ export async function redactDeliverableUrlsForPersistence(value: string): Promis
   }
   chunks.push(value.slice(cursor));
   return chunks.join('');
-}
-
-function transientUrlIdentityKey(value: string): string | null {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-    const rawSearch = url.search.startsWith('?') ? url.search.slice(1) : url.search;
-    if (/%(?![0-9a-f]{2})/i.test(rawSearch)) return null;
-    const pairs = rawSearch.split('&').map(pair => {
-      if (!pair) return '';
-      const separator = pair.indexOf('=');
-      const rawKey = separator >= 0 ? pair.slice(0, separator) : pair;
-      const rawValue = separator >= 0 ? pair.slice(separator + 1) : '';
-      const key = decodeURIComponent(rawKey.replace(/\+/g, '%20'));
-      const valuePart = decodeURIComponent(rawValue.replace(/\+/g, '%20'));
-      return `${encodeURIComponent(key)}=${encodeURIComponent(valuePart)}`;
-    });
-    const normalizedUrl = normalizeProvenanceUrl(value);
-    return normalizedUrl ? `${normalizedUrl}\n${pairs.join('&')}` : null;
-  } catch {
-    return null;
-  }
 }
 
 export interface InstructionUrlPlan {
@@ -342,11 +287,13 @@ const EMPTY_DELIVERABLE_CONTRACT: InstructionDeliverableContract = {
 /**
  * Decision 005: do not derive a task type or output shape from the utterance.
  */
-export function deriveInstructionDeliverableContract(_instruction: string): InstructionDeliverableContract {
+export function deriveInstructionDeliverableContract(instruction: string): InstructionDeliverableContract {
+  void instruction;
   return EMPTY_DELIVERABLE_CONTRACT;
 }
 
-export function instructionRequestsReturnedDeliverable(_instruction: string): boolean {
+export function instructionRequestsReturnedDeliverable(instruction: string): boolean {
+  void instruction;
   return true;
 }
 
@@ -358,113 +305,9 @@ function answerSegments(answer: string): string[] {
     .filter(Boolean);
 }
 
-function isMetadataOnlySegment(segment: string): boolean {
-  return (
-    /^(?:标题|title|域名|host|URL|url|网址|页面地址|站点)\s*[:：=]/i.test(segment) ||
-    /^页面(?:地址|状态).{0,24}(?:符合|到达|完成|正确|目标)/.test(segment) ||
-    /^(?:已完成|完成|done|success|opened|已打开)[.!。！]*$/i.test(segment)
-  );
-}
-
-function tableHeaderMatches(segment: string, explicitFields: string[]): boolean {
-  const cells = structuredTableCells(segment).map(canonicalTableField);
-  const fields = explicitFields.map(canonicalTableField);
-  return fields.length > 0 && cells.length === fields.length && cells.every((cell, index) => cell === fields[index]);
-}
-
-function productRowFromTableSegment(segment: string, explicitFields: string[]) {
-  const cells = structuredTableCells(segment);
-  if (cells.length !== explicitFields.length) return null;
-  const fields = explicitFields.map(canonicalTableField);
-  const nameIndex = fields.indexOf('name');
-  const priceIndex = fields.indexOf('price');
-  const ratingIndex = fields.indexOf('rating');
-  if (nameIndex < 0 || priceIndex < 0 || ratingIndex < 0) return null;
-  return { name: cells[nameIndex], price: cells[priceIndex], rating: cells[ratingIndex] };
-}
-
 async function productRowSetEvidenceDigest(rows: Array<{ name: string; price: string; rating: string }>) {
   const rowDigests = await Promise.all(rows.map(row => sha256(productRowEvidenceText(row))));
   return sha256(`product-row-set-v1:${JSON.stringify([...new Set(rowDigests)].sort())}`);
-}
-
-function instructionRequestsCompleteProductTable(instruction: string): boolean {
-  return instructionAffirmsTarget(analyzeInstructionLanguage(instruction), 'complete_product_table');
-}
-
-function isStructuredTableMetadata(segment: string, explicitFields: string[]): boolean {
-  if (/^已提取\s*\d+\s*件商品（(?:CSV|Markdown)）：?$/i.test(segment.trim())) return true;
-  const cells = structuredTableCells(segment).map(cell => cell.toLowerCase());
-  if (cells.length === 0) return false;
-  if (cells.every(cell => /^:?-{3,}:?$/.test(cell))) return true;
-  return explicitFields.length > 0 ? tableHeaderMatches(segment, explicitFields) : looksLikeGenericTableHeader(segment);
-}
-
-function isMostExpensiveConclusionSegment(segment: string): boolean {
-  return (
-    /(?:最贵|价格最高|最高价(?:格)?)|\b(?:most\s+expensive|highest[-\s]+priced|highest\s+price)\b/i.test(segment) &&
-    !/(?:不是|并非|非最贵)|\b(?:not|isn't)\b/i.test(segment)
-  );
-}
-
-function isStructuredTableConclusionMetadata(segment: string): boolean {
-  return /^(?:最贵商品是\s+.+?，价格为\s+.+。|.+?\s+is\s+the\s+most\s+expensive\s+(?:product|item)(?:\s+(?:at|for)\s+.+)?[.!]?)$/i.test(
-    segment.trim(),
-  );
-}
-
-function normalizeConclusionText(value: string): string {
-  return value
-    .normalize('NFKC')
-    .replace(/\s+/g, ' ')
-    .replace(/^[\s*•-]+/, '')
-    .trim();
-}
-
-function matchesDerivedMostExpensiveConclusion(
-  conclusion: string,
-  tableSegments: string[],
-  explicitFields: string[],
-): boolean {
-  if (!isStructuredTableConclusionMetadata(conclusion)) return false;
-  const normalizedFields = explicitFields.map(canonicalTableField);
-  const nameIndex = normalizedFields.indexOf('name');
-  const priceIndex = normalizedFields.indexOf('price');
-  const ratingIndex = normalizedFields.indexOf('rating');
-  if (nameIndex < 0 || priceIndex < 0) return false;
-  const rows = tableSegments.flatMap(segment => {
-    const cells = structuredTableCells(segment);
-    if (cells.length !== explicitFields.length) return [];
-    return [
-      {
-        name: cells[nameIndex],
-        price: cells[priceIndex],
-        rating: ratingIndex >= 0 ? cells[ratingIndex] : '',
-      },
-    ];
-  });
-  const expected = formatMostExpensiveProductConclusion(rows);
-  return expected !== null && normalizeConclusionText(conclusion) === normalizeConclusionText(expected);
-}
-
-function structuredTableShape(segments: string[], explicitFields: string[]) {
-  const headerIndex = segments.findIndex(segment =>
-    explicitFields.length > 0 ? tableHeaderMatches(segment, explicitFields) : looksLikeGenericTableHeader(segment),
-  );
-  if (headerIndex < 0) return { headerIndex, dataSegments: [] as string[] };
-  const width = structuredTableCells(segments[headerIndex]).length;
-  const dataSegments = segments
-    .slice(headerIndex + 1)
-    .filter(segment => !isTableSeparator(segment) && structuredTableCells(segment).length === width);
-  return { headerIndex, dataSegments };
-}
-
-function isSubstantiveConclusion(segment: string): boolean {
-  if (isCompletionBoilerplate(segment)) return false;
-  const match = /(?:结论|建议|综合来看|总体而言|因此|conclusion|recommendation|overall|therefore)\s*[:：,]?(.*)/i.exec(
-    segment,
-  );
-  return Boolean(match?.[1]?.replace(/\s+/g, '').length && match[1].replace(/\s+/g, '').length >= 4);
 }
 
 export interface DeliverablePageEvidence {
@@ -534,11 +377,6 @@ function quotedPassages(segment: string): string[] {
     .filter(Boolean);
 }
 
-async function firstSegmentIdentity(segment: string): Promise<DeliverablePageEvidence | null> {
-  const occurrence = extractInstructionUrlOccurrences(segment)[0];
-  return occurrence ? redactedHttpUrlIdentity(occurrence.value) : null;
-}
-
 function provenanceIdentityKey(identity: DeliverablePageEvidence): string {
   return `${identity.normalizedUrl}\n${identity.queryIdentityDigest ?? 'no-query'}`;
 }
@@ -550,78 +388,6 @@ function latestPageEvidence(items: DeliverablePageEvidence[]): DeliverablePageEv
     const latestSeq = latest.visitSeq ?? -1;
     return itemSeq >= latestSeq ? item : latest;
   }, undefined);
-}
-
-function hasUnsupportedUnquotedClaim(segment: string): boolean {
-  const residue = segment
-    .replace(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi, '')
-    .replace(/[“"「『][^”"」』]{8,240}[”"」』]/g, '')
-    .replace(/^\s*(?:[-*•]|\d{1,2}[.)、]|[一二两三四五六七八九十][、.])\s*/, '')
-    .replace(/^观察(?:[一二两三四五六七八九十]|\d{1,2})\s*[:：]\s*/, '')
-    .replace(/[：:。.!！?？]/g, ' ')
-    .trim();
-  if (!residue) return false;
-  const clauses = residue
-    .split(/[，,、]/)
-    .map(clause => clause.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
-  return clauses.some(clause => {
-    const sourceFrame =
-      /^(?:(?:[A-Za-z][A-Za-z0-9 ._-]{0,40}|[\u4e00-\u9fffA-Za-z0-9._-]{1,20})\s*)?(?:页面|条目)(?:的)?(?:正文|首段|原文|内容)?(?:写道|记载|提到|指出|引用|如下)?$/;
-    const contentFrame = /^(?:文章)?(?:核心|主题)?(?:与|和)?(?:正文)?(?:细节|内容|原文)(?:是|为|写道|如下)?$/;
-    const englishFrame =
-      /^(?:(?:[A-Za-z][A-Za-z0-9 ._-]{0,40})\s+)?(?:page|entry|body|lead|text|source)\s*(?:says|states|reads|shows|quote|excerpt)?$/i;
-    return !sourceFrame.test(clause) && !contentFrame.test(clause) && !englishFrame.test(clause);
-  });
-}
-
-function themeResidue(segment: string): string {
-  return segment
-    .replace(/https?:\/\/[^\s<>"'，。；;）)\]}]+/gi, '')
-    .replace(/[“"「『][^”"」』]{8,240}[”"」』]/g, '')
-    .replace(/^\s*(?:[-*•]|\d{1,2}[.)、]|[一二两三四五六七八九十][、.])\s*/, '')
-    .replace(/^(?:文章)?(?:的)?(?:核心)?(?:主题|主旨|大意)(?:是|为)?/, '')
-    .replace(/^(?:一句话)?(?:概括|总结|摘要)/, '')
-    .replace(/(?:文章)?(?:核心|主题)?(?:与|和)?(?:正文)?(?:细节|内容|原文)(?:是|为|写道|如下)?/g, ' ')
-    .replace(/(?:页面|条目)(?:的)?(?:正文|首段|原文|内容)?(?:写道|记载|提到|指出|引用|如下)?/g, ' ')
-    .replace(/[：:。.!！?？，,]/g, ' ')
-    .replace(/\s+/g, '')
-    .trim();
-}
-
-function sharesCitedContent(theme: string, quote: string): boolean {
-  const themeText = theme.replace(/\s+/g, '');
-  const quoteText = quote.replace(/\s+/g, '');
-  if (themeText.length < 3 || quoteText.length < 3) return false;
-  for (let index = 0; index <= themeText.length - 3; index += 1) {
-    const slice = themeText.slice(index, index + 3);
-    if (/[\u4e00-\u9fff]/.test(slice) && quoteText.includes(slice)) return true;
-  }
-  const themeWords = new Set((theme.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter(Boolean));
-  return (quote.toLowerCase().match(/[a-z]{4,}/g) ?? []).some(word => themeWords.has(word));
-}
-
-async function instructionSourcePosition(instruction: string, evidence: DeliverablePageEvidence): Promise<number> {
-  const lower = instruction.toLowerCase();
-  for (const occurrence of extractInstructionUrlOccurrences(instruction)) {
-    const identity = await redactedHttpUrlIdentity(occurrence.value);
-    if (identity && provenanceIdentityKey(identity) === provenanceIdentityKey(evidence)) return occurrence.start;
-  }
-  if (evidence.queryIdentityDigest) return -1;
-  const exact = lower.indexOf(evidence.normalizedUrl.toLowerCase());
-  if (exact >= 0) return exact;
-  try {
-    const hostname = new URL(evidence.normalizedUrl).hostname.replace(/^www\./, '');
-    const positions = hostname
-      .split('.')
-      .filter(part => part.length >= 3)
-      .map(part => lower.indexOf(part.toLowerCase()))
-      .filter(position => position >= 0);
-    if (positions.length > 0) return Math.min(...positions);
-  } catch {
-    return -1;
-  }
-  return -1;
 }
 
 function compactVisibleText(value: string): string {
@@ -1353,7 +1119,7 @@ export class TaskManager {
       driver.addFollowUp(command.instruction);
       if (previousStatus === 'paused' || previousStatus === 'interrupted') driver.resume();
       if (['waiting_user', 'completed'].includes(previousStatus)) {
-        void this.runDriver(task.id, driver, roundId, command.instruction);
+        void this.runDriver(task.id, driver, roundId);
       }
     }
     return ack;
@@ -2397,7 +2163,7 @@ export class TaskManager {
       this.drivers.set(taskId, driver);
       this.launches.delete(taskId);
       await this.restoreAskedTextFromSkillMeta(task, this.currentRound(task));
-      await this.runDriver(taskId, driver, roundId, instruction);
+      await this.runDriver(taskId, driver, roundId);
     } catch (error) {
       // Surface start failures (missing model, createExecutor throw) on the round for UI.
       const category = classifyCreateExecutorError(error);
@@ -2416,12 +2182,7 @@ export class TaskManager {
     }
   }
 
-  private async runDriver(
-    taskId: string,
-    driver: ExecutorDriver,
-    initialRoundId: string,
-    instruction: string,
-  ): Promise<void> {
+  private async runDriver(taskId: string, driver: ExecutorDriver, initialRoundId: string): Promise<void> {
     let runRoundId = initialRoundId;
     let verificationRetries = 0;
     for (;;) {
@@ -2524,7 +2285,7 @@ export class TaskManager {
         const artifacts =
           outcome.kind === 'candidate_complete' && Array.isArray(outcome.artifacts) ? outcome.artifacts : [];
         const pageEvidenceForAnswer = this.visitedPageEvidence(task);
-        let answer = await this.selectCandidateDeliverableText(
+        const answer = await this.selectCandidateDeliverableText(
           rawAnswer,
           artifacts,
           instructionForRound,
