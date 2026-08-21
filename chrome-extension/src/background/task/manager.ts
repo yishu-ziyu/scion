@@ -1069,7 +1069,7 @@ export class TaskManager {
     } catch {
       // Keep empty targetRefs; runCurrentRound will attach or fail honestly.
     }
-    this.rememberAcceptedTask(task.id, command.instruction, round);
+    this.rememberAcceptedTask(task.id, command.instruction);
     await this.persist(task);
     void this.runCurrentRound(task.id);
     return ack;
@@ -1179,14 +1179,14 @@ export class TaskManager {
       createdAt: now,
       updatedAt: now,
     };
-    this.rememberAcceptedTask(task.id, renderedInstruction, task.rounds[0]);
+    this.rememberAcceptedTask(task.id, renderedInstruction);
     const askedSkill = this.accepted.get(task.id);
     if (askedSkill && !askedSkill.askedText) {
       for (const template of skill.criteria) {
         if (template.kind !== 'page_text') continue;
         const takeaway = namedTakeawayText(template.expectedTemplate, template.required);
         if (takeaway) {
-          this.writeAskedText(task.id, takeaway, task.rounds[0]);
+          this.writeAskedText(task.id, takeaway);
           break;
         }
       }
@@ -1284,7 +1284,7 @@ export class TaskManager {
       // Keep resuming even if the previous group was closed.
     }
     const cachedInstruction = this.instructions.get(task.id);
-    if (cachedInstruction) this.rememberAcceptedTask(task.id, cachedInstruction, this.currentRound(task));
+    if (cachedInstruction) this.rememberAcceptedTask(task.id, cachedInstruction);
     const driver = this.drivers.get(task.id);
     if (driver) driver.resume();
     else void this.runCurrentRound(task.id);
@@ -1345,7 +1345,7 @@ export class TaskManager {
       evidence: [],
     });
     const ack = this.accept(task, command.commandId);
-    this.rememberAcceptedTask(task.id, command.instruction, this.currentRound(task));
+    this.rememberAcceptedTask(task.id, command.instruction);
     await this.persist(task);
     const driver = this.drivers.get(task.id);
     if (!driver) void this.runCurrentRound(task.id);
@@ -2331,7 +2331,7 @@ export class TaskManager {
         instruction = this.instructions.get(taskId) ?? instruction;
       }
       if (instruction) {
-        this.rememberAcceptedTask(taskId, instruction, round);
+        this.rememberAcceptedTask(taskId, instruction);
         await this.restoreAskedTextFromSkillMeta(task, round);
       }
       if (!instruction) {
@@ -3248,7 +3248,7 @@ export class TaskManager {
         );
         if (successDraft?.kind === 'page_text') {
           const takeaway = namedTakeawayText(successDraft.expected, successDraft.required);
-          this.writeAskedText(taskId, takeaway, round);
+          this.writeAskedText(taskId, takeaway);
         }
       }
       const criteria = await Promise.all(
@@ -3816,7 +3816,7 @@ export class TaskManager {
     if (!confirmedEvidence) return this.reject(task, command.commandId, 'invalid_transition');
     const instruction = await this.rehydrateInstruction(task, round);
     if (instruction) {
-      this.rememberAcceptedTask(task.id, instruction, round);
+      this.rememberAcceptedTask(task.id, instruction);
       await this.restoreAskedTextFromSkillMeta(task, round);
     }
     const asked = this.acceptedTaskFor(task.id);
@@ -3929,40 +3929,32 @@ export class TaskManager {
     task.plan = plan;
   }
 
-  private rememberAcceptedTask(taskId: string, instruction: string, round?: TaskRound): AcceptedTask {
+  private rememberAcceptedTask(taskId: string, instruction: string): AcceptedTask {
     const asked = acceptTask(instruction);
     const previous = this.accepted.get(taskId);
-    if (!asked.askedText) {
-      if (previous?.askedText && previous.instruction === instruction) {
-        asked.askedText = previous.askedText;
-      } else if (round?.askedText?.trim()) {
-        asked.askedText = round.askedText.trim();
-      }
-    }
-    if (asked.askedText && round && !round.askedText?.trim()) {
-      round.askedText = asked.askedText;
+    if (previous?.askedText && !asked.askedText && previous.instruction === instruction) {
+      asked.askedText = previous.askedText;
     }
     this.instructions.set(taskId, instruction);
     this.accepted.set(taskId, asked);
     return asked;
   }
 
-  private writeAskedText(taskId: string, text: string | undefined, round?: TaskRound): void {
+  private writeAskedText(taskId: string, text: string | undefined): void {
     const trimmed = text?.trim();
     if (!trimmed) return;
     const asked = this.accepted.get(taskId);
     if (asked) asked.askedText = trimmed;
-    if (round) round.askedText = trimmed;
   }
 
   private async restoreAskedTextFromSkillMeta(task: TaskSession, round: TaskRound): Promise<void> {
-    if (this.accepted.get(task.id)?.askedText?.trim() || round.askedText?.trim()) return;
+    if (this.accepted.get(task.id)?.askedText?.trim()) return;
     const meta = await getSkillSaveMeta(task.id, round.id);
     for (const template of meta?.templates ?? []) {
       if (template.kind !== 'page_text') continue;
       const named = namedTakeawayText(template.expectedTemplate, template.required);
       if (named) {
-        this.writeAskedText(task.id, named, round);
+        this.writeAskedText(task.id, named);
         return;
       }
     }

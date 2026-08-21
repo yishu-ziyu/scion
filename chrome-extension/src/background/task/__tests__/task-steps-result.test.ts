@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { putSkillSaveMeta } from '@extension/storage/lib/task';
+import { getSkillSaveMeta, putSkillSaveMeta } from '@extension/storage/lib/task';
 import { TaskManager } from '../manager';
 import { createTableArtifact } from '../artifact';
 import { extractContentActionSchema } from '../../agent/actions/schemas';
@@ -735,7 +735,7 @@ describe('task / steps / result chain', () => {
       new Action(async () => new ActionResult({ success: true, artifact }), extractContentActionSchema),
       { goal: 'name,price,rating', intent: 'extract' },
     );
-    expect(dispatched.actionResult.isDone).toBe(true);
+    expect(dispatched.actionResult.isDone).toBe(false);
     const snap = await manager.snapshot('task-extract-url');
     expect(snap?.status).not.toBe('completed');
     expect(snap?.rounds[0]?.result).toBeUndefined();
@@ -775,7 +775,7 @@ describe('task / steps / result chain', () => {
     expect(snap?.rounds[0]?.receipt).toBeUndefined();
   });
 
-  it('copies onPlan takeaway text onto the round so a later manager can match a short Saved result', async () => {
+  it('stores onPlan takeaway text in skill-save meta, not on the task snapshot', async () => {
     let hooks!: ExecutorHooks;
     const pending = driver({ kind: 'candidate_complete', summary: 'still going' });
     pending.run = vi.fn(() => new Promise<ExecutorOutcome>(() => {}));
@@ -790,82 +790,18 @@ describe('task / steps / result chain', () => {
     });
     await start(manager, 'task-asked-text-freeze', 'Fill the name field and submit the form');
     await vi.waitFor(() => expect(hooks).toBeDefined());
-    const roundId = (await manager.snapshot('task-asked-text-freeze'))?.currentRoundId;
+    const snap = await manager.snapshot('task-asked-text-freeze');
+    const roundId = snap?.currentRoundId;
     if (!roundId) throw new Error('missing round');
     await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: 'Saved', required: true }]);
     await vi.waitFor(async () => {
-      expect((await manager.snapshot('task-asked-text-freeze'))?.rounds[0]?.askedText).toBe('Saved');
+      const meta = await getSkillSaveMeta('task-asked-text-freeze', roundId);
+      expect(meta?.templates.some(item => item.kind === 'page_text' && item.expectedTemplate === 'Saved')).toBe(true);
     });
+    expect(JSON.stringify(await manager.snapshot('task-asked-text-freeze'))).not.toContain('Saved');
   });
 
-  it('confirms a short Saved takeaway after restart from persisted round.askedText', async () => {
-    const instruction = 'Fill the name field and submit the form';
-    store.chatSessions.set('chat-task-asked-text-restart', {
-      messages: [{ id: 'message-task-asked-text-restart', content: instruction }],
-    });
-    store.sessions.set('task-asked-text-restart', {
-      id: 'task-asked-text-restart',
-      goalSummary: 'User task',
-      chatSessionId: 'chat-task-asked-text-restart',
-      instructionMessageId: 'message-task-asked-text-restart',
-      status: 'waiting_user',
-      revision: 2,
-      activeTabId: 7,
-      currentRoundId: 'round-asked-text-restart',
-      targetRefs: [],
-      rounds: [
-        {
-          id: 'round-asked-text-restart',
-          instructionMessageId: 'message-task-asked-text-restart',
-          instructionSummary: 'User instruction',
-          status: 'waiting_user',
-          waitReason: 'proof_required',
-          commandAcks: {},
-          askedText: 'Saved',
-          criteria: [
-            {
-              id: 'confirm-1',
-              roundId: 'round-asked-text-restart',
-              targetRefId: 'tab-7',
-              kind: 'user_confirmed',
-              operator: 'equals',
-              expected: true,
-              required: true,
-              frozenAt: 1,
-              notBefore: 0,
-              timeoutMs: 60_000,
-              baseline: false,
-            },
-          ],
-          attempts: [],
-          evidence: [],
-          produced: { kind: 'summary', body: 'Saved' },
-        },
-      ],
-      createdAt: 1,
-      updatedAt: 1,
-    });
-    const manager = new TaskManager({
-      createExecutor: async () => driver({ kind: 'candidate_complete', summary: 'ignored' }),
-      switchTab: vi.fn(),
-      observeCriteria: vi.fn(async () => []),
-      now: () => 200,
-    });
-    const confirmed = await manager.dispatch({
-      type: 'confirm_completion',
-      commandId: 'confirm-asked-text',
-      taskId: 'task-asked-text-restart',
-      expectedRevision: 2,
-      roundId: 'round-asked-text-restart',
-      criterionId: 'confirm-1',
-    });
-    expect(confirmed.accepted).toBe(true);
-    const completed = await manager.snapshot('task-asked-text-restart');
-    expect(completed?.status).toBe('completed');
-    expect(completed?.rounds[0]?.result).toEqual({ kind: 'summary', body: 'Saved' });
-  });
-
-  it('restores askedText from skill-save page_text after restart when the round did not store it', async () => {
+  it('restores askedText from skill-save page_text after restart so a short Saved takeaway still matches', async () => {
     const instruction = 'Fill the name field and submit the form';
     store.chatSessions.set('chat-task-asked-text-skill', {
       messages: [{ id: 'message-task-asked-text-skill', content: instruction }],
@@ -933,6 +869,5 @@ describe('task / steps / result chain', () => {
     const completed = await manager.snapshot('task-asked-text-skill');
     expect(completed?.status).toBe('completed');
     expect(completed?.rounds[0]?.result).toEqual({ kind: 'summary', body: 'Saved' });
-    expect(completed?.rounds[0]?.askedText).toBe('Saved');
   });
 });

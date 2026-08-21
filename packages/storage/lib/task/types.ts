@@ -231,12 +231,6 @@ export interface TaskRound {
    * Not Done: `confirmCompletion` may persist this only after receipt commits.
    */
   produced?: TaskResult;
-  /**
-   * Form/skill takeaway copied onto `AcceptedTask.askedText` (onPlan `page_text`
-   * or skill template). Survives service-worker restart; `acceptTask` from the
-   * instruction string alone does not restore it.
-   */
-  askedText?: string;
   waitReason?: WaitReason;
   /**
    * Machine category when status is failed (e.g. llm_failed, observe_failed).
