@@ -9,6 +9,7 @@ import type { ExecutorDriver, ExecutorHooks, ExecutorOutcome, ObserveCriteria } 
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
   chatSessions: new Map<string, { messages: Array<{ id: string; content: string }> }>(),
+  saveCount: 0,
 }));
 
 vi.mock('@extension/storage/lib/chat', () => ({
@@ -23,6 +24,7 @@ vi.mock('@extension/storage/lib/task', () => {
     getTask: async (id: string) => store.sessions.get(id) ?? null,
     getActiveTask: async () => [...store.sessions.values()].at(-1) ?? null,
     saveTask: async (task: { id: string }) => {
+      store.saveCount += 1;
       store.sessions.set(task.id, structuredClone(task));
     },
     putSkillSaveMeta: async (taskId: string, roundId: string, meta: { templates: unknown[]; unsafe: boolean }) => {
@@ -86,6 +88,7 @@ describe('task / steps / result chain', () => {
   beforeEach(() => {
     store.sessions.clear();
     store.chatSessions.clear();
+    store.saveCount = 0;
   });
 
   it('does not complete a generic task when candidate_complete has no matching result', async () => {
@@ -592,5 +595,107 @@ describe('task / steps / result chain', () => {
     expect(stillWaiting?.status).toBe('waiting_user');
     expect(stillWaiting?.rounds[0]?.evidence.some(item => item.source === 'user')).toBe(false);
     expect(stillWaiting?.rounds[0]?.result).toBeUndefined();
+  });
+
+  it('does not persist a half-closed plan or completed observe when confirm persistMatchingResult fails', async () => {
+    const instruction = 'perform an outcome that needs my confirmation';
+    const plan = {
+      id: 'mission-confirm-fail',
+      goal: 'User task',
+      phases: [
+        {
+          id: 'phase-1',
+          title: '阶段 1',
+          status: 'active' as const,
+          criteriaIds: ['url-1'],
+          evidenceIds: [] as string[],
+          notes: [] as string[],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const observeAttempt = {
+      id: 'observe-1',
+      roundId: 'round-confirm-fail',
+      actionName: 'observe',
+      effect: 'read' as const,
+      argsDigest: 'loop-phase:observe:0',
+      displaySummary: '获取页面快照',
+      state: 'executing' as const,
+      proposedAt: 100,
+      executingAt: 100,
+    };
+    store.chatSessions.set('chat-task-confirm-fail-plan', {
+      messages: [{ id: 'message-task-confirm-fail-plan', content: instruction }],
+    });
+    store.sessions.set('task-confirm-fail-plan', {
+      id: 'task-confirm-fail-plan',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-task-confirm-fail-plan',
+      instructionMessageId: 'message-task-confirm-fail-plan',
+      status: 'waiting_user',
+      revision: 2,
+      activeTabId: 7,
+      currentRoundId: 'round-confirm-fail',
+      targetRefs: [],
+      plan,
+      rounds: [
+        {
+          id: 'round-confirm-fail',
+          instructionMessageId: 'message-task-confirm-fail-plan',
+          instructionSummary: 'User instruction',
+          status: 'waiting_user',
+          waitReason: 'proof_required',
+          commandAcks: {},
+          criteria: [
+            {
+              id: 'confirm-1',
+              roundId: 'round-confirm-fail',
+              targetRefId: 'tab-7',
+              kind: 'user_confirmed',
+              operator: 'equals',
+              expected: true,
+              required: true,
+              frozenAt: 1,
+              notBefore: 0,
+              timeoutMs: 60_000,
+              baseline: false,
+            },
+          ],
+          attempts: [observeAttempt],
+          evidence: [],
+          produced: { kind: 'summary', body: 'needs confirmation now' },
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const manager = new TaskManager({
+      createExecutor: async () => driver({ kind: 'candidate_complete', summary: 'ignored' }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 200,
+    });
+    const savesBefore = store.saveCount;
+    const rejected = await manager.dispatch({
+      type: 'confirm_completion',
+      commandId: 'confirm-fail-plan',
+      taskId: 'task-confirm-fail-plan',
+      expectedRevision: 2,
+      roundId: 'round-confirm-fail',
+      criterionId: 'confirm-1',
+    });
+    expect(rejected.accepted).toBe(false);
+    expect(store.saveCount).toBe(savesBefore);
+    const stillWaiting = await manager.snapshot('task-confirm-fail-plan');
+    expect(stillWaiting?.status).toBe('waiting_user');
+    expect(stillWaiting?.revision).toBe(2);
+    expect(stillWaiting?.plan).toEqual(plan);
+    expect(stillWaiting?.rounds[0]?.attempts).toEqual([observeAttempt]);
+    expect(stillWaiting?.rounds[0]?.evidence).toEqual([]);
+    expect(stillWaiting?.rounds[0]?.receipt).toBeUndefined();
+    expect(stillWaiting?.rounds[0]?.result).toBeUndefined();
+    expect(stillWaiting?.rounds[0]?.produced).toEqual({ kind: 'summary', body: 'needs confirmation now' });
   });
 });

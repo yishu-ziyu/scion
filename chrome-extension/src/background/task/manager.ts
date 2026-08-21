@@ -73,6 +73,13 @@ import {
 } from './mission-plan';
 import { ActionResult } from '../agent/types';
 import { isUnderstandingOnlyInstruction } from '../browser/sites/understanding-answer';
+import {
+  canonicalTableField,
+  csvOrMarkdownBlockSpans,
+  isTableSeparator,
+  looksLikeGenericTableHeader,
+  structuredTableCells,
+} from './table-shape';
 import { instructionAsksPageAbout } from '../browser/sites/theme-citation';
 import {
   isBilibiliWatchUrl,
@@ -359,48 +366,6 @@ function isMetadataOnlySegment(segment: string): boolean {
   );
 }
 
-function structuredTableCells(segment: string): string[] {
-  const value = segment.trim();
-  if (!value) return [];
-  if (value.startsWith('|') && value.endsWith('|')) {
-    return value
-      .slice(1, -1)
-      .split('|')
-      .map(cell => cell.replace(/\\\|/g, '|').trim())
-      .filter(Boolean);
-  }
-
-  const cells: string[] = [];
-  let cell = '';
-  let quoted = false;
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index];
-    if (character === '"') {
-      if (quoted && value[index + 1] === '"') {
-        cell += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (character === ',' && !quoted) {
-      cells.push(cell.trim());
-      cell = '';
-    } else {
-      cell += character;
-    }
-  }
-  cells.push(cell.trim());
-  return quoted ? [] : cells.filter(Boolean);
-}
-
-function canonicalTableField(value: string): string {
-  const field = value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
-  if (/^(?:name|title|名称|名字|商品)$/.test(field)) return 'name';
-  if (/^(?:price|cost|价格|价钱)$/.test(field)) return 'price';
-  if (/^(?:rating|score|评分|星级)$/.test(field)) return 'rating';
-  return field;
-}
-
 function tableHeaderMatches(segment: string, explicitFields: string[]): boolean {
   const cells = structuredTableCells(segment).map(canonicalTableField);
   const fields = explicitFields.map(canonicalTableField);
@@ -480,21 +445,6 @@ function matchesDerivedMostExpensiveConclusion(
   });
   const expected = formatMostExpensiveProductConclusion(rows);
   return expected !== null && normalizeConclusionText(conclusion) === normalizeConclusionText(expected);
-}
-
-function isTableSeparator(segment: string): boolean {
-  const cells = structuredTableCells(segment);
-  return cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
-}
-
-function looksLikeGenericTableHeader(segment: string): boolean {
-  const cells = structuredTableCells(segment).map(canonicalTableField);
-  if (cells.length < 2) return false;
-  return cells.every(cell =>
-    /^(?:name|price|rating|source|result|competitor|product|feature|strength|weakness|url|名称|价格|评分|来源|结果|竞品|产品|商品|功能|优点|缺点|网址|链接|指标|维度)$/.test(
-      cell,
-    ),
-  );
 }
 
 function structuredTableShape(segments: string[], explicitFields: string[]) {
@@ -727,86 +677,6 @@ export async function findAnswerSpanOnPage(
     }
   }
   return null;
-}
-
-function lineOffsetSpans(text: string): Array<{ start: number; end: number; line: string }> {
-  const spans: Array<{ start: number; end: number; line: string }> = [];
-  let start = 0;
-  while (start < text.length) {
-    const newline = text.indexOf('\n', start);
-    const end = newline < 0 ? text.length : newline;
-    spans.push({
-      start,
-      end,
-      line: text.slice(start, end).replace(/\r$/, '').trim(),
-    });
-    if (newline < 0) break;
-    start = newline + 1;
-  }
-  return spans;
-}
-
-/** Header plus at least one data row of CSV or Markdown. Comma prose is not a table. */
-function looksLikeCsvOrMarkdownHeader(line: string): boolean {
-  if (!line || isTableSeparator(line)) return false;
-  const cells = structuredTableCells(line);
-  if (cells.length < 2) return false;
-  if (line.startsWith('|') && line.endsWith('|')) return true;
-  if (looksLikeGenericTableHeader(line)) return true;
-  return cells.every(cell => /^[A-Za-z0-9_\u4e00-\u9fff]{1,32}$/.test(cell));
-}
-
-function csvOrMarkdownBlockSpans(answer: string): Array<{ start: number; end: number }> {
-  const lines = lineOffsetSpans(answer);
-  const spans: Array<{ start: number; end: number }> = [];
-  let index = 0;
-  while (index < lines.length) {
-    const header = lines[index]!;
-    if (!looksLikeCsvOrMarkdownHeader(header.line)) {
-      index += 1;
-      continue;
-    }
-    const markdown = header.line.startsWith('|') && header.line.endsWith('|');
-    const width = structuredTableCells(header.line).length;
-    let endIndex = index;
-    let dataRows = 0;
-    for (let next = index + 1; next < lines.length; next += 1) {
-      const line = lines[next]!.line;
-      if (!line) break;
-      if (isTableSeparator(line)) {
-        endIndex = next;
-        continue;
-      }
-      if (!csvOrMarkdownDataRow(line, width, markdown)) break;
-      endIndex = next;
-      dataRows += 1;
-    }
-    if (dataRows >= 1) {
-      spans.push({ start: header.start, end: lines[endIndex]!.end });
-      index = endIndex + 1;
-      continue;
-    }
-    index += 1;
-  }
-  return spans;
-}
-
-/** Continue a table run only for a real data row of the header width, not comma prose. */
-function csvOrMarkdownDataRow(line: string, width: number, markdown: boolean): boolean {
-  const rowMarkdown = line.startsWith('|') && line.endsWith('|');
-  if (markdown !== rowMarkdown) return false;
-  const cells = structuredTableCells(line);
-  if (cells.length !== width) return false;
-  if (!markdown && csvRowHasProseUrl(cells)) return false;
-  return true;
-}
-
-function csvRowHasProseUrl(cells: string[]): boolean {
-  return cells.some(cell => {
-    const trimmed = cell.trim();
-    if (!/https?:\/\//i.test(trimmed)) return false;
-    return !/^https?:\/\/\S+$/i.test(trimmed);
-  });
 }
 
 function occurrenceIsInsideSpans(
@@ -3957,13 +3827,18 @@ export class TaskManager {
           error: 'invalid_transition',
         };
       }
+      const previousPlan = task.plan === undefined ? undefined : structuredClone(task.plan);
+      const previousAttempts = structuredClone(round.attempts);
+      const previousEvidence = round.evidence.slice();
       round.evidence.push(confirmedEvidence);
       this.syncMissionPlanFromEvidence(task, checked.evidence);
       const completed = await this.persistMatchingResult(task, round, checked.evidence, produced, false);
       if (!completed) {
-        round.evidence = round.evidence.filter(item => item !== confirmedEvidence);
+        if (previousPlan === undefined) delete task.plan;
+        else task.plan = previousPlan;
+        round.attempts = previousAttempts;
+        round.evidence = previousEvidence;
         this.pendingConfirmArtifacts.set(this.roundKey(task.id, round.id), artifacts);
-        await this.persist(task);
         return {
           accepted: false,
           commandId: command.commandId,
@@ -4147,6 +4022,8 @@ export class TaskManager {
     const previousResult = round.result;
     const previousSummary = round.instructionSummary;
     const previousProduced = round.produced;
+    const previousPlan = task.plan === undefined ? undefined : structuredClone(task.plan);
+    const previousAttempts = structuredClone(round.attempts);
     round.result = stored;
     round.instructionSummary = stored.body;
     delete round.produced;
@@ -4157,6 +4034,9 @@ export class TaskManager {
       round.instructionSummary = previousSummary;
       if (previousProduced === undefined) delete round.produced;
       else round.produced = previousProduced;
+      if (previousPlan === undefined) delete task.plan;
+      else task.plan = previousPlan;
+      round.attempts = previousAttempts;
     }
     return committed;
   }

@@ -7,6 +7,12 @@ import { parseFormFillSubmitInstruction } from '../browser/sites/form-fill';
 import { parseProductTableInstruction } from '../browser/sites/product-table';
 import { artifactToResultText, type TaskArtifact } from './artifact';
 import { isAcknowledgementOnly, isBasicSubstantiveAnswer, isPlaceholderDelivery } from './result-text';
+import {
+  csvOrMarkdownBlockSpans,
+  csvOrMarkdownDataRowCount,
+  firstCsvOrMarkdownHeaderLine,
+  structuredTableCells,
+} from './table-shape';
 
 export type { TaskResult, TaskResultKind };
 
@@ -150,7 +156,7 @@ export function resultIsPresentAndMatches(asked: AcceptedTask, result: TaskResul
   }
 
   if (asked.askedKind === 'file') {
-    if (asked.askedSideEffect === 'download' && navigationChromeMatchesAsked(asked, body)) return true;
+    if (body === '下载已完成') return true;
     return looksLikeFilename(body);
   }
 
@@ -223,7 +229,9 @@ function askedSideEffectFrom(instruction: string): AskedSideEffect | undefined {
 }
 
 function looksLikeFilename(body: string): boolean {
-  const token = (body.trim().split(/\s+/).pop() ?? '').replace(/[),.;]+$/g, '');
+  const trimmed = body.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  const token = trimmed.replace(/[),.;]+$/g, '');
   if (!token) return false;
   const base =
     token
@@ -387,38 +395,16 @@ function hostFromUrl(value: string | undefined): string | undefined {
 }
 
 function looksLikeTable(body: string): boolean {
-  return tableRegionLines(body).length >= 2;
+  return csvOrMarkdownBlockSpans(body).length > 0;
 }
 
 function tableDataRowCount(body: string): number {
-  const lines = tableRegionLines(body).filter(
-    line => !/^:?-{3,}:?(\s*[|,]\s*:?-{3,}:?)*$/.test(line.replace(/\|/g, '|')),
-  );
-  if (lines.length < 2) return 0;
-  return Math.max(0, lines.length - 1);
+  return csvOrMarkdownDataRowCount(body);
 }
 
 function headerHasFields(body: string, fields: string[]): boolean {
-  const header = tableRegionLines(body)[0];
+  const header = firstCsvOrMarkdownHeaderLine(body);
   if (!header) return false;
-  const cells = header
-    .replace(/^\||\|$/g, '')
-    .split(/[|,]/)
-    .map(cell => cell.trim().toLowerCase());
+  const cells = structuredTableCells(header).map(cell => cell.trim().toLowerCase());
   return fields.every(field => cells.includes(field.toLowerCase()));
-}
-
-function tableRegionLines(body: string): string[] {
-  const lines = body
-    .split(/\n/)
-    .map(line => line.trim())
-    .filter(Boolean);
-  const start = lines.findIndex(line => isTableRowLine(line));
-  if (start < 0) return [];
-  return lines.slice(start).filter(line => isTableRowLine(line));
-}
-
-function isTableRowLine(line: string): boolean {
-  if (line.startsWith('|') && line.endsWith('|')) return true;
-  return line.includes(',') && line.split(',').length >= 2;
 }

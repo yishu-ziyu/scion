@@ -173,6 +173,9 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     expect(produceResult({ asked, observedOutcome: '下载已开始' })).toBeNull();
     expect(resultIsPresentAndMatches(asked, { kind: 'file', body: 'see example.com' })).toBe(false);
     expect(resultIsPresentAndMatches(asked, { kind: 'file', body: 'cdn.example.org' })).toBe(false);
+    expect(resultIsPresentAndMatches(asked, { kind: 'file', body: '调研完成了请查看 report.pdf' })).toBe(false);
+    expect(produceResult({ asked, summary: '调研完成了请查看 report.pdf' })).toBeNull();
+    expect(produceResult({ asked, summary: 'invoice.pdf' })?.body).toBe('invoice.pdf');
   });
 
   it('refuses a cut CSV body that no longer matches the produced table', () => {
@@ -223,5 +226,31 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     expect(produced?.kind).toBe('report');
     expect(produced?.body).toBe(summary);
     expect(produced?.body).toContain('\n');
+  });
+
+  it('does not treat comma prose as a table result', () => {
+    const asked = acceptTask('Extract products to a CSV table');
+    expect(asked.askedKind).toBe('table');
+    expect(
+      resultIsPresentAndMatches(asked, {
+        kind: 'table',
+        body: ['We extracted the products, as requested.', 'Please review the results, then confirm.'].join('\n'),
+      }),
+    ).toBe(false);
+    expect(
+      produceResult({
+        asked,
+        summary: ['We extracted the products, as requested.', 'Please review the results, then confirm.'].join('\n'),
+      }),
+    ).toBeNull();
+  });
+
+  it('does not treat a markdown header and separator as a table result', () => {
+    const asked = acceptTask('Extract products to a CSV table with name, price, rating');
+    const emptyMarkdown = ['| name | price | rating |', '| --- | --- | --- |'].join('\n');
+    expect(resultIsPresentAndMatches(asked, { kind: 'table', body: emptyMarkdown })).toBe(false);
+    expect(produceResult({ asked, summary: emptyMarkdown })).toBeNull();
+    const withRow = ['| name | price | rating |', '| --- | --- | --- |', '| Alpha | $1 | 5 |'].join('\n');
+    expect(resultIsPresentAndMatches(asked, { kind: 'table', body: withRow })).toBe(true);
   });
 });
