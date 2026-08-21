@@ -172,9 +172,7 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(commandRejectionMessage('not_executable', '你好，需要我帮你在页面上做什么？')).toBe(
         '你好，需要我帮你在页面上做什么？',
       );
-      expect(commandRejectionMessage('invalid_input', '当前标签不是网页，读不了「这个页面」。')).toContain(
-        '这个页面',
-      );
+      expect(commandRejectionMessage('invalid_input', '当前标签不是网页，读不了「这个页面」。')).toContain('这个页面');
       expect(sidePanelSource).not.toContain('Command rejected:');
     });
 
@@ -539,6 +537,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toContain('completion-deliverable');
     expect(taskStatusCardSource).toContain('chijie-completion-deliverable');
     expect(taskStatusCardSource).toContain('completion-deliverable-copy');
+    expect(taskStatusCardSource).toContain('writeText(resultSentence)');
     expect(componentsCss).toContain('.chijie-answer');
   });
 

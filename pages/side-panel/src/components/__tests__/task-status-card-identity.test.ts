@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -384,6 +385,12 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).not.toContain('对核这些页');
     expect(html).not.toContain('页面状态已确认');
     expect(html).not.toMatch(/data-testid="completion-result"[^>]*>[\s\S]*127\.0\.0\.1/);
+  });
+
+  it('copy button writes the shown result sentence', () => {
+    const source = readFileSync(new URL('../TaskStatusCard.tsx', import.meta.url), 'utf8');
+    expect(source).toContain('writeText(resultSentence)');
+    expect(source).not.toContain('writeText(deliverableAnswer)');
   });
 
   it('search attempt becomes a board of query plus result rows', () => {

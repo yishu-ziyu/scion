@@ -1131,8 +1131,7 @@ export class TaskManager {
     } catch {
       // Keep empty targetRefs; runCurrentRound will attach or fail honestly.
     }
-    this.instructions.set(task.id, command.instruction);
-    this.accepted.set(task.id, acceptTask(command.instruction));
+    this.rememberAcceptedTask(task.id, command.instruction);
     await this.persist(task);
     void this.runCurrentRound(task.id);
     return ack;
@@ -1242,8 +1241,7 @@ export class TaskManager {
       createdAt: now,
       updatedAt: now,
     };
-    this.instructions.set(task.id, renderedInstruction);
-    this.accepted.set(task.id, acceptTask(renderedInstruction));
+    this.rememberAcceptedTask(task.id, renderedInstruction);
     const askedSkill = this.accepted.get(task.id);
     if (askedSkill && !askedSkill.askedText) {
       for (const template of skill.criteria) {
@@ -1347,6 +1345,8 @@ export class TaskManager {
     } catch {
       // Keep resuming even if the previous group was closed.
     }
+    const cachedInstruction = this.instructions.get(task.id);
+    if (cachedInstruction) this.rememberAcceptedTask(task.id, cachedInstruction);
     const driver = this.drivers.get(task.id);
     if (driver) driver.resume();
     else void this.runCurrentRound(task.id);
@@ -1356,10 +1356,11 @@ export class TaskManager {
   private async rehydrateInstruction(task: TaskSession, round: TaskRound): Promise<string | undefined> {
     const cached = this.instructions.get(task.id);
     if (cached) return cached;
-    if (!task.chatSessionId || !round.instructionMessageId) return undefined;
+    const messageId = round.instructionMessageId ?? task.instructionMessageId;
+    if (!task.chatSessionId || !messageId) return undefined;
     const { chatHistoryStore } = await import('@extension/storage/lib/chat');
     const session = await chatHistoryStore.getSession(task.chatSessionId);
-    return session?.messages.find(message => message.id === round.instructionMessageId)?.content;
+    return session?.messages.find(message => message.id === messageId)?.content;
   }
 
   private async followUp(task: TaskSession, command: Extract<TaskCommand, { type: 'follow_up' }>): Promise<CommandAck> {
@@ -1406,8 +1407,7 @@ export class TaskManager {
       evidence: [],
     });
     const ack = this.accept(task, command.commandId);
-    this.instructions.set(task.id, command.instruction);
-    this.accepted.set(task.id, acceptTask(command.instruction));
+    this.rememberAcceptedTask(task.id, command.instruction);
     await this.persist(task);
     const driver = this.drivers.get(task.id);
     if (!driver) void this.runCurrentRound(task.id);
@@ -2392,6 +2392,7 @@ export class TaskManager {
         round = this.currentRound(task);
         instruction = this.instructions.get(taskId) ?? instruction;
       }
+      if (instruction) this.rememberAcceptedTask(taskId, instruction);
       if (!instruction) {
         // Dead-end if we wait for "proof" with no criteria UI. Fail honestly.
         task.status = 'failed';
@@ -3910,6 +3911,17 @@ export class TaskManager {
     task.plan = plan;
   }
 
+  private rememberAcceptedTask(taskId: string, instruction: string): AcceptedTask {
+    const asked = acceptTask(instruction);
+    const previous = this.accepted.get(taskId);
+    if (previous?.askedText && !asked.askedText && previous.instruction === instruction) {
+      asked.askedText = previous.askedText;
+    }
+    this.instructions.set(taskId, instruction);
+    this.accepted.set(taskId, asked);
+    return asked;
+  }
+
   private acceptedTaskFor(taskId: string): AcceptedTask {
     return this.accepted.get(taskId) ?? acceptTask(this.instructions.get(taskId) ?? '');
   }
@@ -3959,7 +3971,7 @@ export class TaskManager {
     input: { artifacts?: TaskArtifact[]; summary?: string },
   ): Promise<boolean> {
     const task = await getTask(taskId);
-    if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return true;
+    if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return false;
     const asked = this.acceptedTaskFor(taskId);
     const produced = produceResult({
       asked,
@@ -3988,7 +4000,7 @@ export class TaskManager {
   ): Promise<boolean> {
     const asked = this.acceptedTaskFor(task.id);
     if (!resultIsPresentAndMatches(asked, produced) || !produced) return false;
-    const instruction = this.instructions.get(task.id) ?? '';
+    const instruction = this.instructions.get(task.id) || asked.instruction || '';
     const pageEvidence = this.visitedPageEvidence(task);
     if (!(await checkOrderedSourceVisitProof(instruction, pageEvidence))) return false;
     if (!(await checkInstructionDeliverable(instruction, produced.body, pageEvidence)).passed) return false;

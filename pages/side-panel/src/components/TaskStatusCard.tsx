@@ -348,19 +348,6 @@ export function TaskStatusCard({
 
   const recoveryNextStep = failureNextStep(snapshot);
 
-  const copyDeliverable = async () => {
-    if (!deliverableAnswer) return;
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(deliverableAnswer);
-      }
-      setDeliverableCopied(true);
-      window.setTimeout(() => setDeliverableCopied(false), 1_500);
-    } catch {
-      // Clipboard may be blocked; still select-friendly via the text node.
-    }
-  };
-
   const workStream = deriveWorkStream({
     status: snapshot.status,
     attempts,
@@ -368,6 +355,18 @@ export function TaskStatusCard({
   });
   const storedResult = round?.result?.body?.replace(/\r\n?/g, '\n').trim() ?? '';
   const resultSentence = storedResult || deliverableAnswer || '';
+  const copyDeliverable = async () => {
+    if (!resultSentence) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(resultSentence);
+      }
+      setDeliverableCopied(true);
+      window.setTimeout(() => setDeliverableCopied(false), 1_500);
+    } catch {
+      // Clipboard may be blocked; still select-friendly via the text node.
+    }
+  };
   const answerSources = resultSentence
     ? collectStreamSources(workStream).filter(source => !isLoopbackSource(source))
     : [];

@@ -10,6 +10,8 @@ import { isAcknowledgementOnly, isPlaceholderDelivery } from './result-text';
 
 export type { TaskResult, TaskResultKind };
 
+export type AskedSideEffect = 'open' | 'close_tab' | 'media_play' | 'media_pause' | 'download';
+
 export interface AcceptedTask {
   instruction: string;
   askedKind: TaskResultKind;
@@ -17,6 +19,8 @@ export interface AcceptedTask {
   askedText?: string;
   askedTableFields?: string[];
   askedMinRows?: number;
+  /** Navigation or media/download side-effect the user named as the result. */
+  askedSideEffect?: AskedSideEffect;
 }
 
 export interface ProduceResultInput {
@@ -51,9 +55,20 @@ export function acceptTask(instruction: string): AcceptedTask {
     return { instruction: text, askedKind: 'draft', ...(askedText ? { askedText } : {}) };
   }
   if (asksForFile(text)) {
-    return { instruction: text, askedKind: 'file', ...(askedText ? { askedText } : {}) };
+    return {
+      instruction: text,
+      askedKind: 'file',
+      askedSideEffect: 'download',
+      ...(askedText ? { askedText } : {}),
+    };
   }
-  return { instruction: text, askedKind: 'summary', ...(askedText ? { askedText } : {}) };
+  const askedSideEffect = asksForWrittenContent(text) ? undefined : askedSideEffectFrom(text);
+  return {
+    instruction: text,
+    askedKind: 'summary',
+    ...(askedText ? { askedText } : {}),
+    ...(askedSideEffect ? { askedSideEffect } : {}),
+  };
 }
 
 export function recordStep(steps: ActionAttempt[], step: ActionAttempt): ActionAttempt[] {
@@ -98,7 +113,10 @@ export function produceResult(input: ProduceResultInput): TaskResult | null {
 
   const outcome = visibleBody(input.observedOutcome);
   if (outcome) {
-    const result: TaskResult = { kind: 'summary', body: outcome };
+    const result: TaskResult = {
+      kind: asked.askedKind === 'file' ? 'file' : 'summary',
+      body: outcome,
+    };
     if (resultIsPresentAndMatches(asked, result)) return result;
   }
 
@@ -116,6 +134,7 @@ export function resultIsPresentAndMatches(asked: AcceptedTask, result: TaskResul
   if (isPlaceholderDelivery(body) || isAcknowledgementOnly(body) || BARE_STATUS.test(body)) return false;
   if (/^User instruction$/i.test(body) || /^Direction changed$/i.test(body)) return false;
   if (/^页面(地址|状态|结果)已/.test(body) || /^Control loop candidate complete$/i.test(body)) return false;
+  if (isNavigationChrome(body) && !navigationChromeMatchesAsked(asked, body)) return false;
 
   if (asked.askedKind === 'table') {
     if (!looksLikeTable(body)) return false;
@@ -131,7 +150,12 @@ export function resultIsPresentAndMatches(asked: AcceptedTask, result: TaskResul
   }
 
   if (asked.askedKind === 'file') {
-    return result.kind === 'file' || /\.\w{2,4}$/.test(body.split(/\s+/).pop() ?? '') || body.length >= 2;
+    if (asked.askedSideEffect === 'download' && navigationChromeMatchesAsked(asked, body)) return true;
+    return result.kind === 'file' || /\.\w{2,4}$/.test(body.split(/\s+/).pop() ?? '');
+  }
+
+  if (asked.askedKind === 'report' || asked.askedKind === 'draft') {
+    return result.kind === asked.askedKind && body.length >= 2;
   }
 
   return body.length >= 2;
@@ -149,6 +173,60 @@ function asksForFile(instruction: string): boolean {
     /下载(?:这个|该|一下)?(?:文件|附件|pdf|csv)/i.test(instruction) ||
     /\bdownload\s+(this\s+)?(file|pdf|csv|attachment)\b/i.test(instruction)
   );
+}
+
+function asksForWrittenContent(instruction: string): boolean {
+  return (
+    /告诉我|写出|写下|总结|概括|主题|提取|导出|摘录|引用|讲什么|有关|复制|拷贝/.test(instruction) ||
+    /\btell me\b|\bsummari[sz]e\b|\bextract\b|\bquote\b|what.{0,24}\babout\b/i.test(instruction)
+  );
+}
+
+function askedSideEffectFrom(instruction: string): AskedSideEffect | undefined {
+  if (
+    /关掉(这个)?(页|标签|标签页|tab)?/i.test(instruction) ||
+    /关闭(这个)?(页|标签|标签页|窗口)/.test(instruction) ||
+    /close\s+(this\s+)?(tab|page|window)/i.test(instruction)
+  ) {
+    return 'close_tab';
+  }
+  if (/暂停|停一下|停下|停止播放/.test(instruction) || /\bpause\b/i.test(instruction)) return 'media_pause';
+  if (
+    (/播放/.test(instruction) || /\bplay\b/i.test(instruction)) &&
+    !/(?:打开|前往|访问|\bopen\b)/i.test(instruction)
+  ) {
+    return 'media_play';
+  }
+  if (/(?:打开|前往|访问)/.test(instruction) || /\bopen\s+/i.test(instruction)) return 'open';
+  return undefined;
+}
+
+function isNavigationChrome(body: string): boolean {
+  if (/^已打开 [^\s「][^\s「]*$/.test(body)) return true;
+  return (
+    body === '目标标签已关闭' ||
+    body === '视频已暂停' ||
+    body === '视频正在播放' ||
+    body === '下载已完成' ||
+    body === '下载已开始'
+  );
+}
+
+function navigationChromeMatchesAsked(asked: AcceptedTask, body: string): boolean {
+  switch (asked.askedSideEffect) {
+    case 'open':
+      return /^已打开 [^\s「][^\s「]*$/.test(body);
+    case 'close_tab':
+      return body === '目标标签已关闭';
+    case 'media_pause':
+      return body === '视频已暂停';
+    case 'media_play':
+      return body === '视频正在播放';
+    case 'download':
+      return body === '下载已完成' || body === '下载已开始';
+    default:
+      return false;
+  }
 }
 
 function namedSuccessText(instruction: string): string | undefined {

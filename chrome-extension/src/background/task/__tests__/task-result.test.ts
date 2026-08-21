@@ -100,12 +100,44 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     expect(resultIsPresentAndMatches(asked, result)).toBe(true);
   });
 
-  it('does not take a text artifact as a table result', () => {
+  it('does not treat a text artifact as a table result', () => {
     const asked = acceptTask('Extract products to a CSV table with name, price, rating');
     const result = produceResult({
       asked,
       artifacts: [createTextArtifact({ title: 'note', text: 'Extracted 0 records. Task is not complete.' })],
     });
     expect(resultIsPresentAndMatches(asked, result)).toBe(false);
+  });
+
+  it('does not treat navigation chrome as the result of a content task', () => {
+    const asked = acceptTask('告诉我这一页在讲什么');
+    expect(asked.askedSideEffect).toBeUndefined();
+    expect(
+      produceResult({
+        asked,
+        summary: 'done',
+        observedUrl: 'https://example.com/page',
+        observedOutcome: '视频正在播放',
+      }),
+    ).toBeNull();
+    expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: '已打开 example.com' })).toBe(false);
+    expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: '目标标签已关闭' })).toBe(false);
+  });
+
+  it('accepts opened-host chrome only when the task asked to open a site', () => {
+    const asked = acceptTask('open youtube');
+    expect(asked.askedSideEffect).toBe('open');
+    expect(produceResult({ asked, observedUrl: 'https://www.youtube.com/' })?.body).toBe('已打开 youtube.com');
+  });
+
+  it('does not treat a two-character summary as a file or report result', () => {
+    expect(resultIsPresentAndMatches(acceptTask('download this file'), { kind: 'summary', body: 'hi' })).toBe(false);
+    expect(resultIsPresentAndMatches(acceptTask('写一份研究报告'), { kind: 'summary', body: 'hi' })).toBe(false);
+    expect(
+      resultIsPresentAndMatches(acceptTask('写一份研究报告'), {
+        kind: 'report',
+        body: '结论：样本不足，需要更多来源。',
+      }),
+    ).toBe(true);
   });
 });
