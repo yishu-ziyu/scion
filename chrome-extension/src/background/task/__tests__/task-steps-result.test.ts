@@ -922,4 +922,69 @@ describe('task / steps / result chain', () => {
     expect(completed?.status).toBe('completed');
     expect(completed?.rounds[0]?.result).toEqual({ kind: 'summary', body: takeaway });
   });
+
+  it('restores skill askedText from skill-save after restart when rehydrateInstruction has no chat message', async () => {
+    const takeaway = '提交成功';
+    store.sessions.set('task-skill-asked-text-restart', {
+      id: 'task-skill-asked-text-restart',
+      goalSummary: 'Run Skill: Submit form',
+      sourceSkillId: 1,
+      status: 'waiting_user',
+      revision: 2,
+      activeTabId: 7,
+      currentRoundId: 'round-skill-asked-text-restart',
+      targetRefs: [],
+      rounds: [
+        {
+          id: 'round-skill-asked-text-restart',
+          instructionSummary: 'Run Skill: Submit form',
+          status: 'waiting_user',
+          waitReason: 'proof_required',
+          commandAcks: {},
+          criteria: [
+            {
+              id: 'confirm-1',
+              roundId: 'round-skill-asked-text-restart',
+              targetRefId: 'tab-7',
+              kind: 'user_confirmed',
+              operator: 'equals',
+              expected: true,
+              required: true,
+              frozenAt: 1,
+              notBefore: 0,
+              timeoutMs: 60_000,
+              baseline: false,
+            },
+          ],
+          attempts: [],
+          evidence: [],
+          produced: { kind: 'summary', body: takeaway },
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await putSkillSaveMeta('task-skill-asked-text-restart', 'round-skill-asked-text-restart', {
+      templates: [{ kind: 'page_text', operator: 'present', expectedTemplate: takeaway, required: true }],
+      unsafe: false,
+    });
+    const manager = new TaskManager({
+      createExecutor: async () => driver({ kind: 'candidate_complete', summary: 'ignored' }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 200,
+    });
+    const confirmed = await manager.dispatch({
+      type: 'confirm_completion',
+      commandId: 'confirm-skill-asked-text-restart',
+      taskId: 'task-skill-asked-text-restart',
+      expectedRevision: 2,
+      roundId: 'round-skill-asked-text-restart',
+      criterionId: 'confirm-1',
+    });
+    expect(confirmed.accepted).toBe(true);
+    const completed = await manager.snapshot('task-skill-asked-text-restart');
+    expect(completed?.status).toBe('completed');
+    expect(completed?.rounds[0]?.result).toEqual({ kind: 'summary', body: takeaway });
+  });
 });

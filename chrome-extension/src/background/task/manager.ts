@@ -3813,10 +3813,9 @@ export class TaskManager {
     );
     if (!confirmedEvidence) return this.reject(task, command.commandId, 'invalid_transition');
     const instruction = await this.rehydrateInstruction(task, round);
-    if (instruction) {
-      this.rememberAcceptedTask(task.id, instruction);
-      await this.restoreAskedTextFromSkillMeta(task, round);
-    }
+    if (instruction) this.rememberAcceptedTask(task.id, instruction);
+    else if (!this.accepted.get(task.id)) this.rememberAcceptedTask(task.id, '');
+    await this.restoreAskedTextFromSkillMeta(task, round);
     const asked = this.acceptedTaskFor(task.id);
     const artifacts = this.pendingConfirmArtifacts.get(this.roundKey(task.id, round.id)) ?? [];
     const produced = this.matchingConfirmResult(asked, round, artifacts, checked.evidence);
@@ -3941,8 +3940,12 @@ export class TaskManager {
   private writeAskedText(taskId: string, text: string | undefined): void {
     const trimmed = text?.trim();
     if (!trimmed) return;
-    const asked = this.accepted.get(taskId);
-    if (asked) asked.askedText = trimmed;
+    let asked = this.accepted.get(taskId);
+    if (!asked) {
+      asked = acceptTask(this.instructions.get(taskId) ?? '');
+      this.accepted.set(taskId, asked);
+    }
+    asked.askedText = trimmed;
   }
 
   private async restoreAskedTextFromSkillMeta(task: TaskSession, round: TaskRound): Promise<void> {
