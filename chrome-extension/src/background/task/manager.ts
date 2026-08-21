@@ -2330,10 +2330,7 @@ export class TaskManager {
         round = this.currentRound(task);
         instruction = this.instructions.get(taskId) ?? instruction;
       }
-      if (instruction) {
-        this.rememberAcceptedTask(taskId, instruction);
-        await this.restoreAskedTextFromSkillMeta(task, round);
-      }
+      if (instruction) this.rememberAcceptedTask(taskId, instruction);
       if (!instruction) {
         // Dead-end if we wait for "proof" with no criteria UI. Fail honestly.
         task.status = 'failed';
@@ -2399,6 +2396,7 @@ export class TaskManager {
 
       this.drivers.set(taskId, driver);
       this.launches.delete(taskId);
+      await this.restoreAskedTextFromSkillMeta(task, this.currentRound(task));
       await this.runDriver(taskId, driver, roundId, instruction);
     } catch (error) {
       // Surface start failures (missing model, createExecutor throw) on the round for UI.
