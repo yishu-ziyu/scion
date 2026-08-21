@@ -34,6 +34,7 @@ import {
   normalizeEvidenceText,
   productDeliverablePass,
   productOracleRows,
+  recordNavigationEvidence,
   scopedCompletionSnapshot,
   tabProvenanceWrongTab,
   taskUrlContractPass,
@@ -203,27 +204,6 @@ function emitRow(partial) {
       ...partial,
     })}`,
   );
-}
-
-export function recordNavigationEvidence(entries, observed) {
-  const previous = entries.at(-1);
-  if (previous?.url === observed.url) {
-    Object.assign(previous, {
-      ...observed,
-      captured_at: previous.captured_at,
-      sequence: previous.sequence,
-    });
-    return previous;
-  }
-  const previousTime = Date.parse(previous?.captured_at || '');
-  const observedTime = Date.parse(observed.captured_at || '');
-  const capturedAt =
-    Number.isFinite(previousTime) && (!Number.isFinite(observedTime) || observedTime <= previousTime)
-      ? new Date(previousTime + 1).toISOString()
-      : observed.captured_at;
-  const entry = { ...observed, captured_at: capturedAt, sequence: entries.length + 1 };
-  entries.push(entry);
-  return entry;
 }
 
 async function capturePageEvidence(target) {
