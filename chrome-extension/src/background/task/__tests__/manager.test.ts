@@ -279,6 +279,38 @@ describe('instruction deliverable contract', () => {
       reasons: [],
     });
   });
+
+  it('does not require visiting http(s) literals that are table cell values', async () => {
+    const answer = [
+      'name,price,url',
+      'Alpha,$49.99,https://shop.example/p/alpha',
+      'Beta,$9.00,https://shop.example/p/beta',
+    ].join('\n');
+    expect(await checkInstructionDeliverable('Extract products to a CSV table with name, price, url', answer)).toEqual({
+      passed: true,
+      reasons: [],
+    });
+  });
+
+  it('does not require visiting http(s) literals in a Markdown table cell', async () => {
+    const answer = ['| name | url |', '| --- | --- |', '| Alpha | https://shop.example/p/alpha |'].join('\n');
+    expect(await checkInstructionDeliverable('Extract a Markdown table with name and url', answer)).toEqual({
+      passed: true,
+      reasons: [],
+    });
+  });
+
+  it('still requires visiting a URL written outside the table', async () => {
+    const answer = [
+      'name,price,url',
+      'Alpha,$49.99,https://shop.example/p/alpha',
+      '详见 https://www.iana.org/help/example-domains',
+    ].join('\n');
+    expect(await checkInstructionDeliverable(longInstruction, answer)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['url_not_visited']),
+    });
+  });
 });
 
 describe('TaskManager lifecycle', () => {
@@ -1667,7 +1699,10 @@ describe('TaskManager lifecycle', () => {
     expect(driver.run).toHaveBeenNthCalledWith(2, newRoundId);
     await expect(manager.snapshot('task-safe-boundary')).resolves.toMatchObject({
       status: 'running',
-      rounds: [{ attempts: expect.arrayContaining([expect.objectContaining({ state: 'observed' })]) }, { status: 'running' }],
+      rounds: [
+        { attempts: expect.arrayContaining([expect.objectContaining({ state: 'observed' })]) },
+        { status: 'running' },
+      ],
     });
   });
 
@@ -1705,7 +1740,12 @@ describe('TaskManager lifecycle', () => {
     expect(result).toMatchObject({ attempt: { state: 'blocked' }, actionResult: { error: 'media_target_missing' } });
     await expect(manager.snapshot('task-missing-media')).resolves.toMatchObject({
       status: 'waiting_user',
-      rounds: [{ waitReason: 'target_missing', attempts: expect.arrayContaining([expect.objectContaining({ state: 'blocked' })]) }],
+      rounds: [
+        {
+          waitReason: 'target_missing',
+          attempts: expect.arrayContaining([expect.objectContaining({ state: 'blocked' })]),
+        },
+      ],
     });
   });
 
@@ -3514,7 +3554,9 @@ describe('TaskManager lifecycle', () => {
         rounds: [
           {
             receipt: { taskId: 'task-post-commit' },
-            attempts: expect.arrayContaining([expect.objectContaining({ actionName: 'click_element', state: 'observed' })]),
+            attempts: expect.arrayContaining([
+              expect.objectContaining({ actionName: 'click_element', state: 'observed' }),
+            ]),
           },
         ],
       });
@@ -4116,4 +4158,3 @@ describe('TaskManager independent URL opens', () => {
     expect(snap?.status).toBe('running');
   });
 });
-

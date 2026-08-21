@@ -754,6 +754,60 @@ export async function findAnswerSpanOnPage(
   return null;
 }
 
+function lineOffsetSpans(text: string): Array<{ start: number; end: number; line: string }> {
+  const spans: Array<{ start: number; end: number; line: string }> = [];
+  let start = 0;
+  while (start < text.length) {
+    const newline = text.indexOf('\n', start);
+    const end = newline < 0 ? text.length : newline;
+    spans.push({
+      start,
+      end,
+      line: text.slice(start, end).replace(/\r$/, '').trim(),
+    });
+    if (newline < 0) break;
+    start = newline + 1;
+  }
+  return spans;
+}
+
+/** Runs of CSV or Markdown table lines (header plus data). A single comma in prose is not a table. */
+function csvOrMarkdownBlockSpans(answer: string): Array<{ start: number; end: number }> {
+  const lines = lineOffsetSpans(answer);
+  const isTableLine = (line: string) => {
+    if (!line) return false;
+    if (isTableSeparator(line)) return true;
+    return structuredTableCells(line).length >= 2;
+  };
+  const spans: Array<{ start: number; end: number }> = [];
+  let run = -1;
+  let count = 0;
+  const closeRun = (endIndex: number) => {
+    if (run >= 0 && count >= 2) {
+      spans.push({ start: lines[run]!.start, end: lines[endIndex]!.end });
+    }
+    run = -1;
+    count = 0;
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    if (isTableLine(lines[index]!.line)) {
+      if (run < 0) run = index;
+      count += 1;
+    } else {
+      closeRun(index - 1);
+    }
+  }
+  closeRun(lines.length - 1);
+  return spans;
+}
+
+function occurrenceIsInsideSpans(
+  occurrence: { start: number; end: number },
+  spans: Array<{ start: number; end: number }>,
+): boolean {
+  return spans.some(span => occurrence.start >= span.start && occurrence.end <= span.end);
+}
+
 export async function checkInstructionDeliverable(
   instruction: string,
   answer: string,
@@ -762,7 +816,10 @@ export async function checkInstructionDeliverable(
   const reasons: string[] = [];
   if (isPlaceholderDelivery(answer) || isAcknowledgementOnly(answer)) reasons.push('non_substantive');
 
-  const rawAnswerUrls = extractInstructionUrlOccurrences(answer).map(occurrence => occurrence.value);
+  const tableSpans = csvOrMarkdownBlockSpans(answer);
+  const rawAnswerUrls = extractInstructionUrlOccurrences(answer)
+    .filter(occurrence => !occurrenceIsInsideSpans(occurrence, tableSpans))
+    .map(occurrence => occurrence.value);
   const orderedIdentities = (await Promise.all(rawAnswerUrls.map(value => redactedHttpUrlIdentity(value)))).filter(
     (identity): identity is DeliverablePageEvidence => identity !== null,
   );

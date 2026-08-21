@@ -152,6 +152,37 @@ describe('task / steps / result chain', () => {
     expect(round?.result?.body).toContain('Alpha,$49.99,4.5');
   });
 
+  it('completes a table with a link column without visiting each cell URL', async () => {
+    const artifact = createTableArtifact({
+      title: 'products',
+      columns: ['name', 'price', 'url'],
+      rows: [
+        { name: 'Alpha', price: '$49.99', url: 'https://shop.example/p/alpha' },
+        { name: 'Beta', price: '$9.00', url: 'https://shop.example/p/beta' },
+      ],
+      sources: [{ url: 'https://fixture.local/products' }],
+    });
+    const manager = new TaskManager({
+      createExecutor: async () =>
+        driver({
+          kind: 'candidate_complete',
+          summary: 'Extracted 2 records. Task is not complete.',
+          artifacts: [artifact],
+        }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-table-links', 'Extract products to a CSV table with name, price, url');
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-table-links'))?.status).toBe('completed');
+    });
+    const body = (await manager.snapshot('task-table-links'))?.rounds[0]?.result?.body ?? '';
+    expect(body).toContain('name,price,url');
+    expect(body).toContain('https://shop.example/p/alpha');
+    expect(body).toContain('https://shop.example/p/beta');
+  });
+
   it('persists a table longer than 2000 characters in full', async () => {
     const rows = Array.from({ length: 80 }, (_, index) => ({
       name: `Product ${String(index + 1).padStart(3, '0')} Extra Long Name For Persistence`,
