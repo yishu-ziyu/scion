@@ -100,7 +100,7 @@ export function produceResult(input: ProduceResultInput): TaskResult | null {
     if (resultIsPresentAndMatches(asked, result)) return result;
   }
 
-  const summary = visibleBody(input.summary);
+  const summary = writtenKindBody(asked.askedKind, input.summary);
   if (asked.askedText && summary.includes(asked.askedText)) {
     const result: TaskResult = { kind: 'summary', body: asked.askedText };
     if (resultIsPresentAndMatches(asked, result)) return result;
@@ -159,7 +159,6 @@ export function resultIsPresentAndMatches(asked: AcceptedTask, result: TaskResul
   }
 
   if (asked.askedSideEffect && navigationChromeMatchesAsked(asked, body)) return true;
-  if (body === '已确认完成') return asked.askedKind === 'summary';
 
   return isBasicSubstantiveAnswer(body);
 }
@@ -349,9 +348,19 @@ function resultFromArtifacts(asked: AcceptedTask, artifacts: TaskArtifact[]): Ta
 }
 
 function tableResultFromText(summary: string | undefined): TaskResult | null {
-  const body = summary?.replace(/\r\n?/g, '\n').trim() ?? '';
+  const body = preserveWrittenNewlines(summary);
   if (!looksLikeTable(body)) return null;
   return { kind: 'table', body };
+}
+
+/** Keep paragraph breaks in report/draft/summary bodies. Collapse only status chrome. */
+function writtenKindBody(kind: TaskResultKind, value: string | undefined): string {
+  if (kind === 'report' || kind === 'draft' || kind === 'summary') return preserveWrittenNewlines(value);
+  return visibleBody(value);
+}
+
+function preserveWrittenNewlines(value: string | undefined): string {
+  return (value ?? '').replace(/\r\n?/g, '\n').trim();
 }
 
 /** Form success text the user named, not a long page quote used as proof. */

@@ -299,7 +299,7 @@ describe('local semantic Skill', () => {
         await hooks.onPlan(input.roundId, [
           { kind: 'page_text', operator: 'present', expected: 'Ada', required: true },
         ]);
-        return driver();
+        return driver({ kind: 'candidate_complete', summary: 'Name field was filled as requested' });
       }),
       switchTab: vi.fn(async () => undefined),
       observeCriteria: vi.fn(async () => []),

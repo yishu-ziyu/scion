@@ -312,6 +312,18 @@ describe('instruction deliverable contract', () => {
     });
   });
 
+  it('still requires visiting a comma footnote after a real CSV table', async () => {
+    const answer = [
+      'url,notes',
+      'https://shop.example/p/alpha,ok',
+      '详见 https://www.iana.org/help/example-domains, 以及说明',
+    ].join('\n');
+    expect(await checkInstructionDeliverable(longInstruction, answer)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['url_not_visited']),
+    });
+  });
+
   it('does not treat comma prose as a table that skips visit-check', async () => {
     const answer = ['See Alpha, https://a.example/source', 'See Beta, https://b.example/source'].join('\n');
     expect(await checkInstructionDeliverable(longInstruction, answer)).toMatchObject({

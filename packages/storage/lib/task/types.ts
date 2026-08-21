@@ -226,6 +226,11 @@ export interface TaskRound {
   receipt?: CompletionReceipt;
   /** Take-away produced by steps. Done is derived from this matching the task. */
   result?: TaskResult;
+  /**
+   * Matching `produceResult` held while status is waiting_user (`proof_required`).
+   * Not Done: `confirmCompletion` may persist this only after receipt commits.
+   */
+  produced?: TaskResult;
   waitReason?: WaitReason;
   /**
    * Machine category when status is failed (e.g. llm_failed, observe_failed).

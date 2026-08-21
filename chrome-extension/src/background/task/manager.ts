@@ -777,9 +777,7 @@ function csvOrMarkdownBlockSpans(answer: string): Array<{ start: number; end: nu
         endIndex = next;
         continue;
       }
-      const cells = structuredTableCells(line);
-      const rowMarkdown = line.startsWith('|') && line.endsWith('|');
-      if (cells.length !== width || markdown !== rowMarkdown) break;
+      if (!csvOrMarkdownDataRow(line, width, markdown)) break;
       endIndex = next;
       dataRows += 1;
     }
@@ -791,6 +789,24 @@ function csvOrMarkdownBlockSpans(answer: string): Array<{ start: number; end: nu
     index += 1;
   }
   return spans;
+}
+
+/** Continue a table run only for a real data row of the header width, not comma prose. */
+function csvOrMarkdownDataRow(line: string, width: number, markdown: boolean): boolean {
+  const rowMarkdown = line.startsWith('|') && line.endsWith('|');
+  if (markdown !== rowMarkdown) return false;
+  const cells = structuredTableCells(line);
+  if (cells.length !== width) return false;
+  if (!markdown && csvRowHasProseUrl(cells)) return false;
+  return true;
+}
+
+function csvRowHasProseUrl(cells: string[]): boolean {
+  return cells.some(cell => {
+    const trimmed = cell.trim();
+    if (!/https?:\/\//i.test(trimmed)) return false;
+    return !/^https?:\/\/\S+$/i.test(trimmed);
+  });
 }
 
 function occurrenceIsInsideSpans(
@@ -870,6 +886,8 @@ export class TaskManager {
   private readonly listeners = new Set<(event: TaskEvent) => void>();
   private transition: Promise<void> = Promise.resolve();
   private readonly userTurnByCommand = new Map<string, UserTurnDecision>();
+  /** `produceResult` artifacts for the current `proof_required` wait; lost on worker restart. */
+  private readonly pendingConfirmArtifacts = new Map<string, TaskArtifact[]>();
 
   constructor(private readonly deps: TaskManagerDeps) {}
 
@@ -2818,6 +2836,30 @@ export class TaskManager {
             observations,
           }).evidence;
         }
+        const asked = this.acceptedTaskFor(taskId);
+        const rawOutcomeAnswer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
+        const instructionForRound =
+          this.instructions.get(taskId) ||
+          task.goalSummary ||
+          (round.instructionSummary && round.instructionSummary !== 'User instruction'
+            ? round.instructionSummary
+            : '') ||
+          '';
+        const pageEvidenceForAnswer = this.visitedPageEvidence(task);
+        const outcomeAnswer = await this.selectCandidateDeliverableText(
+          rawOutcomeAnswer,
+          candidateArtifacts,
+          instructionForRound,
+          pageEvidenceForAnswer,
+        );
+        const produced = produceResult({
+          asked,
+          artifacts: candidateArtifacts,
+          summary: outcomeAnswer || rawOutcomeAnswer,
+          pageSuccessText: this.askedSuccessSeenOnPage(asked, automaticCriteria, automaticEvidence),
+          observedUrl: this.observedUrlForResult(automaticEvidence),
+          observedOutcome: this.observedOutcomeForResult(automaticEvidence, automaticCriteria),
+        });
         let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
           const current = await getTask(taskId);
@@ -2829,6 +2871,10 @@ export class TaskManager {
           const currentRound = this.currentRound(current);
           currentRound.evidence.push(...automaticEvidence);
           this.syncMissionPlanFromEvidence(current, automaticEvidence);
+          if (produced && resultIsPresentAndMatches(asked, produced)) {
+            currentRound.produced = produced;
+          }
+          this.pendingConfirmArtifacts.set(this.roundKey(taskId, currentRound.id), candidateArtifacts);
           await this.persistWaitingUser(current, currentRound, 'proof_required');
         });
         if (handoffRoundId) {
@@ -3896,22 +3942,64 @@ export class TaskManager {
       item => item.criterionId === criterion.id && item.source === 'user' && item.passed,
     );
     if (!confirmedEvidence) return this.reject(task, command.commandId, 'invalid_transition');
+    const instruction = await this.rehydrateInstruction(task, round);
+    if (instruction) this.rememberAcceptedTask(task.id, instruction);
+    const asked = this.acceptedTaskFor(task.id);
+    const artifacts = this.pendingConfirmArtifacts.get(this.roundKey(task.id, round.id)) ?? [];
+    const produced = this.matchingConfirmResult(asked, round, artifacts, checked.evidence);
+    if (checked.passed) {
+      if (!produced) {
+        return {
+          accepted: false,
+          commandId: command.commandId,
+          taskId: task.id,
+          revision: task.revision,
+          error: 'invalid_transition',
+        };
+      }
+      round.evidence.push(confirmedEvidence);
+      this.syncMissionPlanFromEvidence(task, checked.evidence);
+      const completed = await this.persistMatchingResult(task, round, checked.evidence, produced, false);
+      if (!completed) {
+        round.evidence = round.evidence.filter(item => item !== confirmedEvidence);
+        this.pendingConfirmArtifacts.set(this.roundKey(task.id, round.id), artifacts);
+        await this.persist(task);
+        return {
+          accepted: false,
+          commandId: command.commandId,
+          taskId: task.id,
+          revision: task.revision,
+          error: 'invalid_transition',
+        };
+      }
+      this.pendingConfirmArtifacts.delete(this.roundKey(task.id, round.id));
+      const ack = this.accept(task, command.commandId);
+      await this.persist(task);
+      return ack;
+    }
     round.evidence.push(confirmedEvidence);
     this.syncMissionPlanFromEvidence(task, checked.evidence);
     const ack = this.accept(task, command.commandId);
-    if (checked.passed) {
-      const asked = this.acceptedTaskFor(task.id);
-      const produced = produceResult({
-        asked,
-        summary: round.instructionSummary,
-        pageSuccessText: this.askedSuccessSeenOnPage(asked, round.criteria, checked.evidence),
-        observedUrl: this.observedUrlForResult(checked.evidence),
-        observedOutcome: this.observedOutcomeForResult(checked.evidence, round.criteria),
-      });
-      const completed = await this.persistMatchingResult(task, round, checked.evidence, produced, false);
-      if (!completed) await this.persist(task);
-    } else await this.persist(task);
+    await this.persist(task);
     return ack;
+  }
+
+  /** Held matching `produceResult` first; else rebuild from artifacts and that body. */
+  private matchingConfirmResult(
+    asked: AcceptedTask,
+    round: TaskRound,
+    artifacts: TaskArtifact[],
+    evidence: CompletionEvidence[],
+  ): TaskResult | null {
+    if (round.produced && resultIsPresentAndMatches(asked, round.produced)) return round.produced;
+    const produced = produceResult({
+      asked,
+      artifacts,
+      summary: round.produced?.body,
+      pageSuccessText: this.askedSuccessSeenOnPage(asked, round.criteria, evidence),
+    });
+    if (produced && resultIsPresentAndMatches(asked, produced)) return produced;
+    return null;
   }
 
   private completeLiveObserveAttempts(round: TaskRound, now: number): void {
@@ -4011,7 +4099,6 @@ export class TaskManager {
       return '下载已完成';
     if (passed.some(item => kindOf(item.criterionId) === 'download_state' && item.value === 'started'))
       return '下载已开始';
-    if (passed.some(item => kindOf(item.criterionId) === 'user_confirmed')) return '已确认完成';
     return undefined;
   }
 
@@ -4059,13 +4146,17 @@ export class TaskManager {
     if (!stored) return false;
     const previousResult = round.result;
     const previousSummary = round.instructionSummary;
+    const previousProduced = round.produced;
     round.result = stored;
     round.instructionSummary = stored.body;
+    delete round.produced;
     const committed = await this.persistVerifiedReceipt(task, round, evidence, incrementRevision, artifactProofIds);
     if (!committed) {
       if (previousResult === undefined) delete round.result;
       else round.result = previousResult;
       round.instructionSummary = previousSummary;
+      if (previousProduced === undefined) delete round.produced;
+      else round.produced = previousProduced;
     }
     return committed;
   }

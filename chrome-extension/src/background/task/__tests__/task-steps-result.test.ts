@@ -492,4 +492,105 @@ describe('task / steps / result chain', () => {
     expect(dispatched.actionResult.isDone).toBe(false);
     expect((await manager.snapshot('task-extract-gone'))?.status).toBe('cancelled');
   });
+
+  it('confirms a table from the matching produceResult after a worker restart', async () => {
+    const artifact = createTableArtifact({
+      title: 'products',
+      columns: ['name', 'price', 'rating'],
+      rows: [{ name: 'Alpha', price: '$1', rating: '5' }],
+      sources: [{ url: 'https://fixture.local/products' }],
+    });
+    const instruction = 'Extract products to a CSV table with name, price, rating';
+    store.chatSessions.set('chat-task-confirm-restart', {
+      messages: [{ id: 'message-task-confirm-restart', content: instruction }],
+    });
+    const first = new TaskManager({
+      createExecutor: async (_input, hooks) => {
+        await hooks.onPlan(_input.roundId, [
+          { kind: 'user_confirmed', operator: 'equals', expected: true, required: true },
+        ]);
+        return driver({
+          kind: 'candidate_complete',
+          summary: 'Extracted 1 record. Task is not complete.',
+          artifacts: [artifact],
+        });
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(first, 'task-confirm-restart', instruction);
+    await vi.waitFor(async () => {
+      expect((await first.snapshot('task-confirm-restart'))?.status).toBe('waiting_user');
+    });
+    const waiting = await first.snapshot('task-confirm-restart');
+    const round = waiting?.rounds[0];
+    const criterion = round?.criteria.find(item => item.kind === 'user_confirmed');
+    if (!waiting || !round || !criterion) throw new Error('Expected proof_required table wait');
+    expect(round.result).toBeUndefined();
+    expect(round.produced?.kind).toBe('table');
+    expect(round.produced?.body).toContain('Alpha,$1,5');
+
+    const restarted = new TaskManager({
+      createExecutor: async () => driver({ kind: 'candidate_complete', summary: 'ignored' }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    const confirmed = await restarted.dispatch({
+      type: 'confirm_completion',
+      commandId: 'confirm-restart',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId: round.id,
+      criterionId: criterion.id,
+    });
+    expect(confirmed.accepted).toBe(true);
+    const completed = await restarted.snapshot('task-confirm-restart');
+    expect(completed?.status).toBe('completed');
+    expect(completed?.rounds[0]?.result?.kind).toBe('table');
+    expect(completed?.rounds[0]?.result?.body).toContain('Alpha,$1,5');
+    expect(completed?.rounds[0]?.result?.body).not.toBe('已确认完成');
+    expect(completed?.rounds[0]?.produced).toBeUndefined();
+  });
+
+  it('does not record confirm evidence when persistMatchingResult has no matching produceResult', async () => {
+    const manager = new TaskManager({
+      createExecutor: async (_input, hooks) => {
+        await hooks.onPlan(_input.roundId, [
+          { kind: 'user_confirmed', operator: 'equals', expected: true, required: true },
+        ]);
+        return driver({
+          kind: 'candidate_complete',
+          summary: 'Extracted 0 records. Task is not complete.',
+        });
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-confirm-no-result', 'Extract products to a CSV table with name, price, rating');
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-confirm-no-result'))?.status).toBe('waiting_user');
+    });
+    const waiting = await manager.snapshot('task-confirm-no-result');
+    const round = waiting?.rounds[0];
+    const criterion = round?.criteria[0];
+    if (!waiting || !round || !criterion) throw new Error('Expected proof_required wait');
+    expect(round.produced).toBeUndefined();
+
+    const rejected = await manager.dispatch({
+      type: 'confirm_completion',
+      commandId: 'confirm-no-result',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId: round.id,
+      criterionId: criterion.id,
+    });
+    expect(rejected.accepted).toBe(false);
+    const stillWaiting = await manager.snapshot('task-confirm-no-result');
+    expect(stillWaiting?.status).toBe('waiting_user');
+    expect(stillWaiting?.rounds[0]?.evidence.some(item => item.source === 'user')).toBe(false);
+    expect(stillWaiting?.rounds[0]?.result).toBeUndefined();
+  });
 });

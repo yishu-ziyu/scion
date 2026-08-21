@@ -54,7 +54,7 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
         kind: 'summary',
         body: '已确认完成',
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('produces CSV as the result from a table artifact', () => {
@@ -214,5 +214,14 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     expect(produced!.body.length).toBeGreaterThan(2000);
     expect(matchingStoredResult(asked, produced!, produced!.body.slice(0, 2000))).toBeNull();
     expect(matchingStoredResult(asked, produced!, produced!.body)).toEqual(produced);
+  });
+
+  it('keeps paragraph breaks in a report body instead of collapsing whitespace', () => {
+    const asked = acceptTask('写一份研究报告');
+    const summary = ['第一段：来源不足。', '', '第二段：需要补访。'].join('\n');
+    const produced = produceResult({ asked, summary });
+    expect(produced?.kind).toBe('report');
+    expect(produced?.body).toBe(summary);
+    expect(produced?.body).toContain('\n');
   });
 });
