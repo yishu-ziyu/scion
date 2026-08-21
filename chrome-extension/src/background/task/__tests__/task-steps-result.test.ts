@@ -700,7 +700,7 @@ describe('task / steps / result chain', () => {
     expect(stillWaiting?.rounds[0]?.produced).toEqual({ kind: 'summary', body: 'needs confirmation now' });
   });
 
-  it('does not complete extract_content from a matching table while a required url is unevidenced', async () => {
+  it('does not complete extract_content from a matching table when required url has no passed CompletionEvidence', async () => {
     let hooks!: ExecutorHooks;
     const pending = driver({ kind: 'candidate_complete', summary: 'still going' });
     pending.run = vi.fn(() => new Promise<ExecutorOutcome>(() => {}));
@@ -742,7 +742,7 @@ describe('task / steps / result chain', () => {
     expect(snap?.rounds[0]?.receipt).toBeUndefined();
   });
 
-  it('does not complete a table candidate_complete while a required url action is unevidenced', async () => {
+  it('does not complete a table candidate_complete when required url has no passed CompletionEvidence', async () => {
     const artifact = createTableArtifact({
       title: 'products',
       columns: ['name', 'price', 'rating'],

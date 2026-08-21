@@ -159,6 +159,9 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
         body: '结论：样本不足，需要更多来源。',
       }),
     ).toBe(true);
+  });
+
+  it('does not match a report whose body is the acceptTask instruction', () => {
     expect(
       resultIsPresentAndMatches(acceptTask('请写一份关于记忆系统的研究报告'), {
         kind: 'report',
