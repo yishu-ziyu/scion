@@ -3930,7 +3930,7 @@ export class TaskManager {
   private rememberAcceptedTask(taskId: string, instruction: string): AcceptedTask {
     const asked = acceptTask(instruction);
     const previous = this.accepted.get(taskId);
-    if (previous?.askedText && !asked.askedText && previous.instruction === instruction) {
+    if (previous?.askedText && !asked.askedText && previous.instruction === asked.instruction) {
       asked.askedText = previous.askedText;
     }
     this.instructions.set(taskId, instruction);

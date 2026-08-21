@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getSkillSaveMeta, putSkillSaveMeta } from '@extension/storage/lib/task';
+import { clearSkillSaveMetaForTask, getSkillSaveMeta, putSkillSaveMeta } from '@extension/storage/lib/task';
 import { TaskManager } from '../manager';
 import { createTableArtifact } from '../artifact';
 import { extractContentActionSchema } from '../../agent/actions/schemas';
@@ -869,5 +869,57 @@ describe('task / steps / result chain', () => {
     const completed = await manager.snapshot('task-asked-text-skill');
     expect(completed?.status).toBe('completed');
     expect(completed?.rounds[0]?.result).toEqual({ kind: 'summary', body: 'Saved' });
+  });
+
+  it('keeps freeze askedText on confirm when the cached instruction has extra whitespace', async () => {
+    const instruction = 'Fill the name field\nand  submit the form';
+    const takeaway = '已保存成功';
+    let observeCall = 0;
+    const manager = new TaskManager({
+      createExecutor: async (input, hooks) => {
+        await hooks.onPlan(input.roundId, [
+          { kind: 'page_text', operator: 'present', expected: takeaway, required: true },
+          { kind: 'user_confirmed', operator: 'equals', expected: true, required: true },
+        ]);
+        return driver({ kind: 'candidate_complete', summary: takeaway });
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) => {
+        observeCall += 1;
+        return criteria
+          .filter(item => item.kind !== 'user_confirmed')
+          .map(item => ({
+            criterionId: item.id,
+            roundId: item.roundId,
+            targetRefId: item.targetRefId,
+            observedAt: 100,
+            source: 'page' as const,
+            value: observeCall > 1,
+          }));
+      }),
+      now: () => 100,
+    });
+    await start(manager, 'task-asked-text-whitespace', instruction);
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-asked-text-whitespace'))?.status).toBe('waiting_user');
+    });
+    const waiting = await manager.snapshot('task-asked-text-whitespace');
+    const round = waiting?.rounds[0];
+    const criterion = round?.criteria.find(item => item.kind === 'user_confirmed');
+    if (!waiting || !round || !criterion) throw new Error('Expected proof_required wait');
+    expect(round.produced?.body).toBe(takeaway);
+    await clearSkillSaveMetaForTask(waiting.id);
+    const confirmed = await manager.dispatch({
+      type: 'confirm_completion',
+      commandId: 'confirm-asked-text-whitespace',
+      taskId: waiting.id,
+      expectedRevision: waiting.revision,
+      roundId: round.id,
+      criterionId: criterion.id,
+    });
+    expect(confirmed.accepted).toBe(true);
+    const completed = await manager.snapshot('task-asked-text-whitespace');
+    expect(completed?.status).toBe('completed');
+    expect(completed?.rounds[0]?.result).toEqual({ kind: 'summary', body: takeaway });
   });
 });
