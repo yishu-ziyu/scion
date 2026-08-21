@@ -93,7 +93,12 @@ import {
   instructionAffirmedTargetValue,
   instructionAffirmsTarget,
 } from '../instruction-language';
-import { isAcknowledgementOnly, isPlaceholderDelivery } from './result-text';
+import {
+  isAcknowledgementOnly,
+  isBasicSubstantiveAnswer,
+  isCompletionBoilerplate,
+  isPlaceholderDelivery,
+} from './result-text';
 import type { UserTurnDecision } from '../intent/user-turn-decision';
 import type { ObservedPageSnapshot, VerifiedPageRecord } from './contracts';
 import {
@@ -504,42 +509,12 @@ function structuredTableShape(segments: string[], explicitFields: string[]) {
   return { headerIndex, dataSegments };
 }
 
-function isCompletionBoilerplate(segment: string): boolean {
-  const value = segment.replace(/\s+/g, ' ').trim();
-  return (
-    /(?:相关工作|任务|调研|内容).{0,12}(?:已经|已)?(?:全部)?完成|请查看(?:以上|上述)信息|^这是最终结果[:：]?$/i.test(
-      value,
-    ) ||
-    /\b(?:all|the)\s+(?:work|task|research)\s+(?:is\s+)?(?:now\s+)?complete(?:d)?\b|\bsee\s+(?:the\s+)?(?:above|previous)\s+information\b/i.test(
-      value,
-    )
-  );
-}
-
 function isSubstantiveConclusion(segment: string): boolean {
   if (isCompletionBoilerplate(segment)) return false;
   const match = /(?:结论|建议|综合来看|总体而言|因此|conclusion|recommendation|overall|therefore)\s*[:：,]?(.*)/i.exec(
     segment,
   );
   return Boolean(match?.[1]?.replace(/\s+/g, '').length && match[1].replace(/\s+/g, '').length >= 4);
-}
-
-function isBasicSubstantiveAnswer(summary: string, goalText: string): boolean {
-  const s = summary.replace(/\s+/g, ' ').trim();
-  if (s.length < 8) return false;
-  if (isAcknowledgementOnly(s)) return false;
-  if (/^Control loop candidate complete$/i.test(s)) return false;
-  if (/^(done|完成|ok|已完成|success|好了|opened|playing|paused)[.!。！]*$/i.test(s)) return false;
-  if (/^(视频|媒体).{0,12}(播放|暂停|核对)/.test(s)) return false;
-  if (/^(目标)?标签已关闭/.test(s)) return false;
-  if (/^页面(地址|状态)已/.test(s)) return false;
-  if (/^下载已(开始|完成)/.test(s)) return false;
-  if (/^(Browser opened|Switched to|Playing video|Opened |Paused video)/i.test(s)) return false;
-  if (/User instruction/i.test(s)) return false;
-  if (isCompletionBoilerplate(s)) return false;
-  const goal = goalText.replace(/\s+/g, ' ').trim();
-  if (goal && (s === goal || s.includes(goal) || (s.length <= goal.length + 4 && goal.includes(s)))) return false;
-  return true;
 }
 
 export interface DeliverablePageEvidence {
@@ -771,33 +746,50 @@ function lineOffsetSpans(text: string): Array<{ start: number; end: number; line
   return spans;
 }
 
-/** Runs of CSV or Markdown table lines (header plus data). A single comma in prose is not a table. */
+/** Header plus at least one data row of CSV or Markdown. Comma prose is not a table. */
+function looksLikeCsvOrMarkdownHeader(line: string): boolean {
+  if (!line || isTableSeparator(line)) return false;
+  const cells = structuredTableCells(line);
+  if (cells.length < 2) return false;
+  if (line.startsWith('|') && line.endsWith('|')) return true;
+  if (looksLikeGenericTableHeader(line)) return true;
+  return cells.every(cell => /^[A-Za-z0-9_\u4e00-\u9fff]{1,32}$/.test(cell));
+}
+
 function csvOrMarkdownBlockSpans(answer: string): Array<{ start: number; end: number }> {
   const lines = lineOffsetSpans(answer);
-  const isTableLine = (line: string) => {
-    if (!line) return false;
-    if (isTableSeparator(line)) return true;
-    return structuredTableCells(line).length >= 2;
-  };
   const spans: Array<{ start: number; end: number }> = [];
-  let run = -1;
-  let count = 0;
-  const closeRun = (endIndex: number) => {
-    if (run >= 0 && count >= 2) {
-      spans.push({ start: lines[run]!.start, end: lines[endIndex]!.end });
+  let index = 0;
+  while (index < lines.length) {
+    const header = lines[index]!;
+    if (!looksLikeCsvOrMarkdownHeader(header.line)) {
+      index += 1;
+      continue;
     }
-    run = -1;
-    count = 0;
-  };
-  for (let index = 0; index < lines.length; index += 1) {
-    if (isTableLine(lines[index]!.line)) {
-      if (run < 0) run = index;
-      count += 1;
-    } else {
-      closeRun(index - 1);
+    const markdown = header.line.startsWith('|') && header.line.endsWith('|');
+    const width = structuredTableCells(header.line).length;
+    let endIndex = index;
+    let dataRows = 0;
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const line = lines[next]!.line;
+      if (!line) break;
+      if (isTableSeparator(line)) {
+        endIndex = next;
+        continue;
+      }
+      const cells = structuredTableCells(line);
+      const rowMarkdown = line.startsWith('|') && line.endsWith('|');
+      if (cells.length !== width || markdown !== rowMarkdown) break;
+      endIndex = next;
+      dataRows += 1;
     }
+    if (dataRows >= 1) {
+      spans.push({ start: header.start, end: lines[endIndex]!.end });
+      index = endIndex + 1;
+      continue;
+    }
+    index += 1;
   }
-  closeRun(lines.length - 1);
   return spans;
 }
 
@@ -4065,9 +4057,17 @@ export class TaskManager {
     const redactedBody = await redactDeliverableUrlsForPersistence(produced.body);
     const stored = matchingStoredResult(asked, produced, redactedBody);
     if (!stored) return false;
+    const previousResult = round.result;
+    const previousSummary = round.instructionSummary;
     round.result = stored;
     round.instructionSummary = stored.body;
-    return this.persistVerifiedReceipt(task, round, evidence, incrementRevision, artifactProofIds);
+    const committed = await this.persistVerifiedReceipt(task, round, evidence, incrementRevision, artifactProofIds);
+    if (!committed) {
+      if (previousResult === undefined) delete round.result;
+      else round.result = previousResult;
+      round.instructionSummary = previousSummary;
+    }
+    return committed;
   }
 
   private async persistVerifiedReceipt(

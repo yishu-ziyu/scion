@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAcknowledgementOnly, isPlaceholderDelivery } from '../result-text';
+import { isAcknowledgementOnly, isBasicSubstantiveAnswer, isPlaceholderDelivery } from '../result-text';
 
 describe('result-text', () => {
   it('rejects acknowledgements and empty placeholders', () => {
@@ -15,5 +15,12 @@ describe('result-text', () => {
     expect(isPlaceholderDelivery('核心主题：这是一套面向长程推理的记忆系统。')).toBe(false);
     expect(isAcknowledgementOnly('done')).toBe(false);
     expect(isPlaceholderDelivery('done')).toBe(false);
+  });
+
+  it('rejects leftover two-character and short stubs as not a written takeaway', () => {
+    expect(isBasicSubstantiveAnswer('hi')).toBe(false);
+    expect(isBasicSubstantiveAnswer('yes')).toBe(false);
+    expect(isBasicSubstantiveAnswer('好的')).toBe(false);
+    expect(isBasicSubstantiveAnswer('这一页在讲记忆系统如何组织长程推理。')).toBe(true);
   });
 });

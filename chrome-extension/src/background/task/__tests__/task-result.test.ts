@@ -46,6 +46,15 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: '这一页在讲记忆系统如何组织长程推理。' })).toBe(
       true,
     );
+    expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: 'hi' })).toBe(false);
+    expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: 'yes' })).toBe(false);
+    expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: '好的' })).toBe(false);
+    expect(
+      resultIsPresentAndMatches(acceptTask('perform an outcome that needs my confirmation'), {
+        kind: 'summary',
+        body: '已确认完成',
+      }),
+    ).toBe(true);
   });
 
   it('produces CSV as the result from a table artifact', () => {
@@ -160,6 +169,10 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     ).toBeNull();
     expect(resultIsPresentAndMatches(asked, { kind: 'file', body: 'invoice.pdf' })).toBe(true);
     expect(resultIsPresentAndMatches(asked, { kind: 'file', body: '下载已完成' })).toBe(true);
+    expect(resultIsPresentAndMatches(asked, { kind: 'file', body: '下载已开始' })).toBe(false);
+    expect(produceResult({ asked, observedOutcome: '下载已开始' })).toBeNull();
+    expect(resultIsPresentAndMatches(asked, { kind: 'file', body: 'see example.com' })).toBe(false);
+    expect(resultIsPresentAndMatches(asked, { kind: 'file', body: 'cdn.example.org' })).toBe(false);
   });
 
   it('refuses a cut CSV body that no longer matches the produced table', () => {

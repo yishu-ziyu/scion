@@ -311,6 +311,14 @@ describe('instruction deliverable contract', () => {
       reasons: expect.arrayContaining(['url_not_visited']),
     });
   });
+
+  it('does not treat comma prose as a table that skips visit-check', async () => {
+    const answer = ['See Alpha, https://a.example/source', 'See Beta, https://b.example/source'].join('\n');
+    expect(await checkInstructionDeliverable(longInstruction, answer)).toMatchObject({
+      passed: false,
+      reasons: expect.arrayContaining(['url_not_visited']),
+    });
+  });
 });
 
 describe('TaskManager lifecycle', () => {

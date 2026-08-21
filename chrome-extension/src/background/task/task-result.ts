@@ -6,7 +6,7 @@ import type { ActionAttempt, TaskResult, TaskResultKind } from '@extension/stora
 import { parseFormFillSubmitInstruction } from '../browser/sites/form-fill';
 import { parseProductTableInstruction } from '../browser/sites/product-table';
 import { artifactToResultText, type TaskArtifact } from './artifact';
-import { isAcknowledgementOnly, isPlaceholderDelivery } from './result-text';
+import { isAcknowledgementOnly, isBasicSubstantiveAnswer, isPlaceholderDelivery } from './result-text';
 
 export type { TaskResult, TaskResultKind };
 
@@ -155,10 +155,13 @@ export function resultIsPresentAndMatches(asked: AcceptedTask, result: TaskResul
   }
 
   if (asked.askedKind === 'report' || asked.askedKind === 'draft') {
-    return result.kind === asked.askedKind && body.length > 2;
+    return result.kind === asked.askedKind && isBasicSubstantiveAnswer(body);
   }
 
-  return body.length >= 2;
+  if (asked.askedSideEffect && navigationChromeMatchesAsked(asked, body)) return true;
+  if (body === '已确认完成') return asked.askedKind === 'summary';
+
+  return isBasicSubstantiveAnswer(body);
 }
 
 /**
@@ -221,8 +224,61 @@ function askedSideEffectFrom(instruction: string): AskedSideEffect | undefined {
 }
 
 function looksLikeFilename(body: string): boolean {
-  return /\.\w{2,4}$/.test(body.split(/\s+/).pop() ?? '');
+  const token = (body.trim().split(/\s+/).pop() ?? '').replace(/[),.;]+$/g, '');
+  if (!token) return false;
+  const base =
+    token
+      .split(/[/\\?#]/)
+      .filter(Boolean)
+      .pop() ?? '';
+  const match = /^(.+)\.([A-Za-z0-9]{2,4})$/.exec(base);
+  if (!match) return false;
+  const ext = match[2].toLowerCase();
+  if (FILENAME_EXTENSIONS.has(ext)) return true;
+  return false;
 }
+
+const FILENAME_EXTENSIONS = new Set([
+  'pdf',
+  'csv',
+  'tsv',
+  'txt',
+  'zip',
+  'gz',
+  '7z',
+  'rar',
+  'tar',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'svg',
+  'mp4',
+  'mp3',
+  'wav',
+  'mov',
+  'webm',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'json',
+  'xml',
+  'html',
+  'htm',
+  'md',
+  'bin',
+  'exe',
+  'dmg',
+  'pkg',
+  'apk',
+  'ipa',
+  'log',
+  'srt',
+]);
 
 function isNavigationChrome(body: string): boolean {
   if (/^已打开 [^\s「][^\s「]*$/.test(body)) return true;
@@ -246,7 +302,7 @@ function navigationChromeMatchesAsked(asked: AcceptedTask, body: string): boolea
     case 'media_play':
       return body === '视频正在播放';
     case 'download':
-      return body === '下载已完成' || body === '下载已开始';
+      return body === '下载已完成';
     default:
       return false;
   }

@@ -121,6 +121,26 @@ describe('task / steps / result chain', () => {
     expect(round?.result).toEqual({ kind: 'summary', body: summary });
   });
 
+  it('does not complete a content task from leftover hi / yes / 好的', async () => {
+    for (const [taskId, leftover] of [
+      ['task-leftover-hi', 'hi'],
+      ['task-leftover-yes', 'yes'],
+      ['task-leftover-ok', '好的'],
+    ] as const) {
+      const manager = new TaskManager({
+        createExecutor: async () => driver({ kind: 'candidate_complete', summary: leftover }),
+        switchTab: vi.fn(),
+        observeCriteria: vi.fn(async () => []),
+        now: () => 100,
+      });
+      await start(manager, taskId, '告诉我这一页在讲什么');
+      await vi.waitFor(async () => {
+        expect((await manager.snapshot(taskId))?.status).toBe('failed');
+      });
+      expect((await manager.snapshot(taskId))?.rounds[0]?.result).toBeUndefined();
+    }
+  });
+
   it('stores a produced table as the result the user can take', async () => {
     const artifact = createTableArtifact({
       title: 'products',
@@ -304,6 +324,80 @@ describe('task / steps / result chain', () => {
     const round = (await manager.snapshot('task-download-leftover'))?.rounds[0];
     expect(round?.result).toBeUndefined();
     expect(round?.receipt).toBeUndefined();
+  });
+
+  it('does not complete a download when the file has only started', async () => {
+    const manager = new TaskManager({
+      createExecutor: async () => driver({ kind: 'candidate_complete', summary: '下载已开始' }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-download-started', 'download this file');
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-download-started'))?.status).toBe('failed');
+    });
+    expect((await manager.snapshot('task-download-started'))?.rounds[0]?.result).toBeUndefined();
+  });
+
+  it('does not keep a result when the receipt is not committed', async () => {
+    const summary = '这一页在讲记忆系统如何组织长程推理。';
+    let release!: (outcome: ExecutorOutcome) => void;
+    const pending = new Promise<ExecutorOutcome>(resolve => {
+      release = resolve;
+    });
+    const manager = new TaskManager({
+      createExecutor: async () => {
+        const next = driver({ kind: 'candidate_complete', summary });
+        next.run = vi.fn(() => pending);
+        return next;
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-receipt-rollback', '告诉我这一页在讲什么');
+    await vi.waitFor(() => {
+      expect(store.sessions.get('task-receipt-rollback')).toBeTruthy();
+    });
+    const session = store.sessions.get('task-receipt-rollback') as {
+      plan?: {
+        id: string;
+        goal: string;
+        phases: Array<{
+          id: string;
+          title: string;
+          status: string;
+          criteriaIds: string[];
+          evidenceIds: string[];
+        }>;
+        createdAt: number;
+        updatedAt: number;
+      };
+    };
+    session.plan = {
+      id: 'mission-1',
+      goal: '完成任务',
+      phases: [
+        {
+          id: 'phase-1',
+          title: '阅读',
+          status: 'active',
+          criteriaIds: ['url-1'],
+          evidenceIds: [],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    release({ kind: 'candidate_complete', summary });
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-receipt-rollback'))?.status).toBe('failed');
+    });
+    const round = (await manager.snapshot('task-receipt-rollback'))?.rounds[0];
+    expect(round?.result).toBeUndefined();
+    expect(round?.receipt).toBeUndefined();
+    expect(round?.instructionSummary).not.toBe(summary);
   });
 
   it('restores acceptTask after resume so a table task cannot complete on a two-character summary', async () => {
