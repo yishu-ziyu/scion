@@ -44,8 +44,17 @@ import {
   redactedHttpUrlIdentity,
   type CompletionCheckInput,
 } from './completion';
-import type { TaskArtifact } from './artifact';
+import { artifactToResultText, type TaskArtifact } from './artifact';
 import { verifyCandidateComplete, type ArtifactCriterion } from './verification-engine';
+import {
+  acceptTask,
+  namedTakeawayText,
+  produceResult,
+  recordStep,
+  resultIsPresentAndMatches,
+  type AcceptedTask,
+  type TaskResult,
+} from './task-result';
 import { sha256 } from './digest';
 import { allowsVerifiedComplete } from './page-state';
 import { resolveMediaArgs, resolveTabArgs } from './media';
@@ -804,6 +813,7 @@ export class TaskManager {
   private readonly dispatchers = new Map<string, ActionDispatcher>();
   private readonly launches = new Map<string, symbol>();
   private readonly instructions = new Map<string, string>();
+  private readonly accepted = new Map<string, AcceptedTask>();
   private readonly criterionTemplates = new Map<string, CompletionCriterionTemplate[]>();
   private readonly lockedCriteriaRounds = new Set<string>();
   private readonly unsafeSkillCriteriaRounds = new Set<string>();
@@ -831,12 +841,7 @@ export class TaskManager {
     return result;
   }
 
-  private notExecutableAck(
-    commandId: string,
-    taskId: string,
-    revision: number,
-    userVisibleText: string,
-  ): CommandAck {
+  private notExecutableAck(commandId: string, taskId: string, revision: number, userVisibleText: string): CommandAck {
     return {
       accepted: false,
       commandId,
@@ -1127,6 +1132,7 @@ export class TaskManager {
       // Keep empty targetRefs; runCurrentRound will attach or fail honestly.
     }
     this.instructions.set(task.id, command.instruction);
+    this.accepted.set(task.id, acceptTask(command.instruction));
     await this.persist(task);
     void this.runCurrentRound(task.id);
     return ack;
@@ -1237,6 +1243,18 @@ export class TaskManager {
       updatedAt: now,
     };
     this.instructions.set(task.id, renderedInstruction);
+    this.accepted.set(task.id, acceptTask(renderedInstruction));
+    const askedSkill = this.accepted.get(task.id);
+    if (askedSkill && !askedSkill.askedText) {
+      for (const template of skill.criteria) {
+        if (template.kind !== 'page_text') continue;
+        const takeaway = namedTakeawayText(template.expectedTemplate, template.required);
+        if (takeaway) {
+          askedSkill.askedText = takeaway;
+          break;
+        }
+      }
+    }
     renderedInstruction = '';
     const templateKey = this.roundKey(task.id, roundId);
     this.criterionTemplates.set(templateKey, structuredClone(skill.criteria));
@@ -1318,7 +1336,10 @@ export class TaskManager {
     await this.persist(task);
     await this.deps.setFollowForeground?.(task.followForeground === true);
     try {
-      const groupId = await this.deps.beginTaskTabGroup?.(task.plan?.goal || task.goalSummary || '任务', task.tabGroupId);
+      const groupId = await this.deps.beginTaskTabGroup?.(
+        task.plan?.goal || task.goalSummary || '任务',
+        task.tabGroupId,
+      );
       if (typeof groupId === 'number' && groupId !== task.tabGroupId) {
         task.tabGroupId = groupId;
         await this.persist(task);
@@ -1386,6 +1407,7 @@ export class TaskManager {
     });
     const ack = this.accept(task, command.commandId);
     this.instructions.set(task.id, command.instruction);
+    this.accepted.set(task.id, acceptTask(command.instruction));
     await this.persist(task);
     const driver = this.drivers.get(task.id);
     if (!driver) void this.runCurrentRound(task.id);
@@ -1564,7 +1586,8 @@ export class TaskManager {
       reportLoopPhase: async (roundId, event) => {
         await this.applyLoopPhase(taskId, roundId, event.phase, event.step);
       },
-      recordObservedPage: async (roundId, observation) => this.recordVerifiedPageFromObservation(taskId, roundId, observation),
+      recordObservedPage: async (roundId, observation) =>
+        this.recordVerifiedPageFromObservation(taskId, roundId, observation),
       recordOpenedPages: async (roundId, pages) => {
         await this.recordOpenedIndependentTabs(
           taskId,
@@ -1648,10 +1671,16 @@ export class TaskManager {
         } else if (result.actionResult.error === 'media_target_ambiguous') {
           await this.persistMediaWait(taskId, roundId, 'target_ambiguous');
         } else if (!result.actionResult.error && result.attempt.state === 'observed') {
-          // Page evidence beats model "done": settle when criteria already hold.
+          const artifact = result.actionResult.artifact;
+          if (artifact) {
+            const completed = await this.tryCompleteFromProducedResult(taskId, roundId, { artifacts: [artifact] });
+            if (completed) {
+              result.actionResult.isDone = true;
+              return result;
+            }
+          }
+          // Page evidence can produce a result (form success text, opened URL).
           // external_commit: retry with backoff (async form rewrite).
-          // reversible/read (nav, video click): one immediate probe so we stop on /watch
-          // without stalling the next step behind multi-second backoff.
           if (result.attempt.effect === 'external_commit') {
             await this.tryVerifyAfterSuccessfulAct(taskId, roundId);
           } else {
@@ -1714,16 +1743,20 @@ export class TaskManager {
       task.goalSummary ||
       (round.instructionSummary && round.instructionSummary !== 'User instruction' ? round.instructionSummary : '') ||
       '';
-    const deliverableBlocks =
-      this.instructionRequestsUserDeliverable(instructionForRound) &&
-      !(await this.hasSubstantiveDeliverableAnswer(
-        round.instructionSummary?.trim() ?? '',
-        instructionForRound,
-        this.visitedPageEvidence(task),
-      ));
+    const asked = this.acceptedTaskFor(taskId);
+    const produced = produceResult({
+      asked,
+      pageSuccessText: canComplete
+        ? this.askedSuccessSeenOnPage(asked, automaticCriteria, checked.evidence)
+        : undefined,
+      observedUrl: this.observedUrlForResult(checked.evidence),
+      observedOutcome: this.observedOutcomeForResult(checked.evidence, automaticCriteria),
+      summary: round.instructionSummary,
+    });
+    const resultMatches = resultIsPresentAndMatches(asked, produced);
     const orderedSourceProof = await checkOrderedSourceVisitProof(instructionForRound, this.visitedPageEvidence(task));
 
-    if (!canComplete || deliverableBlocks || !orderedSourceProof) {
+    if (!canComplete || !resultMatches || !orderedSourceProof) {
       // Partial evidence still advances mission phases before full task complete.
       const passedIds = checked.evidence.filter(item => item.passed).map(item => item.criterionId);
       if (task.plan && passedIds.length > 0) {
@@ -1746,7 +1779,7 @@ export class TaskManager {
       const currentRound = this.currentRound(current);
       currentRound.evidence.push(...checked.evidence);
       this.syncMissionPlanFromEvidence(current, checked.evidence);
-      completed = await this.persistVerifiedReceipt(current, currentRound, checked.evidence);
+      completed = await this.persistMatchingResult(current, currentRound, checked.evidence, produced);
     });
     if (completed) await this.stopTaskRuntime(taskId);
     return completed;
@@ -1832,12 +1865,7 @@ export class TaskManager {
     await this.persistAttempt(taskId, createObservePhaseAttempt(roundId, this.deps.now()));
   }
 
-  private async applyLoopPhase(
-    taskId: string,
-    roundId: string,
-    phase: LoopPhaseName,
-    step: number,
-  ): Promise<void> {
+  private async applyLoopPhase(taskId: string, roundId: string, phase: LoopPhaseName, step: number): Promise<void> {
     const task = await getTask(taskId);
     if (!task || task.currentRoundId !== roundId) return;
     const round = task.rounds.find(item => item.id === roundId);
@@ -1872,8 +1900,8 @@ export class TaskManager {
             round.attempts[i] = { ...existing, state: 'observed', observedAt: this.deps.now() };
           }
         }
-        round.attempts.push(structuredClone(attempt));
-      } else round.attempts[index] = structuredClone(attempt);
+      }
+      round.attempts = recordStep(round.attempts, structuredClone(attempt));
       if (attempt.state === 'executing') {
         const notBefore = attempt.executingAt ?? this.deps.now();
         for (const criterion of round.criteria) criterion.notBefore = Math.max(criterion.notBefore, notBefore);
@@ -1991,11 +2019,7 @@ export class TaskManager {
     return urls;
   }
 
-  private async prepareIndependentInstructionTabs(
-    taskId: string,
-    roundId: string,
-    instruction: string,
-  ): Promise<void> {
+  private async prepareIndependentInstructionTabs(taskId: string, roundId: string, instruction: string): Promise<void> {
     try {
       const task = await getTask(taskId);
       if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return;
@@ -2222,7 +2246,14 @@ export class TaskManager {
             }),
           };
         }
-        completed = await this.persistVerifiedReceipt(current, currentRound, evidence, true, []);
+        const asked = this.acceptedTaskFor(current.id);
+        completed = await this.persistMatchingResult(
+          current,
+          currentRound,
+          evidence,
+          produceResult({ asked, summary: result }),
+          true,
+        );
       });
       return completed;
     } catch {
@@ -2559,12 +2590,14 @@ export class TaskManager {
           instructionForRound,
           pageEvidenceForAnswer,
         );
-        const needsDeliverable = this.instructionRequestsUserDeliverable(instructionForRound);
-        const deliverableOk =
-          answer.length > 0 &&
-          isBasicSubstantiveAnswer(answer, instructionForRound) &&
-          (!needsDeliverable ||
-            (await this.hasSubstantiveDeliverableAnswer(answer, instructionForRound, pageEvidenceForAnswer)));
+        const asked = this.acceptedTaskFor(taskId);
+        const produced = produceResult({
+          asked,
+          artifacts,
+          summary: answer || rawAnswer,
+          observedUrl: this.observedUrlForResult([]),
+        });
+        const resultMatches = resultIsPresentAndMatches(asked, produced);
         let artifactVerified = artifacts.length === 0;
         if (artifacts.length > 0) {
           const artifactGate = this.verifyArtifactsIndependently(
@@ -2604,15 +2637,14 @@ export class TaskManager {
             return;
           }
           const currentRound = this.currentRound(current);
-          if (deliverableOk && artifactVerified) {
-            // Surface the answer on the round for UI; keep goalSummary generic.
-            currentRound.instructionSummary = (await redactDeliverableUrlsForPersistence(answer)).slice(0, 2000);
+          if (resultMatches && artifactVerified) {
             delete currentRound.waitReason;
             delete currentRound.failureCategory;
-            const receiptOk = await this.persistVerifiedReceipt(
+            const receiptOk = await this.persistMatchingResult(
               current,
               currentRound,
               [],
+              produced,
               true,
               artifacts.map(artifact => 'artifact:' + artifact.id),
             );
@@ -2769,13 +2801,11 @@ export class TaskManager {
         observations,
       });
       const rawOutcomeAnswer = outcome.kind === 'candidate_complete' ? outcome.summary.trim() : '';
-      // Multi-intent goals like "play + copy first comment" must not complete on media alone.
       const instructionForRound =
         this.instructions.get(taskId) ||
         task.goalSummary ||
         (round.instructionSummary && round.instructionSummary !== 'User instruction' ? round.instructionSummary : '') ||
         '';
-      const needsDeliverable = this.instructionRequestsUserDeliverable(instructionForRound);
       const pageEvidenceForAnswer = this.visitedPageEvidence(task);
       const outcomeAnswer = await this.selectCandidateDeliverableText(
         rawOutcomeAnswer,
@@ -2783,10 +2813,16 @@ export class TaskManager {
         instructionForRound,
         pageEvidenceForAnswer,
       );
-      const deliverableOk =
-        !needsDeliverable ||
-        (isBasicSubstantiveAnswer(outcomeAnswer, instructionForRound) &&
-          (await this.hasSubstantiveDeliverableAnswer(outcomeAnswer, instructionForRound, pageEvidenceForAnswer)));
+      const asked = this.acceptedTaskFor(taskId);
+      const produced = produceResult({
+        asked,
+        artifacts: candidateArtifacts,
+        summary: outcomeAnswer || rawOutcomeAnswer,
+        pageSuccessText: this.askedSuccessSeenOnPage(asked, round.criteria, checked.evidence),
+        observedUrl: this.observedUrlForResult(checked.evidence),
+        observedOutcome: this.observedOutcomeForResult(checked.evidence, round.criteria),
+      });
+      const resultMatches = resultIsPresentAndMatches(asked, produced);
       const artifactGate =
         candidateArtifacts.length > 0
           ? this.verifyArtifactsIndependently(candidateArtifacts, instructionForRound, {
@@ -2819,19 +2855,19 @@ export class TaskManager {
         const actionPassed = requiredAction.every(criterion =>
           checked.evidence.some(item => item.criterionId === criterion.id && item.passed),
         );
-        const asksWritten = this.instructionAsksWrittenResult(instructionForRound);
-        const resultOk =
-          deliverableOk ||
-          (requiredAction.length > 0 && !asksWritten) ||
-          (checked.passed && !asksWritten);
-        if (resultOk && orderedSourceProof && artifactsVerified && actionPassed) {
-          if (outcomeAnswer.length > 0) {
-            currentRound.instructionSummary = (await redactDeliverableUrlsForPersistence(outcomeAnswer)).slice(0, 2000);
-          }
-          const receiptOk = await this.persistVerifiedReceipt(
+        const tableResult = produced?.kind === 'table';
+        if (
+          resultMatches &&
+          orderedSourceProof &&
+          artifactsVerified &&
+          (actionPassed || tableResult) &&
+          (checked.passed || tableResult || Boolean(produced?.body))
+        ) {
+          const receiptOk = await this.persistMatchingResult(
             current,
             currentRound,
             checked.evidence,
+            produced,
             true,
             candidateArtifacts.map(artifact => 'artifact:' + artifact.id),
           );
@@ -2843,11 +2879,7 @@ export class TaskManager {
           retry = true;
           return;
         }
-        if (
-          !artifactsVerified ||
-          !orderedSourceProof ||
-          (needsDeliverable && !deliverableOk && (requiredAction.length === 0 || asksWritten))
-        ) {
+        if (!artifactsVerified || !orderedSourceProof || !resultMatches) {
           current.status = 'failed';
           currentRound.status = 'failed';
           currentRound.failureCategory = artifactsVerified ? 'no_action' : 'artifact_verification_failed';
@@ -2879,7 +2911,7 @@ export class TaskManager {
         continue;
       }
       verificationRetries += 1;
-      if (!deliverableOk) {
+      if (!resultMatches) {
         driver.addFollowUp('Write the user-facing result. Do not acknowledge.');
       } else {
         driver.addFollowUp('Completion was not verified; inspect the current page and continue.');
@@ -2931,9 +2963,7 @@ export class TaskManager {
   }
 
   private textFromArtifact(artifact: TaskArtifact): string {
-    if (artifact.type !== 'text' || !artifact.data || typeof artifact.data !== 'object') return '';
-    const text = (artifact.data as { text?: unknown }).text;
-    return typeof text === 'string' ? text.trim() : '';
+    return artifactToResultText(artifact);
   }
 
   /**
@@ -3238,6 +3268,20 @@ export class TaskManager {
       const copiedFieldCriterion = additions.some(
         draft => draft.kind === 'page_text' && userFieldValues.has(draft.expected.replace(/\s+/g, ' ').trim()),
       );
+      const asked = this.accepted.get(taskId);
+      if (asked && !asked.askedText) {
+        const successDraft = additions.find(
+          draft =>
+            draft.kind === 'page_text' &&
+            draft.operator === 'present' &&
+            draft.required &&
+            !userFieldValues.has(draft.expected.replace(/\s+/g, ' ').trim()),
+        );
+        if (successDraft?.kind === 'page_text') {
+          const takeaway = namedTakeawayText(successDraft.expected, successDraft.required);
+          if (takeaway) asked.askedText = takeaway;
+        }
+      }
       const criteria = await Promise.all(
         additions.map(draft =>
           this.freezeCriterion(
@@ -3804,8 +3848,18 @@ export class TaskManager {
     round.evidence.push(confirmedEvidence);
     this.syncMissionPlanFromEvidence(task, checked.evidence);
     const ack = this.accept(task, command.commandId);
-    if (checked.passed) await this.persistVerifiedReceipt(task, round, checked.evidence, false);
-    else await this.persist(task);
+    if (checked.passed) {
+      const asked = this.acceptedTaskFor(task.id);
+      const produced = produceResult({
+        asked,
+        summary: round.instructionSummary,
+        pageSuccessText: this.askedSuccessSeenOnPage(asked, round.criteria, checked.evidence),
+        observedUrl: this.observedUrlForResult(checked.evidence),
+        observedOutcome: this.observedOutcomeForResult(checked.evidence, round.criteria),
+      });
+      const completed = await this.persistMatchingResult(task, round, checked.evidence, produced, false);
+      if (!completed) await this.persist(task);
+    } else await this.persist(task);
     return ack;
   }
 
@@ -3856,6 +3910,96 @@ export class TaskManager {
     task.plan = plan;
   }
 
+  private acceptedTaskFor(taskId: string): AcceptedTask {
+    return this.accepted.get(taskId) ?? acceptTask(this.instructions.get(taskId) ?? '');
+  }
+
+  /** Form success text only after required page_text actually passed — not from optional quotes. */
+  private askedSuccessSeenOnPage(
+    asked: AcceptedTask,
+    criteria: TaskRound['criteria'],
+    evidence: CompletionEvidence[],
+  ): string | undefined {
+    if (!asked.askedText) return undefined;
+    const requiredText = criteria.filter(item => item.kind === 'page_text' && item.required);
+    if (requiredText.length === 0) return undefined;
+    const passed = requiredText.every(item => evidence.some(entry => entry.criterionId === item.id && entry.passed));
+    return passed ? asked.askedText : undefined;
+  }
+
+  private observedUrlForResult(evidence: CompletionEvidence[]): string | undefined {
+    const passedUrl = evidence.find(
+      item => item.passed && typeof item.value === 'string' && /^https?:\/\//i.test(item.value),
+    );
+    return typeof passedUrl?.value === 'string' ? passedUrl.value : undefined;
+  }
+
+  private observedOutcomeForResult(
+    evidence: CompletionEvidence[],
+    criteria: TaskRound['criteria'],
+  ): string | undefined {
+    const passed = evidence.filter(item => item.passed);
+    const kindOf = (id: string) => criteria.find(criterion => criterion.id === id)?.kind;
+    if (passed.some(item => kindOf(item.criterionId) === 'tab_state' && item.value === 'closed'))
+      return '目标标签已关闭';
+    if (passed.some(item => kindOf(item.criterionId) === 'media_state' && item.value === 'paused')) return '视频已暂停';
+    if (passed.some(item => kindOf(item.criterionId) === 'media_state' && item.value === 'playing'))
+      return '视频正在播放';
+    if (passed.some(item => kindOf(item.criterionId) === 'download_state' && item.value === 'finished'))
+      return '下载已完成';
+    if (passed.some(item => kindOf(item.criterionId) === 'download_state' && item.value === 'started'))
+      return '下载已开始';
+    if (passed.some(item => kindOf(item.criterionId) === 'user_confirmed')) return '已确认完成';
+    return undefined;
+  }
+
+  private async tryCompleteFromProducedResult(
+    taskId: string,
+    roundId: string,
+    input: { artifacts?: TaskArtifact[]; summary?: string },
+  ): Promise<boolean> {
+    const task = await getTask(taskId);
+    if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return true;
+    const asked = this.acceptedTaskFor(taskId);
+    const produced = produceResult({
+      asked,
+      artifacts: input.artifacts,
+      summary: input.summary,
+      observedUrl: this.observedUrlForResult([]),
+    });
+    if (!resultIsPresentAndMatches(asked, produced)) return false;
+    let completed = false;
+    await this.queueTransition(async () => {
+      const current = await getTask(taskId);
+      if (!current || current.status !== 'running' || current.currentRoundId !== roundId) return;
+      completed = await this.persistMatchingResult(current, this.currentRound(current), [], produced);
+    });
+    if (completed) await this.stopTaskRuntime(taskId);
+    return completed;
+  }
+
+  private async persistMatchingResult(
+    task: TaskSession,
+    round: TaskRound,
+    evidence: CompletionEvidence[],
+    produced: TaskResult | null | undefined,
+    incrementRevision = true,
+    artifactProofIds: string[] = [],
+  ): Promise<boolean> {
+    const asked = this.acceptedTaskFor(task.id);
+    if (!resultIsPresentAndMatches(asked, produced) || !produced) return false;
+    const instruction = this.instructions.get(task.id) ?? '';
+    const pageEvidence = this.visitedPageEvidence(task);
+    if (!(await checkOrderedSourceVisitProof(instruction, pageEvidence))) return false;
+    if (!(await checkInstructionDeliverable(instruction, produced.body, pageEvidence)).passed) return false;
+    const redactedBody = (await redactDeliverableUrlsForPersistence(produced.body)).slice(0, 2000);
+    const stored = { ...produced, body: redactedBody };
+    if (!resultIsPresentAndMatches(asked, stored)) return false;
+    round.result = stored;
+    round.instructionSummary = redactedBody;
+    return this.persistVerifiedReceipt(task, round, evidence, incrementRevision, artifactProofIds);
+  }
+
   private async persistVerifiedReceipt(
     task: TaskSession,
     round: TaskRound,
@@ -3863,12 +4007,15 @@ export class TaskManager {
     incrementRevision = true,
     artifactProofIds: string[] = [],
   ): Promise<boolean> {
+    const asked = this.acceptedTaskFor(task.id);
+    if (!resultIsPresentAndMatches(asked, round.result)) return false;
     this.completeLiveObserveAttempts(round, this.deps.now());
     const passedEvidence = evidence.filter(item => item.passed);
     const visibleAnswer =
-      round.instructionSummary && !['User instruction', 'Direction changed'].includes(round.instructionSummary)
+      round.result?.body?.trim() ||
+      (round.instructionSummary && !['User instruction', 'Direction changed'].includes(round.instructionSummary)
         ? round.instructionSummary.trim()
-        : '';
+        : '');
     let answerDigest: string | null = null;
     if (visibleAnswer && isBasicSubstantiveAnswer(visibleAnswer, '')) {
       answerDigest = await sha256(visibleAnswer);

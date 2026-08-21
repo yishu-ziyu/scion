@@ -1,0 +1,258 @@
+/**
+ * Task, steps, and result: `acceptTask`, `recordStep`, `produceResult`,
+ * `resultIsPresentAndMatches`. Done only when `TaskResult` exists and matches.
+ */
+import type { ActionAttempt, TaskResult, TaskResultKind } from '@extension/storage/lib/task';
+import { parseFormFillSubmitInstruction } from '../browser/sites/form-fill';
+import { parseProductTableInstruction } from '../browser/sites/product-table';
+import { artifactToResultText, type TaskArtifact } from './artifact';
+import { isAcknowledgementOnly, isPlaceholderDelivery } from './result-text';
+
+export type { TaskResult, TaskResultKind };
+
+export interface AcceptedTask {
+  instruction: string;
+  askedKind: TaskResultKind;
+  /** Exact sentence the user named as the result, if any (form success text). */
+  askedText?: string;
+  askedTableFields?: string[];
+  askedMinRows?: number;
+}
+
+export interface ProduceResultInput {
+  asked: AcceptedTask;
+  artifacts?: TaskArtifact[];
+  summary?: string;
+  pageSuccessText?: string;
+  observedUrl?: string;
+  /** Page side-effect the user asked for (paused, closed, downloaded). */
+  observedOutcome?: string;
+}
+
+const BARE_STATUS = /^(done|完成|ok|已完成|success|好了|opened|submitted|playing|paused|playing video)[.!。！]*$/i;
+
+export function acceptTask(instruction: string): AcceptedTask {
+  const text = instruction.replace(/\s+/g, ' ').trim();
+  const tableGoal = parseProductTableInstruction(text);
+  const askedText = namedSuccessText(text);
+  if (tableGoal || asksForTable(text)) {
+    return {
+      instruction: text,
+      askedKind: 'table',
+      askedTableFields: tableFieldsFromInstruction(text),
+      askedMinRows: tableGoal?.minRows ?? 1,
+      ...(askedText ? { askedText } : {}),
+    };
+  }
+  if (/\b(report|研究报告|调研报告)\b/.test(text) || /(?:写|输出|生成|交).{0,8}报告/.test(text)) {
+    return { instruction: text, askedKind: 'report', ...(askedText ? { askedText } : {}) };
+  }
+  if (/\bdraft\b/i.test(text) || /草稿/.test(text)) {
+    return { instruction: text, askedKind: 'draft', ...(askedText ? { askedText } : {}) };
+  }
+  if (asksForFile(text)) {
+    return { instruction: text, askedKind: 'file', ...(askedText ? { askedText } : {}) };
+  }
+  return { instruction: text, askedKind: 'summary', ...(askedText ? { askedText } : {}) };
+}
+
+export function recordStep(steps: ActionAttempt[], step: ActionAttempt): ActionAttempt[] {
+  const next = steps.slice();
+  const index = next.findIndex(item => item.id === step.id);
+  if (index === -1) next.push(step);
+  else next[index] = step;
+  return next;
+}
+
+export function produceResult(input: ProduceResultInput): TaskResult | null {
+  const asked = input.asked;
+  const fromArtifacts = resultFromArtifacts(asked, input.artifacts ?? []);
+  if (fromArtifacts && resultIsPresentAndMatches(asked, fromArtifacts)) return fromArtifacts;
+
+  if (asked.askedKind === 'table') {
+    const tableFromSummary = tableResultFromText(input.summary);
+    if (tableFromSummary && resultIsPresentAndMatches(asked, tableFromSummary)) return tableFromSummary;
+    return fromArtifacts ?? null;
+  }
+
+  const seenSuccess = visibleBody(input.pageSuccessText);
+  if (seenSuccess) {
+    const body =
+      asked.askedText && (seenSuccess.includes(asked.askedText) || asked.askedText.includes(seenSuccess))
+        ? asked.askedText
+        : seenSuccess;
+    const result: TaskResult = { kind: 'summary', body };
+    if (resultIsPresentAndMatches(asked, result)) return result;
+  }
+
+  const summary = visibleBody(input.summary);
+  if (asked.askedText && summary.includes(asked.askedText)) {
+    const result: TaskResult = { kind: 'summary', body: asked.askedText };
+    if (resultIsPresentAndMatches(asked, result)) return result;
+  }
+  if (summary && resultIsPresentAndMatches(asked, { kind: asked.askedKind, body: summary })) {
+    return { kind: asked.askedKind, body: summary };
+  }
+
+  if (fromArtifacts) return fromArtifacts;
+
+  const outcome = visibleBody(input.observedOutcome);
+  if (outcome) {
+    const result: TaskResult = { kind: 'summary', body: outcome };
+    if (resultIsPresentAndMatches(asked, result)) return result;
+  }
+
+  const opened = hostFromUrl(input.observedUrl);
+  if (opened) {
+    const result: TaskResult = { kind: 'summary', body: `已打开 ${opened}` };
+    if (resultIsPresentAndMatches(asked, result)) return result;
+  }
+  return null;
+}
+
+export function resultIsPresentAndMatches(asked: AcceptedTask, result: TaskResult | null | undefined): boolean {
+  const body = result?.body?.replace(/\r\n?/g, '\n').trim() ?? '';
+  if (!result || !body) return false;
+  if (isPlaceholderDelivery(body) || isAcknowledgementOnly(body) || BARE_STATUS.test(body)) return false;
+  if (/^User instruction$/i.test(body) || /^Direction changed$/i.test(body)) return false;
+  if (/^页面(地址|状态|结果)已/.test(body) || /^Control loop candidate complete$/i.test(body)) return false;
+
+  if (asked.askedKind === 'table') {
+    if (!looksLikeTable(body)) return false;
+    const rows = tableDataRowCount(body);
+    if (rows < (asked.askedMinRows ?? 1)) return false;
+    const fields = asked.askedTableFields ?? [];
+    if (fields.length > 0 && !headerHasFields(body, fields)) return false;
+    return true;
+  }
+
+  if (asked.askedText) {
+    return body.includes(asked.askedText);
+  }
+
+  if (asked.askedKind === 'file') {
+    return result.kind === 'file' || /\.\w{2,4}$/.test(body.split(/\s+/).pop() ?? '') || body.length >= 2;
+  }
+
+  return body.length >= 2;
+}
+
+function asksForTable(instruction: string): boolean {
+  return (
+    (/\bcsv\b/i.test(instruction) || /表格|\btable\b/i.test(instruction)) &&
+    /提取|导出|抽取|extract|export|列出/i.test(instruction)
+  );
+}
+
+function asksForFile(instruction: string): boolean {
+  return (
+    /下载(?:这个|该|一下)?(?:文件|附件|pdf|csv)/i.test(instruction) ||
+    /\bdownload\s+(this\s+)?(file|pdf|csv|attachment)\b/i.test(instruction)
+  );
+}
+
+function namedSuccessText(instruction: string): string | undefined {
+  const form = parseFormFillSubmitInstruction(instruction);
+  if (form?.successText) return form.successText.replace(/\s+/g, ' ').trim();
+  const match =
+    instruction.match(/\bsuccess\s+is\s+["'“]?([^"'”.;\n]+)/i) ??
+    instruction.match(/看到\s*["'“「]?([^"'”」.;。\n]{2,80}?)(?=\s*["'”」]?\s*后)/);
+  const text = match?.[1]?.replace(/\s+/g, ' ').trim();
+  return text || undefined;
+}
+
+function tableFieldsFromInstruction(instruction: string): string[] | undefined {
+  const english = /\bwith\s+([a-z][a-z0-9 _-]*(?:\s*,\s*[a-z][a-z0-9 _-]*)+(?:\s*,?\s+and\s+[a-z][a-z0-9 _-]*)?)/i.exec(
+    instruction,
+  )?.[1];
+  if (!english) return undefined;
+  const fields = english
+    .split(/\s*(?:,|\band\b)\s*/i)
+    .map(field => field.trim().toLowerCase())
+    .filter(Boolean);
+  return fields.length > 0 ? fields : undefined;
+}
+
+function resultFromArtifacts(asked: AcceptedTask, artifacts: TaskArtifact[]): TaskResult | null {
+  for (const artifact of artifacts) {
+    const body = artifactToResultText(artifact);
+    if (!body) continue;
+    const kind: TaskResultKind =
+      artifact.type === 'table' || artifact.type === 'recordset'
+        ? 'table'
+        : artifact.type === 'file'
+          ? 'file'
+          : asked.askedKind === 'report' || asked.askedKind === 'draft'
+            ? asked.askedKind
+            : 'summary';
+    const result: TaskResult = { kind, body };
+    if (resultIsPresentAndMatches(asked, result)) return result;
+  }
+  return null;
+}
+
+function tableResultFromText(summary: string | undefined): TaskResult | null {
+  const body = summary?.replace(/\r\n?/g, '\n').trim() ?? '';
+  if (!looksLikeTable(body)) return null;
+  return { kind: 'table', body };
+}
+
+/** Form success text the user named, not a long page quote used as proof. */
+export function namedTakeawayText(expected: string, required = true): string | undefined {
+  if (!required) return undefined;
+  const text = expected.replace(/\s+/g, ' ').trim();
+  if (text.length < 2 || text.length > 80) return undefined;
+  if (!/(?:success|saved|submitted|成功|已保存|已提交)/i.test(text)) return undefined;
+  return text;
+}
+
+function visibleBody(value: string | undefined): string {
+  return value?.replace(/\s+/g, ' ').trim() ?? '';
+}
+
+function hostFromUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const host = new URL(value).hostname.replace(/^www\./, '');
+    return host || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function looksLikeTable(body: string): boolean {
+  return tableRegionLines(body).length >= 2;
+}
+
+function tableDataRowCount(body: string): number {
+  const lines = tableRegionLines(body).filter(
+    line => !/^:?-{3,}:?(\s*[|,]\s*:?-{3,}:?)*$/.test(line.replace(/\|/g, '|')),
+  );
+  if (lines.length < 2) return 0;
+  return Math.max(0, lines.length - 1);
+}
+
+function headerHasFields(body: string, fields: string[]): boolean {
+  const header = tableRegionLines(body)[0];
+  if (!header) return false;
+  const cells = header
+    .replace(/^\||\|$/g, '')
+    .split(/[|,]/)
+    .map(cell => cell.trim().toLowerCase());
+  return fields.every(field => cells.includes(field.toLowerCase()));
+}
+
+function tableRegionLines(body: string): string[] {
+  const lines = body
+    .split(/\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+  const start = lines.findIndex(line => isTableRowLine(line));
+  if (start < 0) return [];
+  return lines.slice(start).filter(line => isTableRowLine(line));
+}
+
+function isTableRowLine(line: string): boolean {
+  if (line.startsWith('|') && line.endsWith('|')) return true;
+  return line.includes(',') && line.split(',').length >= 2;
+}

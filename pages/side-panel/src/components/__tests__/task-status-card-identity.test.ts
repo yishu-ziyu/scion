@@ -311,7 +311,10 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).toContain('再说一次');
     expect(html).toContain('data-testid="task-retry"');
     expect(html).toContain('chijie-failed-result');
-    expect(html).not.toContain('>目标<');
+    expect(html).toContain('data-testid="failed-result"');
+    expect(html).toMatch(/data-testid="failed-result-sentence"[^>]*>试了几轮，还是没做成。</);
+    expect(html).not.toContain('data-testid="completion-receipt"');
+    expect(html).not.toContain('data-testid="completion-result"');
     expect(html).not.toContain('>现在<');
     expect(html).not.toContain('>结果<');
     expect(html).not.toContain('做过');
@@ -324,7 +327,63 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).not.toContain('没有可交付结果');
     expect(html).not.toContain('data-testid="task-thinking-process"');
     expect(html).not.toContain('data-testid="task-outcome-rating"');
-    expect(html).toMatch(/data-testid="completion-result"[^>]*>试了几轮，还是没做成。</);
+  });
+
+  it('surfaces the asked success sentence as the result, not source-page chrome', () => {
+    const currentRound = completedRound('round-form', 'receipt-form');
+    currentRound.instructionSummary = 'User instruction';
+    currentRound.result = { kind: 'summary', body: 'Saved successfully' };
+    currentRound.attempts = [
+      {
+        id: 'submit-1',
+        roundId: currentRound.id,
+        actionName: 'click_element',
+        effect: 'external_commit',
+        argsDigest: 'args',
+        displaySummary: '提交表单',
+        targetUrl: 'http://127.0.0.1:4173/form',
+        state: 'observed',
+        proposedAt: 1,
+        observedAt: 2,
+      },
+    ];
+    const snapshot = {
+      id: 'task-form',
+      goalSummary: 'User task',
+      status: 'completed',
+      revision: 3,
+      activeTabId: 7,
+      currentRoundId: currentRound.id,
+      targetRefs: [
+        {
+          id: 'tab-7',
+          kind: 'page',
+          tabId: 7,
+          frameId: 0,
+          urlOrigin: 'http://127.0.0.1:4173',
+          digest: 'page',
+          label: '对核这些页',
+        },
+      ],
+      rounds: [currentRound],
+      createdAt: 1,
+      updatedAt: 2,
+    } satisfies TaskSnapshot;
+
+    const html = renderToStaticMarkup(
+      createElement(TaskStatusCard, {
+        snapshot,
+        send: vi.fn(),
+        defaultInstruction: 'Fill Name with Ada and submit; success is Saved successfully.',
+        readOnly: true,
+      }),
+    );
+
+    expect(html).toContain('data-testid="completion-result"');
+    expect(html).toContain('Saved successfully');
+    expect(html).not.toContain('对核这些页');
+    expect(html).not.toContain('页面状态已确认');
+    expect(html).not.toMatch(/data-testid="completion-result"[^>]*>[\s\S]*127\.0\.0\.1/);
   });
 
   it('search attempt becomes a board of query plus result rows', () => {
@@ -377,7 +436,8 @@ describe('TaskStatusCard identity markers', () => {
       createElement(TaskStatusCard, {
         snapshot,
         send: vi.fn(),
-        defaultInstruction: '帮我找到清程极智，他们有在深圳办一个黑客松。然后找到那个黑客松之后，我需要找到那个报名链接。',
+        defaultInstruction:
+          '帮我找到清程极智，他们有在深圳办一个黑客松。然后找到那个黑客松之后，我需要找到那个报名链接。',
         onStop: vi.fn(),
       }),
     );
