@@ -46,6 +46,14 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: '这一页在讲记忆系统如何组织长程推理。' })).toBe(
       true,
     );
+    expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: '告诉我这一页在讲什么' })).toBe(false);
+    expect(
+      resultIsPresentAndMatches(asked, {
+        kind: 'summary',
+        body: '告诉我这一页在讲什么。这一页在讲记忆系统。',
+      }),
+    ).toBe(false);
+    expect(produceResult({ asked, summary: '告诉我这一页在讲什么' })).toBeNull();
     expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: 'hi' })).toBe(false);
     expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: 'yes' })).toBe(false);
     expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: '好的' })).toBe(false);
@@ -151,6 +159,12 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
         body: '结论：样本不足，需要更多来源。',
       }),
     ).toBe(true);
+    expect(
+      resultIsPresentAndMatches(acceptTask('请写一份关于记忆系统的研究报告'), {
+        kind: 'report',
+        body: '请写一份关于记忆系统的研究报告',
+      }),
+    ).toBe(false);
   });
 
   it('does not complete a download from opened-host, pause chrome, or leftover summary', () => {

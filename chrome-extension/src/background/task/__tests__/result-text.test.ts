@@ -22,5 +22,7 @@ describe('result-text', () => {
     expect(isBasicSubstantiveAnswer('yes')).toBe(false);
     expect(isBasicSubstantiveAnswer('好的')).toBe(false);
     expect(isBasicSubstantiveAnswer('这一页在讲记忆系统如何组织长程推理。')).toBe(true);
+    expect(isBasicSubstantiveAnswer('告诉我这一页在讲什么', '告诉我这一页在讲什么')).toBe(false);
+    expect(isBasicSubstantiveAnswer('这一页在讲记忆系统如何组织长程推理。', '告诉我这一页在讲什么')).toBe(true);
   });
 });

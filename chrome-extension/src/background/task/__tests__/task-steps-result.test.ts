@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { putSkillSaveMeta } from '@extension/storage/lib/task';
 import { TaskManager } from '../manager';
 import { createTableArtifact } from '../artifact';
 import { extractContentActionSchema } from '../../agent/actions/schemas';
@@ -697,5 +698,241 @@ describe('task / steps / result chain', () => {
     expect(stillWaiting?.rounds[0]?.receipt).toBeUndefined();
     expect(stillWaiting?.rounds[0]?.result).toBeUndefined();
     expect(stillWaiting?.rounds[0]?.produced).toEqual({ kind: 'summary', body: 'needs confirmation now' });
+  });
+
+  it('does not complete extract_content from a matching table while a required url is unevidenced', async () => {
+    let hooks!: ExecutorHooks;
+    const pending = driver({ kind: 'candidate_complete', summary: 'still going' });
+    pending.run = vi.fn(() => new Promise<ExecutorOutcome>(() => {}));
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        await hooks.onPlan(_input.roundId, [
+          { kind: 'url', operator: 'equals', expected: 'https://must-visit.example/page', required: true },
+        ]);
+        return pending;
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-extract-url', 'Extract products to a CSV table with name, price, rating');
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-extract-url'))?.rounds[0]?.criteria.some(item => item.kind === 'url')).toBe(
+        true,
+      );
+    });
+    const roundId = (await manager.snapshot('task-extract-url'))?.currentRoundId;
+    if (!roundId) throw new Error('missing round');
+    const artifact = createTableArtifact({
+      title: 'products',
+      columns: ['name', 'price', 'rating'],
+      rows: [{ name: 'Alpha', price: '$1', rating: '5' }],
+      sources: [{ url: 'https://fixture.local/products' }],
+    });
+    const dispatched = await hooks.dispatchAction(
+      roundId,
+      new Action(async () => new ActionResult({ success: true, artifact }), extractContentActionSchema),
+      { goal: 'name,price,rating', intent: 'extract' },
+    );
+    expect(dispatched.actionResult.isDone).toBe(true);
+    const snap = await manager.snapshot('task-extract-url');
+    expect(snap?.status).not.toBe('completed');
+    expect(snap?.rounds[0]?.result).toBeUndefined();
+    expect(snap?.rounds[0]?.receipt).toBeUndefined();
+  });
+
+  it('does not complete a table candidate_complete while a required url action is unevidenced', async () => {
+    const artifact = createTableArtifact({
+      title: 'products',
+      columns: ['name', 'price', 'rating'],
+      rows: [{ name: 'Alpha', price: '$1', rating: '5' }],
+      sources: [{ url: 'https://fixture.local/products' }],
+    });
+    const manager = new TaskManager({
+      createExecutor: async (_input, hooks) => {
+        await hooks.onPlan(_input.roundId, [
+          { kind: 'url', operator: 'equals', expected: 'https://must-visit.example/page', required: true },
+        ]);
+        return driver({
+          kind: 'candidate_complete',
+          summary: 'Extracted 1 record. Task is not complete.',
+          artifacts: [artifact],
+        });
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-table-url', 'Extract products to a CSV table with name, price, rating');
+    await vi.waitFor(async () => {
+      const status = (await manager.snapshot('task-table-url'))?.status;
+      expect(['waiting_user', 'failed']).toContain(status);
+    });
+    const snap = await manager.snapshot('task-table-url');
+    expect(snap?.status).not.toBe('completed');
+    expect(snap?.rounds[0]?.result).toBeUndefined();
+    expect(snap?.rounds[0]?.receipt).toBeUndefined();
+  });
+
+  it('copies onPlan takeaway text onto the round so a later manager can match a short Saved result', async () => {
+    let hooks!: ExecutorHooks;
+    const pending = driver({ kind: 'candidate_complete', summary: 'still going' });
+    pending.run = vi.fn(() => new Promise<ExecutorOutcome>(() => {}));
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return pending;
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-asked-text-freeze', 'Fill the name field and submit the form');
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = (await manager.snapshot('task-asked-text-freeze'))?.currentRoundId;
+    if (!roundId) throw new Error('missing round');
+    await hooks.onPlan(roundId, [{ kind: 'page_text', operator: 'present', expected: 'Saved', required: true }]);
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-asked-text-freeze'))?.rounds[0]?.askedText).toBe('Saved');
+    });
+  });
+
+  it('confirms a short Saved takeaway after restart from persisted round.askedText', async () => {
+    const instruction = 'Fill the name field and submit the form';
+    store.chatSessions.set('chat-task-asked-text-restart', {
+      messages: [{ id: 'message-task-asked-text-restart', content: instruction }],
+    });
+    store.sessions.set('task-asked-text-restart', {
+      id: 'task-asked-text-restart',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-task-asked-text-restart',
+      instructionMessageId: 'message-task-asked-text-restart',
+      status: 'waiting_user',
+      revision: 2,
+      activeTabId: 7,
+      currentRoundId: 'round-asked-text-restart',
+      targetRefs: [],
+      rounds: [
+        {
+          id: 'round-asked-text-restart',
+          instructionMessageId: 'message-task-asked-text-restart',
+          instructionSummary: 'User instruction',
+          status: 'waiting_user',
+          waitReason: 'proof_required',
+          commandAcks: {},
+          askedText: 'Saved',
+          criteria: [
+            {
+              id: 'confirm-1',
+              roundId: 'round-asked-text-restart',
+              targetRefId: 'tab-7',
+              kind: 'user_confirmed',
+              operator: 'equals',
+              expected: true,
+              required: true,
+              frozenAt: 1,
+              notBefore: 0,
+              timeoutMs: 60_000,
+              baseline: false,
+            },
+          ],
+          attempts: [],
+          evidence: [],
+          produced: { kind: 'summary', body: 'Saved' },
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const manager = new TaskManager({
+      createExecutor: async () => driver({ kind: 'candidate_complete', summary: 'ignored' }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 200,
+    });
+    const confirmed = await manager.dispatch({
+      type: 'confirm_completion',
+      commandId: 'confirm-asked-text',
+      taskId: 'task-asked-text-restart',
+      expectedRevision: 2,
+      roundId: 'round-asked-text-restart',
+      criterionId: 'confirm-1',
+    });
+    expect(confirmed.accepted).toBe(true);
+    const completed = await manager.snapshot('task-asked-text-restart');
+    expect(completed?.status).toBe('completed');
+    expect(completed?.rounds[0]?.result).toEqual({ kind: 'summary', body: 'Saved' });
+  });
+
+  it('restores askedText from skill-save page_text after restart when the round did not store it', async () => {
+    const instruction = 'Fill the name field and submit the form';
+    store.chatSessions.set('chat-task-asked-text-skill', {
+      messages: [{ id: 'message-task-asked-text-skill', content: instruction }],
+    });
+    store.sessions.set('task-asked-text-skill', {
+      id: 'task-asked-text-skill',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-task-asked-text-skill',
+      instructionMessageId: 'message-task-asked-text-skill',
+      status: 'waiting_user',
+      revision: 2,
+      activeTabId: 7,
+      currentRoundId: 'round-asked-text-skill',
+      targetRefs: [],
+      rounds: [
+        {
+          id: 'round-asked-text-skill',
+          instructionMessageId: 'message-task-asked-text-skill',
+          instructionSummary: 'User instruction',
+          status: 'waiting_user',
+          waitReason: 'proof_required',
+          commandAcks: {},
+          criteria: [
+            {
+              id: 'confirm-1',
+              roundId: 'round-asked-text-skill',
+              targetRefId: 'tab-7',
+              kind: 'user_confirmed',
+              operator: 'equals',
+              expected: true,
+              required: true,
+              frozenAt: 1,
+              notBefore: 0,
+              timeoutMs: 60_000,
+              baseline: false,
+            },
+          ],
+          attempts: [],
+          evidence: [],
+          produced: { kind: 'summary', body: 'Saved' },
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await putSkillSaveMeta('task-asked-text-skill', 'round-asked-text-skill', {
+      templates: [{ kind: 'page_text', operator: 'present', expectedTemplate: 'Saved', required: true }],
+      unsafe: false,
+    });
+    const manager = new TaskManager({
+      createExecutor: async () => driver({ kind: 'candidate_complete', summary: 'ignored' }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 200,
+    });
+    const confirmed = await manager.dispatch({
+      type: 'confirm_completion',
+      commandId: 'confirm-asked-text-skill',
+      taskId: 'task-asked-text-skill',
+      expectedRevision: 2,
+      roundId: 'round-asked-text-skill',
+      criterionId: 'confirm-1',
+    });
+    expect(confirmed.accepted).toBe(true);
+    const completed = await manager.snapshot('task-asked-text-skill');
+    expect(completed?.status).toBe('completed');
+    expect(completed?.rounds[0]?.result).toEqual({ kind: 'summary', body: 'Saved' });
+    expect(completed?.rounds[0]?.askedText).toBe('Saved');
   });
 });

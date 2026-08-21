@@ -1069,7 +1069,7 @@ export class TaskManager {
     } catch {
       // Keep empty targetRefs; runCurrentRound will attach or fail honestly.
     }
-    this.rememberAcceptedTask(task.id, command.instruction);
+    this.rememberAcceptedTask(task.id, command.instruction, round);
     await this.persist(task);
     void this.runCurrentRound(task.id);
     return ack;
@@ -1179,14 +1179,14 @@ export class TaskManager {
       createdAt: now,
       updatedAt: now,
     };
-    this.rememberAcceptedTask(task.id, renderedInstruction);
+    this.rememberAcceptedTask(task.id, renderedInstruction, task.rounds[0]);
     const askedSkill = this.accepted.get(task.id);
     if (askedSkill && !askedSkill.askedText) {
       for (const template of skill.criteria) {
         if (template.kind !== 'page_text') continue;
         const takeaway = namedTakeawayText(template.expectedTemplate, template.required);
         if (takeaway) {
-          askedSkill.askedText = takeaway;
+          this.writeAskedText(task.id, takeaway, task.rounds[0]);
           break;
         }
       }
@@ -1284,7 +1284,7 @@ export class TaskManager {
       // Keep resuming even if the previous group was closed.
     }
     const cachedInstruction = this.instructions.get(task.id);
-    if (cachedInstruction) this.rememberAcceptedTask(task.id, cachedInstruction);
+    if (cachedInstruction) this.rememberAcceptedTask(task.id, cachedInstruction, this.currentRound(task));
     const driver = this.drivers.get(task.id);
     if (driver) driver.resume();
     else void this.runCurrentRound(task.id);
@@ -1345,7 +1345,7 @@ export class TaskManager {
       evidence: [],
     });
     const ack = this.accept(task, command.commandId);
-    this.rememberAcceptedTask(task.id, command.instruction);
+    this.rememberAcceptedTask(task.id, command.instruction, this.currentRound(task));
     await this.persist(task);
     const driver = this.drivers.get(task.id);
     if (!driver) void this.runCurrentRound(task.id);
@@ -2330,7 +2330,10 @@ export class TaskManager {
         round = this.currentRound(task);
         instruction = this.instructions.get(taskId) ?? instruction;
       }
-      if (instruction) this.rememberAcceptedTask(taskId, instruction);
+      if (instruction) {
+        this.rememberAcceptedTask(taskId, instruction, round);
+        await this.restoreAskedTextFromSkillMeta(task, round);
+      }
       if (!instruction) {
         // Dead-end if we wait for "proof" with no criteria UI. Fail honestly.
         task.status = 'failed';
@@ -2822,13 +2825,12 @@ export class TaskManager {
         const actionPassed = requiredAction.every(criterion =>
           checked.evidence.some(item => item.criterionId === criterion.id && item.passed),
         );
-        const tableResult = produced?.kind === 'table';
         if (
           resultMatches &&
           orderedSourceProof &&
           artifactsVerified &&
-          (actionPassed || tableResult) &&
-          (checked.passed || tableResult || Boolean(produced?.body))
+          actionPassed &&
+          (checked.passed || Boolean(produced?.body))
         ) {
           const receiptOk = await this.persistMatchingResult(
             current,
@@ -3246,7 +3248,7 @@ export class TaskManager {
         );
         if (successDraft?.kind === 'page_text') {
           const takeaway = namedTakeawayText(successDraft.expected, successDraft.required);
-          if (takeaway) asked.askedText = takeaway;
+          this.writeAskedText(taskId, takeaway, round);
         }
       }
       const criteria = await Promise.all(
@@ -3813,7 +3815,10 @@ export class TaskManager {
     );
     if (!confirmedEvidence) return this.reject(task, command.commandId, 'invalid_transition');
     const instruction = await this.rehydrateInstruction(task, round);
-    if (instruction) this.rememberAcceptedTask(task.id, instruction);
+    if (instruction) {
+      this.rememberAcceptedTask(task.id, instruction, round);
+      await this.restoreAskedTextFromSkillMeta(task, round);
+    }
     const asked = this.acceptedTaskFor(task.id);
     const artifacts = this.pendingConfirmArtifacts.get(this.roundKey(task.id, round.id)) ?? [];
     const produced = this.matchingConfirmResult(asked, round, artifacts, checked.evidence);
@@ -3924,15 +3929,50 @@ export class TaskManager {
     task.plan = plan;
   }
 
-  private rememberAcceptedTask(taskId: string, instruction: string): AcceptedTask {
+  private rememberAcceptedTask(taskId: string, instruction: string, round?: TaskRound): AcceptedTask {
     const asked = acceptTask(instruction);
     const previous = this.accepted.get(taskId);
-    if (previous?.askedText && !asked.askedText && previous.instruction === instruction) {
-      asked.askedText = previous.askedText;
+    if (!asked.askedText) {
+      if (previous?.askedText && previous.instruction === instruction) {
+        asked.askedText = previous.askedText;
+      } else if (round?.askedText?.trim()) {
+        asked.askedText = round.askedText.trim();
+      }
+    }
+    if (asked.askedText && round && !round.askedText?.trim()) {
+      round.askedText = asked.askedText;
     }
     this.instructions.set(taskId, instruction);
     this.accepted.set(taskId, asked);
     return asked;
+  }
+
+  private writeAskedText(taskId: string, text: string | undefined, round?: TaskRound): void {
+    const trimmed = text?.trim();
+    if (!trimmed) return;
+    const asked = this.accepted.get(taskId);
+    if (asked) asked.askedText = trimmed;
+    if (round) round.askedText = trimmed;
+  }
+
+  private async restoreAskedTextFromSkillMeta(task: TaskSession, round: TaskRound): Promise<void> {
+    if (this.accepted.get(task.id)?.askedText?.trim() || round.askedText?.trim()) return;
+    const meta = await getSkillSaveMeta(task.id, round.id);
+    for (const template of meta?.templates ?? []) {
+      if (template.kind !== 'page_text') continue;
+      const named = namedTakeawayText(template.expectedTemplate, template.required);
+      if (named) {
+        this.writeAskedText(task.id, named, round);
+        return;
+      }
+    }
+  }
+
+  private requiredRoundCriteriaAreEvidenced(round: TaskRound, extra: CompletionEvidence[]): boolean {
+    const required = (round.criteria ?? []).filter(item => item.required);
+    if (required.length === 0) return true;
+    const passedIds = new Set([...round.evidence, ...extra].filter(item => item.passed).map(item => item.criterionId));
+    return required.every(item => passedIds.has(item.id));
   }
 
   private acceptedTaskFor(taskId: string): AcceptedTask {
@@ -4050,6 +4090,7 @@ export class TaskManager {
   ): Promise<boolean> {
     const asked = this.acceptedTaskFor(task.id);
     if (!resultIsPresentAndMatches(asked, round.result)) return false;
+    if (!this.requiredRoundCriteriaAreEvidenced(round, evidence)) return false;
     this.completeLiveObserveAttempts(round, this.deps.now());
     const passedEvidence = evidence.filter(item => item.passed);
     const visibleAnswer =

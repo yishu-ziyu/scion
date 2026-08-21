@@ -161,12 +161,12 @@ export function resultIsPresentAndMatches(asked: AcceptedTask, result: TaskResul
   }
 
   if (asked.askedKind === 'report' || asked.askedKind === 'draft') {
-    return result.kind === asked.askedKind && isBasicSubstantiveAnswer(body);
+    return result.kind === asked.askedKind && isBasicSubstantiveAnswer(body, asked.instruction);
   }
 
   if (asked.askedSideEffect && navigationChromeMatchesAsked(asked, body)) return true;
 
-  return isBasicSubstantiveAnswer(body);
+  return isBasicSubstantiveAnswer(body, asked.instruction);
 }
 
 /**
