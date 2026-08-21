@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createTableArtifact, createTextArtifact } from '../artifact';
-import { acceptTask, produceResult, recordStep, resultIsPresentAndMatches } from '../task-result';
+import { acceptTask, matchingStoredResult, produceResult, recordStep, resultIsPresentAndMatches } from '../task-result';
 import type { ActionAttempt } from '@extension/storage/lib/task';
 
 function step(id: string): ActionAttempt {
@@ -139,5 +139,46 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
         body: '结论：样本不足，需要更多来源。',
       }),
     ).toBe(true);
+  });
+
+  it('refuses a cut CSV body that no longer matches the produced table', () => {
+    const asked = acceptTask('Extract products to a CSV table with name, price, rating');
+    const produced = produceResult({
+      asked,
+      summary: [
+        'name,price,rating',
+        'Alpha Wireless Headphones,$49.99,4.5',
+        'Beta Mechanical Keyboard,$89.00,4.8',
+      ].join('\n'),
+    });
+    expect(produced?.kind).toBe('table');
+    expect(matchingStoredResult(asked, produced!, 'name,price,rating')).toBeNull();
+    expect(matchingStoredResult(asked, produced!, produced!.body)).toEqual(produced);
+  });
+
+  it('refuses a CSV that drops below askedMinRows', () => {
+    const asked = acceptTask('Do not export all products; export the first 5 as CSV with name, price, rating');
+    expect(asked.askedMinRows).toBe(5);
+    const rows = Array.from({ length: 5 }, (_, index) => `Item${index + 1},$${index},4.${index}`);
+    const produced = produceResult({
+      asked,
+      summary: ['name,price,rating', ...rows].join('\n'),
+    });
+    expect(produced?.kind).toBe('table');
+    const belowMin = ['name,price,rating', ...rows.slice(0, 3)].join('\n');
+    expect(matchingStoredResult(asked, produced!, belowMin)).toBeNull();
+    expect(matchingStoredResult(asked, produced!, produced!.body)).toEqual(produced);
+  });
+
+  it('refuses a 2000-character prefix of a produced report', () => {
+    const asked = acceptTask('写一份研究报告');
+    const produced = produceResult({
+      asked,
+      summary: `结论：样本覆盖了三个来源。${'补充说明。'.repeat(400)}`,
+    });
+    expect(produced?.kind).toBe('report');
+    expect(produced!.body.length).toBeGreaterThan(2000);
+    expect(matchingStoredResult(asked, produced!, produced!.body.slice(0, 2000))).toBeNull();
+    expect(matchingStoredResult(asked, produced!, produced!.body)).toEqual(produced);
   });
 });

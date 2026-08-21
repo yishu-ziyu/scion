@@ -48,6 +48,7 @@ import { artifactToResultText, type TaskArtifact } from './artifact';
 import { verifyCandidateComplete, type ArtifactCriterion } from './verification-engine';
 import {
   acceptTask,
+  matchingStoredResult,
   namedTakeawayText,
   produceResult,
   recordStep,
@@ -2198,7 +2199,7 @@ export class TaskManager {
         if (!this.canApplyDriverOutcome(current, taskId, driver)) return;
         if (current.currentRoundId !== runRoundId) return;
         const currentRound = this.currentRound(current);
-        currentRound.instructionSummary = result.slice(0, 2000);
+        currentRound.instructionSummary = result;
         delete currentRound.waitReason;
         delete currentRound.failureCategory;
         const now = this.deps.now();
@@ -4004,11 +4005,11 @@ export class TaskManager {
     const pageEvidence = this.visitedPageEvidence(task);
     if (!(await checkOrderedSourceVisitProof(instruction, pageEvidence))) return false;
     if (!(await checkInstructionDeliverable(instruction, produced.body, pageEvidence)).passed) return false;
-    const redactedBody = (await redactDeliverableUrlsForPersistence(produced.body)).slice(0, 2000);
-    const stored = { ...produced, body: redactedBody };
-    if (!resultIsPresentAndMatches(asked, stored)) return false;
+    const redactedBody = await redactDeliverableUrlsForPersistence(produced.body);
+    const stored = matchingStoredResult(asked, produced, redactedBody);
+    if (!stored) return false;
     round.result = stored;
-    round.instructionSummary = redactedBody;
+    round.instructionSummary = stored.body;
     return this.persistVerifiedReceipt(task, round, evidence, incrementRevision, artifactProofIds);
   }
 

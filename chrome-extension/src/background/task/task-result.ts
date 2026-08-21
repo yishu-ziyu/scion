@@ -161,6 +161,25 @@ export function resultIsPresentAndMatches(asked: AcceptedTask, result: TaskResul
   return body.length >= 2;
 }
 
+/**
+ * Body that may be written to `TaskRound.result` after URL redaction.
+ * Returns that body as a `TaskResult`, or null if it is a cut of `produced.body`
+ * or a table with fewer data rows than `produceResult` made.
+ */
+export function matchingStoredResult(
+  asked: AcceptedTask,
+  produced: TaskResult,
+  persistedBody: string,
+): TaskResult | null {
+  const stored: TaskResult = { ...produced, body: persistedBody };
+  if (!resultIsPresentAndMatches(asked, stored)) return null;
+  if (persistedBody.length < produced.body.length && produced.body.startsWith(persistedBody)) return null;
+  if (asked.askedKind === 'table' && tableDataRowCount(persistedBody) < tableDataRowCount(produced.body)) {
+    return null;
+  }
+  return stored;
+}
+
 function asksForTable(instruction: string): boolean {
   return (
     (/\bcsv\b/i.test(instruction) || /表格|\btable\b/i.test(instruction)) &&

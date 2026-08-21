@@ -152,6 +152,40 @@ describe('task / steps / result chain', () => {
     expect(round?.result?.body).toContain('Alpha,$49.99,4.5');
   });
 
+  it('persists a table longer than 2000 characters in full', async () => {
+    const rows = Array.from({ length: 80 }, (_, index) => ({
+      name: `Product ${String(index + 1).padStart(3, '0')} Extra Long Name For Persistence`,
+      price: `$${(index + 1).toFixed(2)}`,
+      rating: '4.5',
+    }));
+    const artifact = createTableArtifact({
+      title: 'products',
+      columns: ['name', 'price', 'rating'],
+      rows,
+      sources: [{ url: 'https://fixture.local/products' }],
+    });
+    const lastName = rows.at(-1)!.name;
+    const manager = new TaskManager({
+      createExecutor: async () =>
+        driver({
+          kind: 'candidate_complete',
+          summary: 'Extracted 80 records. Task is not complete.',
+          artifacts: [artifact],
+        }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-table-full', 'Extract products to a CSV table with name, price, rating');
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-table-full'))?.status).toBe('completed');
+    });
+    const body = (await manager.snapshot('task-table-full'))?.rounds[0]?.result?.body ?? '';
+    expect(body.length).toBeGreaterThan(2000);
+    expect(body).toContain('name,price,rating');
+    expect(body).toContain(lastName);
+  });
+
   it('completes from extract_content once a matching table exists, without a separate mark-complete', async () => {
     let hooks!: ExecutorHooks;
     const pending = driver({ kind: 'candidate_complete', summary: 'still going' });
