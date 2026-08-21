@@ -1,3 +1,24 @@
+function isPrivateOrMetadataHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) return false;
+  if (host === 'localhost' || host === '::1' || host === '0.0.0.0') {
+    return true;
+  }
+  if (host === '169.254.169.254') {
+    return true;
+  }
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!ipv4) {
+    return false;
+  }
+  const a = Number(ipv4[1]);
+  const b = Number(ipv4[2]);
+  if (a === 10 || a === 127 || a === 0) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
+}
+
 /**
  * Checks if a URL is allowed based on firewall configuration
  * @param url The URL to check
@@ -29,6 +50,15 @@ export function isUrlAllowed(url: string, allowList: string[], denyList: string[
 
   if (DANGEROUS_PREFIXES.some(prefix => lowerCaseUrl.startsWith(prefix))) {
     return false;
+  }
+
+  try {
+    const parsedForDeny = new URL(trimmedUrl.includes('://') ? trimmedUrl : `https://${trimmedUrl}`);
+    if (isPrivateOrMetadataHost(parsedForDeny.hostname)) {
+      return false;
+    }
+  } catch {
+    // Invalid URL format is handled below
   }
 
   // If firewall is disabled, allow all other URLs

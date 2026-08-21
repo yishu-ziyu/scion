@@ -9,6 +9,16 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outFile = path.resolve(__dirname, '../src/personal/secrets.local.ts');
+const exampleFile = path.resolve(__dirname, '../src/personal/secrets.local.example.ts');
+const stubIfMissing = process.argv.includes('--stub-if-missing');
+
+if (stubIfMissing) {
+  if (!fs.existsSync(outFile) && fs.existsSync(exampleFile)) {
+    fs.copyFileSync(exampleFile, outFile);
+    console.log('[inject-personal-secrets] Wrote empty stub secrets.local.ts (no personal key).');
+  }
+  process.exit(0);
+}
 
 function parseEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return {};
