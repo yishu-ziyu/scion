@@ -1,7 +1,10 @@
+import { csvOrMarkdownBlockSpans } from '@extension/shared';
+
 export type AnswerSpan = { bold?: boolean; text: string; href?: string };
 
 export type AnswerBlock =
   | { type: 'p'; spans: AnswerSpan[] }
+  | { type: 'pre'; text: string }
   | { type: 'ul'; items: AnswerSpan[][] }
   | { type: 'ol'; items: AnswerSpan[][] };
 
@@ -19,6 +22,25 @@ export function parseAnswerBlocks(raw: string): AnswerBlock[] {
   const text = normalizeAnswerSource(raw);
   if (!text) return [];
   const blocks: AnswerBlock[] = [];
+  let cursor = 0;
+  for (const span of csvOrMarkdownBlockSpans(text)) {
+    appendProseBlocks(blocks, text.slice(cursor, span.start));
+    const table = text
+      .slice(span.start, span.end)
+      .split('\n')
+      .map(line => line.trim())
+      .join('\n');
+    if (table) blocks.push({ type: 'pre', text: table });
+    cursor = span.end;
+    if (text[cursor] === '\n') cursor += 1;
+  }
+  appendProseBlocks(blocks, text.slice(cursor));
+  return blocks;
+}
+
+function appendProseBlocks(blocks: AnswerBlock[], raw: string): void {
+  const text = raw.replace(/^\n+|\n+$/g, '');
+  if (!text) return;
   let paragraph: string[] = [];
   let bullets: string[] = [];
   let numbers: string[] = [];
@@ -69,7 +91,6 @@ export function parseAnswerBlocks(raw: string): AnswerBlock[] {
   flushParagraph();
   flushBullets();
   flushNumbers();
-  return blocks;
 }
 
 function normalizeAnswerSource(raw: string): string {
@@ -111,6 +132,7 @@ export function attachSourceHrefs(
     });
   return blocks.map(block => {
     if (block.type === 'p') return { ...block, spans: linkSpans(block.spans) };
+    if (block.type === 'pre') return block;
     return { ...block, items: block.items.map(item => linkSpans(item)) };
   });
 }

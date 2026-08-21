@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { attachSourceHrefs, parseAnswerBlocks, type AnswerSpan } from '../presentation/answer-format';
 import { openFoundUrl } from '../presentation/open-found-url';
 import type { StreamSource } from '../presentation/work-stream';
@@ -38,51 +39,50 @@ export function AnswerProse({
   const blocks = attachSourceHrefs(parseAnswerBlocks(text), sources);
   return (
     <div className="chijie-answer" data-testid={testId}>
-      {blocks.map((block, index) => {
-        if (block.type === 'ul') {
-          return (
-            <ul key={index}>
+      {blocks.map((block, index) => (
+        <Fragment key={index}>
+          {index > 0 ? '\n' : null}
+          {block.type === 'ul' ? (
+            <ul>
               {block.items.map((item, itemIndex) => (
                 <li key={itemIndex}>
                   <Spans spans={item} onOpenUrl={onOpenUrl} />
                 </li>
               ))}
             </ul>
-          );
-        }
-        if (block.type === 'ol') {
-          return (
-            <ol key={index}>
+          ) : block.type === 'ol' ? (
+            <ol>
               {block.items.map((item, itemIndex) => (
                 <li key={itemIndex}>
                   <Spans spans={item} onOpenUrl={onOpenUrl} />
                 </li>
               ))}
             </ol>
-          );
-        }
-        return (
-          <p key={index}>
-            <Spans spans={block.spans} onOpenUrl={onOpenUrl} />
-          </p>
-        );
-      })}
+          ) : block.type === 'pre' ? (
+            <pre className="chijie-answer-table">{block.text}</pre>
+          ) : (
+            <p>
+              <Spans spans={block.spans} onOpenUrl={onOpenUrl} />
+            </p>
+          )}
+        </Fragment>
+      ))}
       {sources.length > 0 ? (
         <div className="chijie-answer-sources" data-testid="answer-sources">
           <p className="chijie-stream-caption">对核这些页</p>
           <ul>
-          {sources.map(source => (
-            <li key={source.id}>
-              <button
-                type="button"
-                className="chijie-answer-source"
-                data-url={source.url}
-                onClick={() => openFoundUrl(source.url, onOpenUrl)}>
-                <span className="chijie-search-host">{source.host ?? '网页'}</span>
-                <span>{source.title}</span>
-              </button>
-            </li>
-          ))}
+            {sources.map(source => (
+              <li key={source.id}>
+                <button
+                  type="button"
+                  className="chijie-answer-source"
+                  data-url={source.url}
+                  onClick={() => openFoundUrl(source.url, onOpenUrl)}>
+                  <span className="chijie-search-host">{source.host ?? '网页'}</span>
+                  <span>{source.title}</span>
+                </button>
+              </li>
+            ))}
           </ul>
         </div>
       ) : null}

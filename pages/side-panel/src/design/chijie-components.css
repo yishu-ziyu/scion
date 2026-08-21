@@ -1779,6 +1779,14 @@ button.chijie-page-card:hover {
   line-height: 1.65;
 }
 
+.chijie-answer-table {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  white-space: pre-wrap;
+}
+
 .chijie-answer ul,
 .chijie-answer ol {
   margin: 0;

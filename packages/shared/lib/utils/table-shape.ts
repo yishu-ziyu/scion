@@ -1,6 +1,8 @@
 /**
  * CSV / Markdown table shape used by `checkInstructionDeliverable`
- * (`csvOrMarkdownBlockSpans`) and by `resultIsPresentAndMatches` (`looksLikeTable`).
+ * (`csvOrMarkdownBlockSpans`), `resultIsPresentAndMatches` (`looksLikeTable`),
+ * and `parseAnswerBlocks` so a table `TaskResult.body` keeps header and data rows
+ * on separate lines in `[data-testid="completion-result"]`.
  * Comma prose and header+separator-only Markdown are not tables.
  */
 

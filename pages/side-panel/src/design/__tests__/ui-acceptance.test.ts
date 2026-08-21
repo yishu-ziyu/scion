@@ -538,6 +538,9 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toContain('completion-deliverable-copy');
     expect(taskStatusCardSource).toContain('writeText(resultSentence)');
     expect(componentsCss).toContain('.chijie-answer');
+    expect(componentsCss).toContain('.chijie-answer-table');
+    expect(componentsCss).toContain('white-space: pre-wrap');
+    expect(answerProseSource).toContain('chijie-answer-table');
   });
 
   it('completion block shows a delivered sentence without a rating form', () => {

@@ -12,7 +12,7 @@ import {
   csvOrMarkdownDataRowCount,
   firstCsvOrMarkdownHeaderLine,
   structuredTableCells,
-} from './table-shape';
+} from '@extension/shared';
 
 export type { TaskResult, TaskResultKind };
 
@@ -363,9 +363,11 @@ function tableResultFromText(summary: string | undefined): TaskResult | null {
   return { kind: 'table', body };
 }
 
-/** Keep paragraph breaks in report/draft/summary bodies. Collapse only status chrome. */
+/** Keep paragraph breaks and table rows. Collapse only status chrome. */
 function writtenKindBody(kind: TaskResultKind, value: string | undefined): string {
-  if (kind === 'report' || kind === 'draft' || kind === 'summary') return preserveWrittenNewlines(value);
+  if (kind === 'report' || kind === 'draft' || kind === 'summary' || kind === 'table') {
+    return preserveWrittenNewlines(value);
+  }
   return visibleBody(value);
 }
 
