@@ -5,6 +5,9 @@
 
 export type LoopPhase = 'observe' | 'decide' | 'act' | 'reobserve';
 
+/** A single decide may execute at most this many actions before another decide. */
+export const MAX_ACTIONS_PER_DECISION = 5;
+
 export type LoopFailureCategory =
   | 'observe_failed'
   | 'llm_failed'
@@ -21,10 +24,19 @@ export type LoopFailureCategory =
   | 'judge_retry'
   | 'cancelled';
 
+export type LoopAction = { name: string; args: Record<string, unknown> };
+
 export type LoopDecision =
   | { kind: 'waiting_user'; reason: 'login_required' | 'captcha_required' }
   | { kind: 'done'; summary: string }
-  | { kind: 'action'; name: string; args: Record<string, unknown>; observation?: string }
+  | {
+      kind: 'action';
+      name: string;
+      args: Record<string, unknown>;
+      observation?: string;
+      /** More acts from this decide. `args.index` is from the ObservationFrame at decide time. */
+      followup?: LoopAction[];
+    }
   | { kind: 'recoverable'; category: LoopFailureCategory }
   | { kind: 'fatal'; category: LoopFailureCategory };
 
@@ -49,16 +61,20 @@ export interface ObserveActLoopOptions {
    */
   maxNoProgress?: number;
   isStopped: () => boolean;
-  waitIfPaused: () => Promise<void>;
+  /** Return true when execution actually waited for a pause/resume cycle. */
+  waitIfPaused: () => Promise<void | boolean>;
+  /** Monotonic counter incremented whenever a pause starts, including a pause/resume between checks. */
+  pauseVersion?: () => number;
   /** Page state summary for the model / policy. */
   observe: () => Promise<string>;
   /** Turn observation into a decision. */
   decide: (stateText: string, step: number) => Promise<LoopDecision>;
   /** Execute one action through Task hooks / browser control. */
-  act: (action: {
-    name: string;
-    args: Record<string, unknown>;
-  }) => Promise<{ error?: string | null; isDone?: boolean; summary?: string | null; progressKey?: string | null }>;
+  act: (
+    action: LoopAction,
+  ) => Promise<{ error?: string | null; isDone?: boolean; summary?: string | null; progressKey?: string | null }>;
+  /** Rebind a queued indexed action to the same element in the latest observation. Null forces a new decide. */
+  resolveQueuedAction?: (action: LoopAction) => LoopAction | null | Promise<LoopAction | null>;
   /** Optional re-observe after successful act (browser-use style). */
   reobserve?: () => Promise<string>;
   onPhase?: (event: LoopPhaseEvent) => void | Promise<void>;
@@ -150,13 +166,30 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
 
     if (isStopped()) return { kind: 'cancelled' };
 
+    const pauseVersionBeforeDecide = options.pauseVersion?.();
+    const decisionInvalidatedByPause = () =>
+      pauseVersionBeforeDecide !== undefined && options.pauseVersion?.() !== pauseVersionBeforeDecide;
+
     let decision: LoopDecision;
     try {
       await emitPhase({ phase: 'decide', step });
       decision = await decide(stateText, step);
     } catch {
+      if (isStopped()) return { kind: 'cancelled' };
+      if (decisionInvalidatedByPause()) {
+        carriedState = undefined;
+        pendingNoProgressBefore = undefined;
+        continue;
+      }
       failures += 1;
       if (failures >= budget) return { kind: 'failed', category: 'llm_failed' };
+      continue;
+    }
+
+    if (isStopped()) return { kind: 'cancelled' };
+    if (decisionInvalidatedByPause()) {
+      carriedState = undefined;
+      pendingNoProgressBefore = undefined;
       continue;
     }
 
@@ -178,66 +211,181 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
       return { kind: 'candidate_complete', summary: decision.summary };
     }
 
-    // action
-    const stateBeforeAct = stateText.trim();
-    await emitPhase({ phase: 'act', step, detail: decision.name });
-    let semanticProgress = false;
-    try {
-      const result = await act({ name: decision.name, args: decision.args });
-      if (result.error) {
-        if (options.shouldRetryFailure && !options.shouldRetryFailure(result.error)) {
-          return { kind: 'failed', category: 'action_failed' };
+    // action + followup from this decide. args.index is from the ObservationFrame at decide time.
+    const queue = [{ name: decision.name, args: decision.args }, ...(decision.followup ?? [])].slice(
+      0,
+      MAX_ACTIONS_PER_DECISION,
+    );
+    const stateBeforeQueue = stateText.trim();
+    let snapshotInvalid = false;
+    let retryDecide = false;
+    let queueInterruptedByPause = false;
+    let queueSemanticProgress = false;
+    let reobserveFailed = false;
+
+    for (let qi = 0; qi < queue.length; qi++) {
+      if (isStopped()) return { kind: 'cancelled' };
+      const resumedFromPause = (await waitIfPaused()) === true;
+      if (isStopped()) return { kind: 'cancelled' };
+      if (resumedFromPause || decisionInvalidatedByPause()) {
+        queueInterruptedByPause = true;
+        break;
+      }
+
+      let action = queue[qi];
+      if (qi > 0 && snapshotInvalid && actionUsesElementIndex(action)) {
+        retryDecide = true;
+        break;
+      }
+      if (qi > 0 && options.resolveQueuedAction && actionUsesElementIndex(action)) {
+        try {
+          const resolved = await options.resolveQueuedAction(action);
+          if (!resolved) {
+            retryDecide = true;
+            break;
+          }
+          action = resolved;
+        } catch {
+          retryDecide = true;
+          break;
+        }
+        if (isStopped()) return { kind: 'cancelled' };
+        if (decisionInvalidatedByPause()) {
+          queueInterruptedByPause = true;
+          break;
+        }
+      }
+
+      await emitPhase({ phase: 'act', step, detail: action.name });
+      if (isStopped()) return { kind: 'cancelled' };
+      if (decisionInvalidatedByPause()) {
+        queueInterruptedByPause = true;
+        break;
+      }
+      try {
+        const result = await act({ name: action.name, args: action.args });
+        if (isStopped()) return { kind: 'cancelled' };
+        if (decisionInvalidatedByPause()) {
+          queueInterruptedByPause = true;
+          break;
+        }
+        if (result.error) {
+          if (options.shouldRetryFailure && !options.shouldRetryFailure(result.error)) {
+            return { kind: 'failed', category: 'action_failed' };
+          }
+          failures += 1;
+          pendingNoProgressBefore = undefined;
+          if (failures >= budget) return { kind: 'failed', category: 'action_failed' };
+          retryDecide = true;
+          break;
+        }
+        if (result.progressKey && !seenProgressKeys.has(result.progressKey)) {
+          seenProgressKeys.add(result.progressKey);
+          queueSemanticProgress = true;
+        }
+        if (result.isDone) {
+          return {
+            kind: 'candidate_complete',
+            summary: result.summary || decision.observation || 'done',
+          };
+        }
+      } catch {
+        if (isStopped()) return { kind: 'cancelled' };
+        if (decisionInvalidatedByPause()) {
+          queueInterruptedByPause = true;
+          break;
         }
         failures += 1;
         pendingNoProgressBefore = undefined;
-        if (failures >= budget) return { kind: 'failed', category: 'action_failed' };
-        continue;
+        if (failures >= budget) return { kind: 'failed', category: 'dispatch_failed' };
+        retryDecide = true;
+        break;
       }
-      failures = 0;
-      if (result.progressKey && !seenProgressKeys.has(result.progressKey)) {
-        seenProgressKeys.add(result.progressKey);
-        semanticProgress = true;
-      }
-      if (result.isDone) {
-        return {
-          kind: 'candidate_complete',
-          summary: result.summary || decision.observation || 'done',
-        };
-      }
-    } catch {
-      failures += 1;
-      pendingNoProgressBefore = undefined;
-      if (failures >= budget) return { kind: 'failed', category: 'dispatch_failed' };
-      continue;
-    }
 
-    if (reobserve) {
-      try {
-        await emitPhase({ phase: 'reobserve', step, detail: 'after_act' });
-        carriedState = await reobserve();
-        if (noProgressEnabled) {
-          if ((carriedState ?? '').trim() === stateBeforeAct && !semanticProgress) {
-            noProgressStreak += 1;
-            if (noProgressStreak >= maxNoProgress && (await failIfStillStuck())) {
-              return { kind: 'failed', category: 'no_progress' };
-            }
-          } else {
-            noProgressStreak = 0;
+      if (actionInvalidatesElementSnapshot(action.name)) {
+        snapshotInvalid = true;
+      }
+
+      if (reobserve) {
+        const resumedBeforeReobserve = (await waitIfPaused()) === true;
+        if (isStopped()) return { kind: 'cancelled' };
+        if (resumedBeforeReobserve || decisionInvalidatedByPause()) {
+          queueInterruptedByPause = true;
+          break;
+        }
+        try {
+          await emitPhase({ phase: 'reobserve', step, detail: 'after_act' });
+          if (isStopped()) return { kind: 'cancelled' };
+          if (decisionInvalidatedByPause()) {
+            queueInterruptedByPause = true;
+            break;
+          }
+          carriedState = await reobserve();
+          if (isStopped()) return { kind: 'cancelled' };
+          if (decisionInvalidatedByPause()) {
+            carriedState = undefined;
+            queueInterruptedByPause = true;
+            break;
+          }
+          reobserveFailed = false;
+        } catch {
+          carriedState = undefined;
+          reobserveFailed = true;
+          if (qi < queue.length - 1) {
+            pendingNoProgressBefore = noProgressEnabled ? stateBeforeQueue : undefined;
+            retryDecide = true;
+            break;
           }
         }
-      } catch {
-        // Soft failure: next iteration falls back to a full observe.
-        carriedState = undefined;
-        if (noProgressEnabled) {
-          pendingNoProgressBefore = stateBeforeAct;
-        }
       }
-    } else if (noProgressEnabled) {
-      pendingNoProgressBefore = stateBeforeAct;
+    }
+
+    if (retryDecide) continue;
+    if (queueInterruptedByPause) {
+      carriedState = undefined;
+      pendingNoProgressBefore = undefined;
+      continue;
+    }
+    failures = 0;
+
+    if (noProgressEnabled) {
+      if (reobserve && !reobserveFailed && carriedState !== undefined) {
+        if (carriedState.trim() === stateBeforeQueue && !queueSemanticProgress) {
+          noProgressStreak += 1;
+          if (noProgressStreak >= maxNoProgress && (await failIfStillStuck())) {
+            return { kind: 'failed', category: 'no_progress' };
+          }
+        } else {
+          noProgressStreak = 0;
+        }
+      } else if (!reobserve || reobserveFailed) {
+        pendingNoProgressBefore = stateBeforeQueue;
+      }
     }
   }
 
   return { kind: 'failed', category: 'max_steps' };
+}
+
+export function actionUsesElementIndex(action: { args: Record<string, unknown> }): boolean {
+  return typeof action.args.index === 'number' && Number.isFinite(action.args.index);
+}
+
+/** Clicks and navigations replace the snapshot that remaining indexes were bound to. */
+export function actionInvalidatesElementSnapshot(name: string): boolean {
+  return (
+    name === 'click_element' ||
+    name === 'go_to_url' ||
+    name === 'open_tab' ||
+    name === 'close_tab' ||
+    name === 'go_back' ||
+    name === 'previous_page' ||
+    name === 'next_page' ||
+    name === 'search_google' ||
+    name === 'select_dropdown_option' ||
+    name === 'send_keys' ||
+    name === 'switch_tab'
+  );
 }
 
 /** Content targets must not be chrome-extension:// pages (side panel). */

@@ -37,6 +37,7 @@ import {
   buildAgentStatusBar,
   instructionLooksLikeResearch,
   observationSupportsWaitingUser,
+  CONTROL_MAX_ACTIONS_PER_TURN,
   parseControlPolicyDecision,
   renderControlSystemPrompt,
 } from './control-policy';
@@ -51,7 +52,14 @@ import {
 } from './control-supervise';
 import { Actors, ExecutionState } from '../event/types';
 import type { Action } from '../actions/builder';
-import { isForbiddenTaskContentUrl, runObserveActLoop, type LoopDecision, type LoopOutcome } from './observe-act-loop';
+import {
+  isForbiddenTaskContentUrl,
+  runObserveActLoop,
+  type LoopAction,
+  type LoopDecision,
+  type LoopOutcome,
+} from './observe-act-loop';
+import { captureQueuedActionTarget, resolveQueuedActionIndex, type QueuedActionTarget } from './queued-action-target';
 import { markSetupError } from '../../task/executor-start-error';
 import {
   buildObservationFrame,
@@ -74,10 +82,7 @@ import {
   type TrajectoryStep,
 } from '../context';
 import { numberedStepSegments } from '../../task/mission-plan';
-import {
-  instructionUrlPlanFromText,
-  openAndDescribeIndependentPages,
-} from '../../task/independent-urls';
+import { instructionUrlPlanFromText, openAndDescribeIndependentPages } from '../../task/independent-urls';
 import { collectSearchFindings, isSearchResultsUrl } from '../../browser/search-results';
 
 const logger = createLogger('ControlLlmBackend');
@@ -331,7 +336,7 @@ export async function createLlmControlDriver(
   const agentContext = new AgentContext(input.taskId, browserContext, messageManager, eventManager, {
     maxSteps: generalSettings.maxSteps,
     maxFailures: generalSettings.maxFailures,
-    maxActionsPerStep: 1,
+    maxActionsPerStep: CONTROL_MAX_ACTIONS_PER_TURN,
     useVision: generalSettings.useVision,
     planningInterval: generalSettings.planningInterval,
   });
@@ -366,6 +371,7 @@ export async function createLlmControlDriver(
   });
 
   let paused = false;
+  let pauseVersion = 0;
   let stopped = false;
   const followUps: string[] = [];
   let resumeWaiters: Array<() => void> = [];
@@ -373,6 +379,7 @@ export async function createLlmControlDriver(
   let currentPageRevision: string | null = null;
   let currentFrame: ObservationFrame | null = null;
   let previousFrame: ObservationFrame | null = null;
+  const queuedActionTargets = new WeakMap<Record<string, unknown>, QueuedActionTarget | null>();
   let lastRenderedMode: 'full' | 'diff' = 'full';
   const trajectorySteps: TrajectoryStep[] = [];
   const skillState = new Map<string, unknown>();
@@ -381,12 +388,25 @@ export async function createLlmControlDriver(
   let pageBodyRead = false;
   let observeQuery: string | undefined;
 
+  const rememberQueuedActionTargets = (decision: LoopDecision): LoopDecision => {
+    if (decision.kind !== 'action') return decision;
+    const actions: LoopAction[] = [{ name: decision.name, args: decision.args }, ...(decision.followup ?? [])];
+    for (const action of actions) {
+      if (typeof action.args.index !== 'number' || !Number.isFinite(action.args.index)) continue;
+      queuedActionTargets.set(action.args, captureQueuedActionTarget(currentFrame, action.args));
+    }
+    return decision;
+  };
+
   const waitIfPaused = async () => {
+    let waited = false;
     while (paused && !stopped) {
+      waited = true;
       await new Promise<void>(resolve => {
         resumeWaiters.push(resolve);
       });
     }
+    return waited;
   };
 
   const markPageBodyFromFrame = (frame: ObservationFrame) => {
@@ -531,6 +551,7 @@ export async function createLlmControlDriver(
         maxNoProgress,
         isStopped: () => stopped,
         waitIfPaused,
+        pauseVersion: () => pauseVersion,
         shouldRetryFailure: evalSettings.featureFlags.enableRetryRecovery
           ? error => classifyRetry(error) === 'retry'
           : () => false,
@@ -599,9 +620,10 @@ export async function createLlmControlDriver(
           const planBlock = [
             planMemory,
             stepWording.length
-              ? ['## Current step wording (not stored on the plan)', ...stepWording.map((label, index) => `- phase-${index + 1}: ${label}`)].join(
-                  '\n',
-                )
+              ? [
+                  '## Current step wording (not stored on the plan)',
+                  ...stepWording.map((label, index) => `- phase-${index + 1}: ${label}`),
+                ].join('\n')
               : '',
           ]
             .filter(Boolean)
@@ -699,7 +721,7 @@ export async function createLlmControlDriver(
                     logger.warning('skill action missing from registry; fallback', { name: decision.name });
                   } else {
                     logger.info('skill action', { skill: skillTry.record?.skillId, name: decision.name });
-                    return decision;
+                    return rememberQueuedActionTargets(decision);
                   }
                 }
               }
@@ -793,12 +815,14 @@ export async function createLlmControlDriver(
           try {
             const parsed = extractJsonFromModelOutput(rawText);
             decision = parseControlPolicyDecision(parsed);
-            if (decision.action) {
-              decision = {
-                ...decision,
-                action: rewriteInventedLookupNavigation(instruction, decision.action),
-              };
-            }
+            const queued = (decision.actions.length > 0 ? decision.actions : decision.action ? [decision.action] : [])
+              .map(item => rewriteInventedLookupNavigation(instruction, item))
+              .filter((item): item is { name: string; args: Record<string, unknown> } => item !== null);
+            decision = {
+              ...decision,
+              action: queued[0] ?? null,
+              actions: queued,
+            };
           } catch (error) {
             logger.error('control JSON parse failed', error);
             return { kind: 'recoverable', category: 'json_parse_failed' };
@@ -865,7 +889,9 @@ export async function createLlmControlDriver(
             return settleProposedDone(decision.observation || 'Control loop candidate complete', stateText);
           }
 
-          if (!decision.action) {
+          const queued = decision.actions;
+          const first = queued[0];
+          if (!first) {
             if (pageBodyRead) {
               const retry = decideVisiblePageWithoutAction(lastActionMemory || JUDGE_PAGE_THEN_WRITE);
               lastActionMemory = retry.memory;
@@ -874,17 +900,19 @@ export async function createLlmControlDriver(
             return { kind: 'recoverable', category: 'no_action' };
           }
 
-          if (!registry.get(decision.action.name)) {
-            logger.error('unknown action', decision.action.name);
+          const unknown = queued.find(item => !registry.get(item.name));
+          if (unknown) {
+            logger.error('unknown action', unknown.name);
             return { kind: 'recoverable', category: 'unknown_action' };
           }
 
-          return {
+          return rememberQueuedActionTargets({
             kind: 'action',
-            name: decision.action.name,
-            args: decision.action.args,
+            name: first.name,
+            args: first.args,
             observation: decision.observation,
-          };
+            ...(queued.length > 1 ? { followup: queued.slice(1) } : {}),
+          });
         },
         act: async ({ name, args }) => {
           if (name === 'observe') {
@@ -993,6 +1021,14 @@ export async function createLlmControlDriver(
           }
           return stateText;
         },
+        resolveQueuedAction: action => {
+          if (!queuedActionTargets.has(action.args)) return null;
+          const target = queuedActionTargets.get(action.args);
+          if (!target) return null;
+          const index = resolveQueuedActionIndex(target, currentFrame);
+          if (index === null) return null;
+          return index === action.args.index ? action : { ...action, args: { ...action.args, index } };
+        },
       });
 
       return mapLoopOutcomeToExecutor(loopOutcome, { artifacts });
@@ -1001,6 +1037,7 @@ export async function createLlmControlDriver(
       followUps.push(instruction);
     },
     pause: () => {
+      pauseVersion += 1;
       paused = true;
       void agentContext.pause();
     },

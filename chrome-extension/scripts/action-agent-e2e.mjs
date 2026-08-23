@@ -613,7 +613,7 @@ async function writeActionTrace(panel, scenario, boundTabId, outcome) {
   });
   const scopedSamples = traceTabSamples.filter(sample => sample.task_id === runtimeTaskId);
   for (const span of trace.spans.filter(item => ['observe', 'act', 'reobserve'].includes(item.kind))) {
-    const spanAt = Date.parse(String(span.started_at || ''));
+    const spanAt = typeof span.started_at === 'number' ? span.started_at : Date.parse(String(span.started_at || ''));
     const nearest = scopedSamples
       .map(sample => Math.abs(Date.parse(sample.captured_at) - spanAt))
       .filter(Number.isFinite)

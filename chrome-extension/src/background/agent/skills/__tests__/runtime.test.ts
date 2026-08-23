@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSkillRegistry } from '../registry';
 import { discoverSkills } from '../discovery';
-import { createSkillRuntime } from '../runtime';
+import { createSkillRuntime, toLoopDecision } from '../runtime';
 import { formFillSubmitSkill } from '../builtin/form-fill-submit';
 import { themeCitationSkill } from '../builtin/theme-citation';
 import { repeatingListExtractSkill } from '../builtin/repeating-list-extract';
@@ -148,7 +148,23 @@ describe('Skill discovery + runtime', () => {
     ).toEqual([]);
   });
 
-  it('runs form fill skill to input_text then submit', async () => {
+  it('passes followup actions through to the loop decision', () => {
+    expect(
+      toLoopDecision({
+        kind: 'action',
+        name: 'input_text',
+        args: { index: 1, text: 'Ada' },
+        followup: [{ name: 'click_element', args: { index: 2 } }],
+      }),
+    ).toEqual({
+      kind: 'action',
+      name: 'input_text',
+      args: { index: 1, text: 'Ada' },
+      followup: [{ name: 'click_element', args: { index: 2 } }],
+    });
+  });
+
+  it('returns fill and submit from the form skill in one decision', async () => {
     const runtime = createSkillRuntime({
       registry: createSkillRegistry([formFillSubmitSkill]),
       kernel: mockKernel(),
@@ -167,10 +183,51 @@ describe('Skill discovery + runtime', () => {
     });
     expect(first.handled).toBe(true);
     expect(first.fallbackUsed).toBe(false);
-    expect(first.decision).toEqual(
-      expect.objectContaining({ kind: 'action', name: 'input_text' }),
-    );
+    expect(first.decision).toEqual({
+      kind: 'action',
+      name: 'input_text',
+      args: {
+        index: 1,
+        text: 'FIELD_SENTINEL_8472',
+        intent: '填写姓名',
+      },
+      observation: 'Filling name field and submitting form',
+      followup: [
+        {
+          name: 'click_element',
+          args: { index: 2, intent: '提交表单' },
+        },
+      ],
+    });
     expect(first.criteria?.some(item => item.kind === 'page_text')).toBe(true);
+
+    const filledFrame = frame('https://localhost/form.html');
+    filledFrame.interactiveElements[0].value = 'FIELD_SENTINEL_8472';
+    const retrySubmit = await runtime.tryDecide({
+      roundId: 'r1',
+      instruction: 'Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.',
+      url: 'https://localhost/form.html',
+      observationText: filledFrame.text,
+      frame: filledFrame,
+      skillState,
+    });
+    expect(retrySubmit.decision).toEqual({
+      kind: 'action',
+      name: 'click_element',
+      args: { index: 2, intent: '提交表单' },
+      observation: 'Clicking submit (external_commit within task scope)',
+    });
+  });
+
+  it('does not let the name-only form skill intercept a multi-field request', () => {
+    expect(
+      discoverSkills({
+        registry: createSkillRegistry([formFillSubmitSkill]),
+        instruction: 'Fill Name with Ada and Email with ada@example.test, then submit; success is Saved successfully.',
+        url: 'https://localhost/form.html',
+        flags: { enableDeterministicFormFill: true },
+      }),
+    ).toEqual([]);
   });
 
   it('extracts product table artifact via list skill', async () => {
