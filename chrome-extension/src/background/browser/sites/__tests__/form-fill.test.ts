@@ -18,6 +18,33 @@ describe('form-fill deterministic', () => {
     });
   });
 
+  it('leaves English multi-field requests to the generic control loop', () => {
+    expect(
+      parseFormFillSubmitInstruction(
+        'Fill Name with Ada and Email with ada@example.test, then submit; success is Saved successfully.',
+      ),
+    ).toBeNull();
+  });
+
+  it('leaves Chinese multi-field requests to the generic control loop', () => {
+    expect(parseFormFillSubmitInstruction('姓名填张三，邮箱填 zhang@example.test，然后提交')).toBeNull();
+  });
+
+  it('does not infer a name-only task from an unlisted English field', () => {
+    expect(parseFormFillSubmitInstruction('Fill Name with Ada and Department with Research, then submit.')).toBeNull();
+  });
+
+  it('does not infer a name-only task from an unlisted Chinese field', () => {
+    expect(parseFormFillSubmitInstruction('把姓名填成小明，部门填成研发并提交')).toBeNull();
+  });
+
+  it('keeps the strict Chinese single-name form eligible', () => {
+    expect(parseFormFillSubmitInstruction('把姓名填成小明并提交')).toEqual({
+      nameText: '小明',
+      successText: '保存成功',
+    });
+  });
+
   it('resolves indices from state text', () => {
     const state = `
 Current tab: {id: 1, url: http://127.0.0.1/form, title: form}

@@ -7,6 +7,7 @@ import {
   observationSupportsWaitingUser,
   parseControlPolicyDecision,
   renderControlSystemPrompt,
+  CONTROL_MAX_ACTIONS_PER_TURN,
   CONTROL_PROMPT_VERSION,
   EVERYDAY_CONTROL_ACTION_NAMES,
 } from '../control-policy';
@@ -79,6 +80,57 @@ describe('parseControlPolicyDecision', () => {
       action: [{ click_element: { index: 3, intent: 'submit' } }],
     });
     expect(d.action).toEqual({ name: 'click_element', args: { index: 3, intent: 'submit' } });
+    expect(d.actions).toEqual([{ name: 'click_element', args: { index: 3, intent: 'submit' } }]);
+  });
+
+  it('parses several same-snapshot actions from the navigator-style array', () => {
+    const d = parseControlPolicyDecision({
+      observation: 'filling form',
+      done: false,
+      action: [
+        { input_text: { index: 1, text: 'Ada' } },
+        { input_text: { index: 2, text: 'ada@example.test' } },
+        { click_element: { index: 3, intent: 'submit' } },
+      ],
+    });
+    expect(d.action).toEqual({ name: 'input_text', args: { index: 1, text: 'Ada' } });
+    expect(d.actions).toEqual([
+      { name: 'input_text', args: { index: 1, text: 'Ada' } },
+      { name: 'input_text', args: { index: 2, text: 'ada@example.test' } },
+      { name: 'click_element', args: { index: 3, intent: 'submit' } },
+    ]);
+  });
+
+  it('caps a same-snapshot action array at CONTROL_MAX_ACTIONS_PER_TURN', () => {
+    const action = Array.from({ length: CONTROL_MAX_ACTIONS_PER_TURN + 3 }, (_, index) => ({
+      input_text: { index: index + 1, text: `v${index}` },
+    }));
+    const d = parseControlPolicyDecision({ observation: 'many fields', done: false, action });
+    expect(d.actions).toHaveLength(CONTROL_MAX_ACTIONS_PER_TURN);
+    expect(d.actions[0]).toEqual({ name: 'input_text', args: { index: 1, text: 'v0' } });
+    expect(d.actions.at(-1)?.args.index).toBe(CONTROL_MAX_ACTIONS_PER_TURN);
+  });
+
+  it('does not parse actions that appear after done in the same array', () => {
+    const d = parseControlPolicyDecision({
+      observation: 'fill once',
+      done: false,
+      action: [
+        { input_text: { index: 1, text: 'Ada' } },
+        { done: {} },
+        { click_element: { index: 2, intent: 'must not run' } },
+      ],
+    });
+    expect(d.actions).toEqual([{ name: 'input_text', args: { index: 1, text: 'Ada' } }]);
+  });
+
+  it('treats done as terminal when it is the first parsed array action', () => {
+    const d = parseControlPolicyDecision({
+      observation: 'finished',
+      done: false,
+      action: [{ done: {} }],
+    });
+    expect(d).toMatchObject({ done: true, action: null, actions: [] });
   });
 
   it('coerces string index to number and drops NaN', () => {
@@ -231,7 +283,7 @@ describe('agent status bar / prompt versioning', () => {
 
   it('includes prompt version and optional status block', () => {
     const prompt = renderControlSystemPrompt({ statusBar: 'url: https://example.com' });
-    expect(CONTROL_PROMPT_VERSION).toBe('chijie-control-v0.4.4');
+    expect(CONTROL_PROMPT_VERSION).toBe('chijie-control-v0.4.6');
     expect(prompt).toContain(CONTROL_PROMPT_VERSION);
     expect(prompt).toContain('<agent_status>');
     expect(prompt).toContain('url: https://example.com');
@@ -264,6 +316,11 @@ describe('agent status bar / prompt versioning', () => {
     expect(prompt).toContain('Choose action_name from <available_actions>');
     expect(prompt).toContain('use search_google with a short query');
     expect(prompt).toContain('Do not invent wikipedia');
+    expect(prompt).toContain('short action array (up to 5)');
+    expect(prompt).toContain('put every input_text and the final click_element in the SAME action array');
+    expect(prompt).toContain('Do not stop after the fills for another model decision');
+    expect(prompt).toContain('those indexes die with this snapshot');
+    expect(prompt).not.toContain('One action per turn');
   });
 
   it('appends everyday Action.prompt() catalog and keeps research actions out of the default prompt', () => {

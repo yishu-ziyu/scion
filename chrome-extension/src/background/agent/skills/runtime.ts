@@ -58,7 +58,13 @@ export interface SkillTryResult {
 
 export function toLoopDecision(decision: SkillDecision): SkillLoopDecision | null {
   if (decision.kind === 'action') {
-    return { kind: 'action', name: decision.name, args: decision.args, observation: decision.observation };
+    return {
+      kind: 'action',
+      name: decision.name,
+      args: decision.args,
+      observation: decision.observation,
+      ...(decision.followup?.length ? { followup: decision.followup } : {}),
+    };
   }
   if (decision.kind === 'done') {
     return { kind: 'done', summary: decision.summary };

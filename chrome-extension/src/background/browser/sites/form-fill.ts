@@ -16,9 +16,10 @@ export function parseFormFillSubmitInstruction(instruction: string): FormFillGoa
   if (!text) return null;
 
   // e2e: Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.
-  // Do not require end-of-string — instruction may gain follow-ups.
+  // Keep the whole instruction shape strict. This skill only knows one field;
+  // any clause between its value and submit belongs to the generic control loop.
   const en = text.match(
-    /Fill\s+(?:the\s+)?Name(?:\s+field)?\s+with\s+(\S+)\s+and\s+submit(?:\s*;\s*success\s+is\s+([^.;]+))?/i,
+    /^Fill\s+(?:the\s+)?Name(?:\s+field)?\s+with\s+([A-Za-z0-9_@.-]{1,80})\s+and\s+submit(?:\s*;\s*success\s+is\s+([^.;]+))?\s*[.]?$/i,
   );
   if (en) {
     return {
@@ -27,21 +28,10 @@ export function parseFormFillSubmitInstruction(instruction: string): FormFillGoa
     };
   }
 
-  // Broader EN: fill name with X … submit
-  if (/\bfill\b/i.test(text) && /\bname\b/i.test(text) && /\bsubmit\b/i.test(text)) {
-    const withText = text.match(/\bwith\s+([A-Za-z0-9_\-@.]{2,80})/i);
-    if (withText) {
-      return {
-        nameText: withText[1],
-        successText:
-          text.match(/success(?:\s+is)?\s+([^.;]+)/i)?.[1]?.replace(/[;.]+$/g, '').trim() || 'Saved successfully',
-      };
-    }
-  }
-
-  // ZH: 把名字填成 XXX 并提交 / 填写姓名 XXX 然后提交
+  // ZH: 把名字填成 XXX 并提交。值后面必须直接出现提交短语；
+  // 如果中间还有第二个字段赋值，这个表达式不会匹配。
   const zh = text.match(
-    /(?:把)?(?:名字|姓名|Name)\s*(?:字段)?\s*(?:填[成入为]|写成)\s*[「"']?([^\s「」"']{1,80})[」"']?.*(?:提交|submit)/i,
+    /^(?:请\s*)?(?:把\s*)?(?:名字|姓名|Name)\s*(?:字段)?\s*(?:填成|填入|填为|填写成|填写为|写成)\s*[「“"']?([^\s,，;；。.!！？「」“”"']{1,80}?)[」”"']?\s*(?:,|，)?\s*(?:并|然后|再)?\s*(?:点击\s*)?(?:提交|submit)\s*[。.!！]?$/i,
   );
   if (zh) {
     return {

@@ -6,17 +6,29 @@ import { renderActionSchemaPrompt } from '../actions/action-prompt';
 import { ALL_ACTION_SCHEMAS } from '../actions/schemas';
 import type { CompletionCriterionDraft } from '../../task/contracts';
 import type { ObservationFrame } from '../../browser/kernel';
+import { MAX_ACTIONS_PER_DECISION } from './observe-act-loop';
+
+export type ControlActionSpec = { name: string; args: Record<string, unknown> };
 
 export interface ControlPolicyDecision {
   observation: string;
   criteria: CompletionCriterionDraft[];
   done: boolean;
-  /** null when done or waiting */
-  action: { name: string; args: Record<string, unknown> } | null;
+  /** First queued action; null when done, waiting, or the list is empty. */
+  action: ControlActionSpec | null;
+  /**
+   * Acts parsed from this JSON (capped at CONTROL_MAX_ACTIONS_PER_TURN).
+   * `action` is `actions[0]`. Empty when done or waiting.
+   * Each `args.index` refers to the ObservationFrame that will be shown for this decide.
+   */
+  actions: ControlActionSpec[];
   waitingUser: 'login_required' | 'captcha_required' | null;
 }
 
-export const CONTROL_PROMPT_VERSION = 'chijie-control-v0.4.4';
+/** Control prompt/parser alias for the loop's hard limit. */
+export const CONTROL_MAX_ACTIONS_PER_TURN = MAX_ACTIONS_PER_DECISION;
+
+export const CONTROL_PROMPT_VERSION = 'chijie-control-v0.4.6';
 
 /** Everyday schemas whose Action.prompt() text is appended to the default control system prompt. */
 export const EVERYDAY_CONTROL_ACTION_NAMES = [
@@ -288,7 +300,17 @@ function normalizeActionArgs(args: Record<string, unknown>): Record<string, unkn
   return out;
 }
 
-function parseAction(raw: Record<string, unknown>): { name: string; args: Record<string, unknown> } | null {
+function parseKeyedAction(raw: Record<string, unknown>): ControlActionSpec | null {
+  for (const [key, value] of Object.entries(raw)) {
+    if (!ALLOWED_ACTIONS.has(key)) continue;
+    const args = asRecord(value);
+    if (!args) continue;
+    return { name: normalizeActionName(key), args: normalizeActionArgs({ ...args }) };
+  }
+  return null;
+}
+
+function parseAction(raw: Record<string, unknown>): ControlActionSpec | null {
   // Shape A: { action_name, action_args }
   if (typeof raw.action_name === 'string') {
     const name = raw.action_name;
@@ -306,18 +328,9 @@ function parseAction(raw: Record<string, unknown>): { name: string; args: Record
     return { name: normalizeActionName(name), args: normalizeActionArgs({ ...args }) };
   }
 
-  // Shape C: navigator-style { action: [ { click_element: { index: 1 } } ] }
-  if (Array.isArray(raw.action) && raw.action.length > 0) {
-    const first = asRecord(raw.action[0]);
-    if (first) {
-      for (const [key, value] of Object.entries(first)) {
-        if (ALLOWED_ACTIONS.has(key)) {
-          const args = asRecord(value) ?? {};
-          return { name: normalizeActionName(key), args: normalizeActionArgs({ ...args }) };
-        }
-      }
-    }
-  }
+  // Shape C item / single keyed object: { click_element: { index: 1 } }
+  const keyed = parseKeyedAction(raw);
+  if (keyed) return keyed;
 
   // Shape D: flat { name: "click_element", index: 1 }
   if (typeof raw.name === 'string' && ALLOWED_ACTIONS.has(raw.name)) {
@@ -331,6 +344,46 @@ function parseAction(raw: Record<string, unknown>): { name: string; args: Record
     return { name: normalizeActionName(raw.name), args: normalizeActionArgs(rest) };
   }
 
+  return null;
+}
+
+function parseActionItem(item: unknown): ControlActionSpec | null {
+  const rec = asRecord(item);
+  return rec ? parseAction(rec) : null;
+}
+
+function takeActionQueue(items: unknown[]): ControlActionSpec[] {
+  const out: ControlActionSpec[] = [];
+  for (const item of items) {
+    const parsed = parseActionItem(item);
+    if (!parsed) continue;
+    if (parsed.name === 'done') break;
+    out.push(parsed);
+    if (out.length >= CONTROL_MAX_ACTIONS_PER_TURN) break;
+  }
+  return out;
+}
+
+/** Same-observation action list from model JSON. Empty when none parsed. */
+export function parseControlActionQueue(raw: Record<string, unknown>): ControlActionSpec[] {
+  if (Array.isArray(raw.action) && raw.action.length > 0) {
+    return takeActionQueue(raw.action);
+  }
+  if (Array.isArray(raw.actions) && raw.actions.length > 0) {
+    return takeActionQueue(raw.actions);
+  }
+  const single = parseAction(raw);
+  if (!single || single.name === 'done') return [];
+  return [single];
+}
+
+function firstParsedArrayAction(raw: Record<string, unknown>): ControlActionSpec | null {
+  const items = Array.isArray(raw.action) ? raw.action : Array.isArray(raw.actions) ? raw.actions : null;
+  if (!items) return null;
+  for (const item of items) {
+    const parsed = parseActionItem(item);
+    if (parsed) return parsed;
+  }
   return null;
 }
 
@@ -353,25 +406,47 @@ export function parseControlPolicyDecision(raw: Record<string, unknown>): Contro
   const autonomousCriteria = criteria.filter(item => item.kind !== 'user_confirmed');
 
   if (waitingUser) {
-    return { observation, criteria: autonomousCriteria, done: false, action: null, waitingUser };
+    return { observation, criteria: autonomousCriteria, done: false, action: null, actions: [], waitingUser };
   }
 
   if (done) {
-    return { observation, criteria: autonomousCriteria, done: true, action: null, waitingUser: null };
+    return { observation, criteria: autonomousCriteria, done: true, action: null, actions: [], waitingUser: null };
   }
 
-  const action = parseAction(raw);
-  if (action?.name === 'done') {
-    return {
-      observation,
-      criteria: autonomousCriteria,
-      done: true,
-      action: null,
-      waitingUser: null,
-    };
+  const actions = parseControlActionQueue(raw);
+  if (actions.length === 0) {
+    if (firstParsedArrayAction(raw)?.name === 'done') {
+      return {
+        observation,
+        criteria: autonomousCriteria,
+        done: true,
+        action: null,
+        actions: [],
+        waitingUser: null,
+      };
+    }
+    const lone = parseAction(raw);
+    if (lone?.name === 'done' || raw.action_name === 'done') {
+      return {
+        observation,
+        criteria: autonomousCriteria,
+        done: true,
+        action: null,
+        actions: [],
+        waitingUser: null,
+      };
+    }
+    return { observation, criteria: autonomousCriteria, done: false, action: null, actions: [], waitingUser: null };
   }
 
-  return { observation, criteria: autonomousCriteria, done: false, action, waitingUser: null };
+  return {
+    observation,
+    criteria: autonomousCriteria,
+    done: false,
+    action: actions[0] ?? null,
+    actions,
+    waitingUser: null,
+  };
 }
 
 const CONTROL_SYSTEM_PROMPT_BODY = `You control a real Chrome tab for one user task.
@@ -388,16 +463,23 @@ Schema:
   "action_args": { ... }
 }
 
+Several acts on this snapshot (optional instead of action_name):
+"action": [
+  { "input_text": { "index": 1, "text": "Ada" } },
+  { "input_text": { "index": 2, "text": "ada@example.test" } },
+  { "click_element": { "index": 3 } }
+]
+
 Rules:
 0. Loop: observe/snapshot the page, decide, act, observe again. If the user asked what this page or these videos are about, read then write the analysis in observation and set done. The analysis sentence does not need to appear on the page.
-1. After Visible page text is present, first judge whether the user's original sentence is already done from that wording. If yes, set "done": true and write the user-facing result in observation. Indexes are only for clicking. Do not take an action first just to start reading. One action per turn only when the goal is not yet done; prefer the smallest step that advances the task. When the user says 这个页面 / current tab, call find_tab { "active": true } once if you are not already bound. That stays on the page they sent the task from; do not follow them if they switch away.
+1. After Visible page text is present, first judge whether the user's original sentence is already done from that wording. If yes, set "done": true and write the user-facing result in observation. Indexes are only for clicking. Do not take an action first just to start reading. When the goal is not yet done, emit the next action, or a short action array (up to 5) for steps that still use this snapshot — e.g. fill several Form fields then click submit. After click_element, switch_tab, go_to_url, open_tab, close_tab, go_back, previous_page, next_page, search_google, or send_keys, do not queue more actions that use index; those indexes die with this snapshot. When the user says 这个页面 / current tab, call find_tab { "active": true } once if you are not already bound. That stays on the page they sent the task from; do not follow them if they switch away.
 2. On the first useful turn include completion_criteria if the goal is verifiable (success text, media_state, tab_state, download_state, url). For "open YouTube and click the first video", prefer url starts_with https://www.youtube.com/watch (not just the homepage).
 2c. If the user asks what this page or these videos are about, do not invent completion_criteria. Write the result in observation and set done.
 2b. Never treat 404 / "This page isn't available" / empty playlist error shells as success. URL criteria alone are invalid if the page is an error page; keep working or recover (search library / Library / Liked videos) instead of done.
 3. When the goal is already met, set "done": true and omit action_name (or use done). Do not re-open the homepage or re-click the same video. Open/click/fill still need the page to have changed. A written analysis is itself the result.
 4. For HTML audio/video play/pause use action_name "control_media" with action_args { "command": "play"|"pause", optional "target_digest" }. Do not click native shadow media controls. Continuous control reuses the last media digest when target_digest is omitted.
 5. Bind/close tabs with close_tab / switch_tab (or focus_tab). switch_tab and open_tab do not bring that tab to the front; the user may keep working in another tab. Omit tab_id to use the task-bound current tab. For close goals set completion_criteria tab_state expected closed. Do not require tab_state active.
-6. Form fields lists labeled controls with current values. Use input_text on those indexes (input, textarea, select, contenteditable). After a fill, read Form fields again to confirm the value stuck. Do not invent indexes. Checkbox, radio, file, and submit are not Form fields — click them with click_element (file cannot be filled with input_text).
+6. Form fields lists labeled controls with current values. Use input_text on those indexes (input, textarea, select, contenteditable). When the user explicitly asks to fill several listed fields and submit, and every field plus the submit control is present in this snapshot, put every input_text and the final click_element in the SAME action array. Do not stop after the fills for another model decision. Confirm values on the next observation. Do not invent indexes. Checkbox, radio, file, and submit are not Form fields — click them with click_element (file cannot be filled with input_text).
 6b. Click submit / send / buy / delete only when the user's original sentence asked to submit, send, buy, or delete. If they only asked to fill, fill the matching fields, set done true, and say what was filled. Do not click submit to be helpful. Plain link clicks are not form submits.
 7. Never invent element indexes that are not listed. Indexes are short-lived refs bound automatically to the shown Snapshot frame. If an action reports a stale frame/target, use the next observation instead of retrying the old index.
 8. Do not claim login_required unless a clear login wall is visible.

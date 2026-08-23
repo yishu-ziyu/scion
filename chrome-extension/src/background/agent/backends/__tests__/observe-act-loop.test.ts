@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { classifyRetry } from '../../retry-policy';
 import {
+  actionInvalidatesElementSnapshot,
   isForbiddenTaskContentUrl,
   runObserveActLoop,
   type LoopDecision,
@@ -8,6 +9,12 @@ import {
 } from '../observe-act-loop';
 
 describe('observe → act → re-observe loop (ticket 02, S3)', () => {
+  it('invalidates indexed followups after every navigation action', () => {
+    expect(
+      ['go_to_url', 'go_back', 'previous_page', 'next_page', 'search_google'].every(actionInvalidatesElementSnapshot),
+    ).toBe(true);
+  });
+
   it('runs navigate-first: observe → decide go_to_url → act → reobserve → decide done', async () => {
     const phases: LoopPhaseEvent[] = [];
     let observeCount = 0;
@@ -390,5 +397,495 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
     });
 
     expect(outcome).toEqual({ kind: 'failed', category: 'no_progress' });
+  });
+
+  it('runs same-observation followup fills with one decide', async () => {
+    const acted: string[] = [];
+    let decideCount = 0;
+    let reobserveCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 5,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'form',
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount === 1) {
+          return {
+            kind: 'action',
+            name: 'input_text',
+            args: { index: 1, text: 'Ada' },
+            followup: [{ name: 'input_text', args: { index: 2, text: 'ada@example.test' } }],
+          };
+        }
+        return { kind: 'done', summary: 'filled' };
+      },
+      act: async action => {
+        acted.push(`${action.name}:${String(action.args.index)}`);
+        return { error: null };
+      },
+      reobserve: async () => {
+        reobserveCount += 1;
+        return 'form';
+      },
+    });
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'filled' });
+    expect(acted).toEqual(['input_text:1', 'input_text:2']);
+    expect(decideCount).toBe(2);
+    expect(reobserveCount).toBe(2);
+  });
+
+  it('caps actions from any decision source at five', async () => {
+    const acted: number[] = [];
+    let decideCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 3,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'form',
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount > 1) return { kind: 'done', summary: 'bounded' };
+        return {
+          kind: 'action',
+          name: 'input_text',
+          args: { index: 1, text: 'v1' },
+          followup: Array.from({ length: 7 }, (_, index) => ({
+            name: 'input_text',
+            args: { index: index + 2, text: `v${index + 2}` },
+          })),
+        };
+      },
+      act: async action => {
+        acted.push(Number(action.args.index));
+        return { error: null };
+      },
+      reobserve: async () => 'filled',
+    });
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'bounded' });
+    expect(acted).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('does not run a later indexed action after click_element in the same queue', async () => {
+    const acted: string[] = [];
+    let decideCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 5,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'list',
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount === 1) {
+          return {
+            kind: 'action',
+            name: 'click_element',
+            args: { index: 1 },
+            followup: [{ name: 'click_element', args: { index: 9 } }],
+          };
+        }
+        return { kind: 'done', summary: 'clicked once' };
+      },
+      act: async action => {
+        acted.push(`${action.name}:${String(action.args.index)}`);
+        return { error: null };
+      },
+      reobserve: async () => 'next-page',
+    });
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'clicked once' });
+    expect(acted).toEqual(['click_element:1']);
+    expect(decideCount).toBe(2);
+  });
+
+  it('redecides instead of submitting after an invalid indexed action', async () => {
+    const acted: string[] = [];
+    let decideCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 3,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'form',
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount > 1) return { kind: 'done', summary: 'replanned' };
+        return {
+          kind: 'action',
+          name: 'click_element',
+          args: { index: 1 },
+          followup: [
+            { name: 'input_text', args: { index: 2, text: 'Ada' } },
+            { name: 'click_element', args: { query: 'Submit' } },
+          ],
+        };
+      },
+      act: async action => {
+        acted.push(`${action.name}:${String(action.args.index ?? action.args.query ?? '')}`);
+        return { error: null };
+      },
+      reobserve: async () => 'form changed',
+    });
+
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'replanned' });
+    expect(acted).toEqual(['click_element:1']);
+  });
+
+  it('does not let a successful queue prefix reset repeated followup failures', async () => {
+    const acted: string[] = [];
+    const outcome = await runObserveActLoop({
+      maxSteps: 5,
+      maxFailures: 2,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'form',
+      decide: async (): Promise<LoopDecision> => ({
+        kind: 'action',
+        name: 'input_text',
+        args: { index: 1, text: 'Ada' },
+        followup: [{ name: 'click_element', args: { index: 2 } }],
+      }),
+      act: async action => {
+        acted.push(action.name);
+        return action.name === 'click_element' ? { error: 'temporary click failure' } : { error: null };
+      },
+      reobserve: async () => 'name filled',
+    });
+
+    expect(outcome).toEqual({ kind: 'failed', category: 'action_failed' });
+    expect(acted).toEqual(['input_text', 'click_element', 'input_text', 'click_element']);
+  });
+
+  it('runs fill then submit in one decide because submit is last', async () => {
+    const acted: string[] = [];
+    let decideCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 5,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'form',
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount === 1) {
+          return {
+            kind: 'action',
+            name: 'input_text',
+            args: { index: 1, text: 'Ada' },
+            followup: [{ name: 'click_element', args: { index: 2 } }],
+          };
+        }
+        return { kind: 'done', summary: 'submitted' };
+      },
+      act: async action => {
+        acted.push(action.name);
+        return { error: null };
+      },
+      reobserve: async () => 'saved',
+    });
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'submitted' });
+    expect(acted).toEqual(['input_text', 'click_element']);
+    expect(decideCount).toBe(2);
+  });
+
+  it('does not count each fill in one decide against no_progress', async () => {
+    const acted: string[] = [];
+    let decideCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 5,
+      maxFailures: 3,
+      maxNoProgress: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'form',
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount === 1) {
+          return {
+            kind: 'action',
+            name: 'input_text',
+            args: { index: 1, text: 'a' },
+            followup: [
+              { name: 'input_text', args: { index: 2, text: 'b' } },
+              { name: 'input_text', args: { index: 3, text: 'c' } },
+              { name: 'input_text', args: { index: 4, text: 'd' } },
+            ],
+          };
+        }
+        return { kind: 'done', summary: 'filled four' };
+      },
+      act: async action => {
+        acted.push(String(action.args.index));
+        return { error: null };
+      },
+      reobserve: async () => 'form',
+    });
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'filled four' });
+    expect(acted).toEqual(['1', '2', '3', '4']);
+  });
+
+  it('skips an indexed followup after switch_tab', async () => {
+    const acted: string[] = [];
+    let decideCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 5,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'tab-a',
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount === 1) {
+          return {
+            kind: 'action',
+            name: 'switch_tab',
+            args: { tab_id: 2 },
+            followup: [{ name: 'click_element', args: { index: 4 } }],
+          };
+        }
+        return { kind: 'done', summary: 'switched' };
+      },
+      act: async action => {
+        acted.push(action.name);
+        return { error: null };
+      },
+      reobserve: async () => 'tab-b',
+    });
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'switched' });
+    expect(acted).toEqual(['switch_tab']);
+  });
+
+  it('stops the followup queue when isStopped becomes true', async () => {
+    const acted: string[] = [];
+    let stopped = false;
+    const outcome = await runObserveActLoop({
+      maxSteps: 5,
+      maxFailures: 3,
+      isStopped: () => stopped,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'form',
+      decide: async (): Promise<LoopDecision> => ({
+        kind: 'action',
+        name: 'input_text',
+        args: { index: 1, text: 'a' },
+        followup: [{ name: 'input_text', args: { index: 2, text: 'b' } }],
+      }),
+      act: async action => {
+        acted.push(String(action.args.index));
+        stopped = true;
+        return { error: null };
+      },
+      reobserve: async () => 'form',
+    });
+    expect(outcome).toEqual({ kind: 'cancelled' });
+    expect(acted).toEqual(['1']);
+  });
+
+  it('discards the decided queue after a pause and observes again on resume', async () => {
+    const acted: string[] = [];
+    let paused = false;
+    let observeCount = 0;
+    let decideCount = 0;
+    let reobserveCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 5,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => {
+        if (!paused) return false;
+        paused = false;
+        return true;
+      },
+      observe: async () => `form-${++observeCount}`,
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount > 1) return { kind: 'done', summary: 'replanned after takeover' };
+        return {
+          kind: 'action',
+          name: 'input_text',
+          args: { index: 1, text: 'a' },
+          followup: [{ name: 'click_element', args: { index: 2 } }],
+        };
+      },
+      act: async action => {
+        acted.push(action.name);
+        paused = true;
+        return { error: null };
+      },
+      reobserve: async () => {
+        reobserveCount += 1;
+        return 'must-not-use-after-takeover';
+      },
+    });
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'replanned after takeover' });
+    expect(acted).toEqual(['input_text']);
+    expect(observeCount).toBe(2);
+    expect(reobserveCount).toBe(0);
+  });
+
+  it('discards a decision when pause and resume both happen during decide', async () => {
+    const acted: string[] = [];
+    let pauseVersion = 0;
+    let decideCount = 0;
+    let observeCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 3,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => false,
+      pauseVersion: () => pauseVersion,
+      observe: async () => `form-${++observeCount}`,
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount > 1) return { kind: 'done', summary: 'fresh decision' };
+        pauseVersion += 1;
+        return { kind: 'action', name: 'click_element', args: { index: 2 } };
+      },
+      act: async action => {
+        acted.push(action.name);
+        return { error: null };
+      },
+    });
+
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'fresh decision' });
+    expect(acted).toEqual([]);
+    expect(observeCount).toBe(2);
+  });
+
+  it('does not continue followups after a pause and resume during act', async () => {
+    const acted: string[] = [];
+    let pauseVersion = 0;
+    let decideCount = 0;
+    let observeCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 3,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => false,
+      pauseVersion: () => pauseVersion,
+      observe: async () => `form-${++observeCount}`,
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount > 1) return { kind: 'done', summary: 'fresh decision' };
+        return {
+          kind: 'action',
+          name: 'input_text',
+          args: { index: 1, text: 'Ada' },
+          followup: [{ name: 'click_element', args: { index: 2 } }],
+        };
+      },
+      act: async action => {
+        acted.push(action.name);
+        pauseVersion += 1;
+        return { error: null };
+      },
+      reobserve: async () => 'must not carry after pause',
+    });
+
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'fresh decision' });
+    expect(acted).toEqual(['input_text']);
+    expect(observeCount).toBe(2);
+  });
+
+  it('uses a refreshed index for the same queued element', async () => {
+    const acted: number[] = [];
+    let decideCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 3,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'form',
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount > 1) return { kind: 'done', summary: 'filled' };
+        return {
+          kind: 'action',
+          name: 'input_text',
+          args: { index: 1, text: 'Ada' },
+          followup: [{ name: 'input_text', args: { index: 2, text: 'ada@example.test' } }],
+        };
+      },
+      act: async action => {
+        acted.push(Number(action.args.index));
+        return { error: null };
+      },
+      reobserve: async () => 'name filled',
+      resolveQueuedAction: action => ({ ...action, args: { ...action.args, index: 9 } }),
+    });
+
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'filled' });
+    expect(acted).toEqual([1, 9]);
+  });
+
+  it('redecides instead of using a queued index when the element identity changed', async () => {
+    const acted: number[] = [];
+    let decideCount = 0;
+    let observeCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 3,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => `form-${++observeCount}`,
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount > 1) return { kind: 'done', summary: 'replanned' };
+        return {
+          kind: 'action',
+          name: 'input_text',
+          args: { index: 1, text: 'Ada' },
+          followup: [{ name: 'click_element', args: { index: 2 } }],
+        };
+      },
+      act: async action => {
+        acted.push(Number(action.args.index));
+        return { error: null };
+      },
+      reobserve: async () => 'form changed',
+      resolveQueuedAction: () => null,
+    });
+
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'replanned' });
+    expect(acted).toEqual([1]);
+    expect(decideCount).toBe(2);
+    expect(observeCount).toBe(1);
+  });
+
+  it('observes again instead of continuing an indexed queue after reobserve fails', async () => {
+    const acted: number[] = [];
+    let decideCount = 0;
+    let observeCount = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 3,
+      maxFailures: 3,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => `form-${++observeCount}`,
+      decide: async (): Promise<LoopDecision> => {
+        decideCount += 1;
+        if (decideCount > 1) return { kind: 'done', summary: 'observed again' };
+        return {
+          kind: 'action',
+          name: 'input_text',
+          args: { index: 1, text: 'Ada' },
+          followup: [{ name: 'click_element', args: { index: 2 } }],
+        };
+      },
+      act: async action => {
+        acted.push(Number(action.args.index));
+        return { error: null };
+      },
+      reobserve: async () => {
+        throw new Error('observation unavailable');
+      },
+      resolveQueuedAction: action => action,
+    });
+
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'observed again' });
+    expect(acted).toEqual([1]);
+    expect(observeCount).toBe(2);
   });
 });

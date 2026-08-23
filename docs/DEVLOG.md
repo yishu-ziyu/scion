@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-08-23 同一页观察里可以连做几步，不再每步都问模型
+
+对照 citrolabs/ego-lite：`run.ts` 把一段 JS 当一次脚本跑（`snapshot` → `click('@N')` → `fill`），中间不再调模型。浏览器壳不搬进持节。持节仍是日常 Chrome 上的扩展。
+
+控制循环以前 `maxActionsPerStep: 1`，`parseControlPolicyDecision` 只取 `action` 数组第一项。现在 `parseControlActionQueue` 最多收下 5 步，`runObserveActLoop` 在一次 `decide` 里按序 `act`。`actionInvalidatesElementSnapshot` 在 `click_element` / `switch_tab` / `go_to_url` / `open_tab` / `close_tab` / `go_back` / `previous_page` / `next_page` / `search_google` / `send_keys` / `select_dropdown_option` 之后把当前元素索引标为失效；遇到后续带 `args.index` 的动作时结束整列，重新观察后再 `decide`，不会越过它执行更后的提交。每一项都会检查 `isStopped` / `waitIfPaused`；暂停再继续时丢掉剩余队列，重新观察后再决定。`no_progress` 按整段队列计一次，不按每个 `input_text` 计。
+
+每次填写后的重新观察会通过 `captureQueuedActionTarget` / `resolveQueuedActionIndex` 确认后续索引仍指向同一个 CDP 节点；节点换了、身份重复或已经找不到时，不执行旧索引，回到下一次 `decide`。同一节点换了索引时更新为新索引再执行。
+
+`SkillRuntime.toLoopDecision` 也会传递 `followup`。`builtin.form-fill-submit` 现在一次返回填写姓名和点击提交；如果填写成功但提交失败，下一次观察到姓名值已存在时只重试提交。它只匹配完整的单姓名字段句式；含第二个字段赋值的句子交给通用控制循环，避免漏填后提交。控制提示版本升到 `chijie-control-v0.4.6`，明确要求字段和提交按钮同时可见时，把全部填写和最后的点击放进同一动作数组。
+
+### 验证
+
+- `chrome-extension`：93 个测试文件、1002 项测试全部通过；`type-check`、定向 ESLint、Prettier 检查、构建通过。
+- 临时 Chrome for Testing 的三字段表单（`MULTI-ACTION-FORM-04`）：第二次 `control_llm_invoke` 后连续执行 3 次 `kernel.act_input_text` 和 1 次 `kernel.act_click_element`，中间没有模型调用；页面只有在三个值正确且只提交一次时才显示 `Saved all fields once`，验证结果 `verified_pass`。
+- `e2e:action-agent` 的表单动作成功、提交次数为 1。证据脚本原先把数值毫秒当日期字符串解析，已兼容；继续执行后正式结果仍为 `invalid_run`，原因是当前并行侧栏修改没有产生该评估要求的 `completion-deliverable-copy`，不是表单动作失败。本次没有改侧栏和 `TaskManager`。
+
+---
+
 ## 2026-08-19 用户那一句在 TaskManager.dispatch 里分类
 
 侧栏不再发 `user_turn_decision`。`TaskManager.dispatch` 在 `this.transition` 外调用 `decideUserTurn`（先 `resolveUserTurnCheap`）。不是页面任务则 `not_executable`，不建任务。`follow_up` 的「停止」走 `cancel`。技能接住时 `tryDecide.decision` 就是 `LoopDecision`。`understandingAnswerSkill` / `themeCitationSkill` 不进 `defaultSkills()`。

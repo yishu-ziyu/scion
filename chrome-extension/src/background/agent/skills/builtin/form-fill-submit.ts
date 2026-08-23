@@ -22,8 +22,8 @@ interface FormSkillState {
 export const formFillSubmitSkill: BrowserSkill = {
   manifest: {
     id: 'builtin.form-fill-submit',
-    version: '1.0.0',
-    description: 'Fill a name field and submit a simple form; verify success text.',
+    version: '1.1.0',
+    description: 'Fill one name field and submit a simple form; verify success text.',
     capabilities: ['form_fill', 'form_submit'],
     domains: ['*'],
     requiredPrimitives: ['input_text', 'click_element'],
@@ -56,8 +56,7 @@ export const formFillSubmitSkill: BrowserSkill = {
     }
 
     const successVisible =
-      pageShowsFormSuccess(stateText, goal.successText) ||
-      pageHtmlShowsFormSuccess(pageHtml, goal.successText);
+      pageShowsFormSuccess(stateText, goal.successText) || pageHtmlShowsFormSuccess(pageHtml, goal.successText);
 
     const criteria = [
       {
@@ -101,8 +100,11 @@ export const formFillSubmitSkill: BrowserSkill = {
       indices = { nameIndex: 1, submitIndex: 2 };
     }
 
-    if (state.phase === 'idle' || state.phase === 'fill') {
-      const next: FormSkillState = { ...state, phase: 'submit' };
+    const observedNameValue = context.frame?.interactiveElements.find(
+      element => element.index === indices.nameIndex,
+    )?.value;
+    if (state.phase === 'idle' || state.phase === 'fill' || observedNameValue !== goal.nameText) {
+      const next: FormSkillState = { ...state, phase: 'verify' };
       const decision: SkillDecision = {
         kind: 'action',
         name: 'input_text',
@@ -111,7 +113,16 @@ export const formFillSubmitSkill: BrowserSkill = {
           text: goal.nameText,
           intent: '填写姓名',
         },
-        observation: 'Filling name field',
+        observation: 'Filling name field and submitting form',
+        followup: [
+          {
+            name: 'click_element',
+            args: {
+              index: indices.submitIndex,
+              intent: '提交表单',
+            },
+          },
+        ],
         criteria,
         state: next,
       };
