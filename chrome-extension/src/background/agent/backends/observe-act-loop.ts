@@ -8,6 +8,20 @@ export type LoopPhase = 'observe' | 'decide' | 'act' | 'reobserve';
 /** A single decide may execute at most this many actions before another decide. */
 export const MAX_ACTIONS_PER_DECISION = 5;
 
+const ELEMENT_INDEX_INVALIDATING_ACTIONS = new Set([
+  'click_element',
+  'go_to_url',
+  'open_tab',
+  'close_tab',
+  'go_back',
+  'previous_page',
+  'next_page',
+  'search_google',
+  'select_dropdown_option',
+  'send_keys',
+  'switch_tab',
+]);
+
 export type LoopFailureCategory =
   | 'observe_failed'
   | 'llm_failed'
@@ -117,19 +131,23 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
   /** When reobserve is absent, compare the next full observe to this fingerprint. */
   let pendingNoProgressBefore: string | undefined;
 
-  const failIfStillStuck = async (): Promise<boolean> => {
+  const shouldFailForNoProgress = async (): Promise<boolean> => {
     if (stuckReplanUsed || !options.onStuck) return true;
     stuckReplanUsed = true;
     try {
-      const verdict = await options.onStuck();
-      if (verdict === 'continue') {
+      const shouldContinue = (await options.onStuck()) === 'continue';
+      if (shouldContinue) {
         noProgressStreak = 0;
-        return false;
       }
+      return !shouldContinue;
     } catch {
       return true;
     }
-    return true;
+  };
+
+  const discardCurrentDecision = () => {
+    carriedState = undefined;
+    pendingNoProgressBefore = undefined;
   };
 
   for (let step = 0; step < maxSteps; step++) {
@@ -155,7 +173,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
     if (noProgressEnabled && pendingNoProgressBefore !== undefined) {
       if (stateText.trim() === pendingNoProgressBefore) {
         noProgressStreak += 1;
-        if (noProgressStreak >= maxNoProgress && (await failIfStillStuck())) {
+        if (noProgressStreak >= maxNoProgress && (await shouldFailForNoProgress())) {
           return { kind: 'failed', category: 'no_progress' };
         }
       } else {
@@ -177,8 +195,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
     } catch {
       if (isStopped()) return { kind: 'cancelled' };
       if (decisionInvalidatedByPause()) {
-        carriedState = undefined;
-        pendingNoProgressBefore = undefined;
+        discardCurrentDecision();
         continue;
       }
       failures += 1;
@@ -188,8 +205,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
 
     if (isStopped()) return { kind: 'cancelled' };
     if (decisionInvalidatedByPause()) {
-      carriedState = undefined;
-      pendingNoProgressBefore = undefined;
+      discardCurrentDecision();
       continue;
     }
 
@@ -217,13 +233,13 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
       MAX_ACTIONS_PER_DECISION,
     );
     const stateBeforeQueue = stateText.trim();
-    let snapshotInvalid = false;
+    let queuedIndexesInvalid = false;
     let retryDecide = false;
     let queueInterruptedByPause = false;
     let queueSemanticProgress = false;
     let reobserveFailed = false;
 
-    for (let qi = 0; qi < queue.length; qi++) {
+    for (let queueIndex = 0; queueIndex < queue.length; queueIndex++) {
       if (isStopped()) return { kind: 'cancelled' };
       const resumedFromPause = (await waitIfPaused()) === true;
       if (isStopped()) return { kind: 'cancelled' };
@@ -232,12 +248,12 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
         break;
       }
 
-      let action = queue[qi];
-      if (qi > 0 && snapshotInvalid && actionUsesElementIndex(action)) {
+      let action = queue[queueIndex];
+      if (queueIndex > 0 && queuedIndexesInvalid && actionUsesElementIndex(action)) {
         retryDecide = true;
         break;
       }
-      if (qi > 0 && options.resolveQueuedAction && actionUsesElementIndex(action)) {
+      if (queueIndex > 0 && options.resolveQueuedAction && actionUsesElementIndex(action)) {
         try {
           const resolved = await options.resolveQueuedAction(action);
           if (!resolved) {
@@ -303,7 +319,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
       }
 
       if (actionInvalidatesElementSnapshot(action.name)) {
-        snapshotInvalid = true;
+        queuedIndexesInvalid = true;
       }
 
       if (reobserve) {
@@ -331,7 +347,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
         } catch {
           carriedState = undefined;
           reobserveFailed = true;
-          if (qi < queue.length - 1) {
+          if (queueIndex < queue.length - 1) {
             pendingNoProgressBefore = noProgressEnabled ? stateBeforeQueue : undefined;
             retryDecide = true;
             break;
@@ -342,8 +358,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
 
     if (retryDecide) continue;
     if (queueInterruptedByPause) {
-      carriedState = undefined;
-      pendingNoProgressBefore = undefined;
+      discardCurrentDecision();
       continue;
     }
     failures = 0;
@@ -352,7 +367,7 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
       if (reobserve && !reobserveFailed && carriedState !== undefined) {
         if (carriedState.trim() === stateBeforeQueue && !queueSemanticProgress) {
           noProgressStreak += 1;
-          if (noProgressStreak >= maxNoProgress && (await failIfStillStuck())) {
+          if (noProgressStreak >= maxNoProgress && (await shouldFailForNoProgress())) {
             return { kind: 'failed', category: 'no_progress' };
           }
         } else {
@@ -373,19 +388,7 @@ export function actionUsesElementIndex(action: { args: Record<string, unknown> }
 
 /** Clicks and navigations replace the snapshot that remaining indexes were bound to. */
 export function actionInvalidatesElementSnapshot(name: string): boolean {
-  return (
-    name === 'click_element' ||
-    name === 'go_to_url' ||
-    name === 'open_tab' ||
-    name === 'close_tab' ||
-    name === 'go_back' ||
-    name === 'previous_page' ||
-    name === 'next_page' ||
-    name === 'search_google' ||
-    name === 'select_dropdown_option' ||
-    name === 'send_keys' ||
-    name === 'switch_tab'
-  );
+  return ELEMENT_INDEX_INVALIDATING_ACTIONS.has(name);
 }
 
 /** Content targets must not be chrome-extension:// pages (side panel). */
