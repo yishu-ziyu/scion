@@ -15,10 +15,7 @@ function isSnapshotOnly(step: string | undefined): boolean {
   return !step || step === '获取页面快照' || step === '查看页面';
 }
 
-export function deriveFailedResult(input: {
-  failureCategory?: string;
-  lastStepTitle?: string;
-}): FailedResultView {
+export function deriveFailedResult(input: { failureCategory?: string; lastStepTitle?: string }): FailedResultView {
   const last = input.lastStepTitle?.replace(/\s+/g, ' ').trim();
   const code = toProductFailureCode(input.failureCategory);
   const category = input.failureCategory ?? '';
@@ -33,6 +30,9 @@ export function deriveFailedResult(input: {
     return { sentence: '需要你先登录或过验证。', action: '处理好了再说一次' };
   }
   if (code === 'selector_miss') {
+    if (last && /^打开\s/.test(last)) {
+      return { sentence: `想${last}，但没打开成。`, action: '再说一次' };
+    }
     if (!isSnapshotOnly(last)) {
       return { sentence: `想${last}，但没找对页面上的控件。`, action: '再说一次' };
     }

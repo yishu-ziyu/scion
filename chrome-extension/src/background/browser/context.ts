@@ -9,11 +9,34 @@ import {
 import Page, { build_initial_state } from './page';
 import { createLogger } from '@src/background/log';
 import { isNewTabPage, isUrlAllowed } from './util';
+import { tabCanReuseForOpen } from './kernel/find-tab';
 import { pickNewerBilibiliWatchTab } from './sites/bilibili-first-video';
 import { isGroupableTabUrl, taskTabGroupTitle } from './task-tab-group';
 import { analytics } from '../services/analytics';
 
 const logger = createLogger('BrowserContext');
+
+function tabOpenUrl(tab: chrome.tabs.Tab | undefined): string {
+  return (tab?.url || tab?.pendingUrl || '').trim();
+}
+
+function isHttpUrl(url: string): boolean {
+  return url.startsWith('http://') || url.startsWith('https://');
+}
+
+/** Committed tab.url only. pendingUrl means the navigation has not landed yet. */
+function tabHasCommittedHttpUrl(tab: chrome.tabs.Tab | undefined): boolean {
+  const url = (tab?.url || '').trim();
+  if (!url || isNewTabPage(url)) return false;
+  return isHttpUrl(url);
+}
+
+/** Committed or in-flight destination. Used so a second open_tab does not create another tab. */
+function tabHasOpenHttpUrl(tab: chrome.tabs.Tab | undefined): boolean {
+  const url = tabOpenUrl(tab);
+  if (!url || isNewTabPage(url)) return false;
+  return isHttpUrl(url);
+}
 
 /** Same cap as task/independent-urls. Do not open dozens of tabs at once. */
 export const MAX_INDEPENDENT_TABS = 5;
@@ -31,6 +54,10 @@ export default class BrowserContext {
   private _taskGroupEnabled = false;
   private _taskGroupId: number | null = null;
   private _taskGroupTitle = '任务';
+  /** Tabs created by this BrowserContext during the current task. */
+  private _taskOwnedTabIds = new Set<number>();
+  /** One-shot permission when the user explicitly asked to close an existing tab. */
+  private _authorizedUnownedTabCloseIds = new Set<number>();
 
   constructor(config: Partial<BrowserContextConfig>) {
     this._config = { ...DEFAULT_BROWSER_CONTEXT_CONFIG, ...config };
@@ -58,25 +85,51 @@ export default class BrowserContext {
     return this._taskGroupId;
   }
 
+  public isTaskOwnedTab(tabId: number): boolean {
+    return this._taskOwnedTabIds.has(tabId);
+  }
+
+  public async registerTaskOwnedTab(tabId: number): Promise<void> {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (!tab.id) return;
+      this._taskOwnedTabIds.add(tabId);
+      await this.adoptTabIntoTaskGroup(tabId);
+    } catch {
+      this._taskOwnedTabIds.delete(tabId);
+    }
+  }
+
+  public authorizeUnownedTabClose(tabId: number): void {
+    this._authorizedUnownedTabCloseIds.add(tabId);
+  }
+
   /**
    * Bind later attach/open/switch tabs into one Chrome tab group.
    * Does not activate tabs. No-op when tabGroups is missing (Firefox).
    */
-  public async beginTaskTabGroup(title: string, existingGroupId?: number): Promise<number | null> {
+  public async beginTaskTabGroup(
+    title: string,
+    existingGroupId?: number,
+    resetTaskOwnership = false,
+  ): Promise<number | null> {
+    if (resetTaskOwnership) {
+      this._taskOwnedTabIds.clear();
+      this._authorizedUnownedTabCloseIds.clear();
+    }
     this._taskGroupEnabled = true;
     this._taskGroupTitle = taskTabGroupTitle(title);
     this._taskGroupId =
       typeof existingGroupId === 'number' && Number.isSafeInteger(existingGroupId) && existingGroupId >= 0
         ? existingGroupId
         : null;
-    if (this._currentTabId != null) {
-      await this.adoptTabIntoTaskGroup(this._currentTabId);
-    }
     return this._taskGroupId;
   }
 
   private async adoptTabIntoTaskGroup(tabId: number): Promise<void> {
-    if (!this._taskGroupEnabled || !chrome.tabGroups || !chrome.tabs.group) return;
+    if (!this._taskGroupEnabled || !this._taskOwnedTabIds.has(tabId) || !chrome.tabGroups || !chrome.tabs.group) {
+      return;
+    }
     try {
       const tab = await chrome.tabs.get(tabId);
       if (!tab.id || !isGroupableTabUrl(tab.url || tab.pendingUrl)) return;
@@ -209,7 +262,7 @@ export default class BrowserContext {
   }
 
   public async cleanup(): Promise<void> {
-    const currentPage = await this.getCurrentPage();
+    const currentPage = this._currentTabId === null ? undefined : this._attachedPages.get(this._currentTabId);
     currentPage?.removeHighlight();
     // detach all pages
     for (const page of this._attachedPages.values()) {
@@ -221,6 +274,9 @@ export default class BrowserContext {
     this._taskGroupEnabled = false;
     this._taskGroupId = null;
     this._taskGroupTitle = '任务';
+    this._taskOwnedTabIds.clear();
+    this._authorizedUnownedTabCloseIds.clear();
+    this._revealForeground = false;
   }
 
   public async detachPage(tabId: number): Promise<void> {
@@ -260,6 +316,7 @@ export default class BrowserContext {
           // this should rarely happen
           throw new Error('No tab ID available');
         }
+        this._taskOwnedTabIds.add(newTab.id);
         activeTab = newTab;
       } else {
         activeTab = tab;
@@ -329,70 +386,70 @@ export default class BrowserContext {
   ): Promise<void> {
     const { waitForUpdate = true, waitForActivation = false, timeoutMs = 5000 } = options;
 
-    const promises: Promise<void>[] = [];
+    const tabReady = async (): Promise<boolean> => {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        const urlOk = !waitForUpdate || tabHasCommittedHttpUrl(tab);
+        const activeOk = !waitForActivation || tab.active === true;
+        return urlOk && activeOk;
+      } catch {
+        return false;
+      }
+    };
 
-    if (waitForUpdate) {
-      const updatePromise = new Promise<void>(resolve => {
-        let hasUrl = false;
-        let hasTitle = false;
-        let isComplete = false;
+    if (await tabReady()) return;
 
-        const onUpdatedHandler = (updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
-          if (updatedTabId !== tabId) return;
-
-          if (changeInfo.url) hasUrl = true;
-          if (changeInfo.title) hasTitle = true;
-          if (changeInfo.status === 'complete') isComplete = true;
-
-          // Resolve when we have all the information we need
-          if (hasUrl && hasTitle && isComplete) {
-            chrome.tabs.onUpdated.removeListener(onUpdatedHandler);
-            resolve();
-          }
-        };
-        chrome.tabs.onUpdated.addListener(onUpdatedHandler);
-
-        // Check current state
-        chrome.tabs.get(tabId).then(tab => {
-          if (tab.url) hasUrl = true;
-          if (tab.title) hasTitle = true;
-          if (tab.status === 'complete') isComplete = true;
-
-          if (hasUrl && hasTitle && isComplete) {
-            chrome.tabs.onUpdated.removeListener(onUpdatedHandler);
-            resolve();
-          }
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+        chrome.tabs.onActivated.removeListener(onActivated);
+        clearTimeout(timer);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onUpdated = (updatedTabId: number) => {
+        if (updatedTabId !== tabId) return;
+        void tabReady().then(ok => {
+          if (ok) finish();
         });
-      });
-      promises.push(updatePromise);
-    }
-
-    if (waitForActivation) {
-      const activatedPromise = new Promise<void>(resolve => {
-        const onActivatedHandler = (activeInfo: chrome.tabs.TabActiveInfo) => {
-          if (activeInfo.tabId === tabId) {
-            chrome.tabs.onActivated.removeListener(onActivatedHandler);
-            resolve();
-          }
-        };
-        chrome.tabs.onActivated.addListener(onActivatedHandler);
-
-        // Check current state
-        chrome.tabs.get(tabId).then(tab => {
-          if (tab.active) {
-            chrome.tabs.onActivated.removeListener(onActivatedHandler);
-            resolve();
-          }
+      };
+      const onActivated = (activeInfo: chrome.tabs.TabActiveInfo) => {
+        if (activeInfo.tabId !== tabId) return;
+        void tabReady().then(ok => {
+          if (ok) finish();
         });
-      });
-      promises.push(activatedPromise);
-    }
+      };
+      if (waitForUpdate) chrome.tabs.onUpdated.addListener(onUpdated);
+      if (waitForActivation) chrome.tabs.onActivated.addListener(onActivated);
+      const timer = setTimeout(
+        () => {
+          void tabReady().then(ok => {
+            if (ok) finish();
+            else finish(new Error(`Tab operation timed out after ${timeoutMs} ms`));
+          });
+        },
+        Math.max(0, timeoutMs),
+      );
+    });
+  }
 
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`Tab operation timed out after ${timeoutMs} ms`)), timeoutMs),
-    );
-
-    await Promise.race([Promise.all(promises), timeoutPromise]);
+  private async findReusableOpenTab(url: string): Promise<number | undefined> {
+    const listed = await chrome.tabs.query(this._boundWindowId === null ? {} : { windowId: this._boundWindowId });
+    const tabs = Array.isArray(listed) ? listed : [];
+    const matches = tabs.filter(tab => {
+      if (!tab.id) return false;
+      const openUrl = tabOpenUrl(tab);
+      if (!openUrl || !isUrlAllowed(openUrl, this._config.allowedUrls, this._config.deniedUrls)) return false;
+      return tabCanReuseForOpen(openUrl, url);
+    });
+    const owned = matches.find(tab => this._taskOwnedTabIds.has(tab.id!));
+    if (owned?.id) return owned.id;
+    const bound = matches.find(tab => tab.id === this._currentTabId);
+    if (bound?.id) return bound.id;
+    return matches[0]?.id;
   }
 
   public async switchTab(tabId: number): Promise<Page> {
@@ -402,11 +459,7 @@ export default class BrowserContext {
     if (!this._getAllowedTabUrl(tab)) {
       throw new URLNotAllowedError(`Switch tab failed. URL: ${tab.url || ''} is not allowed`);
     }
-    if (
-      this._boundWindowId !== null &&
-      Number.isInteger(tab.windowId) &&
-      tab.windowId !== this._boundWindowId
-    ) {
+    if (this._boundWindowId !== null && Number.isInteger(tab.windowId) && tab.windowId !== this._boundWindowId) {
       throw new Error(`Switch tab failed. Tab ${tabId} is outside the task window`);
     }
 
@@ -444,6 +497,12 @@ export default class BrowserContext {
       await this.openTab(url);
       return;
     }
+    // A task may start from a page the user already had open. With follow off,
+    // never navigate that page, even if the user has since selected another tab.
+    if (!this._revealForeground && !this._taskOwnedTabIds.has(page.tabId)) {
+      await this.openTab(url);
+      return;
+    }
     // if page is attached, use puppeteer to navigate to the url
     if (page.attached) {
       await page.navigateTo(url);
@@ -469,6 +528,11 @@ export default class BrowserContext {
       throw new URLNotAllowedError(`Open tab failed. URL: ${url} is not allowed`);
     }
 
+    const reusableId = await this.findReusableOpenTab(url);
+    if (reusableId !== undefined) {
+      return await this._attachAllowedPage(reusableId);
+    }
+
     const tab = await chrome.tabs.create({
       url,
       active: this._revealForeground,
@@ -477,8 +541,13 @@ export default class BrowserContext {
     if (!tab.id) {
       throw new Error('No tab ID available');
     }
-    // Wait for tab events
-    await this.waitForTabEvents(tab.id, { waitForActivation: this._revealForeground });
+    this._taskOwnedTabIds.add(tab.id);
+    try {
+      await this.waitForTabEvents(tab.id, { waitForActivation: this._revealForeground });
+    } catch (error) {
+      const created = await chrome.tabs.get(tab.id).catch(() => undefined);
+      if (!tabHasOpenHttpUrl(created)) throw error;
+    }
 
     return await this._attachAllowedPage(tab.id);
   }
@@ -493,9 +562,7 @@ export default class BrowserContext {
     return Promise.all(created.map(item => this._waitAndAttachIndependentTab(item)));
   }
 
-  private async _createIndependentTab(
-    url: string,
-  ): Promise<{ requestedUrl: string; tabId?: number; error?: string }> {
+  private async _createIndependentTab(url: string): Promise<{ requestedUrl: string; tabId?: number; error?: string }> {
     if (!isUrlAllowed(url, this._config.allowedUrls, this._config.deniedUrls)) {
       return { requestedUrl: url, error: 'url_not_allowed' };
     }
@@ -506,6 +573,7 @@ export default class BrowserContext {
         ...(this._boundWindowId === null ? {} : { windowId: this._boundWindowId }),
       });
       if (!tab.id) return { requestedUrl: url, error: 'no_tab_id' };
+      this._taskOwnedTabIds.add(tab.id);
       return { requestedUrl: url, tabId: tab.id };
     } catch (error) {
       return { requestedUrl: url, error: error instanceof Error ? error.message : String(error) };
@@ -534,8 +602,14 @@ export default class BrowserContext {
   }
 
   public async closeTab(tabId: number): Promise<void> {
+    const taskOwned = this._taskOwnedTabIds.has(tabId);
+    const explicitlyAuthorized = this._authorizedUnownedTabCloseIds.delete(tabId);
+    if (!taskOwned && !explicitlyAuthorized) {
+      throw new Error(`Refusing to close tab ${tabId}: it was not created by this task`);
+    }
     await this.detachPage(tabId);
     await chrome.tabs.remove(tabId);
+    this._taskOwnedTabIds.delete(tabId);
     // update current tab id if needed
     if (this._currentTabId === tabId) {
       this._currentTabId = null;
@@ -548,6 +622,7 @@ export default class BrowserContext {
    */
   public removeAttachedPage(tabId: number): void {
     this._attachedPages.delete(tabId);
+    this._taskOwnedTabIds.delete(tabId);
     // update current tab id if needed
     if (this._currentTabId === tabId) {
       this._currentTabId = null;
