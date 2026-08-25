@@ -60,7 +60,7 @@ describe('final side-panel accessibility gates', () => {
   });
 
   it('keeps unsent instructions in the composer and explains the failed delivery', () => {
-    expect(chatInput).toContain('const result = await onSendMessage(messageContent, displayContent);');
+    expect(chatInput).toContain('sendOptionsFromComposerIntent(composerIntent)');
     expect(chatInput).toContain('if (!shouldClearComposerAfterDelivery(result))');
     expect(chatInput).toContain('setDeliveryFeedback(result.feedback');
     expect(chatInput).toContain('data-testid="goal-send-feedback"');
