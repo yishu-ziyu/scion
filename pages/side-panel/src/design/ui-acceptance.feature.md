@@ -110,6 +110,9 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - Given a delivered answer with a section name, paragraphs, a list, and 对核 sources
 - When `AnswerProse` draws it
 - Then the section name is 14px / 600, body and list items are 14px / 400, sources are 12px
+- And each 对核 source is one compact line (host + truncated title), not a stacked card
+- And 复制结果 is a quiet ghost button (no border pill) trailing the answer
+- And inside the closed-then-opened process fold, page cards and act chips are plain small-text rows, not sand cards
 - And the answer block fades in once (180ms opacity), with no typewriter and no thinking sentence-in
 - And a whole-line `**节名**：` is a section, while `**标签**：值` inside a list item stays a list item
 
