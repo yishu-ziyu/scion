@@ -15,7 +15,8 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - Given a task snapshot with status `running`
 - When the status card is rendered
 - Then the user's original sentence is a sand card with no 目标 label
-- And the stream shows what happened (search board / opened page / click line), not 获取页面快照
+- And the stream shows what happened (search board / opened page / click line)
+- And 获取页面快照 may appear as a quiet action chip in the process, not as a page title
 - And a live cursor and 接管 are visible on the stream
 
 ## Scenario: Already-open search results grow a board, a reading, and the click
@@ -28,7 +29,7 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - Then the user sees the query and the fourth title
 - And the page reading follows those hits
 - And the click is its own line with the result title
-- And the stream does not show 获取页面快照
+- And the search board does not treat 获取页面快照 as a query
 - And google.com.hk is not drawn twice as both host and title
 - And the composer shows 跟随, not a second 接管
 - And the page overlay says 持节正在操作这个页面
@@ -50,14 +51,14 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - And clicking an option sends `follow_up` through `handleSendMessage`
 - And there is no Auto Approve countdown, no `resume`, no `wait-continue` / `wait-retry`
 
-## Scenario: execute start asks 仅聊天 / 执行 before operating
+## Scenario: execute start uses the composer 仅聊天 / 执行 rail
 
-- Given a task snapshot with status `waiting_user` and waitReason `confirm_execute`
-- And `waitAsk` options are 仅聊天 / 执行
-- When the status card is rendered
-- Then the user sees 要我现在操作这个网页吗？ and option buttons 仅聊天 / 执行
-- And 自己写 focuses the composer
-- And there is no Auto Approve countdown, no permanent Chat / Execute rail on the composer
+- Given the side panel composer
+- Then the input has 仅聊天 and 执行
+- And choosing 执行 sends `composerIntent: 'execute'` and does not park 要我现在操作这个网页吗？
+- And choosing 仅聊天 does not operate pages
+- And a start without composerIntent still parks `confirm_execute` with 仅聊天 / 执行
+- And there is no Auto Approve countdown
 
 ## Scenario: waiting_user with stored named bind choices shows those names
 

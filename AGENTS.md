@@ -11,8 +11,9 @@ Personal second-dev lab (接穗). Maintainer: yishu-ziyu · remote: `origin` →
 
 持节 = Chrome MV3 **browser automation agent** in the user's daily Chrome.
 The user assigns a task; the extension operates the relevant tabs until it is done.
-The side panel is the window onto that work — not a pre-printed column, not a chat product, not step-by-step approval.
-Do not copy Tabbit's chat-only / execute gate. Default: do not follow the foreground tab.
+The side panel is turn-taking: the user sends a sentence, the agent works and replies, the user can follow up.
+Not a pre-printed 目标 / 现在 / 结果 / 做过 column. Not step-by-step approval of every click.
+The composer has 仅聊天 / 执行. Default: do not follow the foreground tab.
 
 Owner 指哪打哪. Do not write documents for numbering, gates, indexes, or milestones.
 
@@ -97,7 +98,7 @@ When the work is product / design / placement: while restating intent, name in o
 ## Runtime (hard)
 
 - Do not bring the user's current tab or window to the front while the agent works, unless the user chose 跟随 (`TaskSession.followForeground`). Default `BrowserContext.switchTab` / `openTab` / `navigateTo` attach in the background. 接管 (`takeover`) pauses the task and reveals the page so the user can drive. Side panel grows from what happened; do not pre-print 目标 / 现在 / 结果 / 做过.
-- Before attaching `chrome.debugger` or running the work loop, ask once: 要我现在操作这个网页吗？ with 仅聊天 / 执行. Whole-message greetings still reply with no task. 再说一次 (`forceExecute`) skips this ask. Do not put a permanent Chat / Execute rail on the composer. Do not approve every click.
+- Composer 仅聊天 / 执行 is always on the input. 仅聊天 = this send does not operate pages. 执行 = this send may operate pages and skips the extra confirm ask. Whole-message greetings still reply with no task. 再说一次 (`forceExecute`) skips classify. If the composer did not already pick 执行, still ask 要我现在操作这个网页吗？ Do not approve every click.
 - Computer-use (`orca computer`) must not steal the user's front app. Never `--restore-window`, `orca open`, or `osascript activate`. Prefer `orca serve` (no desktop window) and `get-app-state --no-screenshot`. If the target has no on-screen window, stop; do not restore it.
 
 ## Commands
