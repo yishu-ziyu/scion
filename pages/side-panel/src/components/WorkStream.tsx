@@ -179,6 +179,17 @@ function ThinkingFold({ text, open, running }: { text: string; open: boolean; ru
     el.scrollTop = el.scrollHeight;
   }, [revealed, running]);
 
+  // While running, grow the viewport smoothly; CSS transitions the height.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    if (!running) {
+      el.style.height = '';
+      return;
+    }
+    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+  }, [sentences.length, revealed, running]);
+
   const visible = sentences.slice(0, revealed);
 
   return (
