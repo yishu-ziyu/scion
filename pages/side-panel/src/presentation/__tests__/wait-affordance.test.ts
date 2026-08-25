@@ -13,9 +13,12 @@ describe('waitUserAction (TaskManager-aligned)', () => {
     expect(waitUserAction(reason)).toBe('continue-in-composer');
   });
 
-  it.each(['target_missing', 'target_ambiguous'] as const)('%s asks for a clarifying follow-up', reason => {
-    expect(waitUserAction(reason)).toBe('clarify-in-composer');
-  });
+  it.each(['target_missing', 'target_ambiguous', 'confirm_execute'] as const)(
+    '%s asks for a clarifying follow-up',
+    reason => {
+      expect(waitUserAction(reason)).toBe('clarify-in-composer');
+    },
+  );
 
   it('keeps inputs-required and uncertain commits locked without an invalid follow-up affordance', () => {
     expect(taskLocksComposer('inputs_required', 'skill_inputs_required')).toBe(true);
@@ -28,6 +31,8 @@ describe('waitUserAction (TaskManager-aligned)', () => {
     expect(taskLocksComposer('waiting_user', 'target_ambiguous')).toBe(false);
     expect(taskAllowsDirectionChange('waiting_user', 'target_ambiguous')).toBe(false);
     expect(taskAllowsDirectionChange('waiting_user', 'target_missing')).toBe(false);
+    expect(taskLocksComposer('waiting_user', 'confirm_execute')).toBe(false);
+    expect(taskAllowsDirectionChange('waiting_user', 'confirm_execute')).toBe(false);
   });
 
   it.each(['waiting_user', 'inputs_required', 'interrupted'] as const)('%s exposes Stop directly', status => {

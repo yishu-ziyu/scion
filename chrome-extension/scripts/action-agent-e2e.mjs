@@ -118,21 +118,63 @@ const server = http.createServer(async (request, response) => {
     '/media': 'media.html',
     '/products': 'products.html',
     '/form': 'form.html',
+    '/iframe-shadow': 'iframe-shadow.html',
   };
   const fixture = fixtureByPath[url.pathname] || (url.pathname === '/' ? 'form.html' : null);
   if (!fixture) {
     response.writeHead(404);
     return response.end('not found');
   }
-  const html = await readFile(path.resolve(__dirname, '../test/fixtures', fixture));
+  let html = await readFile(path.resolve(__dirname, '../test/fixtures', fixture), 'utf8');
+  if (fixture === 'iframe-shadow.html') {
+    html = html.replace('src="iframe-shadow-frame.html"', `src="${payOrigin}/frame"`);
+  }
   response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   response.end(html);
 });
+const payServer = http.createServer(async (request, response) => {
+  const url = new URL(request.url, 'http://127.0.0.1');
+  if (url.pathname !== '/frame') {
+    response.writeHead(404);
+    return response.end('not found');
+  }
+  const html = await readFile(path.resolve(__dirname, '../test/fixtures/iframe-shadow-frame.html'));
+  response.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
+    'access-control-allow-origin': '*',
+  });
+  response.end(html);
+});
+await new Promise(resolve => payServer.listen(0, '127.0.0.1', resolve));
+const payOrigin = `http://127.0.0.1:${payServer.address().port}`;
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
 async function waitForTestId(page, testId) {
   return page.waitForSelector(`[data-testid="${testId}"]`, { timeout });
+}
+
+async function readPayCardValue(page) {
+  for (const frame of page.frames()) {
+    if (!frame.url().includes('/frame')) continue;
+    try {
+      return await frame.evaluate(() => document.querySelector('input[name="card"]')?.value || '');
+    } catch {
+      continue;
+    }
+  }
+  return '';
+}
+
+async function waitForPayCardValue(page, expected) {
+  const start = Date.now();
+  let last = '';
+  while (Date.now() - start < timeout) {
+    last = await readPayCardValue(page);
+    if (last === expected) return last;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  throw new Error(`timeout waiting for iframe card value, last=${JSON.stringify(last)}`);
 }
 
 /** React-controlled input: native value setter + input event. */
@@ -1006,6 +1048,20 @@ async function runAllScenarios(extensionId, run) {
   await waitForTestId(panel, 'completion-receipt');
   console.log(`[e2e] run${run} form PASS receipt=${formDone.receiptId || 'text'}`);
 
+  const iframeCardSentinel = '4242424242424242';
+  await target.goto(`${origin}/iframe-shadow?run=${run}`, { waitUntil: 'domcontentloaded' });
+  await target.bringToFront();
+  await beginActionScenario(panel, 'iframe-shadow');
+  const iframeBoundTab = await sendGoal(
+    panel,
+    target,
+    `Fill the card field inside the iframe titled pay with ${iframeCardSentinel}. Do not click 取消. Success is that iframe input showing that exact value.`,
+  );
+  currentScenarioScope.boundTab = iframeBoundTab;
+  const iframeFilled = await waitForPayCardValue(target, iframeCardSentinel);
+  assert.equal(iframeFilled, iframeCardSentinel, 'iframe card field was not filled');
+  console.log(`[e2e] run${run} iframe-shadow PASS`);
+
   if (['018-O1', '013-C01'].includes(evalTaskId)) {
     await assertNoNonChatSentinelLeak(panel, ['FIELD_SENTINEL_8472']);
     const verification = buildActionVerificationEvidence(lastScenarioEvidence);
@@ -1432,4 +1488,5 @@ try {
     browser?.disconnect();
   }
   await new Promise(resolve => server.close(resolve));
+  await new Promise(resolve => payServer.close(resolve));
 }

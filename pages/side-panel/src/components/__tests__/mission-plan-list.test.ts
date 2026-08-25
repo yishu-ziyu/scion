@@ -169,6 +169,9 @@ describe('TaskProgressOverview mission-plan integration', () => {
       }),
     );
     expect(withResult).toContain('data-testid="completion-result"');
+    expect(withResult.indexOf('data-testid="completion-result"')).toBeLessThan(
+      withResult.indexOf('data-testid="task-progress-current-activity"'),
+    );
     expect(withResult).toContain('hidden');
     expect(withResult).not.toContain('>现在<');
     expect(withResult).not.toContain('>结果<');
@@ -214,4 +217,3 @@ describe('TaskProgressOverview mission-plan integration', () => {
     expect(html).not.toContain('data-testid="task-result-block"');
   });
 });
-

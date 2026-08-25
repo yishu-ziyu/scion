@@ -60,6 +60,7 @@ export function TaskProgressOverview({
     view.health.state === 'recovering';
   const visibleArtifacts = view.artifacts.filter(artifact => artifact.kind !== 'receipt');
   const hasDeliveredResult = Boolean(result) || view.findings.length > 0 || visibleArtifacts.length > 0;
+  const resultFirst = Boolean(result);
   const spoken = (utterance ?? view.mission.title).replace(/\s+/g, ' ').trim();
   const showNow = Boolean(nowBody || view.currentActivity);
   const nowSection = showNow ? (
@@ -81,6 +82,43 @@ export function TaskProgressOverview({
       {nowBody}
     </section>
   ) : null;
+  const resultSection = hasDeliveredResult ? (
+    <section className="chijie-progress-result" data-testid="task-result-block">
+      {result}
+      {view.findings.length > 0 && (
+        <div className="chijie-progress-findings" data-testid="task-progress-findings">
+          <ul>
+            {view.findings.map(finding => (
+              <li key={finding.id}>
+                <strong>{finding.title}</strong>
+                {finding.detail && <span>{finding.detail}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {visibleArtifacts.length > 0 && (
+        <div className="chijie-progress-artifacts" data-testid="task-progress-artifacts">
+          <ul>
+            {visibleArtifacts.map(artifact => (
+              <li key={artifact.id}>
+                <FiFileText aria-hidden />
+                {artifact.url ? (
+                  <a href={artifact.url} target="_blank" rel="noreferrer">
+                    <span>{artifact.title}</span>
+                    <FiExternalLink aria-hidden />
+                  </a>
+                ) : (
+                  <span>{artifact.title}</span>
+                )}
+                <small>{artifact.status === 'verified' ? '已回读验证' : '已创建'}</small>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  ) : null;
 
   return (
     <div
@@ -88,7 +126,7 @@ export function TaskProgressOverview({
       data-kind={view.kind}
       data-surface={view.surface ?? 'console'}
       data-testid="task-progress-overview">
-      <section className="chijie-progress-mission chijie-user-bubble" data-testid="task-goal-block">
+      <section className="chijie-progress-mission chijie-user-bubble" data-testid="task-goal-block" data-turn="user">
         <h2 data-testid="task-goal-summary">{spoken}</h2>
       </section>
 
@@ -98,7 +136,11 @@ export function TaskProgressOverview({
         </section>
       ) : null}
 
-      {nowSection}
+      <div className="chijie-agent-turn" data-testid="task-agent-turn" data-turn="agent">
+        {resultFirst ? resultSection : null}
+        {nowSection}
+        {!resultFirst ? resultSection : null}
+      </div>
 
       <section
         className="chijie-progress-health"
@@ -142,44 +184,6 @@ export function TaskProgressOverview({
         <div className="chijie-progress-blocked" role="alert">
           当前阶段遇到阻塞，请调整任务方向或稍后重试。
         </div>
-      ) : null}
-
-      {hasDeliveredResult ? (
-        <section className="chijie-progress-result" data-testid="task-result-block">
-          {result}
-          {view.findings.length > 0 && (
-            <div className="chijie-progress-findings" data-testid="task-progress-findings">
-              <ul>
-                {view.findings.map(finding => (
-                  <li key={finding.id}>
-                    <strong>{finding.title}</strong>
-                    {finding.detail && <span>{finding.detail}</span>}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {visibleArtifacts.length > 0 && (
-            <div className="chijie-progress-artifacts" data-testid="task-progress-artifacts">
-              <ul>
-                {visibleArtifacts.map(artifact => (
-                  <li key={artifact.id}>
-                    <FiFileText aria-hidden />
-                    {artifact.url ? (
-                      <a href={artifact.url} target="_blank" rel="noreferrer">
-                        <span>{artifact.title}</span>
-                        <FiExternalLink aria-hidden />
-                      </a>
-                    ) : (
-                      <span>{artifact.title}</span>
-                    )}
-                    <small>{artifact.status === 'verified' ? '已回读验证' : '已创建'}</small>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
       ) : null}
     </div>
   );

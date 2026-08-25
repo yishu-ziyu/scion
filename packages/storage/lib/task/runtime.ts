@@ -24,3 +24,11 @@ export async function getActiveTask(): Promise<TaskSession | null> {
 export async function saveTask(task: TaskSession): Promise<void> {
   await storage.set(tasks => ({ ...tasks, [task.id]: task }));
 }
+
+export async function deleteTask(id: string): Promise<void> {
+  await storage.set(tasks => {
+    const next = { ...tasks };
+    delete next[id];
+    return next;
+  });
+}

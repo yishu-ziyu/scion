@@ -1,6 +1,7 @@
 import { attachSourceHrefs, parseAnswerBlocks, type AnswerSpan } from '../presentation/answer-format';
-import { openFoundUrl } from '../presentation/open-found-url';
+import { openFoundSource, openFoundUrl } from '../presentation/open-found-url';
 import type { StreamSource } from '../presentation/work-stream';
+import { t } from '@extension/i18n';
 
 function Spans({ spans, onOpenUrl }: { spans: AnswerSpan[]; onOpenUrl?: (url: string) => void }) {
   return (
@@ -35,10 +36,19 @@ export function AnswerProse({
   onOpenUrl?: (url: string) => void;
   testId?: string;
 }) {
-  const blocks = attachSourceHrefs(parseAnswerBlocks(text), sources);
+  const clickableSources = sources.filter(source => !source.unavailable);
+  const blocks = attachSourceHrefs(parseAnswerBlocks(text), clickableSources);
   return (
     <div className="chijie-answer" data-testid={testId}>
       {blocks.map((block, index) => {
+        if (block.type === 'section') {
+          return (
+            <p key={index} className="chijie-answer-section">
+              <Spans spans={block.spans} onOpenUrl={onOpenUrl} />
+            </p>
+          );
+        }
+
         if (block.type === 'ul') {
           return (
             <ul key={index}>
@@ -71,18 +81,26 @@ export function AnswerProse({
         <div className="chijie-answer-sources" data-testid="answer-sources">
           <p className="chijie-stream-caption">对核这些页</p>
           <ul>
-          {sources.map(source => (
-            <li key={source.id}>
-              <button
-                type="button"
-                className="chijie-answer-source"
-                data-url={source.url}
-                onClick={() => openFoundUrl(source.url, onOpenUrl)}>
-                <span className="chijie-search-host">{source.host ?? '网页'}</span>
-                <span>{source.title}</span>
-              </button>
-            </li>
-          ))}
+            {sources.map(source => (
+              <li key={source.id}>
+                {source.unavailable ? (
+                  <div className="chijie-answer-source chijie-answer-source-unavailable">
+                    <span className="chijie-search-host">{source.host ?? '网页'}</span>
+                    <span>{source.title}</span>
+                    <small>{t('chat_task_source_unavailable')}</small>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="chijie-answer-source"
+                    data-url={source.url}
+                    onClick={() => openFoundSource(source, onOpenUrl)}>
+                    <span className="chijie-search-host">{source.host ?? '网页'}</span>
+                    <span>{source.title}</span>
+                  </button>
+                )}
+              </li>
+            ))}
           </ul>
         </div>
       ) : null}

@@ -2,6 +2,7 @@ import type { Action } from '../agent/actions/builder';
 import type { ActionResult } from '../agent/types';
 import type {
   ActionAttempt,
+  AttemptFinding,
   BrowserTargetRef,
   CompletionCriterion,
   CompletionEvidence,
@@ -75,6 +76,7 @@ export class StaleTaskRoundError extends Error {
 /** One observed http(s) page whose URL and title were written after observe. */
 export interface VerifiedPageRecord {
   normalizedUrl: string;
+  queryIdentityDigest?: string;
   title: string;
   quote?: string;
   visitSeq?: number;
@@ -92,12 +94,18 @@ export interface ExecutorHooks {
   onPlan(roundId: string, criteria: CompletionCriterionDraft[]): Promise<void>;
   dispatchAction(roundId: string, action: Action, rawArgs: unknown): Promise<DispatchResult>;
   /**
-   * Persist observe/decide/reobserve as live 执行步骤 before the work runs.
+   * Persist observe/decide/reobserve onto TaskRound.attempts before the work runs.
    * Optional so scripted tests that only dispatch actions can omit it.
    */
   reportLoopPhase?(
     roundId: string,
-    event: { phase: 'observe' | 'decide' | 'act' | 'reobserve'; step: number; detail?: string },
+    event: {
+      phase: 'observe' | 'decide' | 'act' | 'reobserve';
+      step: number;
+      detail?: string;
+      findings?: AttemptFinding[];
+      targetUrl?: string;
+    },
   ): Promise<void>;
   /**
    * After observe, write a verified page record when this instruction uses step records.
@@ -110,10 +118,7 @@ export interface ExecutorHooks {
    * Persist pages opened together before the first decide (URL + title).
    * Optional so scripted tests can omit it.
    */
-  recordOpenedPages?(
-    roundId: string,
-    pages: Array<{ tabId: number; url: string; title: string }>,
-  ): Promise<void>;
+  recordOpenedPages?(roundId: string, pages: Array<{ tabId: number; url: string; title: string }>): Promise<void>;
 }
 
 export interface ExecutorDriver {

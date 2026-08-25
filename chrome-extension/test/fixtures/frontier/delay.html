@@ -4,9 +4,16 @@
     <meta charset="utf-8" />
     <title>Delayed Search Console</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 2rem; }
-      .ok { color: #064; }
-      .err { color: #900; }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+      }
+      .ok {
+        color: #064;
+      }
+      .err {
+        color: #900;
+      }
     </style>
   </head>
   <body>
@@ -14,9 +21,9 @@
     <p>Simple search is broken. After enough failed attempts, use Advanced search.</p>
     <input id="q" data-testid="search-input" placeholder="query" />
     <button id="simple" data-testid="simple-search">Simple search</button>
-    <button id="advanced" data-testid="advanced-search" style="display:none">Advanced search</button>
+    <button id="advanced" data-testid="advanced-search" style="display: none">Advanced search</button>
     <div id="status" data-testid="search-status" class="err">No results. Try again.</div>
-    <div id="result" data-testid="search-result" style="display:none" class="ok"></div>
+    <div id="result" data-testid="search-result" style="display: none" class="ok"></div>
     <script>
       let fails = 0;
       function unlockAdvanced(reason) {

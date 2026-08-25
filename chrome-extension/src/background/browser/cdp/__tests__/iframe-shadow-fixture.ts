@@ -4,12 +4,7 @@ function textNode(value: string): CdpDomNode {
   return { nodeType: 3, nodeName: '#text', nodeValue: value, backendNodeId: 0 };
 }
 
-function el(
-  name: string,
-  attrs: string[],
-  children: CdpDomNode[],
-  extra: Partial<CdpDomNode> = {},
-): CdpDomNode {
+function el(name: string, attrs: string[], children: CdpDomNode[], extra: Partial<CdpDomNode> = {}): CdpDomNode {
   return {
     nodeType: 1,
     nodeName: name.toUpperCase(),

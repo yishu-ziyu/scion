@@ -10,10 +10,7 @@ import {
 } from '../extract-products';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const productsFixture = readFileSync(
-  path.resolve(__dirname, '../../../../../test/fixtures/products.html'),
-  'utf8',
-);
+const productsFixture = readFileSync(path.resolve(__dirname, '../../../../../test/fixtures/products.html'), 'utf8');
 
 const tableHtml = `<!doctype html><html><body>
 <table>
@@ -27,11 +24,7 @@ const tableHtml = `<!doctype html><html><body>
 
 describe('extract-products R1 tracer', () => {
   it('detects extract-to-csv instructions', () => {
-    expect(
-      isExtractProductsInstruction(
-        'Extract products to a CSV table with name, price, rating',
-      ),
-    ).toBe(true);
+    expect(isExtractProductsInstruction('Extract products to a CSV table with name, price, rating')).toBe(true);
     expect(isExtractProductsInstruction('Play the audio')).toBe(false);
   });
 

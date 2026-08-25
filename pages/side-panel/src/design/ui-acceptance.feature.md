@@ -15,8 +15,21 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - Given a task snapshot with status `running`
 - When the status card is rendered
 - Then the user's original sentence is a sand card with no 目标 label
-- And the stream shows what happened (search board / opened page), not 获取页面快照
+- And the stream shows what happened (search board / opened page / click line), not 获取页面快照
 - And a live cursor and 接管 are visible on the stream
+
+## Scenario: Already-open search results grow a board, a reading, and the click
+
+- Given a running task already on a Google `/search` page
+- And the observe attempt stored the query plus result titles
+- And the control decide stored a human `pageReading`
+- And the next act is `click_element` on the fourth result
+- When the work stream is derived
+- Then the user sees the query and the fourth title
+- And the page reading follows those hits
+- And the click is its own line with the result title
+- And the stream does not show 获取页面快照
+- And google.com.hk is not drawn twice as both host and title
 - And the composer shows 跟随, not a second 接管
 - And the page overlay says 持节正在操作这个页面
 
@@ -26,6 +39,35 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - When the side panel is idle
 - Then the user sees a title, a short hint, and example rows that fill the composer
 - And there is no Chat / Claw mode rail
+
+## Scenario: waiting_user with a parseable question shows options, not Auto Approve
+
+- Given a task snapshot with status `waiting_user` and waitReason `target_ambiguous`
+- And `pageReading` is 要打开的是哪家网页邮箱？谷歌还是微软？
+- When the status card is rendered
+- Then the user sees that question and option buttons 谷歌 / 微软
+- And 自己写 focuses the composer
+- And clicking an option sends `follow_up` through `handleSendMessage`
+- And there is no Auto Approve countdown, no `resume`, no `wait-continue` / `wait-retry`
+
+## Scenario: execute start asks 仅聊天 / 执行 before operating
+
+- Given a task snapshot with status `waiting_user` and waitReason `confirm_execute`
+- And `waitAsk` options are 仅聊天 / 执行
+- When the status card is rendered
+- Then the user sees 要我现在操作这个网页吗？ and option buttons 仅聊天 / 执行
+- And 自己写 focuses the composer
+- And there is no Auto Approve countdown, no permanent Chat / Execute rail on the composer
+
+## Scenario: waiting_user with stored named bind choices shows those names
+
+- Given a task snapshot with status `waiting_user` and waitReason `target_ambiguous`
+- And the current round has `waitAsk` whose options are observed names 入门教程 / 进阶教程
+- And `pageReading` does not contain 还是
+- When the status card is rendered
+- Then the user sees 这几个都对得上「教程」，要哪一个？ and option buttons 入门教程 / 进阶教程
+- And the user does not see 页面上有多个相似目标
+- And 自己写 focuses the composer
 
 ## Scenario: Status card speaks human language
 
@@ -51,11 +93,28 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - And there is no rating form and no receipt details
 - And opened pages or search hits appear under the answer as 对核 sources
 
+## Scenario: Completion answer typeset by text type, not by task topic
+
+- Given a delivered answer with a section name, paragraphs, a list, and 对核 sources
+- When `AnswerProse` draws it
+- Then the section name is 14px / 600, body and list items are 14px / 400, sources are 12px
+- And the answer block fades in once (180ms opacity), with no typewriter and no thinking sentence-in
+- And a whole-line `**节名**：` is a section, while `**标签**：值` inside a list item stays a list item
+
 ## Scenario: Thinking follows what already happened
 
 - Given a running task that has already opened a page
 - When the work stream is derived
 - Then 思考过程 comes after the page card, not above it
+
+## Scenario: Thinking folds after the run, and the user can open it
+
+- Given a running task with a human page reading
+- When the work stream is derived
+- Then 思考过程 is open and splits the reading into sentences (no hardcoded SENTENCES / DELAYS)
+- And when status is `completed`, 思考过程 is collapsed
+- And the heading copy stays 思考过程; elapsed time stays in Health
+- And there is no infinite shimmer on the thinking label
 
 ## Scenario: High-risk click is previewed
 
@@ -94,9 +153,18 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - Given the Options page shell and design tokens
 - Then Options imports chijie tokens/components
 - And layout uses `chijie-options-layout` / `chijie-options-nav` / `chijie-options-main`
+- And tokens match the side panel near-white / ink (`#f6f6f5` / `#1c1b19`), not black / crayon
 - And Options.tsx has no `#0EA5E9` / `bg-sky-*` / sky utility stacks
 - And settings surfaces use yishu border/surface tokens (not stock blue toggles as primary chrome)
 - And yishu component styles for options do not set `box-shadow`
+
+## Scenario: Memory page is an independent fact editor (not a notes dump)
+
+- Given the memory page at `memory/index.html`
+- Then it imports `--chijie-*` tokens and uses a narrow column
+- And empty copy names the next action (写下事实，再整理成条目)
+- And the side panel opens that page from `nav_memory_a11y`
+- And there is no sky chrome and no `box-shadow`
 
 ## Scenario: SidePanel.css has no legacy sky scrollbar/header chrome
 

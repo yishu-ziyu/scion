@@ -5,16 +5,8 @@ import type { AgentEvent } from './event/types';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput } from '../task/contracts';
 import { createNanoExecutorDriver } from './backends/nano';
 import { createLlmControlDriver } from './backends/control-llm';
-import {
-  createControlLoopDriver,
-  type ControlLoopOptions,
-  type ControlScriptStep,
-} from './backends/control-loop';
-import {
-  DEFAULT_AGENT_CORE_BACKEND,
-  parseAgentCoreBackend,
-  type AgentCoreBackend,
-} from './backends/types';
+import { createControlLoopDriver, type ControlLoopOptions, type ControlScriptStep } from './backends/control-loop';
+import { DEFAULT_AGENT_CORE_BACKEND, parseAgentCoreBackend, type AgentCoreBackend } from './backends/types';
 import { PERSONAL_AGENT_CORE_BACKEND } from '../../personal/config';
 
 const logger = createLogger('ExecutorFactory');

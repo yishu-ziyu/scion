@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collectInteractive, walkInteractiveNodes } from '../collect';
+import { collectInteractive, collectInteractiveDetailed, walkInteractiveNodes } from '../collect';
 import { iframeShadowFrameDocument, iframeShadowMainDocument } from './iframe-shadow-fixture';
 
 function mockDebugger() {
@@ -119,5 +119,32 @@ describe('collectInteractive', () => {
     const nodes = await collectInteractive(7);
     expect(nodes.filter(node => node.text === '提交')).toHaveLength(1);
     expect(nodes.find(node => node.text === '提交')?.handle.targetId).toBe('tgt-iframe');
+  });
+
+  it('records inaccessible iframe targets instead of pretending the pay form is absent', async () => {
+    const api = mockDebugger();
+    api.getTargets.mockResolvedValue([
+      { id: 'tgt-iframe', type: 'iframe', title: 'pay', url: 'https://pay.test', attached: false, tabId: 7 },
+    ] as never);
+    api.attach.mockImplementation(async (...args: unknown[]) => {
+      const target = args[0] as { tabId?: number; targetId?: string };
+      if (target?.targetId === 'tgt-iframe') throw new Error('Target closed');
+    });
+    api.sendCommand.mockImplementation(async (...args: unknown[]) => {
+      const target = args[0] as { tabId?: number; targetId?: string };
+      const method = args[1] as string;
+      if (method === 'DOM.getDocument' && target.tabId === 7) {
+        return { root: iframeShadowMainDocument() };
+      }
+      if (method === 'Runtime.evaluate') return { result: { value: [] } };
+      return {};
+    });
+    vi.stubGlobal('chrome', { debugger: api });
+
+    const result = await collectInteractiveDetailed(7);
+    expect(result.nodes.some(node => node.text === '提交')).toBe(false);
+    expect(result.inaccessibleIframes).toEqual([
+      { targetId: 'tgt-iframe', url: 'https://pay.test', error: 'Target closed' },
+    ]);
   });
 });

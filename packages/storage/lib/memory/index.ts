@@ -1,0 +1,15 @@
+export {
+  userMemoryStore,
+  DEFAULT_USER_MEMORY,
+  USER_MEMORY_STORAGE_KEY,
+  LEGACY_USUAL_MAILBOX_KEY,
+  MAILBOX_KIND,
+  factHasMailboxKind,
+  looksLikeSecretMemory,
+  redactMemorySourceText,
+  migrateLegacyMailbox,
+  replaceOrInsertFact,
+  type UserMemoryFact,
+  type UserMemoryState,
+  type UserMemoryStorage,
+} from './user-facts';

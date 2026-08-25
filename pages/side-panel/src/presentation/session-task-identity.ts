@@ -1,4 +1,5 @@
 import { Actors, type Message, type TaskCommand, type TaskSnapshot, type TaskStatus } from '@extension/storage';
+import { displayCurrentPageMention } from './composer-mention';
 
 const LIVE_TASK_STATUSES = new Set<TaskStatus>(['running', 'paused', 'waiting_user', 'inputs_required', 'interrupted']);
 
@@ -52,7 +53,7 @@ export function shouldRetryNewChatCancellationAfterLifecycleAck(input: {
     input.pending?.taskId === input.taskId &&
       !input.pending.commandId &&
       input.accepted &&
-      (input.type === 'pause' || input.type === 'resume'),
+      (input.type === 'pause' || input.type === 'resume' || input.type === 'takeover' || input.type === 'set_follow'),
   );
 }
 
@@ -295,8 +296,8 @@ export function protectedLiveHistorySessionId(task: TaskSnapshot | null | undefi
 
 /** Keep model-only attachment payloads in storage while projecting safe chat/history copy. */
 export function displayContentForStoredMessage(content: string): string {
-  if (!content.includes('<nano_attached_files>')) return content;
-  const visibleText = content.split('<nano_attached_files>', 1)[0]?.trim() ?? '';
+  if (!content.includes('<nano_attached_files>')) return displayCurrentPageMention(content);
+  const visibleText = displayCurrentPageMention(content.split('<nano_attached_files>', 1)[0]?.trim() ?? '');
   const attachmentNames = [...content.matchAll(/<nano_file_content\b[^>]*\bname="([^"]*)"[^>]*>/g)].map(
     match => match[1]?.trim() || '未命名附件',
   );

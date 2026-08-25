@@ -1,4 +1,5 @@
 import type { CoordinateSet, HashedDomElement, ViewportInfo } from './history/view';
+import type { InaccessibleIframe } from '../cdp/types';
 import { HistoryTreeProcessor } from './history/service';
 import { capTextLength } from '../util';
 
@@ -575,6 +576,7 @@ export class DOMElementNode extends DOMBaseNode {
 export interface DOMState {
   elementTree: DOMElementNode;
   selectorMap: Map<number, DOMElementNode>;
+  inaccessibleIframes?: InaccessibleIframe[];
 }
 
 export function domElementNodeToDict(elementTree: DOMBaseNode): unknown {

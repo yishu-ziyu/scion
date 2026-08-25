@@ -10,9 +10,7 @@ export type ConnectionValidateInput = {
   model: string;
 };
 
-export type ConnectionValidateResult =
-  | { ok: true }
-  | { ok: false; message: string };
+export type ConnectionValidateResult = { ok: true } | { ok: false; message: string };
 
 function stripSlash(url: string): string {
   return url.replace(/\/+$/, '');

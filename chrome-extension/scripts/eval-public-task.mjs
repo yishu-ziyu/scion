@@ -88,6 +88,7 @@ let priorReceiptIds = [];
 let runtimeTaskId = '';
 let runtimeTaskSnapshot = null;
 let terminalEvidence = null;
+let operatingBarSightings = [];
 let runtimeExtensionAttestation = null;
 let initialNavigationState = { attempts: 0, errorCategories: [] };
 const deliverableRequired = verifierRequiresTextDeliverable(verify);
@@ -355,6 +356,8 @@ async function waitCompleted(panel, target) {
   while (Date.now() - start < timeout) {
     await capturePageEvidence(target);
     await captureTabProvenance(panel, 'poll');
+    const bars = await readPageOperatingBars();
+    if (bars.length) operatingBarSightings.push({ captured_at: new Date().toISOString(), bars });
     const observed = await panel.evaluate(
       ({ deliverableSelector, completionResultSelector }) => {
         return {
@@ -429,6 +432,25 @@ async function pageTextContains(target, needle) {
     const pageText = document.body?.innerText || '';
     return pageText.includes(expected);
   }, needle);
+}
+
+async function readPageOperatingBars() {
+  const pages = await browser.pages();
+  const bars = [];
+  for (const page of pages) {
+    const url = page.url();
+    if (!url.startsWith('http')) continue;
+    try {
+      const text = await page.evaluate(() => {
+        const bar = document.getElementById('chijie-page-operating-bar');
+        return bar ? (bar.textContent || '').trim() : '';
+      });
+      if (text) bars.push({ url, text });
+    } catch {
+      // Page navigated or detached while reading the operating bar.
+    }
+  }
+  return bars;
 }
 
 async function readProductsOracle(target) {
@@ -609,6 +631,25 @@ export async function runPublicTask() {
   await new Promise(resolve => setTimeout(resolve, 500));
   const result = await waitCompleted(panel, target);
   latestResult = result;
+  await new Promise(resolve => setTimeout(resolve, 800));
+  const leftoverBars = await readPageOperatingBars();
+  console.log(
+    '[public-task] page-operating-bar sightings=',
+    operatingBarSightings.length,
+    'leftover=',
+    JSON.stringify(leftoverBars),
+    'result=',
+    (result.resultText || '').slice(0, 180),
+  );
+  if (leftoverBars.length) {
+    throw new Error(
+      `page_operating_bar_leftover: ${leftoverBars.map(item => `${item.url} => ${item.text}`).join('; ')}`,
+    );
+  }
+  const requiredResultText = process.env.REQUIRED_RESULT_TEXT || '';
+  if (requiredResultText && !String(result.resultText || '').includes(requiredResultText)) {
+    throw new Error(`missing_result_text: ${(result.resultText || '').slice(0, 180)}`);
+  }
   const activeTab = await readActiveTab(panel);
   await captureTabProvenance(panel, 'final');
   const flattenedTabProvenance = tabProvenance.flatMap(entry => {
@@ -663,6 +704,8 @@ export async function runPublicTask() {
     initial_navigation_attempts: initialNavigationState.attempts,
     initial_navigation_error_category: initialNavigationState.errorCategories.at(-1) || '',
     initial_navigation_error_categories: initialNavigationState.errorCategories,
+    page_operating_bar_sightings: operatingBarSightings,
+    page_operating_bar_leftover: leftoverBars,
     attach_attestation: {
       mode: attachMode,
       connect_url_present: Boolean(connectUrl),

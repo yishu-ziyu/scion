@@ -167,10 +167,7 @@ describe('mission plan', () => {
   });
 
   it('does not treat empty-criteria skeleton phases as missing proof', () => {
-    const plan = refineMissionPlanFromInstruction(
-      '1) 打开首页 2) 点第一个视频 3) 写下标题',
-      1920,
-    );
+    const plan = refineMissionPlanFromInstruction('1) 打开首页 2) 点第一个视频 3) 写下标题', 1920);
     expect(plan.phases).toHaveLength(3);
     expect(missionPlanHasUnverifiedRequiredProof(plan)).toBe(false);
   });
@@ -321,7 +318,10 @@ describe('mission plan', () => {
   });
 
   it('does not close custom-titled unfinished phases without evidence', () => {
-    const plan = closeEmptySkeletonPhasesOnReceipt(buildMissionPlanFromPhaseTitles(['调研', '验证', '输出'], 2740), 2741);
+    const plan = closeEmptySkeletonPhasesOnReceipt(
+      buildMissionPlanFromPhaseTitles(['调研', '验证', '输出'], 2740),
+      2741,
+    );
     expect(plan.phases.map(phase => phase.status)).toEqual(['active', 'planned', 'planned']);
   });
 

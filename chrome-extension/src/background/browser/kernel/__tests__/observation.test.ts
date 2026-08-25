@@ -48,6 +48,21 @@ describe('buildObservationFrame', () => {
     expect(frame.text.indexOf('Visible page text:')).toBeLessThan(frame.text.indexOf('Interactive elements:'));
   });
 
+  it('surfaces inaccessible iframes so the agent cannot treat the form as complete', async () => {
+    const state = browserState();
+    state.inaccessibleIframes = [{ targetId: 'tgt-pay', url: 'https://pay.test', error: 'Target closed' }];
+    const frame = await buildObservationFrame({
+      browserState: state,
+      elementsText: '[1] button 取消',
+    });
+    expect(frame.inaccessibleIframes).toEqual([
+      { targetId: 'tgt-pay', url: 'https://pay.test', error: 'Target closed' },
+    ]);
+    expect(frame.text).toContain('Inaccessible iframes');
+    expect(frame.text).toContain('tgt-pay');
+    expect(frame.text).toContain('do not treat the form as complete');
+  });
+
   it('lists labeled form fields with current values before clickable indexes', async () => {
     const state = {
       tabId: 3,
@@ -94,7 +109,8 @@ describe('buildObservationFrame', () => {
 
     const filtered = await buildObservationFrame({
       browserState: state,
-      elementsText: '[1]<a>Home</a>\n[2]<input type=text />\n[3]<button type=submit>提交</button>\n[4]<button>Cancel</button>',
+      elementsText:
+        '[1]<a>Home</a>\n[2]<input type=text />\n[3]<button type=submit>提交</button>\n[4]<button>Cancel</button>',
       visibleText: 'Name',
       query: '提交',
     });
@@ -106,7 +122,8 @@ describe('buildObservationFrame', () => {
 
     const full = await buildObservationFrame({
       browserState: state,
-      elementsText: '[1]<a>Home</a>\n[2]<input type=text />\n[3]<button type=submit>提交</button>\n[4]<button>Cancel</button>',
+      elementsText:
+        '[1]<a>Home</a>\n[2]<input type=text />\n[3]<button type=submit>提交</button>\n[4]<button>Cancel</button>',
       visibleText: 'Name',
       query: '',
     });
@@ -116,7 +133,8 @@ describe('buildObservationFrame', () => {
 
     const none = await buildObservationFrame({
       browserState: state,
-      elementsText: '[1]<a>Home</a>\n[2]<input type=text />\n[3]<button type=submit>提交</button>\n[4]<button>Cancel</button>',
+      elementsText:
+        '[1]<a>Home</a>\n[2]<input type=text />\n[3]<button type=submit>提交</button>\n[4]<button>Cancel</button>',
       visibleText: 'Name',
       query: 'no-such-control',
     });
@@ -127,10 +145,7 @@ describe('buildObservationFrame', () => {
 
   it('lists a form field past the first 80 clickable nav controls', async () => {
     const selectorMap = new Map(
-      Array.from({ length: 80 }, (_, index) => [
-        index + 1,
-        node('a', {}, `Nav ${index + 1}`),
-      ]),
+      Array.from({ length: 80 }, (_, index) => [index + 1, node('a', {}, `Nav ${index + 1}`)]),
     );
     selectorMap.set(81, node('input', { type: 'text', accname: 'Company', value: '' }, ''));
     const state = {

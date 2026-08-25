@@ -1,9 +1,21 @@
 export type AnswerSpan = { bold?: boolean; text: string; href?: string };
 
 export type AnswerBlock =
+  | { type: 'section'; spans: AnswerSpan[] }
   | { type: 'p'; spans: AnswerSpan[] }
   | { type: 'ul'; items: AnswerSpan[][] }
   | { type: 'ol'; items: AnswerSpan[][] };
+
+const SECTION_LINE = /^\*\*([^*]+)\*\*\s*[:：]?\s*$/;
+const SECTION_AFTER_SENTENCE = /^(.*?[。！？])\s*\*\*([^*]+)\*\*\s*[:：]?\s*$/;
+
+function sectionNameFromLine(line: string): { name?: string; rest?: string } {
+  const only = SECTION_LINE.exec(line);
+  if (only?.[1]) return { name: only[1].trim() };
+  const afterSentence = SECTION_AFTER_SENTENCE.exec(line);
+  if (afterSentence?.[2]) return { rest: afterSentence[1].trim() || undefined, name: afterSentence[2].trim() };
+  return {};
+}
 
 /** Drop model markup so copy/paste and tests see human text. */
 export function stripAnswerMarkup(raw: string): string {
@@ -64,6 +76,13 @@ export function parseAnswerBlocks(raw: string): AnswerBlock[] {
     }
     flushBullets();
     flushNumbers();
+    const section = sectionNameFromLine(trimmed);
+    if (section.name) {
+      if (section.rest) paragraph.push(section.rest);
+      flushParagraph();
+      blocks.push({ type: 'section', spans: [{ text: section.name }] });
+      continue;
+    }
     paragraph.push(trimmed);
   }
   flushParagraph();
@@ -110,7 +129,7 @@ export function attachSourceHrefs(
       return match ? { ...span, href: match.url } : span;
     });
   return blocks.map(block => {
-    if (block.type === 'p') return { ...block, spans: linkSpans(block.spans) };
+    if (block.type === 'p' || block.type === 'section') return { ...block, spans: linkSpans(block.spans) };
     return { ...block, items: block.items.map(item => linkSpans(item)) };
   });
 }

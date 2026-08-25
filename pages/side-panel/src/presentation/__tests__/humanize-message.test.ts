@@ -204,20 +204,10 @@ describe('classifyFailure / merge', () => {
   });
 
   it('merges consecutive failures in window', () => {
-    expect(
-      shouldMergeFailure(
-        { actor: Actors.PLANNER, content: 'step_failed', timestamp: 1000 },
-        2000,
-        4000,
-      ),
-    ).toBe(true);
-    expect(
-      shouldMergeFailure(
-        { actor: Actors.USER, content: 'hi', timestamp: 1000 },
-        2000,
-        4000,
-      ),
-    ).toBe(false);
+    expect(shouldMergeFailure({ actor: Actors.PLANNER, content: 'step_failed', timestamp: 1000 }, 2000, 4000)).toBe(
+      true,
+    );
+    expect(shouldMergeFailure({ actor: Actors.USER, content: 'hi', timestamp: 1000 }, 2000, 4000)).toBe(false);
   });
 
   it('parse category', () => {

@@ -1,6 +1,7 @@
 import type { ActionAttempt, EvidenceSpace, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
 import { t } from '@extension/i18n';
 import { useEffect, useState } from 'react';
+import { FiChevronDown, FiCopy } from 'react-icons/fi';
 import { primaryButtonClassName, taskCardClassName } from '../design/contracts';
 import { shouldShowDeliveredResult, shouldShowVerifiedDone, taskPrimaryOrganism } from '../presentation/task-loop-ui';
 import { deriveFailedResult } from '../presentation/failed-result';
@@ -9,8 +10,10 @@ import { requiredCompletionResult } from '../presentation/completion-outcome';
 import { assessGoalCoverage, resolveDeliverableAnswer } from '../presentation/goal-coverage';
 import { productFailureLabel, toProductFailureCode } from '../presentation/failure-taxonomy';
 import { waitUserAction } from '../presentation/wait-affordance';
+import { deriveWaitAsk, waitAskOptionClassName } from '../presentation/wait-ask';
 import { deriveTaskProgressView } from '../presentation/task-progress-view';
-import { collectStreamSources, deriveWorkStream } from '../presentation/work-stream';
+import { collectStreamSources, deriveWorkStream, type StreamSource } from '../presentation/work-stream';
+import { isFollowingForeground } from '../presentation/run-presence';
 import { WorkStream } from './WorkStream';
 import { AnswerProse } from './AnswerProse';
 import { TaskProgressOverview } from './TaskProgressOverview';
@@ -27,6 +30,8 @@ export interface TaskStatusCardProps {
   onAdjustDirection?: () => void;
   /** Focus the composer so waiting recovery becomes a valid TaskManager follow-up. */
   onContinueInComposer?: () => void;
+  /** Send a waiting option as a user-authored follow-up. */
+  onFollowUp?: (instruction: string) => void;
   /** Start the same instruction again after a failed run. */
   onRetry?: () => void;
   /** Stop the live run from the tool log (Sider-style stop pill). */
@@ -53,6 +58,8 @@ function waitReasonHint(reason: WaitReason | undefined): string | null {
       return t('chat_task_hint_target_missing');
     case 'target_ambiguous':
       return t('chat_task_hint_target_ambiguous');
+    case 'confirm_execute':
+      return null;
     case 'skill_inputs_required':
       return '当前任务不能直接补交模板参数。请停止后，从「可再运行」重新填写。';
   }
@@ -237,6 +244,87 @@ function siteHostLabel(snapshot: TaskSnapshot): string {
   return t('chat_task_working_on_page');
 }
 
+export function taskPresenceLabel(snapshot: TaskSnapshot): string {
+  if (snapshot.status === 'running') {
+    return t(isFollowingForeground(snapshot) ? 'chat_task_presence_following' : 'chat_task_presence_background');
+  }
+  if (snapshot.status === 'failed') return t('chat_task_presence_not_completed');
+  return t(`chat_task_status_${snapshot.status}` as `chat_task_status_${TaskSnapshot['status']}`);
+}
+
+function taskPresenceMeta(snapshot: TaskSnapshot): string {
+  return siteHostLabel(snapshot);
+}
+
+export function mergeVerifiedTargetSources(
+  snapshot: TaskSnapshot,
+  round: TaskSnapshot['rounds'][number] | undefined,
+  streamSources: StreamSource[],
+): StreamSource[] {
+  const verifiedTargetIds = new Set(
+    round?.evidence.filter(evidence => evidence.passed).map(evidence => evidence.targetRefId),
+  );
+  const verifiedRefs = snapshot.targetRefs.filter(ref => {
+    const hasVerifiedObservation = Boolean(ref.title?.trim() || ref.bodyDigest || ref.pageRevision);
+    return ref.kind === 'page' && (verifiedTargetIds.has(ref.id) || hasVerifiedObservation);
+  });
+  const privateQueryPaths = new Set(
+    verifiedRefs.filter(ref => ref.queryIdentityDigest && ref.normalizedUrl).map(ref => ref.normalizedUrl!),
+  );
+  const sourcePath = (value: string): string | null => {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+      return (url.origin + url.pathname).replace(/\/+$/, '') || url.origin;
+    } catch {
+      return null;
+    }
+  };
+  const sources = streamSources
+    .filter(source => {
+      const path = sourcePath(source.url);
+      return !path || !privateQueryPaths.has(path);
+    })
+    .map(source => ({ ...source }));
+  const seen = new Set(sources.map(source => source.url));
+
+  for (const ref of verifiedRefs) {
+    const url = ref.normalizedUrl ?? ref.urlOrigin;
+    if (!/^https?:\/\//i.test(url)) continue;
+    let host: string | undefined;
+    try {
+      host = new URL(url).hostname.replace(/^www\./, '');
+    } catch {
+      host = undefined;
+    }
+    if (ref.queryIdentityDigest) {
+      sources.push({
+        id: `verified-${ref.id}`,
+        title: ref.title?.trim() || ref.label?.trim() || host || '网页',
+        host,
+        url,
+        unavailable: true,
+      });
+      continue;
+    }
+    if (seen.has(url)) {
+      const existing = sources.find(source => source.url === url);
+      if (existing) existing.tabId = ref.tabId;
+      continue;
+    }
+    sources.push({
+      id: `verified-${ref.id}`,
+      title: ref.title?.trim() || ref.label?.trim() || host || '网页',
+      host,
+      url,
+      tabId: ref.tabId,
+    });
+    seen.add(url);
+  }
+
+  return sources.slice(0, 8);
+}
+
 /**
  * What the user asked for.
  * Prefer chat message text: task snapshots intentionally keep generic
@@ -265,13 +353,18 @@ export function TaskStatusCard({
   evidenceSpace = null,
   onAdjustDirection,
   onContinueInComposer,
+  onFollowUp,
   onRetry,
   onStop,
   pendingCommandTypes = new Set(),
   readOnly = false,
 }: TaskStatusCardProps) {
   const [deliverableCopied, setDeliverableCopied] = useState(false);
+  const [waitAskBusy, setWaitAskBusy] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    setWaitAskBusy(false);
+  }, [snapshot.id, snapshot.status, snapshot.revision]);
   const round = snapshot.rounds.find(item => item.id === snapshot.currentRoundId);
   const attempts = round?.attempts ?? [];
   const confirmations =
@@ -283,6 +376,12 @@ export function TaskStatusCard({
         ),
     ) ?? [];
   const waitAction = snapshot.status === 'waiting_user' ? waitUserAction(round?.waitReason) : null;
+  const waitAsk = deriveWaitAsk({
+    status: snapshot.status,
+    waitReason: round?.waitReason,
+    pageReading: round?.pageReading,
+    waitAsk: round?.waitAsk,
+  });
 
   const needsAttention =
     snapshot.status === 'waiting_user' || snapshot.status === 'inputs_required' || snapshot.status === 'interrupted';
@@ -295,6 +394,10 @@ export function TaskStatusCard({
     evidenceSpace,
     now: nowTick,
   });
+
+  useEffect(() => {
+    setWaitAskBusy(false);
+  }, [snapshot.id, snapshot.revision, snapshot.status]);
 
   useEffect(() => {
     if (snapshot.status !== 'running') return;
@@ -348,10 +451,14 @@ export function TaskStatusCard({
 
   const recoveryNextStep = failureNextStep(snapshot);
 
+  const boundPage = boundPageRef(snapshot);
   const workStream = deriveWorkStream({
     status: snapshot.status,
     attempts,
-    pageLabel: boundPageRef(snapshot) ? siteHostLabel(snapshot) : undefined,
+    currentSummary: round?.pageReading,
+    pageLabel: boundPage ? siteHostLabel(snapshot) : undefined,
+    pageUrl: boundPage?.normalizedUrl || (boundPage?.urlOrigin !== 'null' ? boundPage?.urlOrigin : undefined),
+    pageTitle: boundPage?.title?.trim() || boundPage?.label?.trim(),
   });
   const storedResult = round?.result?.body?.replace(/\r\n?/g, '\n').trim() ?? '';
   const resultSentence = storedResult || deliverableAnswer || '';
@@ -368,21 +475,39 @@ export function TaskStatusCard({
     }
   };
   const answerSources = resultSentence
-    ? collectStreamSources(workStream).filter(source => !isLoopbackSource(source))
+    ? mergeVerifiedTargetSources(snapshot, round, collectStreamSources(workStream)).filter(
+        source => !isLoopbackSource(source),
+      )
     : [];
   const failedResult = deriveFailedResult({
     failureCategory: round?.failureCategory,
     lastStepTitle: attempts.at(-1)?.displaySummary,
   });
+  const stream = (
+    <WorkStream
+      view={workStream}
+      running={snapshot.status === 'running'}
+      onStop={!readOnly && snapshot.status === 'running' ? onStop : undefined}
+    />
+  );
   const nowTraceBody =
-    snapshot.status === 'running' || workStream.blocks.length > 0 ? (
+    snapshot.status === 'running' ? (
       <div data-testid="task-activity-panel" className="chijie-activity-panel">
-        <WorkStream
-          view={workStream}
-          running={snapshot.status === 'running'}
-          onStop={!readOnly && snapshot.status === 'running' ? onStop : undefined}
-        />
+        {stream}
       </div>
+    ) : workStream.blocks.length > 0 ? (
+      <details className="chijie-process-disclosure" data-testid="task-process-disclosure">
+        <summary>
+          <span>{t('chat_task_process_disclosure')}</span>
+          <span className="chijie-process-disclosure-meta">
+            <small>{t('chat_task_process_count', [String(workStream.blocks.length)])}</small>
+            <FiChevronDown aria-hidden />
+          </span>
+        </summary>
+        <div data-testid="task-activity-panel" className="chijie-activity-panel">
+          {stream}
+        </div>
+      </details>
     ) : null;
 
   const completionBlock =
@@ -428,9 +553,10 @@ export function TaskStatusCard({
                   type="button"
                   className="chijie-answer-copy"
                   data-testid="completion-deliverable-copy"
-                  title={deliverableCopied ? '已复制' : '复制成果'}
+                  title={deliverableCopied ? t('chat_task_copy_done') : t('chat_task_copy_result')}
                   onClick={() => void copyDeliverable()}>
-                  {deliverableCopied ? '已复制' : '复制'}
+                  <FiCopy aria-hidden />
+                  {deliverableCopied ? t('chat_task_copy_done') : t('chat_task_copy_result')}
                 </button>
               </div>
             ) : null}
@@ -463,6 +589,19 @@ export function TaskStatusCard({
       data-primary-organism={primaryOrganism}
       data-readonly={readOnly ? 'true' : undefined}
       className={taskCardClassName}>
+      <div
+        className="chijie-run-presence"
+        data-testid="task-presence"
+        data-status={showPartialComplete ? 'waiting_user' : snapshot.status}
+        data-mode={snapshot.status === 'running' && !isFollowingForeground(snapshot) ? 'background' : undefined}
+        role="status"
+        aria-live="polite">
+        <span className="chijie-run-presence-state">
+          <span className="chijie-run-presence-dot" aria-hidden />
+          <strong>{showPartialComplete ? t('chat_task_status_waiting_user') : taskPresenceLabel(snapshot)}</strong>
+        </span>
+        <span className="chijie-run-presence-meta">{taskPresenceMeta(snapshot)}</span>
+      </div>
       {/* 2. Stable mission + durable gates + health. Follow-ups never replace Mission. */}
       <TaskProgressOverview
         view={progressViewForUi}
@@ -479,9 +618,9 @@ export function TaskStatusCard({
         snapshot.status === 'waiting_user' ||
         snapshot.status === 'inputs_required') && (
         <div data-testid="task-next-step" className="chijie-next-step" data-primary-organism="recovery">
-          <div className="font-medium">{t('chat_task_next_step_title')}</div>
-          <div className="mt-1" data-testid="task-failure-reason">
-            {recoveryNextStep}
+          {!waitAsk && <div className="font-medium">{t('chat_task_next_step_title')}</div>}
+          <div className={waitAsk ? 'chijie-wait-ask-prompt' : 'mt-1'} data-testid="task-failure-reason">
+            {waitAsk?.prompt ?? recoveryNextStep}
           </div>
 
           {/* One valid CTA: proof command or a composer follow-up. Stop stays in composer controls. */}
@@ -510,13 +649,36 @@ export function TaskStatusCard({
               </button>
             ))}
 
+          {!readOnly && waitAsk && onFollowUp && !waitAskBusy && (
+            <div className="chijie-wait-ask" data-testid="wait-ask">
+              <div className="chijie-wait-ask-options" role="group" aria-label={waitAsk.prompt}>
+                {waitAsk.options.map(option => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    data-testid="wait-ask-option"
+                    className={waitAskOptionClassName({
+                      waitReason: round?.waitReason,
+                      sendText: option.sendText,
+                    })}
+                    onClick={() => {
+                      setWaitAskBusy(true);
+                      onFollowUp(option.sendText);
+                    }}>
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {!readOnly && waitAction && onContinueInComposer && (
             <button
               type="button"
               data-testid="wait-compose-follow-up"
-              className={`${primaryButtonClassName} mt-2`}
+              className={waitAsk ? 'chijie-wait-compose-follow-up' : `${primaryButtonClassName} mt-2`}
               onClick={onContinueInComposer}>
-              {waitAction === 'clarify-in-composer' ? '补充指令' : '告诉持节继续'}
+              {waitAsk ? '自己写' : waitAction === 'clarify-in-composer' ? '补充指令' : '告诉持节继续'}
             </button>
           )}
         </div>

@@ -19,6 +19,7 @@ interface EffectTarget {
   activeTag?: string;
   keys?: string;
   intent?: string;
+  text?: string;
   hasSemanticName?: boolean;
   semanticCommit?: boolean;
   semanticNavigation?: boolean;
@@ -55,6 +56,17 @@ function pageFindingFromObservation(
   }
   if (host && title.toLowerCase() === host.toLowerCase()) return existing;
   return [{ title: title.slice(0, 160), url: observedUrl, host }];
+}
+
+function didNotActOnTarget(error: string): boolean {
+  return (
+    error === 'target_ambiguous' ||
+    error === 'target_missing' ||
+    error === 'media_target_ambiguous' ||
+    error === 'media_target_missing' ||
+    error.includes('Did not act') ||
+    error.includes('Did not click')
+  );
 }
 
 const COMMIT_SIGNAL =
@@ -288,7 +300,7 @@ export class ActionDispatcher {
     try {
       const actionResult = await request.action.executeParsed(parsedArgs);
       if (actionResult.error) {
-        const uncertain = attempt.effect === 'external_commit';
+        const uncertain = attempt.effect === 'external_commit' && !didNotActOnTarget(actionResult.error);
         attempt = { ...attempt, state: uncertain ? 'uncertain' : 'blocked' };
         await this.deps.persistAttempt(attempt);
         return this.result(actionResult, attempt, before, {

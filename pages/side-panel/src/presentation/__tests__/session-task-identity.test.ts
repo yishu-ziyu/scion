@@ -320,6 +320,11 @@ describe('side-panel session/task identity contract', () => {
     expect(raw).toContain('PRIVATE BODY');
   });
 
+  it('keeps expanded current-page context out of recorded task titles', () => {
+    const raw = '打开 https://www.iana.org 并读取 @当前页（iana.org · Example Domain https://www.iana.org/） 的标题';
+    expect(displayContentForStoredMessage(raw)).toBe('打开 https://www.iana.org 并读取 @当前页 的标题');
+  });
+
   it('makes Skill/message launch single-flight and invalidates every await after New Chat or A→B', () => {
     expect(canBeginExclusiveTaskLaunch({ pendingAsyncLaunch: false, pendingStartTaskId: null })).toBe(true);
     expect(canBeginExclusiveTaskLaunch({ pendingAsyncLaunch: true, pendingStartTaskId: null })).toBe(false);
@@ -454,31 +459,33 @@ describe('side-panel session/task identity contract', () => {
   );
 
   it.each([
-    { ordering: 'pause-event-first', blockedAttempts: 2 },
-    { ordering: 'pause-ack-first', blockedAttempts: 1 },
-    { ordering: 'resume-event-first', blockedAttempts: 2 },
-    { ordering: 'resume-ack-first', blockedAttempts: 1 },
-  ] as const)('never records a ghost cancel id when lifecycle settles $ordering', ({ ordering, blockedAttempts }) => {
-    const taskId = 'A';
-    const lifecycleType = ordering.startsWith('pause') ? 'pause' : 'resume';
-    let pending: ReturnType<typeof cancellationIntentAfterDispatch> = { taskId, commandId: null };
-    for (let index = 0; index < blockedAttempts; index += 1) {
-      pending = cancellationIntentAfterDispatch(taskId, `blocked-cancel-${index}`, false);
-      expect(pending).toEqual({ taskId, commandId: null });
-    }
+    { type: 'pause', blockedAttempts: 2 },
+    { type: 'resume', blockedAttempts: 1 },
+    { type: 'takeover', blockedAttempts: 1 },
+    { type: 'set_follow', blockedAttempts: 1 },
+  ] as const)(
+    'retries New Chat cancellation when blocking lifecycle command $type settles',
+    ({ type, blockedAttempts }) => {
+      const taskId = 'A';
+      let pending: ReturnType<typeof cancellationIntentAfterDispatch> = { taskId, commandId: null };
+      for (let index = 0; index < blockedAttempts; index += 1) {
+        pending = cancellationIntentAfterDispatch(taskId, `blocked-cancel-${index}`, false);
+        expect(pending).toEqual({ taskId, commandId: null });
+      }
 
-    expect(
-      shouldRetryNewChatCancellationAfterLifecycleAck({
-        pending,
-        taskId,
-        type: lifecycleType,
-        accepted: true,
-      }),
-    ).toBe(true);
-    pending = cancellationIntentAfterDispatch(taskId, 'real-cancel', true);
-    expect(pending).toEqual({ taskId, commandId: 'real-cancel' });
-    expect(confirmsNewChatCancellation(pending, { taskId, commandId: 'real-cancel', accepted: true })).toBe(true);
-  });
+      expect(
+        shouldRetryNewChatCancellationAfterLifecycleAck({
+          pending,
+          taskId,
+          type,
+          accepted: true,
+        }),
+      ).toBe(true);
+      pending = cancellationIntentAfterDispatch(taskId, 'real-cancel', true);
+      expect(pending).toEqual({ taskId, commandId: 'real-cancel' });
+      expect(confirmsNewChatCancellation(pending, { taskId, commandId: 'real-cancel', accepted: true })).toBe(true);
+    },
+  );
 
   it('keeps New Chat cancellation intent across disconnect and reissues on a live snapshot', () => {
     const afterDisconnect = cancellationIntentAfterDisconnect({ taskId: 'A', commandId: 'cancel-A' });

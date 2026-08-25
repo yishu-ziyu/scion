@@ -72,4 +72,6 @@ export const PERSONAL_MINIMAX_API_KEY = ${JSON.stringify(key)};
 `;
 
 fs.writeFileSync(outFile, content, { mode: 0o600 });
-console.log(`[inject-personal-secrets] Wrote secrets.local.ts (key length=${key.length}, prefix=${key.slice(0, 6)}...)`);
+console.log(
+  `[inject-personal-secrets] Wrote secrets.local.ts (key length=${key.length}, prefix=${key.slice(0, 6)}...)`,
+);

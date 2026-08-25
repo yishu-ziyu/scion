@@ -18,10 +18,12 @@ import {
   pageOperatingCancelCommand,
   pageOperatingFollowCommand,
   pageOperatingTakeoverCommand,
-  syncPageOperatingBar,
+  createPageOperatingBarSyncQueue,
 } from './task/page-operating';
 import { browserContext, createExecutorDriver } from './agent/factory';
 import { decideUserTurn, historyTurnsFromMessages } from './intent/user-turn-decision';
+import { createDebuggerDetachHandler } from './runtime/debugger-detach';
+import { STRUCTURE_USER_MEMORY_TYPE, structureUserMemoryFromSource } from './agent/structure-user-memory';
 
 const logger = createLogger('background');
 
@@ -39,9 +41,13 @@ const taskManager = new TaskManager({
   revealTab: async tabId => {
     await browserContext.revealTab(tabId);
   },
-  beginTaskTabGroup: async (title, existingGroupId) => {
-    return browserContext.beginTaskTabGroup(title, existingGroupId);
+  beginTaskTabGroup: async (title, existingGroupId, resetTaskOwnership) => {
+    return browserContext.beginTaskTabGroup(title, existingGroupId, resetTaskOwnership);
   },
+  registerTaskOwnedTab: tabId => browserContext.registerTaskOwnedTab(tabId),
+  cleanupBrowserContext: () => browserContext.cleanup(),
+  isTaskOwnedTab: tabId => browserContext.isTaskOwnedTab(tabId),
+  authorizeUnownedTabClose: tabId => browserContext.authorizeUnownedTabClose(tabId),
   observeCriteria: async criteria => {
     const page = await browserContext.getCurrentPage();
     return page.observeCompletionCriteria(criteria);
@@ -102,14 +108,15 @@ const taskManager = new TaskManager({
   now: () => Date.now(),
 });
 
+const syncLatestPageOperatingBar = createPageOperatingBarSyncQueue(
+  () => taskManager.activeSnapshot(),
+  (tabId, message) => chromeTabsSendMessage(tabId, message),
+  error => logger.error('Page operating bar sync failed', error),
+);
+
 taskManager.subscribe(event => {
   sidePanelPorts.broadcast(port => port.postMessage({ type: 'task_event', event }));
-  void taskManager
-    .activeSnapshot()
-    .then(snapshot =>
-      syncPageOperatingBar(snapshot, (tabId, message) => chromeTabsSendMessage(tabId, message)),
-    )
-    .catch(error => logger.error('Page operating bar sync failed', error));
+  void syncLatestPageOperatingBar();
 });
 
 // Personal fork: seed MiniMax-M3 into chrome.storage on every SW boot (no GUI).
@@ -137,17 +144,15 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-// Listen for debugger detached event
-// if canceled_by_user, remove the tab from the browser context
-chrome.debugger.onDetach.addListener(async (source, reason) => {
-  console.log('Debugger detached:', source, reason);
-  if (reason === 'canceled_by_user') {
-    if (source.tabId) {
-      void taskManager.interruptActive();
-      await browserContext.cleanup();
-    }
-  }
-});
+// Chrome does not await event-listener promises, so keep debugger cancellation
+// cleanup behind an explicit error boundary.
+chrome.debugger.onDetach.addListener(
+  createDebuggerDetachHandler({
+    interruptActive: () => taskManager.interruptActive(),
+    isCurrentTaskTab: tabId => browserContext.getBoundTabId() === tabId,
+    onError: (message, error) => logger.error(message, error),
+  }),
+);
 
 // Cleanup when tab is closed
 chrome.tabs.onRemoved.addListener(tabId => {
@@ -168,6 +173,21 @@ analyticsSettingsStore.subscribe(() => {
   });
 });
 
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || message.type !== STRUCTURE_USER_MEMORY_TYPE) return false;
+  if (sender.id && sender.id !== chrome.runtime.id) {
+    sendResponse({ ok: false, error: 'forbidden' });
+    return false;
+  }
+  void structureUserMemoryFromSource(typeof message.sourceText === 'string' ? message.sourceText : '')
+    .then(result => sendResponse(result))
+    .catch(error => {
+      logger.error('structure_user_memory failed', error);
+      sendResponse({ ok: false, error: 'llm_failed' });
+    });
+  return true;
+});
+
 // Page overlay: 跟随 / 接管 / legacy stop. Only from the tab this task is driving.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (
@@ -185,10 +205,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const command =
         message.type === PAGE_OPERATING_FOLLOW
           ? pageOperatingFollowCommand(snapshot, sender.tab?.id, commandId, Boolean(message.follow))
-          : pageOperatingTakeoverCommand(snapshot, sender.tab?.id, commandId) ??
+          : (pageOperatingTakeoverCommand(snapshot, sender.tab?.id, commandId) ??
             (message.type === PAGE_OPERATING_STOP
               ? pageOperatingCancelCommand(snapshot, sender.tab?.id, commandId)
-              : null);
+              : null));
       if (command) await taskManager.dispatch(command);
       sendResponse({ ok: Boolean(command) });
     })

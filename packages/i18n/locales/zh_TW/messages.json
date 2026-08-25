@@ -31,6 +31,60 @@
   "nav_settings_a11y": {
     "message": "設定"
   },
+  "nav_memory_a11y": {
+    "message": "記憶"
+  },
+  "memory_page_title": {
+    "message": "記憶"
+  },
+  "memory_page_lead": {
+    "message": "寫下你確立過的事實。整理後變成條目；下次任務只讀條目，不讀原文。"
+  },
+  "memory_empty": {
+    "message": "還沒有條目。寫下例如「我常用谷歌郵箱」，再整理成條目。"
+  },
+  "memory_source_label": {
+    "message": "原文"
+  },
+  "memory_source_placeholder": {
+    "message": "我常用谷歌郵箱。"
+  },
+  "memory_structure": {
+    "message": "整理成條目"
+  },
+  "memory_structuring": {
+    "message": "正在整理…"
+  },
+  "memory_facts_heading": {
+    "message": "給任務用的條目"
+  },
+  "memory_kind_label": {
+    "message": "這是什麼"
+  },
+  "memory_value_label": {
+    "message": "值"
+  },
+  "memory_add_row": {
+    "message": "新增條目"
+  },
+  "memory_delete": {
+    "message": "刪除"
+  },
+  "memory_error_empty": {
+    "message": "先寫一點原文再整理。"
+  },
+  "memory_error_no_model": {
+    "message": "沒有模型金鑰，無法整理。可以先手動新增條目，或去設定裡連接模型。"
+  },
+  "memory_error_llm": {
+    "message": "整理失敗，請再試一次，或手動新增條目。"
+  },
+  "memory_error_no_facts": {
+    "message": "沒有抽出可用條目。改一下原文，或手動新增。"
+  },
+  "memory_error_secret": {
+    "message": "密碼、金鑰和 cookie 不會寫入記憶。"
+  },
   "nav_back": {
     "message": "← 返回"
   },
@@ -65,10 +119,43 @@
     "message": "有什麼需要協助的嗎？"
   },
   "chat_empty_hint": {
-    "message": "打開頁面、抽出表格、讀完再回。做完能核對。"
+    "message": "預設在背景使用任務分頁；目前頁面會自動帶上。"
+  },
+  "chat_task_presence_background": {
+    "message": "背景進行中"
+  },
+  "chat_task_presence_following": {
+    "message": "正在跟隨"
+  },
+  "chat_task_presence_not_completed": {
+    "message": "未完成"
+  },
+  "chat_task_process_disclosure": {
+    "message": "查看過程"
+  },
+  "chat_task_process_count": {
+    "message": "$1 項"
+  },
+  "chat_task_copy_result": {
+    "message": "複製結果"
+  },
+  "chat_task_copy_done": {
+    "message": "已複製"
+  },
+  "chat_task_source_unavailable": {
+    "message": "未保留精確網址"
   },
   "chat_task_mode_badge": {
     "message": "任務"
+  },
+  "chat_composer_intent": {
+    "message": "這次怎麼處理"
+  },
+  "chat_composer_chat": {
+    "message": "僅聊天"
+  },
+  "chat_composer_execute": {
+    "message": "執行"
   },
   "chat_task_input_placeholder": {
     "message": "要做什麼"
@@ -963,7 +1050,7 @@
   "chat_task_status_paused": {
     "message": "已暫停"
   },
-    "chat_task_status_waiting_user": {
+  "chat_task_status_waiting_user": {
     "message": "需要你處理"
   },
   "chat_task_status_inputs_required": {
@@ -1014,7 +1101,7 @@
   "chat_task_section_rounds": {
     "message": "輪次"
   },
-    "chat_task_current_goal": {
+  "chat_task_current_goal": {
     "message": "目前目標"
   },
   "chat_task_plan_heading": {
@@ -1026,7 +1113,7 @@
   "chat_task_progress": {
     "message": "進度"
   },
-            "chat_task_receipt_id": {
+  "chat_task_receipt_id": {
     "message": "回執 ID"
   },
   "chat_task_receipt_time": {
@@ -1083,7 +1170,7 @@
   "chat_task_action_generic": {
     "message": "執行頁面操作"
   },
-    "chat_task_attempt_observed": {
+  "chat_task_attempt_observed": {
     "message": "已核對"
   },
   "chat_task_attempt_executing": {
@@ -1137,7 +1224,7 @@
       }
     }
   },
-                        "chat_task_evidence_url": {
+  "chat_task_evidence_url": {
     "message": "頁面網址符合目標"
   },
   "chat_task_evidence_text": {
@@ -1215,7 +1302,7 @@
   "chat_task_hint_captcha": {
     "message": "先在網頁裡完成驗證碼，再繼續。"
   },
-    "chat_task_hint_proof": {
+  "chat_task_hint_proof": {
     "message": "它認為需要你親眼確認結果。確認無誤就點「我確認已經完成」。"
   },
   "chat_task_hint_uncertain": {
@@ -1296,7 +1383,7 @@
   "chat_task_product_fail_selector_miss": {
     "message": "找不到目標元素或頁面"
   },
-    "chat_task_product_fail_false_complete": {
+  "chat_task_product_fail_false_complete": {
     "message": "頁面未達成卻報完成"
   },
   "chat_task_product_fail_model_loop": {

@@ -10,6 +10,8 @@ import {
   firewallStore,
   generalSettingsStore,
   llmProviderStore,
+  isHumanPageReading,
+  type AttemptFinding,
 } from '@extension/storage';
 import { t } from '@extension/i18n';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
@@ -34,6 +36,8 @@ import type {
 } from '../../task/contracts';
 import { formatVerifiedPagesForPrompt } from '../../task/verified-step-records';
 import {
+  applyInaccessibleIframeGate,
+  applyLoginWallGate,
   buildAgentStatusBar,
   instructionLooksLikeResearch,
   observationSupportsWaitingUser,
@@ -41,6 +45,16 @@ import {
   parseControlPolicyDecision,
   renderControlSystemPrompt,
 } from './control-policy';
+import { parseUsualMailboxConfirmation, resolveMailboxOpen, webmailHostFromUrl } from '../mailbox-open';
+import { formatUserMemoryForPrompt } from '../user-memory';
+import {
+  clearPendingMailboxHost,
+  listUserMemoryFacts,
+  readPendingMailboxHost,
+  readUsualMailboxHost,
+  writePendingMailboxHost,
+  writeUsualMailboxHost,
+} from '../user-memory-store';
 import { rewriteInventedLookupNavigation } from './lookup-navigation';
 import { JUDGE_PAGE_THEN_WRITE, resolveControlDelivery } from './control-delivery';
 import {
@@ -83,7 +97,7 @@ import {
 } from '../context';
 import { numberedStepSegments } from '../../task/mission-plan';
 import { instructionUrlPlanFromText, openAndDescribeIndependentPages } from '../../task/independent-urls';
-import { collectSearchFindings, isSearchResultsUrl } from '../../browser/search-results';
+import { collectSearchFindings, isSearchResultsUrl, searchObserveLoopPhase } from '../../browser/search-results';
 
 const logger = createLogger('ControlLlmBackend');
 
@@ -104,9 +118,11 @@ export function buildControlUserPrompt(input: {
   lastActionMemory: string | null;
   statusBar: string;
   verifiedPages: VerifiedPageRecord[];
+  userMemory?: string;
 }): string {
   return [
     `Task:\n${input.instruction}`,
+    input.userMemory?.trim() ? input.userMemory.trim() : '',
     formatVerifiedPagesForPrompt(input.verifiedPages),
     `Step: ${input.step + 1}/${input.maxSteps}`,
     input.criteriaLocked
@@ -387,6 +403,9 @@ export async function createLlmControlDriver(
   let lastActionMemory: string | null = null;
   let pageBodyRead = false;
   let observeQuery: string | undefined;
+  let pendingUsualMailboxHost: string | undefined;
+  let mailboxConfirmationConsumed = false;
+  let mailboxTabOpened = false;
 
   const rememberQueuedActionTargets = (decision: LoopDecision): LoopDecision => {
     if (decision.kind !== 'action') return decision;
@@ -428,6 +447,43 @@ export async function createLlmControlDriver(
     } catch {
       // Provenance write must not abort observe.
     }
+  };
+
+  const persistSerpObserve = async (roundId: string, frame: ObservationFrame): Promise<AttemptFinding[]> => {
+    if (!isSearchResultsUrl(frame.tab.url)) return [];
+    const step = agentContext.nSteps ?? 0;
+    const queryPhase = searchObserveLoopPhase({
+      url: frame.tab.url,
+      step,
+      title: frame.tab.title,
+    });
+    if (queryPhase) {
+      try {
+        await hooks.reportLoopPhase?.(roundId, queryPhase);
+      } catch {
+        // Stream persist is UI-only.
+      }
+    }
+    let findings: AttemptFinding[] = [];
+    try {
+      findings = await collectSearchFindings(await browserContext.getCurrentPage());
+    } catch {
+      findings = [];
+    }
+    const findingsPhase = searchObserveLoopPhase({
+      url: frame.tab.url,
+      step,
+      title: frame.tab.title,
+      findings,
+    });
+    if (findingsPhase && findings.length > 0) {
+      try {
+        await hooks.reportLoopPhase?.(roundId, findingsPhase);
+      } catch {
+        // Stream persist is UI-only.
+      }
+    }
+    return findings;
   };
 
   const observeFrame = async (opts?: { waitForLoad?: boolean }): Promise<ObservationFrame> => {
@@ -570,9 +626,9 @@ export async function createLlmControlDriver(
           agentContext.nSteps = agentContext.nSteps ?? 0;
           const frame = await observeFrame({ waitForLoad: false });
           await recordObservedPageIfNeeded(roundId, frame);
+          const findings = await persistSerpObserve(roundId, frame);
           if (isSearchResultsUrl(frame.tab.url)) {
             try {
-              const findings = await collectSearchFindings(await browserContext.getCurrentPage());
               const opened = await openAndDescribeIndependentPages({
                 instruction,
                 plan: instructionUrlPlanFromText(instruction),
@@ -614,6 +670,71 @@ export async function createLlmControlDriver(
         decide: async (stateText, step): Promise<LoopDecision> => {
           agentContext.nSteps = step;
           agentContext.stepInfo = new AgentStepInfo({ stepNumber: step, maxSteps });
+          const persistPageReading = async (text: string | undefined) => {
+            const trimmed = text?.replace(/\s+/g, ' ').trim() ?? '';
+            if (!isHumanPageReading(trimmed)) return;
+            try {
+              await hooks.reportLoopPhase?.(roundId, { phase: 'decide', step, detail: trimmed });
+            } catch {
+              // Stream persist is UI-only.
+            }
+          };
+
+          if (!mailboxTabOpened) {
+            const latestLine =
+              instruction
+                .split('\n')
+                .map(line => line.trim())
+                .filter(Boolean)
+                .at(-1) ?? '';
+            if (!mailboxConfirmationConsumed) {
+              const pendingHost = pendingUsualMailboxHost ?? (await readPendingMailboxHost(input.taskId));
+              const mailboxConfirm = parseUsualMailboxConfirmation(latestLine, pendingHost);
+              if (mailboxConfirm.confirmed) {
+                mailboxConfirmationConsumed = true;
+                mailboxTabOpened = true;
+                pendingUsualMailboxHost = undefined;
+                await clearPendingMailboxHost(input.taskId);
+                await writeUsualMailboxHost(mailboxConfirm.host);
+                const observation = `打开已确认的网页邮箱 ${mailboxConfirm.host}`;
+                await persistPageReading(observation);
+                return {
+                  kind: 'action',
+                  name: 'open_tab',
+                  args: { url: `https://${mailboxConfirm.host}/` },
+                  observation,
+                };
+              }
+            }
+
+            const tabInfos = await browserContext.getTabInfos().catch(() => []);
+            const mailbox = resolveMailboxOpen({
+              instruction,
+              currentUrl: currentFrame?.tab.url ?? '',
+              confirmedHost: await readUsualMailboxHost(),
+              openWebmailHosts: tabInfos
+                .map(tab => webmailHostFromUrl(tab.url))
+                .filter((host): host is string => Boolean(host)),
+            });
+            if (mailbox.kind === 'ask') {
+              pendingUsualMailboxHost = mailbox.pendingHost;
+              if (mailbox.pendingHost) await writePendingMailboxHost(input.taskId, mailbox.pendingHost);
+              await persistPageReading(mailbox.userVisibleText);
+              await agentContext.emitEvent(Actors.SYSTEM, ExecutionState.STEP_OK, mailbox.userVisibleText);
+              return { kind: 'waiting_user', reason: 'target_ambiguous' };
+            }
+            if (mailbox.kind === 'open') {
+              mailboxTabOpened = true;
+              const observation = `打开 ${mailbox.url}`;
+              await persistPageReading(observation);
+              return {
+                kind: 'action',
+                name: 'open_tab',
+                args: { url: mailbox.url },
+                observation,
+              };
+            }
+          }
 
           const { planMemory, activePhaseId } = await readCurrentMissionContext(hooks, roundId, input.plan);
           const stepWording = numberedStepSegments(instruction);
@@ -721,6 +842,7 @@ export async function createLlmControlDriver(
                     logger.warning('skill action missing from registry; fallback', { name: decision.name });
                   } else {
                     logger.info('skill action', { skill: skillTry.record?.skillId, name: decision.name });
+                    await persistPageReading(decision.observation);
                     return rememberQueuedActionTargets(decision);
                   }
                 }
@@ -774,6 +896,7 @@ export async function createLlmControlDriver(
             lastActionMemory,
             statusBar,
             verifiedPages,
+            userMemory: formatUserMemoryForPrompt(await listUserMemoryFacts()),
           });
 
           let rawText = '';
@@ -823,10 +946,13 @@ export async function createLlmControlDriver(
               action: queued[0] ?? null,
               actions: queued,
             };
+            decision = applyLoginWallGate(decision, currentFrame);
+            decision = applyInaccessibleIframeGate(decision, currentFrame);
           } catch (error) {
             logger.error('control JSON parse failed', error);
             return { kind: 'recoverable', category: 'json_parse_failed' };
           }
+          await persistPageReading(decision.observation);
 
           if (!criteriaLocked && decision.criteria.length > 0) {
             try {
@@ -999,6 +1125,7 @@ export async function createLlmControlDriver(
         reobserve: async () => {
           const frame = await observeFrame();
           await recordObservedPageIfNeeded(roundId, frame);
+          await persistSerpObserve(roundId, frame);
           const forceFull = !previousFrame || previousFrame.tab.url !== frame.tab.url;
           const stateText = renderObservationForModel(frame, forceFull);
           if (enableDiff && previousFrame) {

@@ -3,7 +3,8 @@ import type { BuildDomTreeArgs, RawDomTreeNode, RawDomElementNode, BuildDomTreeR
 import { type DOMState, type DOMBaseNode, DOMElementNode, DOMTextNode } from './views';
 import type { ViewportInfo } from './history/view';
 import { isNewTabPage } from '../util';
-import { applyCdpHandles, collectInteractive } from '../cdp';
+import { applyCdpHandles, collectInteractiveDetailed } from '../cdp';
+import type { InaccessibleIframe } from '../cdp/types';
 
 const logger = createLogger('DOMService');
 
@@ -99,7 +100,7 @@ export async function getClickableElements(
   viewportExpansion = 0,
   debugMode = false,
 ): Promise<DOMState> {
-  const [elementTree, selectorMap] = await _buildDomTree(
+  const [elementTree, selectorMap, inaccessibleIframes] = await _buildDomTree(
     tabId,
     url,
     showHighlightElements,
@@ -107,7 +108,7 @@ export async function getClickableElements(
     viewportExpansion,
     debugMode,
   );
-  return { elementTree, selectorMap };
+  return { elementTree, selectorMap, inaccessibleIframes };
 }
 
 async function _buildDomTree(
@@ -117,7 +118,7 @@ async function _buildDomTree(
   focusElement = -1,
   viewportExpansion = 0,
   debugMode = false,
-): Promise<[DOMElementNode, Map<number, DOMElementNode>]> {
+): Promise<[DOMElementNode, Map<number, DOMElementNode>, InaccessibleIframe[]]> {
   // If URL is provided and it's about:blank, return a minimal DOM tree
   if (isNewTabPage(url) || url.startsWith('chrome://')) {
     const elementTree = new DOMElementNode({
@@ -131,7 +132,7 @@ async function _buildDomTree(
       isInViewport: false,
       parent: null,
     });
-    return [elementTree, new Map<number, DOMElementNode>()];
+    return [elementTree, new Map<number, DOMElementNode>(), []];
   }
 
   await injectBuildDomTreeScripts(tabId);
@@ -208,20 +209,23 @@ async function _buildDomTree(
   }
 
   const constructed = _constructDomTree(mainFramePage);
-  await enrichWithCdpHandles(tabId, constructed[0], constructed[1]);
-  return constructed;
+  const inaccessibleIframes = await enrichWithCdpHandles(tabId, constructed[0], constructed[1]);
+  return [constructed[0], constructed[1], inaccessibleIframes];
 }
 
 async function enrichWithCdpHandles(
   tabId: number,
   elementTree: DOMElementNode,
   selectorMap: Map<number, DOMElementNode>,
-): Promise<void> {
+): Promise<InaccessibleIframe[]> {
   try {
-    const collected = await collectInteractive(tabId);
-    applyCdpHandles(elementTree, selectorMap, collected);
+    const collected = await collectInteractiveDetailed(tabId);
+    applyCdpHandles(elementTree, selectorMap, collected.nodes);
+    return collected.inaccessibleIframes;
   } catch (error) {
     logger.debug('CDP collect skipped:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    return [{ targetId: 'collect', error: message }];
   }
 }
 

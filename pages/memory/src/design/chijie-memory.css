@@ -1,0 +1,127 @@
+.chijie-memory-shell {
+  min-height: 100vh;
+  background: var(--chijie-background);
+  color: var(--chijie-foreground);
+  font-family: var(--chijie-font-body);
+}
+
+.chijie-memory-column {
+  box-sizing: border-box;
+  width: min(36rem, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 32px 0 64px;
+}
+
+.chijie-memory-title {
+  margin: 0;
+  color: var(--chijie-paper);
+  font-family: var(--chijie-font-hand);
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.chijie-memory-lead,
+.chijie-memory-empty {
+  margin: 12px 0 0;
+  color: var(--chijie-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.chijie-memory-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.chijie-memory-label {
+  color: var(--chijie-muted);
+  font-family: var(--chijie-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chijie-memory-note,
+.chijie-memory-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--chijie-border-strong);
+  border-radius: var(--chijie-radius-md);
+  background: var(--chijie-surface-raised);
+  color: var(--chijie-foreground);
+  font-family: var(--chijie-font-body);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.chijie-memory-note {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.chijie-memory-note:focus,
+.chijie-memory-input:focus {
+  outline: 2px solid var(--chijie-accent);
+  outline-offset: 1px;
+}
+
+.chijie-memory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chijie-memory-btn {
+  border: 1px solid var(--chijie-accent);
+  border-radius: 60px;
+  padding: 8px 16px;
+  background: var(--chijie-accent);
+  color: #fff8f0;
+  font-family: var(--chijie-font-body);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.chijie-memory-btn:hover:not(:disabled) {
+  background: var(--chijie-accent-signal);
+  border-color: var(--chijie-accent-signal);
+}
+
+.chijie-memory-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chijie-memory-btn-secondary {
+  background: transparent;
+  color: var(--chijie-foreground);
+  border-color: var(--chijie-border-strong);
+}
+
+.chijie-memory-btn-secondary:hover:not(:disabled) {
+  background: var(--chijie-surface-raised);
+}
+
+.chijie-memory-error {
+  margin: 0;
+  color: var(--chijie-accent-signal);
+  font-size: 13px;
+}
+
+.chijie-memory-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: end;
+}
+
+@media (max-width: 640px) {
+  .chijie-memory-row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -34,9 +34,9 @@ describe('verified step records', () => {
     expect(verifiedStepRecordsEnabled(IANA_INSTRUCTION)).toBe(true);
     expect(verifiedStepRecordsEnabled('打开 YouTube 并点击第一个视频')).toBe(false);
     expect(isAtomicSkillInstruction('打开 YouTube 并点击第一个视频')).toBe(true);
-    expect(verifiedStepRecordsEnabled('Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.')).toBe(
-      false,
-    );
+    expect(
+      verifiedStepRecordsEnabled('Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.'),
+    ).toBe(false);
   });
 
   it('does not treat Feishu wiki or Chinese Wikipedia naming as English Wikipedia', () => {
@@ -115,11 +115,31 @@ describe('verified step records', () => {
     ]);
   });
 
+  it('keeps different query identities as separate verified pages', () => {
+    const red = pageRef({
+      id: 'page-red',
+      normalizedUrl: 'https://example.com',
+      queryIdentityDigest: 'red-digest',
+      title: 'Red page',
+    });
+    const blue = pageRef({
+      id: 'page-blue',
+      normalizedUrl: 'https://example.com',
+      queryIdentityDigest: 'blue-digest',
+      title: 'Blue page',
+    });
+
+    const refs = upsertVerifiedPageTarget(upsertVerifiedPageTarget([], red), blue);
+
+    expect(refs).toHaveLength(2);
+    expect(verifiedPageRecordsFromTargets(refs)).toEqual([
+      expect.objectContaining({ queryIdentityDigest: 'red-digest', title: 'Red page' }),
+      expect.objectContaining({ queryIdentityDigest: 'blue-digest', title: 'Blue page' }),
+    ]);
+  });
+
   it('requires every verified title in the answer when the instruction asks for titles', () => {
-    const records = [
-      { title: 'Internet Assigned Numbers Authority' },
-      { title: 'Web browser' },
-    ];
+    const records = [{ title: 'Internet Assigned Numbers Authority' }, { title: 'Web browser' }];
     expect(checkVerifiedRecordDeliverable(IANA_INSTRUCTION, '做完了，两个页面都已打开。', records)).toEqual({
       passed: false,
       reasons: ['missing_verified_title'],
@@ -129,11 +149,7 @@ describe('verified step records', () => {
       reasons: ['missing_verified_title'],
     });
     expect(
-      checkVerifiedRecordDeliverable(
-        IANA_INSTRUCTION,
-        'Internet Assigned Numbers Authority；Web browser',
-        records,
-      ),
+      checkVerifiedRecordDeliverable(IANA_INSTRUCTION, 'Internet Assigned Numbers Authority；Web browser', records),
     ).toEqual({ passed: true, reasons: [] });
     expect(checkVerifiedRecordDeliverable('打开 YouTube 并点击第一个视频', '已打开第一个视频', records)).toEqual({
       passed: true,

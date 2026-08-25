@@ -53,9 +53,7 @@ describe('compressTrajectory', () => {
     expect(out).toContain('[COMPRESSED] step 1:');
     expect(out).toContain('[COMPRESSED] step 3:');
     // Field truncation leaves ellipsis on long results
-    const archiveLine = out
-      .split('\n')
-      .find(l => l.includes('[COMPRESSED] step 1:')) as string;
+    const archiveLine = out.split('\n').find(l => l.includes('[COMPRESSED] step 1:')) as string;
     expect(archiveLine.length).toBeLessThan(200);
     expect(archiveLine).toMatch(/…|result=/);
   });

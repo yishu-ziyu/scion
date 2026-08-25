@@ -50,3 +50,15 @@ export type CdpInteractiveNode = {
   inShadow?: boolean;
   inIframe?: boolean;
 };
+
+/** An iframe debugger target that collect could see but could not attach. */
+export type InaccessibleIframe = {
+  targetId: string;
+  url?: string;
+  error: string;
+};
+
+export type CollectInteractiveResult = {
+  nodes: CdpInteractiveNode[];
+  inaccessibleIframes: InaccessibleIframe[];
+};

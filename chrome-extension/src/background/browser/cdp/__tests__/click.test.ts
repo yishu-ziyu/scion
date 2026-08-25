@@ -43,11 +43,7 @@ describe('clickCdpElement', () => {
     await clickCdpElement(handle);
 
     expect(api.attach).toHaveBeenCalledWith({ targetId: 'tgt-iframe' }, '1.3');
-    expect(api.sendCommand).toHaveBeenCalledWith(
-      { targetId: 'tgt-iframe' },
-      'DOM.resolveNode',
-      { backendNodeId: 22 },
-    );
+    expect(api.sendCommand).toHaveBeenCalledWith({ targetId: 'tgt-iframe' }, 'DOM.resolveNode', { backendNodeId: 22 });
     expect(api.sendCommand).toHaveBeenCalledWith(
       { targetId: 'tgt-iframe' },
       'Runtime.callFunctionOn',

@@ -28,7 +28,7 @@ describe('classifyRetry', () => {
     expect(classifyRetry('Action pageRevision does not match current observation')).toBe('retry');
     expect(classifyRetry('Target ref is not valid for current observation')).toBe('retry');
     expect(classifyRetry('索引为 5 的元素不存在，请重试或改用其他操作')).toBe('retry');
-    expect(classifyRetry('No control matched query="提交". Candidates: (none). Did not click.')).toBe('retry');
+    expect(classifyRetry('No control matched query="提交". Candidates: (none). Did not act.')).toBe('retry');
   });
 
   it('does not retry deterministic invalid calls, including inside page.ts wraps', () => {

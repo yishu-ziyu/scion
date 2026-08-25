@@ -83,6 +83,11 @@ code {
   opacity: 1;
 }
 
+.header-icon[aria-busy='true'] {
+  cursor: wait;
+  opacity: 0.5;
+}
+
 .send-button {
   color: var(--chijie-foreground);
   cursor: pointer;
@@ -137,27 +142,40 @@ code {
 /* Phase 1 S1 — active tab bind evidence */
 .chijie-bind-chip {
   display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  margin: 0 0 0.35rem;
-  padding: 0.35rem 0.55rem;
-  border-radius: 0.5rem;
-  background: color-mix(in srgb, var(--chijie-paper, #f7f4ee) 88%, #dbeafe);
-  border: 1px solid color-mix(in srgb, #93c5fd 45%, transparent);
-  font-size: 0.75rem;
+  min-width: 0;
+  min-height: 28px;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.4rem;
+  padding: 0 0.15rem;
+  border: 0;
+  background: transparent;
+  font-size: var(--chijie-text-xs);
   line-height: 1.35;
-  color: #1e3a5f;
+  color: var(--chijie-muted);
   overflow: hidden;
 }
-.chijie-bind-chip[data-bound='false'] {
-  background: color-mix(in srgb, var(--chijie-paper, #f7f4ee) 90%, #fee2e2);
-  border-color: color-mix(in srgb, #fca5a5 50%, transparent);
-  color: #7f1d1d;
+
+.chijie-bind-chip > svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--chijie-muted);
 }
+
+.chijie-bind-chip[data-bound='false'] {
+  color: var(--chijie-warning);
+}
+
+.chijie-bind-chip[data-bound='false'] > svg {
+  color: var(--chijie-warning);
+}
+
 .chijie-bind-chip-kicker {
   flex: none;
-  font-weight: 600;
-  opacity: 0.75;
+  font-family: var(--chijie-font-mono);
+  font-weight: var(--chijie-weight-medium);
+  letter-spacing: 0.04em;
 }
 .chijie-bind-chip-value {
   min-width: 0;

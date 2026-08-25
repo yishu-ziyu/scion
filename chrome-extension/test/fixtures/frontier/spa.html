@@ -4,10 +4,22 @@
     <meta charset="utf-8" />
     <title>Module Dashboard SPA</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 1rem; }
-      .item { border: 1px solid #ccc; margin: 0.5rem 0; padding: 0.5rem; }
-      .tall { height: 900px; background: linear-gradient(#eef, #fff); }
-      .hidden { display: none; }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 1rem;
+      }
+      .item {
+        border: 1px solid #ccc;
+        margin: 0.5rem 0;
+        padding: 0.5rem;
+      }
+      .tall {
+        height: 900px;
+        background: linear-gradient(#eef, #fff);
+      }
+      .hidden {
+        display: none;
+      }
     </style>
   </head>
   <body>
@@ -36,7 +48,8 @@
         const cat = document.getElementById('cat').value;
         const list = document.getElementById('list');
         list.innerHTML = '';
-        items.filter(i => cat === 'all' || i.cat === cat)
+        items
+          .filter(i => cat === 'all' || i.cat === cat)
           .sort((a, b) => b.rating - a.rating)
           .forEach((i, idx) => {
             const div = document.createElement('div');

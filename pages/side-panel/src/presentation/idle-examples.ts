@@ -10,21 +10,21 @@ export type IdleExample = {
 /** Idle home rows. Click fills the composer. Not a Sider shopping clone. */
 export const IDLE_EXAMPLES: readonly IdleExample[] = [
   {
-    id: 'open',
-    title: '打开页面',
-    prompt: '打开这个网址，告诉我现在在哪',
+    id: 'read-current',
+    title: '读当前页',
+    prompt: '读当前页，提炼关键信息，并把能核对的页面列出来',
     icon: 'globe',
   },
   {
-    id: 'extract',
-    title: '抽出表格',
-    prompt: '把当前页的列表抽成一张表，做完能核对',
+    id: 'extract-list',
+    title: '抽出列表',
+    prompt: '把当前页的列表整理成表格，保留标题和原页面',
     icon: 'list',
   },
   {
-    id: 'finish',
-    title: '读完再回',
-    prompt: '打开链接，读关键信息，交出能核对的结果',
+    id: 'inspect-form',
+    title: '检查表单',
+    prompt: '列出当前页可填写的字段和现值，不修改页面',
     icon: 'check',
   },
 ];

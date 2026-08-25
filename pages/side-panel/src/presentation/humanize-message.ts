@@ -86,7 +86,10 @@ export function isProcessNoiseContent(text: string): boolean {
   return false;
 }
 
-export function classifyFailure(details: string | undefined, copy: HumanCopy = DEFAULT_ZH_COPY): {
+export function classifyFailure(
+  details: string | undefined,
+  copy: HumanCopy = DEFAULT_ZH_COPY,
+): {
   body: string;
   detail?: string;
 } {
@@ -118,7 +121,8 @@ export function classifyFailure(details: string | undefined, copy: HumanCopy = D
           : undefined;
 
   // Never use pure enum as detail title content alone for expand if it's only step_failed
-  const safeDetail = detail && !looksLikeMachineToken(detail) ? detail : detail && detail.length > 20 ? detail : undefined;
+  const safeDetail =
+    detail && !looksLikeMachineToken(detail) ? detail : detail && detail.length > 20 ? detail : undefined;
 
   return { body, detail: safeDetail };
 }
@@ -211,8 +215,7 @@ export function humanizeStoredMessage(msg: Message, copy: HumanCopy = DEFAULT_ZH
   }
 
   // Any non-user actor → 助手
-  const kind: DisplayKind =
-    actor === Actors.SYSTEM && looksLikeMachineToken(content) ? 'system_note' : 'assistant';
+  const kind: DisplayKind = actor === Actors.SYSTEM && looksLikeMachineToken(content) ? 'system_note' : 'assistant';
 
   let body = content;
   if (looksLikeMachineToken(body)) {

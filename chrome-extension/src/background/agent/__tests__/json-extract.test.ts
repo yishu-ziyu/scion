@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  extractJsonFromModelOutput,
-  normalizeAgentJsonShape,
-  removeThinkTags,
-} from '../messages/utils';
+import { extractJsonFromModelOutput, normalizeAgentJsonShape, removeThinkTags } from '../messages/utils';
 import { plannerOutputSchema } from '../agents/planner';
 
 describe('MiniMax-style JSON extraction', () => {

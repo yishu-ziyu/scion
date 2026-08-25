@@ -1,0 +1,22 @@
+@import './design/chijie-tokens.css';
+@import './design/chijie-memory.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: var(--chijie-font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--chijie-background);
+  color: var(--chijie-foreground);
+}
+
+#app-container {
+  width: 100%;
+  min-height: 100vh;
+  background: var(--chijie-background);
+  color: var(--chijie-foreground);
+}

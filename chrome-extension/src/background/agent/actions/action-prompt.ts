@@ -44,9 +44,7 @@ export function renderActionSchemaPrompt(schema: ActionSchema): string {
   });
 
   const schemaStr =
-    schemaProperties.length > 0
-      ? `{${schema.name}: {${schemaProperties.join(', ')}}}`
-      : `{${schema.name}: {}}`;
+    schemaProperties.length > 0 ? `{${schema.name}: {${schemaProperties.join(', ')}}}` : `{${schema.name}: {}}`;
 
   const lines = [schema.description];
   if (schema.whenToUse) lines.push(`When to use: ${schema.whenToUse}`);

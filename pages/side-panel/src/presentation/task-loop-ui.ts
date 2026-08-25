@@ -104,6 +104,22 @@ export function shouldShowMainTaskSurface(input: {
 }
 
 /**
+ * A terminal snapshot can arrive after the side panel reconnects, before its
+ * chat history has been restored. Keep its result card visible in that case;
+ * otherwise a completed task falls through to the empty home with no receipt.
+ */
+export function shouldShowTaskCard(input: {
+  snapshot: Pick<TaskSnapshot, 'chatSessionId' | 'sourceSkillId' | 'status'> | null;
+  currentSessionId: string | null;
+  isHistoricalSession: boolean;
+}): boolean {
+  const { snapshot } = input;
+  if (!snapshot) return false;
+  if (snapshot.sourceSkillId !== undefined || input.currentSessionId === snapshot.chatSessionId) return true;
+  return !input.isHistoricalSession && !input.currentSessionId && !isActiveTaskStatus(snapshot.status);
+}
+
+/**
  * Which surface owns the task card for goal-directed reading order.
  * status → goal → (activity | completion | recovery) → steps → chat.
  */

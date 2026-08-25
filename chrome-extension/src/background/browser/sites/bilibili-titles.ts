@@ -76,8 +76,7 @@ export function extractBilibiliTitlesFromHtml(html: string, max = 12): string[] 
   }
 
   // Opening tag then short text content (h3/a/text) before next tag close sequence
-  const withInner =
-    /class\s*=\s*["'][^"']*bili-video-card__info--tit[^"']*["'][^>]*>([\s\S]{0,400}?)<\//gi;
+  const withInner = /class\s*=\s*["'][^"']*bili-video-card__info--tit[^"']*["'][^>]*>([\s\S]{0,400}?)<\//gi;
   for (const match of html.matchAll(withInner)) {
     const inner = match[1]
       .replace(/<[^>]+>/g, ' ')
@@ -98,7 +97,11 @@ export function extractBilibiliTitlesFromHtml(html: string, max = 12): string[] 
 export function formatBilibiliTitleEnrichment(titles: string[], surface: 'home' | 'favlist' | 'list' = 'list'): string {
   if (titles.length === 0) return '';
   const label =
-    surface === 'home' ? 'bilibili home video titles' : surface === 'favlist' ? 'bilibili favlist titles' : 'bilibili video titles';
+    surface === 'home'
+      ? 'bilibili home video titles'
+      : surface === 'favlist'
+        ? 'bilibili favlist titles'
+        : 'bilibili video titles';
   // Use bullets, NOT 1. 2. 3. — models confuse those with Interactive element indexes.
   const lines = titles.map(t => `  - ${t}`);
   return [
@@ -124,7 +127,10 @@ export function bilibiliListSurfaceKind(url: string): 'home' | 'favlist' | 'list
  * Pure observe enrichment: given page URL + optional HTML, return extra state lines.
  * Empty string when not a bili list surface or no titles found.
  */
-export function enrichObserveWithBilibiliTitles(url: string | undefined | null, html: string | undefined | null): string {
+export function enrichObserveWithBilibiliTitles(
+  url: string | undefined | null,
+  html: string | undefined | null,
+): string {
   if (!url || !html) return '';
   const kind = bilibiliListSurfaceKind(url);
   if (!kind) return '';

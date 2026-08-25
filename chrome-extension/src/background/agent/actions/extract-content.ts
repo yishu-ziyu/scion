@@ -309,9 +309,7 @@ function extractFromTables(root: SimpleNode): ExtractedRecord[] {
     if (!trs.length) continue;
     const headerCells = cellsIn(trs[0], 'th');
     const useHeader = headerCells.length >= 2;
-    const columns = useHeader
-      ? headerCells.map((cell, i) => normalizeKey(innerText(cell)) || `col${i + 1}`)
-      : [];
+    const columns = useHeader ? headerCells.map((cell, i) => normalizeKey(innerText(cell)) || `col${i + 1}`) : [];
     const dataRows = useHeader ? trs.slice(1) : trs;
     const rows: ExtractedRecord[] = [];
     for (const tr of dataRows) {

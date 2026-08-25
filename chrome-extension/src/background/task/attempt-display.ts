@@ -15,6 +15,7 @@ export type AttemptDisplayInput = {
     type?: string;
     role?: string;
     intent?: string;
+    text?: string;
   };
   urlOrigin?: string;
 };
@@ -110,10 +111,16 @@ export function buildAttemptDisplaySummary(input: AttemptDisplayInput): string {
       return host ? `关闭 ${host}` : '关闭标签';
     case 'go_back':
       return '返回上一页';
-    case 'click_element':
+    case 'click_element': {
+      const controlText = input.effectTarget?.text?.replace(/\s+/g, ' ').trim();
+      if (controlText && controlText.length >= 2 && !field?.includes('密码')) {
+        const short = controlText.length > 48 ? `${controlText.slice(0, 47)}…` : controlText;
+        return `点击「${short}」`;
+      }
       if (intent) return intent.startsWith('点击') || intent.startsWith('点') ? intent : `点击${intent}`;
       if (field) return `点击${field}`;
       return '点击页面控件';
+    }
     case 'input_text':
       // Never echo typed value (may be PII).
       if (field && field.includes('密码')) return field;

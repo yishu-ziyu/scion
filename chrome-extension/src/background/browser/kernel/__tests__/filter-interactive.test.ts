@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InteractiveElementDigest } from '../types';
-import {
-  filterInteractiveElements,
-  matchesSubmitKeepRule,
-} from '../filter-interactive';
+import { filterInteractiveElements, matchesSubmitKeepRule } from '../filter-interactive';
 
 function el(partial: Partial<InteractiveElementDigest> & { index: number }): InteractiveElementDigest {
   return partial;

@@ -43,6 +43,8 @@ export interface ActionTargetObservation {
   hasSemanticName: boolean;
   semanticCommit: boolean;
   semanticNavigation: boolean;
+  /** Visible control text for the side panel click line. Never a password value. */
+  text?: string;
   /** Immutable observation that made an element index meaningful. */
   pageRevision?: string;
 }
@@ -89,6 +91,7 @@ export function build_initial_state(tabId?: number, url?: string, title?: string
     scrollY: 0,
     scrollHeight: 0,
     visualViewportHeight: 0,
+    inaccessibleIframes: [],
   };
 }
 
@@ -482,6 +485,7 @@ export default class Page {
       this._state.scrollY = scrollY;
       this._state.visualViewportHeight = visualViewportHeight;
       this._state.scrollHeight = scrollHeight;
+      this._state.inaccessibleIframes = content.inaccessibleIframes ?? [];
       return this._state;
     } catch (error) {
       logger.error('Failed to update state:', error);
@@ -1448,6 +1452,7 @@ export default class Page {
     let semanticCommit = this.hasCommitSignal(semanticSource);
     let semanticNavigation = this.hasNavigationSignal(semanticSource);
     let structureSource = node?.xpath || undefined;
+    let visibleText: string | undefined;
 
     if (node && this._puppeteerPage) {
       const handle = await this.getElementByIndex(index as number);
@@ -1492,6 +1497,7 @@ export default class Page {
             ),
           semanticSource: semanticText,
           structure: path.reverse().join('/'),
+          text: (htmlElement.innerText || htmlElement.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
         };
       });
       tag = live.tag;
@@ -1505,6 +1511,7 @@ export default class Page {
       semanticSource = live.semanticSource;
       structureSource = live.structure;
       if (live.autocomplete === 'current-password') type = 'password';
+      if (type !== 'password' && live.text && live.text.length >= 2) visibleText = live.text;
     }
 
     if (actionName === 'send_keys' && this._puppeteerPage) {
@@ -1605,6 +1612,7 @@ export default class Page {
       hasSemanticName,
       semanticCommit,
       semanticNavigation,
+      ...(visibleText ? { text: visibleText } : {}),
       pageRevision,
     };
   }

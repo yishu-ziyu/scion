@@ -31,6 +31,60 @@
   "nav_settings_a11y": {
     "message": "Configurações"
   },
+  "nav_memory_a11y": {
+    "message": "Memória"
+  },
+  "memory_page_title": {
+    "message": "Memória"
+  },
+  "memory_page_lead": {
+    "message": "Escreva fatos que você estabeleceu. Depois de estruturar, as tarefas leem as linhas, não o texto bruto."
+  },
+  "memory_empty": {
+    "message": "Ainda não há linhas. Escreva por exemplo “Gmail é meu e-mail usual” e estruture."
+  },
+  "memory_source_label": {
+    "message": "Nota"
+  },
+  "memory_source_placeholder": {
+    "message": "Gmail é meu e-mail usual."
+  },
+  "memory_structure": {
+    "message": "Estruturar em linhas"
+  },
+  "memory_structuring": {
+    "message": "Estruturando…"
+  },
+  "memory_facts_heading": {
+    "message": "Linhas usadas pelas tarefas"
+  },
+  "memory_kind_label": {
+    "message": "O que é"
+  },
+  "memory_value_label": {
+    "message": "Valor"
+  },
+  "memory_add_row": {
+    "message": "Adicionar linha"
+  },
+  "memory_delete": {
+    "message": "Excluir"
+  },
+  "memory_error_empty": {
+    "message": "Escreva a nota primeiro."
+  },
+  "memory_error_no_model": {
+    "message": "Sem chave de modelo. Adicione uma linha à mão ou conecte um modelo em Configurações."
+  },
+  "memory_error_llm": {
+    "message": "A estruturação falhou. Tente de novo ou adicione uma linha à mão."
+  },
+  "memory_error_no_facts": {
+    "message": "Nenhuma linha útil foi extraída. Edite a nota ou adicione uma linha à mão."
+  },
+  "memory_error_secret": {
+    "message": "Senhas, chaves de API e cookies não são armazenados."
+  },
   "nav_back": {
     "message": "← Voltar"
   },
@@ -65,10 +119,43 @@
     "message": "Como posso ajudar?"
   },
   "chat_empty_hint": {
-    "message": "Abra uma página, extraia uma tabela ou leia e volte com um resultado conferível."
+    "message": "Trabalha em abas da tarefa, em segundo plano. A página atual é incluída automaticamente."
+  },
+  "chat_task_presence_background": {
+    "message": "Trabalhando em segundo plano"
+  },
+  "chat_task_presence_following": {
+    "message": "Acompanhando esta aba"
+  },
+  "chat_task_presence_not_completed": {
+    "message": "Não concluído"
+  },
+  "chat_task_process_disclosure": {
+    "message": "Ver processo"
+  },
+  "chat_task_process_count": {
+    "message": "$1 itens"
+  },
+  "chat_task_copy_result": {
+    "message": "Copiar resultado"
+  },
+  "chat_task_copy_done": {
+    "message": "Copiado"
+  },
+  "chat_task_source_unavailable": {
+    "message": "Endereço exato não retido"
   },
   "chat_task_mode_badge": {
     "message": "Tarefa"
+  },
+  "chat_composer_intent": {
+    "message": "O que este envio faz"
+  },
+  "chat_composer_chat": {
+    "message": "Só conversar"
+  },
+  "chat_composer_execute": {
+    "message": "Executar"
   },
   "chat_task_input_placeholder": {
     "message": "O que fazer?"
@@ -963,7 +1050,7 @@
   "chat_task_status_paused": {
     "message": "Pausado"
   },
-    "chat_task_status_waiting_user": {
+  "chat_task_status_waiting_user": {
     "message": "Precisa de você"
   },
   "chat_task_status_inputs_required": {
@@ -1014,7 +1101,7 @@
   "chat_task_section_rounds": {
     "message": "Rodadas"
   },
-    "chat_task_current_goal": {
+  "chat_task_current_goal": {
     "message": "Objetivo atual"
   },
   "chat_task_plan_heading": {
@@ -1026,7 +1113,7 @@
   "chat_task_progress": {
     "message": "Progresso"
   },
-            "chat_task_receipt_id": {
+  "chat_task_receipt_id": {
     "message": "ID do recibo"
   },
   "chat_task_receipt_time": {
@@ -1083,7 +1170,7 @@
   "chat_task_action_generic": {
     "message": "Executar ação na página"
   },
-    "chat_task_attempt_observed": {
+  "chat_task_attempt_observed": {
     "message": "Verificado"
   },
   "chat_task_attempt_executing": {
@@ -1137,7 +1224,7 @@
       }
     }
   },
-                        "chat_task_evidence_url": {
+  "chat_task_evidence_url": {
     "message": "O endereço da página corresponde ao objetivo"
   },
   "chat_task_evidence_text": {
@@ -1215,7 +1302,7 @@
   "chat_task_hint_captcha": {
     "message": "Resolva o captcha na página e continue."
   },
-    "chat_task_hint_proof": {
+  "chat_task_hint_proof": {
     "message": "Ele precisa que você confirme o resultado. Toque em confirmar se estiver certo."
   },
   "chat_task_hint_uncertain": {
@@ -1296,7 +1383,7 @@
   "chat_task_product_fail_selector_miss": {
     "message": "Elemento ou página alvo não encontrados"
   },
-    "chat_task_product_fail_false_complete": {
+  "chat_task_product_fail_false_complete": {
     "message": "Marcado como concluído sem prova na página"
   },
   "chat_task_product_fail_model_loop": {

@@ -9,7 +9,19 @@ import type { BrowserKernel, ObservationFrame } from '../../../browser/kernel';
 
 function mockKernel(): BrowserKernel {
   return {
-    observe: vi.fn(async () => ({ frameId: 'f1', observedAt: 1, tab: { id: 1, url: 'https://example.com', title: 't' }, pageRevision: 'r1', targetCount: 0, interactiveElements: [], text: 'page', signals: [] }) as ObservationFrame),
+    observe: vi.fn(
+      async () =>
+        ({
+          frameId: 'f1',
+          observedAt: 1,
+          tab: { id: 1, url: 'https://example.com', title: 't' },
+          pageRevision: 'r1',
+          targetCount: 0,
+          interactiveElements: [],
+          text: 'page',
+          signals: [],
+        }) as ObservationFrame,
+    ),
     act: vi.fn(async () => ({ ok: true })),
     extract: vi.fn(async () => ({ ok: true, data: '' })),
     waitFor: vi.fn(async () => ({ ok: true })),

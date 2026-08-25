@@ -46,11 +46,7 @@ export function statusLabelKey(status: TaskStatus): `chat_task_status_${TaskStat
   return `chat_task_status_${status}`;
 }
 
-export function completionVisibleText(input: {
-  doneTitle: string;
-  doneBody: string;
-  receiptId: string;
-}): string {
+export function completionVisibleText(input: { doneTitle: string; doneBody: string; receiptId: string }): string {
   void input.receiptId;
   return `${input.doneTitle}\n${input.doneBody}`;
 }

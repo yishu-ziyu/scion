@@ -1,5 +1,6 @@
 import type { DOMState } from './dom/views';
 import type { DOMHistoryElement } from './dom/history/view';
+import type { InaccessibleIframe } from './cdp/types';
 
 export interface BrowserContextWindowSize {
   width: number;
@@ -101,6 +102,7 @@ export interface PageState extends DOMState {
   scrollY: number;
   scrollHeight: number;
   visualViewportHeight: number;
+  inaccessibleIframes?: InaccessibleIframe[];
 }
 
 export interface TabInfo {

@@ -31,6 +31,60 @@
   "nav_settings_a11y": {
     "message": "设置"
   },
+  "nav_memory_a11y": {
+    "message": "记忆"
+  },
+  "memory_page_title": {
+    "message": "记忆"
+  },
+  "memory_page_lead": {
+    "message": "写下你确立过的事实。整理后变成条目；下次任务只读条目，不读原文。"
+  },
+  "memory_empty": {
+    "message": "还没有条目。写下例如「我常用谷歌邮箱」，再整理成条目。"
+  },
+  "memory_source_label": {
+    "message": "原文"
+  },
+  "memory_source_placeholder": {
+    "message": "我常用谷歌邮箱。"
+  },
+  "memory_structure": {
+    "message": "整理成条目"
+  },
+  "memory_structuring": {
+    "message": "正在整理…"
+  },
+  "memory_facts_heading": {
+    "message": "给任务用的条目"
+  },
+  "memory_kind_label": {
+    "message": "这是什么"
+  },
+  "memory_value_label": {
+    "message": "值"
+  },
+  "memory_add_row": {
+    "message": "添加条目"
+  },
+  "memory_delete": {
+    "message": "删除"
+  },
+  "memory_error_empty": {
+    "message": "先写一点原文再整理。"
+  },
+  "memory_error_no_model": {
+    "message": "没有模型密钥，无法整理。可以先手动添加条目，或去设置里连模型。"
+  },
+  "memory_error_llm": {
+    "message": "整理失败，请再试一次，或手动添加条目。"
+  },
+  "memory_error_no_facts": {
+    "message": "没有抽出可用条目。改一下原文，或手动添加。"
+  },
+  "memory_error_secret": {
+    "message": "密码、密钥和 cookie 不会写入记忆。"
+  },
   "nav_back": {
     "message": "← 返回"
   },
@@ -65,10 +119,43 @@
     "message": "我能帮你做什么？"
   },
   "chat_empty_hint": {
-    "message": "打开页面、抽出表格、读完再回。做完能核对。"
+    "message": "默认在后台使用任务标签；当前页面会自动带上。"
+  },
+  "chat_task_presence_background": {
+    "message": "后台进行"
+  },
+  "chat_task_presence_following": {
+    "message": "正在跟随"
+  },
+  "chat_task_presence_not_completed": {
+    "message": "没有完成"
+  },
+  "chat_task_process_disclosure": {
+    "message": "查看过程"
+  },
+  "chat_task_process_count": {
+    "message": "$1 项"
+  },
+  "chat_task_copy_result": {
+    "message": "复制结果"
+  },
+  "chat_task_copy_done": {
+    "message": "已复制"
+  },
+  "chat_task_source_unavailable": {
+    "message": "精确地址未保存"
   },
   "chat_task_mode_badge": {
     "message": "任务"
+  },
+  "chat_composer_intent": {
+    "message": "这次怎么处理"
+  },
+  "chat_composer_chat": {
+    "message": "仅聊天"
+  },
+  "chat_composer_execute": {
+    "message": "执行"
   },
   "chat_task_input_placeholder": {
     "message": "要做什么"
@@ -963,7 +1050,7 @@
   "chat_task_status_paused": {
     "message": "已暂停"
   },
-    "chat_task_status_waiting_user": {
+  "chat_task_status_waiting_user": {
     "message": "需要你处理"
   },
   "chat_task_status_inputs_required": {
@@ -1014,7 +1101,7 @@
   "chat_task_section_rounds": {
     "message": "轮次"
   },
-    "chat_task_current_goal": {
+  "chat_task_current_goal": {
     "message": "当前目标"
   },
   "chat_task_plan_heading": {
@@ -1026,7 +1113,7 @@
   "chat_task_progress": {
     "message": "进度"
   },
-            "chat_task_receipt_id": {
+  "chat_task_receipt_id": {
     "message": "回执 ID"
   },
   "chat_task_receipt_time": {
@@ -1083,7 +1170,7 @@
   "chat_task_action_generic": {
     "message": "执行页面操作"
   },
-    "chat_task_attempt_observed": {
+  "chat_task_attempt_observed": {
     "message": "已核对"
   },
   "chat_task_attempt_executing": {
@@ -1137,7 +1224,7 @@
       }
     }
   },
-                        "chat_task_evidence_url": {
+  "chat_task_evidence_url": {
     "message": "页面地址符合目标"
   },
   "chat_task_evidence_text": {
@@ -1215,7 +1302,7 @@
   "chat_task_hint_captcha": {
     "message": "先在网页里完成验证码，再继续。"
   },
-    "chat_task_hint_proof": {
+  "chat_task_hint_proof": {
     "message": "它认为需要你亲眼确认结果。确认无误就点「我确认已经完成」。"
   },
   "chat_task_hint_uncertain": {
@@ -1296,7 +1383,7 @@
   "chat_task_product_fail_selector_miss": {
     "message": "找不到目标元素或页面"
   },
-    "chat_task_product_fail_false_complete": {
+  "chat_task_product_fail_false_complete": {
     "message": "页面未达成却报完成"
   },
   "chat_task_product_fail_model_loop": {

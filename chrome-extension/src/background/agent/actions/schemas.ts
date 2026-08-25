@@ -173,7 +173,7 @@ export const switchTabActionSchema: ActionSchema = {
     'switch_tab { tab_id: 42, intent: "work on the video tab" }',
     'switch_tab { intent: "bind task-bound tab" }',
   ],
-  returns: 'Task is bound to that tab; the user\'s current tab stays put; re-observe that tab only.',
+  returns: "Task is bound to that tab; the user's current tab stays put; re-observe that tab only.",
   costHint: 'Cheap bind; the user keeps their current tab; always re-observe after switch.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
@@ -189,7 +189,7 @@ export const openTabActionSchema: ActionSchema = {
   whenNotToUse:
     'Do not open a new tab when navigating the current tab is enough; avoid tab sprawl. Prefer go_to_url for single-path flows.',
   examples: ['open_tab { url: "https://www.bilibili.com", intent: "open bilibili in new tab" }'],
-  returns: 'New tab opened in the background and bound; the user\'s current tab stays put; re-observe the new tab.',
+  returns: "New tab opened in the background and bound; the user's current tab stays put; re-observe the new tab.",
   costHint: 'Full page load plus a new tab to track; higher risk of wrong_tab later.',
   schema: z.object({
     intent: z.string().default('').describe('purpose of this action'),
@@ -850,35 +850,62 @@ export const controlMediaActionSchema: ActionSchema = {
 
 export const getDropdownOptionsActionSchema: ActionSchema = {
   name: 'get_dropdown_options',
-  description: 'Get all options from a native dropdown',
+  description: 'Get all options from a native dropdown by current-page index, or by query text such as 国家.',
   whenToUse:
     'Before selecting, when you need the legal option list of a native <select> (country, shipping, form enums).',
   whenNotToUse:
-    'Does not work on custom div menus; those need click_element. Call only with a current Snapshot index of a real select.',
-  examples: ['get_dropdown_options { index: 5, intent: "list country options" }'],
-  returns: 'List of option texts for the dropdown.',
+    'Does not work on custom div menus; those need click_element. Do not guess an index when query is available.',
+  examples: [
+    'get_dropdown_options { index: 5, intent: "list country options" }',
+    'get_dropdown_options { query: "国家", intent: "list country options" }',
+  ],
+  returns:
+    'List of option texts for the dropdown, or an error listing candidates when query does not resolve to one control.',
   costHint: 'Cheap read of select options; no selection change.',
-  schema: z.object({
-    intent: z.string().default('').describe('purpose of this action'),
-    index: z.number().int().describe('index of the dropdown element'),
-  }),
+  schema: z
+    .object({
+      intent: z.string().default('').describe('purpose of this action'),
+      index: z.coerce.number().int().optional().describe('index of the dropdown element'),
+      query: z.string().optional().describe('visible label of the native select to read'),
+    })
+    .superRefine((value, ctx) => {
+      const hasIndex = value.index !== undefined && Number.isFinite(value.index);
+      const hasQuery = Boolean(value.query && value.query.trim());
+      if (!hasIndex && !hasQuery) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'get_dropdown_options needs index or query' });
+      }
+    }),
 };
 
 export const selectDropdownOptionActionSchema: ActionSchema = {
   name: 'select_dropdown_option',
-  description: 'Select dropdown option for interactive element index by the text of the option you want to select',
+  description:
+    'Select a native dropdown option by current-page index or query, using the exact option text you want to select.',
   whenToUse:
     'When filling forms that use a native <select> and you know the exact option text (often after get_dropdown_options).',
   whenNotToUse:
-    'Do not invent option labels; mismatch fails. Custom combobox UIs need click_element sequences instead.',
-  examples: ['select_dropdown_option { index: 5, text: "United States", intent: "choose country" }'],
-  returns: 'Option selected or error if text not found.',
+    'Do not invent option labels; mismatch fails. Custom combobox UIs need click_element sequences instead. Do not guess an index when query is available.',
+  examples: [
+    'select_dropdown_option { index: 5, text: "United States", intent: "choose country" }',
+    'select_dropdown_option { query: "国家", text: "中国", intent: "choose country" }',
+  ],
+  returns:
+    'Option selected, or an error listing candidates when query does not resolve to one control, or if text not found.',
   costHint: 'One select mutation + re-observe; may trigger dependent fields.',
-  schema: z.object({
-    intent: z.string().default('').describe('purpose of this action'),
-    index: z.number().int().describe('index of the dropdown element'),
-    text: z.string().describe('text of the option'),
-  }),
+  schema: z
+    .object({
+      intent: z.string().default('').describe('purpose of this action'),
+      index: z.coerce.number().int().optional().describe('index of the dropdown element'),
+      query: z.string().optional().describe('visible label of the native select to change'),
+      text: z.string().describe('text of the option'),
+    })
+    .superRefine((value, ctx) => {
+      const hasIndex = value.index !== undefined && Number.isFinite(value.index);
+      const hasQuery = Boolean(value.query && value.query.trim());
+      if (!hasIndex && !hasQuery) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'select_dropdown_option needs index or query' });
+      }
+    }),
 };
 
 export const saveScreenshotActionSchema: ActionSchema = {

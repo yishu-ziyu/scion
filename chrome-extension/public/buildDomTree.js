@@ -563,7 +563,7 @@ window.buildDomTree = (
     if (typeof node.closest === 'function') {
       const wrap = node.closest('label');
       if (wrap) {
-        const t = ((wrap.innerText || wrap.textContent) || '').replace(/\s+/g, ' ').trim();
+        const t = (wrap.innerText || wrap.textContent || '').replace(/\s+/g, ' ').trim();
         if (t && t.length <= 120) return t;
       }
     }
@@ -586,7 +586,7 @@ window.buildDomTree = (
       }
       if (editable) {
         nodeData.attributes.contenteditable = 'true';
-        const text = ((node.innerText || node.textContent) || '').replace(/\s+/g, ' ').trim();
+        const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
         if (text) nodeData.attributes.value = text.slice(0, 240);
       }
     } catch {

@@ -64,6 +64,8 @@ export interface ObservationFrame {
   signals: PageSignal[];
   /** Optional site enrichment text (skills may attach; core must not hardcode sites). */
   enrichment?: string;
+  /** Iframe debugger targets that attach/collect failed. Empty means none failed. */
+  inaccessibleIframes?: Array<{ targetId: string; url?: string; error: string }>;
 }
 
 export interface ElementDigest {
@@ -141,12 +143,7 @@ export type WaitCondition =
 
 export interface BrowserKernel {
   observe(options?: ObserveOptions): Promise<ObservationFrame>;
-  act(
-    roundId: string,
-    actionName: string,
-    args: unknown,
-    frameRevision?: string,
-  ): Promise<KernelActionResult>;
+  act(roundId: string, actionName: string, args: unknown, frameRevision?: string): Promise<KernelActionResult>;
   extract<T>(request: ExtractionRequest<T>): Promise<ExtractionResult<T>>;
   waitFor(condition: WaitCondition, timeoutMs: number): Promise<ObservationFrame>;
   /** Last frame from observe/act cycle (may be null before first observe). */

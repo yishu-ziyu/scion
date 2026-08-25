@@ -7,12 +7,7 @@
 import { t } from '@extension/i18n';
 
 /** Product report codes (golden journeys / Tabbit alignment). */
-export type ProductFailureCode =
-  | 'login_wall'
-  | 'selector_miss'
-  | 'false_complete'
-  | 'model_loop'
-  | 'other';
+export type ProductFailureCode = 'login_wall' | 'selector_miss' | 'false_complete' | 'model_loop' | 'other';
 
 const PRODUCT_FAILURE_MESSAGE_KEYS = {
   login_wall: 'chat_task_product_fail_login_wall',

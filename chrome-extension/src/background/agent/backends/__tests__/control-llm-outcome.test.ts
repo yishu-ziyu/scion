@@ -83,9 +83,9 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
 
   it('writes a failed click_element into lastActionMemory and does not keep a successful click', () => {
     expect(shouldKeepActionResultInContext('click_element')).toBe(false);
-    expect(
-      memoryAfterAction('click_element', { error: 'Needs index or query. Did not click.' }),
-    ).toBe('click_element failed: Needs index or query. Did not click.');
+    expect(memoryAfterAction('click_element', { error: 'Needs index or query. Did not act.' })).toBe(
+      'click_element failed: Needs index or query. Did not act.',
+    );
     expect(memoryAfterAction('click_element', { summary: 'Clicked Submit' })).toBeNull();
     expect(memoryAfterAction('input_text', { summary: 'typed: secret' })).toBeNull();
     expect(memoryAfterAction('go_to_url', { summary: 'Opened https://example.test' })).toBeNull();
@@ -94,9 +94,9 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
 
   it('clears lastActionMemory after a failed click then a successful click that is not kept', () => {
     const afterFail = memoryAfterAction('click_element', {
-      error: 'Needs index or query. Did not click.',
+      error: 'Needs index or query. Did not act.',
     });
-    expect(afterFail).toBe('click_element failed: Needs index or query. Did not click.');
+    expect(afterFail).toBe('click_element failed: Needs index or query. Did not act.');
     expect(memoryAfterAction('click_element', { summary: 'Clicked Submit' })).toBeNull();
   });
 
@@ -107,9 +107,9 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
   });
 
   it('prefers the error over a keep-action summary and caps huge errors', () => {
-    expect(
-      memoryAfterAction('read_page_text', { error: 'timeout', summary: 'IANA home' }),
-    ).toBe('read_page_text failed: timeout');
+    expect(memoryAfterAction('read_page_text', { error: 'timeout', summary: 'IANA home' })).toBe(
+      'read_page_text failed: timeout',
+    );
     const memory = memoryAfterAction('click_element', { error: 'x'.repeat(30_000) });
     expect(memory).toContain('click_element failed:');
     expect(memory).toContain('[compacted');
@@ -121,9 +121,7 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
     const source = readFileSync(join(here, '../control-llm.ts'), 'utf8');
     expect(source).toMatch(/lastActionMemory = memoryAfterAction\(name, result\)/);
     expect(source).toMatch(/lastActionMemory = memoryAfterAction\(name, \{ error: message \}\)/);
-    expect(source).not.toMatch(
-      /if \(!result\.error && result\.summary && shouldKeepActionResultInContext\(name\)\)/,
-    );
+    expect(source).not.toMatch(/if \(!result\.error && result\.summary && shouldKeepActionResultInContext\(name\)\)/);
   });
 
   it.each(['no_progress', 'max_steps'] as const)(

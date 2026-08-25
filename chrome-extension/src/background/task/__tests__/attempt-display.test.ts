@@ -54,6 +54,16 @@ describe('buildAttemptDisplaySummary', () => {
     ).toBe('点击播放第一个视频');
   });
 
+  it('uses the visible control text for a search-result click', () => {
+    expect(
+      buildAttemptDisplaySummary({
+        actionName: 'click_element',
+        args: { index: 12, intent: 'click' },
+        effectTarget: { tag: 'a', text: '某某教程' },
+      }),
+    ).toBe('点击「某某教程」');
+  });
+
   it('never echoes password input values', () => {
     expect(
       buildAttemptDisplaySummary({

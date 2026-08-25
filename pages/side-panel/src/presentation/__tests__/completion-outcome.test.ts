@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  COMPLETION_RESULT_FALLBACK,
-  humanCompletionOutcome,
-  requiredCompletionResult,
-} from '../completion-outcome';
+import { COMPLETION_RESULT_FALLBACK, humanCompletionOutcome, requiredCompletionResult } from '../completion-outcome';
 
 describe('humanCompletionOutcome', () => {
   it('prefers tab closed over generic summary', () => {

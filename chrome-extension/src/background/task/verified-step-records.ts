@@ -3,10 +3,7 @@
  * observation. Values come from the page, not from model text.
  */
 import type { BrowserTargetRef } from '@extension/storage/lib/task';
-import {
-  analyzeInstructionLanguage,
-  instructionAffirmsTarget,
-} from '../instruction-language';
+import { analyzeInstructionLanguage, instructionAffirmsTarget } from '../instruction-language';
 import { pageLooksUnavailable } from '../browser/page-availability';
 import { normalizeVisiblePageText } from '../browser/kernel/visible-text';
 import { numberedStepSegments } from './mission-plan';
@@ -21,7 +18,7 @@ const GENERIC_TLDS = new Set(['com', 'org', 'net', 'edu', 'gov', 'io', 'co']);
 export function instructionAsksVerifiedTitles(instruction: string): boolean {
   return (
     /标题|\btitles?\b/i.test(instruction) &&
-    /写出|写下|读取|确认|列出|输出|返回|write|list|tell|read|confirm/i.test(instruction)
+    /写出|写下|读取|确认|列出|输出|返回|告诉(?:我)?|write|list|tell|read|confirm/i.test(instruction)
   );
 }
 
@@ -106,11 +103,7 @@ export function pageMatchesInstruction(instruction: string, url: string): boolea
   }
 }
 
-export function shouldCommitVerifiedPage(input: {
-  title: string;
-  url?: string;
-  visibleText?: string;
-}): boolean {
+export function shouldCommitVerifiedPage(input: { title: string; url?: string; visibleText?: string }): boolean {
   const title = stripQueryTokensFromRecordText(input.title).slice(0, VERIFIED_TITLE_MAX_CHARS);
   if (!title) return false;
   if (/^(?:new tab|新标签页)$/i.test(title)) return false;
@@ -167,10 +160,12 @@ export function verifiedPageRecordsFromTargets(targets: BrowserTargetRef[]): Ver
   const records: VerifiedPageRecord[] = [];
   for (const page of pages) {
     const url = page.normalizedUrl;
-    if (seen.has(url)) continue;
-    seen.add(url);
+    const key = `${url}\n${page.queryIdentityDigest ?? 'no-query'}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     records.push({
       normalizedUrl: url,
+      ...(page.queryIdentityDigest ? { queryIdentityDigest: page.queryIdentityDigest } : {}),
       title: page.title.replace(/\s+/g, ' ').trim(),
       ...(page.quote ? { quote: page.quote } : {}),
       ...(page.visitSeq !== undefined ? { visitSeq: page.visitSeq } : {}),
@@ -184,7 +179,10 @@ export function upsertVerifiedPageTarget(
   incoming: BrowserTargetRef & { title: string; normalizedUrl: string },
 ): BrowserTargetRef[] {
   const index = refs.findIndex(
-    item => item.kind === 'page' && item.normalizedUrl === incoming.normalizedUrl,
+    item =>
+      item.kind === 'page' &&
+      item.normalizedUrl === incoming.normalizedUrl &&
+      item.queryIdentityDigest === incoming.queryIdentityDigest,
   );
   if (index >= 0) {
     const existing = refs[index]!;

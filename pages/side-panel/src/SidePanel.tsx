@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FiSettings } from 'react-icons/fi';
+import { FiBookOpen, FiGlobe, FiSettings } from 'react-icons/fi';
 import { PiPlusBold } from 'react-icons/pi';
 import { GrHistory } from 'react-icons/gr';
 import {
@@ -20,7 +20,7 @@ import {
 import favoritesStorage, { type FavoriteItem, type FavoriteSkill } from '@extension/storage/lib/prompt/favorites';
 import { t } from '@extension/i18n';
 import MessageList from './components/MessageList';
-import ChatInput from './components/ChatInput';
+import ChatInput, { type SendMessageResult } from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import { TaskStatusCard } from './components/TaskStatusCard';
@@ -42,9 +42,11 @@ import {
   isActiveTaskStatus,
   shouldAutoRestoreTaskSession,
   shouldShowMainTaskSurface,
+  shouldShowTaskCard,
 } from './presentation/task-loop-ui';
 import { completionChatDelivery, hasCompletionChatDelivery } from './presentation/completion-chat-delivery';
 import { taskAllowsDirectionChange, taskLocksComposer, taskNeedsDirectStop } from './presentation/wait-affordance';
+import { shouldDismissConfirmExecuteChat } from './presentation/wait-ask';
 import { isFollowingForeground, setFollowCommand, takeoverCommand } from './presentation/run-presence';
 import {
   cancellationIntentAfterDisconnect,
@@ -86,10 +88,7 @@ declare global {
 type CommandRejection = 'not_found' | 'stale_revision' | 'invalid_transition' | 'invalid_input' | 'not_executable';
 
 export function commandRejectionMessage(error: CommandRejection, userVisibleText?: string): string {
-  if (
-    userVisibleText?.trim() &&
-    (error === 'not_executable' || error === 'invalid_input')
-  ) {
+  if (userVisibleText?.trim() && (error === 'not_executable' || error === 'invalid_input')) {
     return userVisibleText.trim();
   }
   switch (error) {
@@ -104,6 +103,40 @@ export function commandRejectionMessage(error: CommandRejection, userVisibleText
     case 'not_executable':
       return t('chat_task_command_not_executable');
   }
+}
+
+/**
+ * A start acknowledgement can arrive after its broadcast task_event was missed
+ * (for example while the panel port reconnects). Fetch that exact task once so
+ * the normal task_snapshot path can hydrate the pending launch.
+ */
+export function acceptedStartSnapshotRequest(
+  pendingStart: { taskId: string; commandId: string } | null,
+  pendingCommand: { taskId: string; commandId: string; type: TaskCommand['type'] } | undefined,
+  ack: { taskId: string; commandId: string; accepted: boolean },
+): { type: 'get_task'; taskId: string } | null {
+  if (
+    !ack.accepted ||
+    !pendingStart ||
+    !pendingCommand ||
+    (pendingCommand.type !== 'start' && pendingCommand.type !== 'run_skill') ||
+    pendingStart.taskId !== ack.taskId ||
+    pendingStart.commandId !== ack.commandId ||
+    pendingCommand.taskId !== ack.taskId ||
+    pendingCommand.commandId !== ack.commandId
+  ) {
+    return null;
+  }
+  return { type: 'get_task', taskId: pendingStart.taskId };
+}
+
+export function reconnectTaskSnapshotRequest(
+  pendingReset: { taskId: string } | null,
+  pendingStart: { taskId: string } | null,
+): { type: 'get_task'; taskId: string } | { type: 'get_active_task' } {
+  if (pendingReset) return { type: 'get_task', taskId: pendingReset.taskId };
+  if (pendingStart) return { type: 'get_task', taskId: pendingStart.taskId };
+  return { type: 'get_active_task' };
 }
 
 /** A new-chat reset is safe only after the old live task has acknowledged cancellation. */
@@ -150,6 +183,8 @@ const SidePanel = () => {
   const [bindPreview, setBindPreview] = useState<BoundContentTab | null>(null);
   /** S4: while a live task owns the console, chat stays folded unless the user expands it. */
   const [chatLogExpanded, setChatLogExpanded] = useState(false);
+  const [composerResetKey, setComposerResetKey] = useState(0);
+  const [newChatPending, setNewChatPending] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
@@ -205,6 +240,9 @@ const SidePanel = () => {
   const finalizeNewChat = useCallback((cancelledTaskId?: string) => {
     if (cancelledTaskId) dismissedTaskIdsRef.current.add(cancelledTaskId);
     pendingNewChatCancellationRef.current = null;
+    setNewChatPending(false);
+    setInputTextRef.current?.('');
+    setComposerResetKey(current => current + 1);
     setMessages([]);
     setCurrentSessionId(null);
     sessionIdRef.current = null;
@@ -354,8 +392,8 @@ const SidePanel = () => {
     const requiresExplicitResume = taskLocksComposer(taskSnapshot.status, round?.waitReason);
     setInputEnabled(!busy && !requiresExplicitResume);
     setShowStopButton(taskSnapshot.status === 'running');
-    // Follow-up only while the task is still live. Terminal snapshots stay in history;
-    // the main surface returns to idle and the next goal starts a new task.
+    // Follow-up only while the task is still live. Terminal snapshots remain
+    // visible until the user starts a new task.
     const followable = isActiveTaskStatus(taskSnapshot.status);
     setIsFollowUpMode(followable && Boolean(taskSnapshot.chatSessionId));
   }, [taskSnapshot]);
@@ -655,6 +693,21 @@ const SidePanel = () => {
               } else if (!pendingReset?.commandId) {
                 requestNewChatCancellationRef.current(incoming.id, incoming.revision);
               }
+            } else if (
+              requestedTaskId &&
+              pendingStartCommandRef.current?.taskId === requestedTaskId &&
+              incoming.id === requestedTaskId
+            ) {
+              const authoritative = mergeAuthoritativeTaskSnapshot(authoritativeTaskSnapshotRef.current, incoming);
+              if (authoritative === incoming) {
+                authoritativeTaskSnapshotRef.current = authoritative;
+                if (!isHistoricalSessionRef.current) {
+                  setTaskSnapshot(current => mergeTaskSnapshot(current, incoming, undefined, incoming.id));
+                }
+              }
+              pendingStartCommandRef.current = null;
+              pendingTaskIdRef.current = null;
+              if (!pendingAsyncLaunchRef.current) setTaskLaunchPending(false);
             } else if (requestedTaskId) {
               if (
                 shouldAcceptHistorySnapshot({
@@ -850,11 +903,13 @@ const SidePanel = () => {
           ) {
             requestNewChatCancellationRef.current(message.ack.taskId, message.ack.revision);
           }
-          if (message.ack.accepted && pendingStartCommandRef.current?.taskId === message.ack.taskId) {
-            // Preserve launch identity/single-flight until its authoritative snapshot arrives.
-            if (pendingNewChatCancellation?.taskId === message.ack.taskId) {
-              portRef.current?.postMessage({ type: 'get_task', taskId: message.ack.taskId });
-            }
+          const pendingStartSnapshotRequest = acceptedStartSnapshotRequest(
+            pendingStartCommand,
+            pendingCommand,
+            message.ack,
+          );
+          if (pendingStartSnapshotRequest) {
+            portRef.current?.postMessage(pendingStartSnapshotRequest);
           }
           if (
             message.ack.accepted &&
@@ -867,6 +922,27 @@ const SidePanel = () => {
               content: message.ack.userVisibleText.trim(),
               timestamp: Date.now(),
             });
+          }
+          const parked = taskSnapshotRef.current;
+          const parkedRound = parked?.rounds.find(item => item.id === parked.currentRoundId);
+          if (
+            ownsPendingAck &&
+            parked?.id === message.ack.taskId &&
+            shouldDismissConfirmExecuteChat({
+              accepted: message.ack.accepted,
+              waitReason: parkedRound?.waitReason,
+              userVisibleText: message.ack.userVisibleText,
+            })
+          ) {
+            dismissedTaskIdsRef.current.add(message.ack.taskId);
+            taskSnapshotRef.current = null;
+            if (authoritativeTaskSnapshotRef.current?.id === message.ack.taskId) {
+              authoritativeTaskSnapshotRef.current = null;
+            }
+            setTaskSnapshot(null);
+            setEvidenceSpace(null);
+            setShowStopButton(false);
+            setInputEnabled(true);
           }
           if (!message.ack.accepted) {
             if (message.ack.error === 'not_executable' && ownsPendingAck) {
@@ -1015,9 +1091,7 @@ const SidePanel = () => {
         }
       }, 25000);
       const pendingReset = pendingNewChatCancellationRef.current;
-      portRef.current.postMessage(
-        pendingReset ? { type: 'get_task', taskId: pendingReset.taskId } : { type: 'get_active_task' },
-      );
+      portRef.current.postMessage(reconnectTaskSnapshotRequest(pendingReset, pendingStartCommandRef.current));
     } catch (error) {
       console.error('Failed to establish connection:', error);
       appendMessage({
@@ -1177,12 +1251,12 @@ const SidePanel = () => {
   const handleSendMessage = async (
     text: string,
     displayText?: string,
-    options?: { execute?: boolean },
-  ) => {
+    options?: { execute?: boolean; retry?: boolean },
+  ): Promise<SendMessageResult> => {
     // Trim the input text first
     const trimmedText = text.trim();
 
-    if (!trimmedText) return;
+    if (!trimmedText) return { delivered: false };
     const isDirectionChange = pendingDirectionChangeRef.current;
     pendingDirectionChangeRef.current = false;
 
@@ -1190,13 +1264,13 @@ const SidePanel = () => {
     if (trimmedText.startsWith('/')) {
       // Process command and return if it was handled
       const wasHandled = await handleCommand(trimmedText);
-      if (wasHandled) return;
+      if (wasHandled) return { delivered: true };
     }
 
     // Block sending messages in historical sessions
     if (isHistoricalSession) {
       console.log('Cannot send messages in historical sessions');
-      return;
+      return { delivered: false, feedback: '历史会话不能继续发送。输入已保留。' };
     }
     if (
       shouldSuppressExecutionForSessionRecovery(
@@ -1205,7 +1279,7 @@ const SidePanel = () => {
         recoveringAuthoritativeTaskRef.current,
       )
     ) {
-      return;
+      return { delivered: false, feedback: '正在恢复上一个任务。输入已保留，请稍后再试。' };
     }
 
     const startingFreshSession = !isFollowUpMode || !sessionIdRef.current;
@@ -1215,7 +1289,7 @@ const SidePanel = () => {
         pendingStartTaskId: pendingStartCommandRef.current?.taskId,
       })
     ) {
-      return;
+      return { delivered: false, feedback: '上一个任务还在启动。输入已保留，请稍后再试。' };
     }
     const launchOwner = startingFreshSession
       ? {
@@ -1232,6 +1306,7 @@ const SidePanel = () => {
     }
     let turnSessionId: string | null = null;
     let launchResolved = !startingFreshSession;
+    let commandDispatched = false;
     const turnGeneration = launchOwner?.generation ?? sessionGenerationRef.current;
     try {
       setInputEnabled(false);
@@ -1264,7 +1339,7 @@ const SidePanel = () => {
           })
         ) {
           void chatHistoryStore.deleteSession(sessionId);
-          return;
+          return { delivered: false };
         }
         pendingAsyncLaunchRef.current = { ...launchOwner, sessionId };
         setCurrentSessionId(sessionId);
@@ -1281,7 +1356,9 @@ const SidePanel = () => {
 
       const storedMessage = await appendMessage(userMessage, turnSessionId, text, true, startingFreshSession);
       if (!storedMessage) throw new Error('Failed to persist message');
-      if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
+      if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) {
+        return { delivered: false };
+      }
 
       if (!portRef.current) {
         setupConnection();
@@ -1291,7 +1368,7 @@ const SidePanel = () => {
       const currentTask = taskSnapshotRef.current;
       const canFollowUp = canFollowUpInOwnedSession(currentTask, turnSessionId);
       if (canFollowUp && currentTask) {
-        sendTaskCommand({
+        commandDispatched = sendTaskCommand({
           type: 'follow_up',
           commandId: crypto.randomUUID(),
           taskId: currentTask.id,
@@ -1300,11 +1377,14 @@ const SidePanel = () => {
           chatSessionId: turnSessionId,
           instructionMessageId: storedMessage.id,
           changeType: isDirectionChange ? 'direction_change' : 'follow_up',
-          forceExecute: options?.execute === true,
+          forceExecute: options?.retry === true,
+          composerIntent: options?.execute === true ? 'execute' : options?.execute === false ? 'chat' : undefined,
         });
       } else {
         const bound = await resolveActiveContentTab({ allowLastFocused: false });
-        if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
+        if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) {
+          return { delivered: false };
+        }
         if (!bound && instructionPointsAtCurrentPage(text)) {
           appendMessage(
             {
@@ -1317,10 +1397,10 @@ const SidePanel = () => {
           setInputEnabled(true);
           setShowStopButton(false);
           launchResolved = true;
-          return;
+          return { delivered: false, feedback: '当前页面不是网页。输入已保留。' };
         }
         setBindPreview(bound);
-        sendTaskCommand({
+        commandDispatched = sendTaskCommand({
           type: 'start',
           commandId: crypto.randomUUID(),
           taskId: turnSessionId,
@@ -1328,12 +1408,21 @@ const SidePanel = () => {
           chatSessionId: turnSessionId,
           instructionMessageId: storedMessage.id,
           tabId: bound?.tabId ?? -1,
-          forceExecute: options?.execute === true,
+          forceExecute: options?.retry === true,
+          composerIntent: options?.execute === true ? 'execute' : options?.execute === false ? 'chat' : undefined,
         });
       }
+      if (!commandDispatched) {
+        setInputEnabled(true);
+        setShowStopButton(false);
+        return { delivered: false, feedback: '指令没有发送。输入已保留，请稍后再试。' };
+      }
       launchResolved = true;
+      return { delivered: true };
     } catch (err) {
-      if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) return;
+      if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) {
+        return { delivered: false };
+      }
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error('Task error', errorMessage);
       appendMessage(
@@ -1347,6 +1436,7 @@ const SidePanel = () => {
       setInputEnabled(true);
       setShowStopButton(false);
       launchResolved = true;
+      return { delivered: false, feedback: errorMessage };
     } finally {
       const stillOwnsLaunch = launchOwner
         ? ownsAsyncSessionOperation({
@@ -1410,9 +1500,7 @@ const SidePanel = () => {
 
   const handleFollowTask = useCallback(() => {
     if (!taskSnapshot || hasPendingLifecycleCommand(pendingCommandTypes)) return;
-    sendTaskCommand(
-      setFollowCommand(taskSnapshot, !isFollowingForeground(taskSnapshot), crypto.randomUUID()),
-    );
+    sendTaskCommand(setFollowCommand(taskSnapshot, !isFollowingForeground(taskSnapshot), crypto.randomUUID()));
   }, [pendingCommandTypes, sendTaskCommand, taskSnapshot]);
 
   const handleTakeoverTask = useCallback(() => {
@@ -1440,6 +1528,7 @@ const SidePanel = () => {
     if (cancellationTaskId) {
       if (pendingNewChatCancellationRef.current?.taskId === cancellationTaskId) return;
       pendingNewChatCancellationRef.current = { taskId: cancellationTaskId, commandId: null };
+      setNewChatPending(true);
       sessionGenerationRef.current += 1;
       setInputEnabled(false);
       const known =
@@ -1984,19 +2073,20 @@ const SidePanel = () => {
     }
   };
 
-  // Default main surface is idle unless a task is live or the user opened history.
-  // Terminal snapshots (completed/failed/cancelled) stay in storage + history only.
+  // Keep the current task surface visible until New Chat clears its snapshot.
   const displayMessages = projectMessagesForDisplay(messages);
   const showMainTaskSurface = shouldShowMainTaskSurface({
     status: taskSnapshot?.status,
     isHistoricalSession,
   });
-  const showTaskCard =
-    Boolean(taskSnapshot) &&
-    (currentSessionId === taskSnapshot?.chatSessionId || taskSnapshot?.sourceSkillId !== undefined);
+  const showTaskCard = shouldShowTaskCard({
+    snapshot: taskSnapshot,
+    currentSessionId,
+    isHistoricalSession,
+  });
   // Idle home still shows this session's chat (replies/clarifications); only task card needs active status.
   const showLiveMessages = messages.length > 0;
-  const liveTaskConsole = Boolean(taskSnapshot) && showTaskCard && isActiveTaskStatus(taskSnapshot.status);
+  const liveTaskConsole = taskSnapshot !== null && showTaskCard && isActiveTaskStatus(taskSnapshot.status);
   const showIdleHint = !showLiveMessages && !liveTaskConsole;
   const hasAuthoritativeLiveTask = protectedLiveHistorySessionId(authoritativeTaskSnapshotRef.current) !== null;
   const visibleFavoritePrompts =
@@ -2052,9 +2142,7 @@ const SidePanel = () => {
                   aria-live="polite"
                   aria-atomic="true">
                   {taskSnapshot && showTaskCard
-                    ? taskSnapshot.status === 'completed' || taskSnapshot.status === 'failed'
-                      ? t('chat_task_header_idle')
-                      : t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
+                    ? t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
                     : t('chat_task_header_idle')}
                 </span>
               </div>
@@ -2066,8 +2154,9 @@ const SidePanel = () => {
               onClick={handleNewChat}
               className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
               aria-label={t('nav_newChat_a11y')}
-              aria-busy={Boolean(pendingNewChatCancellationRef.current)}
-              disabled={Boolean(pendingNewChatCancellationRef.current)}>
+              title={t('nav_newChat_a11y')}
+              aria-busy={newChatPending}
+              disabled={newChatPending}>
               <PiPlusBold size={20} />
             </button>
             <button
@@ -2075,14 +2164,26 @@ const SidePanel = () => {
               onClick={handleLoadHistory}
               className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
               data-active={showHistory ? 'true' : undefined}
-              aria-label={t('nav_loadHistory_a11y')}>
+              aria-label={t('nav_loadHistory_a11y')}
+              title={t('nav_loadHistory_a11y')}>
               <GrHistory size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void chrome.tabs.create({ url: chrome.runtime.getURL('memory/index.html') });
+              }}
+              className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
+              aria-label={t('nav_memory_a11y')}
+              title={t('nav_memory_a11y')}>
+              <FiBookOpen size={20} />
             </button>
             <button
               type="button"
               onClick={() => chrome.runtime.openOptionsPage()}
               className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
-              aria-label={t('nav_settings_a11y')}>
+              aria-label={t('nav_settings_a11y')}
+              title={t('nav_settings_a11y')}>
               <FiSettings size={20} />
             </button>
           </div>
@@ -2181,17 +2282,21 @@ const SidePanel = () => {
                               composer?.scrollIntoView({ block: 'nearest' });
                             });
                           }}
+                          onFollowUp={text => {
+                            void handleSendMessage(text);
+                          }}
                           onRetry={
                             !isHistoricalSession && taskSnapshot.status === 'failed'
                               ? () => {
-                                  void handleSendMessage(originalInstruction, originalInstruction, { execute: true });
+                                  void handleSendMessage(originalInstruction, originalInstruction, {
+                                    execute: true,
+                                    retry: true,
+                                  });
                                 }
                               : undefined
                           }
                           onStop={
-                            !isHistoricalSession && taskSnapshot.status === 'running'
-                              ? handleTakeoverTask
-                              : undefined
+                            !isHistoricalSession && taskSnapshot.status === 'running' ? handleTakeoverTask : undefined
                           }
                           onAdjustDirection={
                             canAdjustDirection
@@ -2222,6 +2327,7 @@ const SidePanel = () => {
                     className="chijie-chat-log scrollbar-gutter-stable min-h-0 flex-1 overflow-x-hidden overflow-y-scroll scroll-smooth p-3"
                     data-testid="sidepanel-chat-log"
                     data-live={liveTaskConsole ? 'true' : 'false'}
+                    data-task-visible={showTaskCard ? 'true' : undefined}
                     data-collapsed={chatCollapsed ? 'true' : 'false'}
                     data-idle={!showMainTaskSurface ? 'true' : 'false'}>
                     {showTaskCard ? null : showLiveMessages ? (
@@ -2293,6 +2399,7 @@ const SidePanel = () => {
                     title={formatBindDetail(visibleBindPreview) || t('chat_task_bind_missing')}
                     role="status"
                     aria-live="polite">
+                    <FiGlobe aria-hidden />
                     <span className="chijie-bind-chip-kicker">{t('chat_task_bind_kicker')}</span>
                     <span className="chijie-bind-chip-value">
                       {formatBindChip(visibleBindPreview, t('chat_task_bind_missing'))}
@@ -2367,6 +2474,7 @@ const SidePanel = () => {
                     </div>
                   )}
                   <ChatInput
+                    key={composerResetKey}
                     onSendMessage={handleSendMessage}
                     onStopTask={handleStopTask}
                     onMicClick={handleMicClick}

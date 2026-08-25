@@ -156,6 +156,6 @@ describe('iframe + shadow query click', () => {
     const click = actions.find(action => action.name() === 'click_element');
     const result = await click!.call({ query: '不存在的按钮' });
     expect(clickElementNode).not.toHaveBeenCalled();
-    expect(result.error).toMatch(/Did not click/);
+    expect(result.error).toMatch(/Did not act/);
   });
 });
