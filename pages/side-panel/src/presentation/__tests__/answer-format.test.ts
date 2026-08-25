@@ -28,6 +28,27 @@ describe('answer-format', () => {
     expect(blocks[0]).toMatchObject({ type: 'section', spans: [{ text: '报名入口' }] });
   });
 
+  it('treats a markdown heading line as a section without leaking # marks', () => {
+    const blocks = parseAnswerBlocks('## 关键信息提炼\n正文一句。');
+    expect(blocks.map(block => block.type)).toEqual(['section', 'p']);
+    expect(blocks[0]).toMatchObject({ type: 'section', spans: [{ text: '关键信息提炼' }] });
+  });
+
+  it('reads a bold-wrapped numbered label as a numbered item, keeping the label bold', () => {
+    const blocks = parseAnswerBlocks('**1. AI 产品经理角色定义** AI 产品经理 = 传统产品经理 + AI 技术理解。');
+    expect(blocks.map(block => block.type)).toEqual(['ol']);
+    const first = blocks[0];
+    if (first?.type !== 'ol') throw new Error('expected numbered list');
+    const spans = first.items[0] ?? [];
+    expect(spans.some(span => span.bold && span.text.includes('AI 产品经理角色定义'))).toBe(true);
+    expect(spans.some(span => span.text.includes('**'))).toBe(false);
+    expect(spans.some(span => span.text.includes('传统产品经理'))).toBe(true);
+  });
+
+  it('strips heading marks so copy/paste sees human text', () => {
+    expect(stripAnswerMarkup('## 关键信息提炼\n**加粗**一句。')).toBe('关键信息提炼\n加粗一句。');
+  });
+
   it('marks a host mentioned in the answer so the user can open that page', () => {
     const blocks = attachSourceHrefs(parseAnswerBlocks('报名入口在 qingcheng.ai 首页。'), [
       { host: 'qingcheng.ai', url: 'https://qingcheng.ai/apply' },

@@ -20,6 +20,7 @@ function sectionNameFromLine(line: string): { name?: string; rest?: string } {
 /** Drop model markup so copy/paste and tests see human text. */
 export function stripAnswerMarkup(raw: string): string {
   return normalizeAnswerSource(raw)
+    .replace(/^#{1,6}\s+/gm, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\s+\n/g, '\n')
@@ -60,11 +61,28 @@ export function parseAnswerBlocks(raw: string): AnswerBlock[] {
       flushNumbers();
       continue;
     }
+    const heading = /^#{1,6}\s+(.+?)\s*#*$/.exec(trimmed);
+    if (heading?.[1]) {
+      flushParagraph();
+      flushBullets();
+      flushNumbers();
+      blocks.push({ type: 'section', spans: parseSpans(heading[1]) });
+      continue;
+    }
     const bullet = /^[-*•]\s+(.+)$/.exec(trimmed);
     if (bullet?.[1]) {
       flushParagraph();
       flushNumbers();
       bullets.push(bullet[1]);
+      continue;
+    }
+    const boldNumbered = /^\*\*(\d+)[.、]\s*([^*]+?)\*\*\s*(.*)$/.exec(trimmed);
+    if (boldNumbered) {
+      flushParagraph();
+      flushBullets();
+      const label = `**${boldNumbered[1]}. ${boldNumbered[2].trim()}**`;
+      const rest = boldNumbered[3]?.trim();
+      numbers.push(rest ? `${label} ${rest}` : label);
       continue;
     }
     const numbered = /^\d+[.、]\s*(.+)$/.exec(trimmed);
@@ -94,12 +112,13 @@ export function parseAnswerBlocks(raw: string): AnswerBlock[] {
 function normalizeAnswerSource(raw: string): string {
   return (raw ?? '')
     .replace(/\r\n?/g, '\n')
+    .replace(/([。！？!?])\s*(#{1,6}\s+)/g, '$1\n$2')
     .replace(/：\s*-\s+/g, '：\n- ')
     .replace(/:\s*-\s+/g, ':\n- ')
     .replace(/([。；;])\s*-\s+/g, '$1\n- ')
     .replace(/\s+(\d+[.、])\s+/g, '\n$1 ')
     .replace(/\*\*\s+/g, '**')
-    .replace(/([^\s.。])\s+\*\*/g, '$1**')
+    .replace(/([^\s.。])[ \t]+\*\*/g, '$1**')
     .trim();
 }
 
