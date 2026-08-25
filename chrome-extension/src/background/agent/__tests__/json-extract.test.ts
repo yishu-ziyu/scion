@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { extractJsonFromModelOutput, normalizeAgentJsonShape, removeThinkTags } from '../messages/utils';
-import { plannerOutputSchema } from '../agents/planner';
 
 describe('MiniMax-style JSON extraction', () => {
   it('strips think tags and parses trailing JSON', () => {
@@ -12,7 +11,7 @@ I should navigate carefully.
     expect(cleaned).not.toContain('<think>');
     const parsed = extractJsonFromModelOutput(raw);
     expect(parsed.observation).toBe('page open');
-    expect(plannerOutputSchema.parse(parsed).done).toBe(false);
+    expect(parsed.done).toBe(false);
   });
 
   it('repairs trailing commas via jsonrepair', () => {
@@ -27,7 +26,7 @@ I should navigate carefully.
     }`;
     const parsed = extractJsonFromModelOutput(raw);
     expect(parsed.next_steps).toBe('go');
-    expect(plannerOutputSchema.parse(normalizeAgentJsonShape(parsed)).observation).toBe('hi');
+    expect(normalizeAgentJsonShape(parsed).observation).toBe('hi');
   });
 
   it('drops invalid completion_criteria instead of failing the whole plan', () => {
@@ -47,9 +46,8 @@ I should navigate carefully.
       waiting_user: { reason: 'please_login', message: 'nope' },
     });
     expect(shaped.waiting_user).toBeNull();
-    const plan = plannerOutputSchema.parse(shaped);
-    expect(plan.completion_criteria).toHaveLength(2);
-    expect(plan.completion_criteria[0]?.kind).toBe('page_text');
+    expect(shaped.completion_criteria).toHaveLength(2);
+    expect((shaped.completion_criteria as { kind: string }[])[0]?.kind).toBe('page_text');
   });
 
   it('extracts fenced json with prose around it', () => {

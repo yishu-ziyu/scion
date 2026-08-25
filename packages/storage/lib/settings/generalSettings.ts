@@ -12,12 +12,6 @@ export interface GeneralSettingsConfig {
   planningInterval: number;
   displayHighlights: boolean;
   minWaitPageLoad: number;
-  /**
-   * Agent execution core (design/002).
-   * nano = Planner/Navigator (default until control is stable).
-   * control = P1-parity control loop under TaskManager.
-   */
-  agentCoreBackend?: 'nano' | 'control';
 }
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
@@ -37,7 +31,6 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettingsConfig = {
   // Off: numbered boxes on the live page are debug-only, not product UI.
   displayHighlights: false,
   minWaitPageLoad: 250,
-  agentCoreBackend: 'control',
 };
 
 /** Flip old installs that still ship displayHighlights:true from legacy defaults. */

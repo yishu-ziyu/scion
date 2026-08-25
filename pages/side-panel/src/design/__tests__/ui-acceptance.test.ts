@@ -385,7 +385,10 @@ describe('Feature: design/003 task main blocks', () => {
     expect(overview).toContain('overview-skill');
     expect(overview).toContain('overview-receipt');
     expect(overview).toContain('overview-privacy');
-    expect(overview).toContain('agentCoreBackend');
+    expect(overview).not.toContain('agentCoreBackend');
+    expect(overview).not.toContain('backend-nano');
+    expect(modelSettings).toMatch(/\[AgentNameEnum\.Navigator, AgentNameEnum\.Validator\]/);
+    expect(modelSettings).not.toMatch(/\[AgentNameEnum\.Planner, AgentNameEnum\.Navigator, AgentNameEnum\.Validator\]/);
     // Skill is task recipe, not tool chip wall
     expect(overview).toMatch(/可验证任务配方/);
     expect(overview).not.toMatch(/1\. 总览/);

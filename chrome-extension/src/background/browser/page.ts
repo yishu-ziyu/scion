@@ -1329,63 +1329,15 @@ export default class Page {
       cdpTargetId: elementNode.cdpTargetId,
       viewportCoordinates: elementNode.viewportCoordinates,
     });
-    if (handle) {
-      try {
-        await clickCdpElement(handle);
-        await this._checkAndHandleNavigation();
-        return;
-      } catch (cdpError) {
-        if (!this._puppeteerPage) {
-          throw new Error(
-            `Failed to click element: ${elementNode}. Error: ${cdpError instanceof Error ? cdpError.message : String(cdpError)}`,
-          );
-        }
-        logger.warning('CDP click failed, trying puppeteer', cdpError);
-      }
+    if (!handle) {
+      throw new Error(`Failed to click element: no debugger node id for ${elementNode.tagName ?? 'node'}`);
     }
-
-    if (!this._puppeteerPage) {
-      throw new Error('Puppeteer is not connected');
-    }
-
     try {
-      // Highlight before clicking
-      // if (elementNode.highlightIndex !== null) {
-      //   await this._updateState(useVision, elementNode.highlightIndex);
-      // }
-
-      const element = await this.locateElement(elementNode);
-      if (!element) {
-        throw new Error(`Element: ${elementNode} not found`);
-      }
-
-      // Scroll element into view if needed
-      await this._scrollIntoViewIfNeeded(element);
-
-      const expectedHref = elementNode.attributes.href?.trim();
-      if (elementNode.tagName?.toLowerCase() === 'a' && expectedHref) {
-        const activated = await element.evaluate((candidate, observedHref) => {
-          if (!(candidate instanceof HTMLAnchorElement) || !candidate.isConnected) return false;
-          const liveHref = candidate.getAttribute('href');
-          if (!liveHref) return false;
-          try {
-            if (new URL(liveHref, document.baseURI).href !== new URL(observedHref, document.baseURI).href) return false;
-          } catch {
-            return false;
-          }
-          candidate.click();
-          return true;
-        }, expectedHref);
-        if (!activated) throw new Error('Navigation target changed before activation');
-      } else {
-        // A started pointer click cannot be cancelled. Await it so a slow authorized
-        // submit is never marked uncertain while the same click later commits.
-        await element.click();
-      }
+      await clickCdpElement(handle);
       await this._checkAndHandleNavigation();
-    } catch (error) {
+    } catch (cdpError) {
       throw new Error(
-        `Failed to click element: ${elementNode}. Error: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to click element: ${elementNode}. Error: ${cdpError instanceof Error ? cdpError.message : String(cdpError)}`,
       );
     }
   }

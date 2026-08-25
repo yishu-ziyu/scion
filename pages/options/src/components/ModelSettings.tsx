@@ -1652,7 +1652,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
           {t('options_models_selection_header')}
         </h2>
         <div className="space-y-4">
-          {[AgentNameEnum.Planner, AgentNameEnum.Navigator, AgentNameEnum.Validator].map(agentName => (
+          {[AgentNameEnum.Navigator, AgentNameEnum.Validator].map(agentName => (
             <div key={agentName}>{renderModelSelect(agentName)}</div>
           ))}
         </div>

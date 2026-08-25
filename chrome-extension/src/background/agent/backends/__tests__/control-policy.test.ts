@@ -323,6 +323,7 @@ describe('agent status bar / prompt versioning', () => {
     expect(prompt).toContain('Do not stop after the fills for another model decision');
     expect(prompt).toContain('those indexes die with this snapshot');
     expect(prompt).not.toContain('One action per turn');
+    expect(prompt).toContain('Do not claim login_required unless a clear login wall is visible');
   });
 
   it('appends everyday Action.prompt() catalog and keeps research actions out of the default prompt', () => {
