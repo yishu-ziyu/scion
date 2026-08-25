@@ -2674,9 +2674,15 @@ button.chijie-page-card:hover {
   justify-content: space-between;
 }
 
-.chijie-prompt-actions-left {
+.chijie-prompt-actions-left,
+.chijie-prompt-actions-right {
   min-width: 0;
   gap: 5px;
+}
+
+.chijie-prompt-actions-right {
+  display: inline-flex;
+  align-items: center;
 }
 
 .chijie-prompt-icon-button {

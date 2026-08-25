@@ -416,50 +416,52 @@ export default function ChatInput({
             </span>
           </div>
 
-          <div
-            className="chijie-composer-intent"
-            role="radiogroup"
-            aria-label={t('chat_composer_intent')}
-            data-testid="composer-intent">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={composerIntent === 'chat'}
-              data-testid="composer-intent-chat"
-              disabled={disabled}
-              onClick={() => setComposerIntent('chat')}>
-              {t('chat_composer_chat')}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={composerIntent === 'execute'}
-              data-testid="composer-intent-execute"
-              disabled={disabled}
-              onClick={() => setComposerIntent('execute')}>
-              {t('chat_composer_execute')}
-            </button>
-          </div>
+          <div className="chijie-prompt-actions-right">
+            <div
+              className="chijie-composer-intent"
+              role="radiogroup"
+              aria-label={t('chat_composer_intent')}
+              data-testid="composer-intent">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={composerIntent === 'chat'}
+                data-testid="composer-intent-chat"
+                disabled={disabled}
+                onClick={() => setComposerIntent('chat')}>
+                {t('chat_composer_chat')}
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={composerIntent === 'execute'}
+                data-testid="composer-intent-execute"
+                disabled={disabled}
+                onClick={() => setComposerIntent('execute')}>
+                {t('chat_composer_execute')}
+              </button>
+            </div>
 
-          {showStopButton ? (
-            <button
-              type="button"
-              onClick={onStopTask}
-              className="chijie-prompt-icon-button chijie-prompt-stop"
-              aria-label={t('chat_buttons_stop')}>
-              <FiSquare aria-hidden />
-            </button>
-          ) : (
-            <button
-              type="submit"
-              data-testid="goal-send"
-              disabled={isSendButtonDisabled}
-              aria-disabled={isSendButtonDisabled}
-              className="chijie-prompt-icon-button chijie-prompt-send"
-              aria-label={t('chat_buttons_send')}>
-              <FiArrowUp aria-hidden />
-            </button>
-          )}
+            {showStopButton ? (
+              <button
+                type="button"
+                onClick={onStopTask}
+                className="chijie-prompt-icon-button chijie-prompt-stop"
+                aria-label={t('chat_buttons_stop')}>
+                <FiSquare aria-hidden />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                data-testid="goal-send"
+                disabled={isSendButtonDisabled}
+                aria-disabled={isSendButtonDisabled}
+                className="chijie-prompt-icon-button chijie-prompt-send"
+                aria-label={t('chat_buttons_send')}>
+                <FiArrowUp aria-hidden />
+              </button>
+            )}
+          </div>
         </div>
         {deliveryFeedback ? (
           <p role="alert" data-testid="goal-send-feedback" className="chijie-prompt-feedback">

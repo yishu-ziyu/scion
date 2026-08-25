@@ -580,6 +580,9 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).toContain('data-mode="background"');
     expect(html).toContain('后台进行');
     expect(html).toContain('chijie-user-bubble');
+    expect(html).toContain('data-turn="user"');
+    expect(html).toContain('data-testid="task-agent-turn"');
+    expect(html).toContain('data-turn="agent"');
     expect(html).toContain('打开 etsy 搜相框，抽出前 5 个商品写进表格');
     expect(html).toContain('data-live-log="true"');
     expect(html).toContain('data-testid="task-work-stream"');
