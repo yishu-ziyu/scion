@@ -28,6 +28,16 @@ describe('deriveFailedResult', () => {
     expect(view.sentence).toBe('试了几轮，还是没做成。');
   });
 
+  it('does not blame a missing control when the last step was opening a site', () => {
+    const view = deriveFailedResult({
+      failureCategory: 'action_failed',
+      lastStepTitle: '打开 youtube.com',
+    });
+    expect(view.sentence).toBe('想打开 youtube.com，但没打开成。');
+    expect(view.sentence).not.toContain('控件');
+    expect(view.action).toBe('再说一次');
+  });
+
   it('asks the user to log in when that is the stop reason', () => {
     const view = deriveFailedResult({ failureCategory: 'login_required' });
     expect(view.sentence).toContain('登录');

@@ -10,6 +10,7 @@ const tabsApi = vi.hoisted(() => {
     create: vi.fn(),
     get: vi.fn(),
     update: vi.fn(),
+    remove: vi.fn(),
     reload: vi.fn(),
     onActivated: {
       addListener: vi.fn(),
@@ -527,16 +528,100 @@ describe('BrowserContext tab selection', () => {
     expect(tabsApi.create).toHaveBeenCalledWith({ url: 'https://example.com/next', active: false });
   });
 
-  it('navigates an unattached tab without changing which tab is in front', async () => {
+  it('binds an already-open same-host tab instead of creating another', async () => {
+    const aicss = {
+      id: 21,
+      active: true,
+      url: 'https://www.aicss.dev/components/approval-card',
+      title: 'Approval Card',
+      status: 'complete',
+    } as chrome.tabs.Tab;
+    const youtube = {
+      id: 25,
+      active: false,
+      url: 'https://www.youtube.com/',
+      title: 'YouTube',
+      status: 'complete',
+      windowId: 1,
+    } as chrome.tabs.Tab;
+    tabsApi.query.mockResolvedValue([aicss, youtube]);
+    tabsApi.get.mockImplementation(async id => (id === youtube.id ? youtube : aicss));
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const context = new BrowserContext({});
+
+    await context.openTab('https://www.youtube.com/');
+
+    expect(tabsApi.create).not.toHaveBeenCalled();
+    expect(context.getBoundTabId()).toBe(youtube.id);
+    expect(tabsApi.update).not.toHaveBeenCalledWith(youtube.id, expect.objectContaining({ active: true }));
+  });
+
+  it('treats a slow-loading destination tab as opened instead of creating another after timeout', async () => {
+    const loading = {
+      id: 25,
+      active: false,
+      url: 'https://www.youtube.com/',
+      title: '',
+      status: 'loading',
+    } as chrome.tabs.Tab;
     tabsApi.query.mockResolvedValue([extensionTab]);
-    tabsApi.create.mockResolvedValue(blankTab);
-    tabsApi.get.mockResolvedValue({ ...blankTab, status: 'complete' });
+    tabsApi.create.mockImplementation(async () => {
+      tabsApi.query.mockResolvedValue([extensionTab, loading]);
+      return loading;
+    });
+    tabsApi.get.mockResolvedValue(loading);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const context = new BrowserContext({});
+
+    await context.openTab('https://www.youtube.com/');
+
+    expect(tabsApi.create).toHaveBeenCalledTimes(1);
+    expect(context.getBoundTabId()).toBe(loading.id);
+
+    tabsApi.create.mockClear();
+    await context.openTab('https://www.youtube.com/');
+    expect(tabsApi.create).not.toHaveBeenCalled();
+    expect(context.getBoundTabId()).toBe(loading.id);
+  });
+
+  it('reuses a tab that is still navigating to the same site', async () => {
+    const pendingYoutube = {
+      id: 25,
+      active: false,
+      url: '',
+      pendingUrl: 'https://www.youtube.com/',
+      title: '',
+      status: 'loading',
+    } as chrome.tabs.Tab;
+    const committed = {
+      ...pendingYoutube,
+      url: 'https://www.youtube.com/',
+      pendingUrl: undefined,
+      title: 'YouTube',
+      status: 'complete',
+    } as chrome.tabs.Tab;
+    tabsApi.query.mockResolvedValue([pendingYoutube]);
+    tabsApi.get.mockResolvedValue(committed);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const context = new BrowserContext({});
+
+    await context.openTab('https://www.youtube.com/');
+
+    expect(tabsApi.create).not.toHaveBeenCalled();
+    expect(context.getBoundTabId()).toBe(pendingYoutube.id);
+  });
+
+  it('navigates an unattached tab without changing which tab is in front', async () => {
+    const backgroundTab = { ...blankTab, active: false } as chrome.tabs.Tab;
+    tabsApi.query.mockResolvedValue([extensionTab]);
+    tabsApi.create.mockResolvedValue(backgroundTab);
+    tabsApi.get.mockResolvedValue({ ...backgroundTab, status: 'complete' });
     vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(false);
     const context = new BrowserContext({});
     await context.getCurrentPage();
 
     const navigated = {
-      ...blankTab,
+      ...backgroundTab,
       url: 'https://example.com/next',
       status: 'complete',
       title: 'Next',
@@ -548,10 +633,57 @@ describe('BrowserContext tab selection', () => {
     await context.navigateTo('https://example.com/next');
 
     expect(tabsApi.update).toHaveBeenCalledWith(blankTab.id, { url: 'https://example.com/next' });
-    expect(tabsApi.update).not.toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ active: true }),
-    );
+    expect(tabsApi.update).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ active: true }));
+  });
+
+  it('opens a background tab instead of overwriting the current foreground page', async () => {
+    const foreground = { ...contentTab, active: true, status: 'complete' } as chrome.tabs.Tab;
+    const target = {
+      ...contentTab,
+      id: 99,
+      active: false,
+      url: 'https://example.com/next',
+      title: 'Next',
+      status: 'complete',
+    } as chrome.tabs.Tab;
+    tabsApi.query.mockResolvedValue([foreground]);
+    tabsApi.get.mockImplementation(async id => (id === target.id ? target : foreground));
+    tabsApi.create.mockResolvedValue(target);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const navigatePage = vi.spyOn(Page.prototype, 'navigateTo').mockResolvedValue();
+    const context = new BrowserContext({});
+
+    await context.navigateTo(target.url!);
+
+    expect(tabsApi.create).toHaveBeenCalledWith({ url: target.url, active: false });
+    expect(navigatePage).not.toHaveBeenCalled();
+    expect(tabsApi.update).not.toHaveBeenCalled();
+    expect(context.getBoundTabId()).toBe(target.id);
+  });
+
+  it('does not overwrite the source page after the user selects a different foreground tab', async () => {
+    const source = { ...contentTab, active: false, status: 'complete' } as chrome.tabs.Tab;
+    const target = {
+      ...contentTab,
+      id: 99,
+      active: false,
+      url: 'https://example.com/next',
+      title: 'Next',
+      status: 'complete',
+    } as chrome.tabs.Tab;
+    tabsApi.query.mockResolvedValue([{ ...source, active: true }]);
+    tabsApi.get.mockImplementation(async id => (id === target.id ? target : source));
+    tabsApi.create.mockResolvedValue(target);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const navigatePage = vi.spyOn(Page.prototype, 'navigateTo').mockResolvedValue();
+    const context = new BrowserContext({});
+
+    await context.getCurrentPage();
+    await context.navigateTo(target.url!);
+
+    expect(tabsApi.create).toHaveBeenCalledWith({ url: target.url, active: false });
+    expect(navigatePage).not.toHaveBeenCalled();
+    expect(tabsApi.update).not.toHaveBeenCalled();
   });
 
   it('brings the tab to the front only after the user chooses follow', async () => {
@@ -573,7 +705,7 @@ describe('BrowserContext tab selection', () => {
     expect(chrome.windows.update).toHaveBeenCalledWith(3, { focused: true });
   });
 
-  it('puts bound and opened pages in one Chrome tab group without activating them', async () => {
+  it('groups only tabs created by the task without activating or adopting the source tab', async () => {
     tabsApi.get.mockResolvedValue({ ...contentTab, status: 'complete', groupId: -1 });
     tabsApi.group.mockResolvedValue(44);
     tabGroupsApi.update.mockResolvedValue({ id: 44 });
@@ -583,19 +715,97 @@ describe('BrowserContext tab selection', () => {
     await context.switchTab(contentTab.id!);
     expect(tabsApi.group).not.toHaveBeenCalled();
 
-    await context.beginTaskTabGroup('打开 example.com 告诉我标题');
-    expect(tabsApi.group).toHaveBeenCalledWith({ tabIds: [contentTab.id] });
-    expect(tabGroupsApi.update).toHaveBeenCalledWith(
-      44,
-      expect.objectContaining({ title: expect.stringMatching(/^任务/), color: 'orange', collapsed: false }),
-    );
+    await context.beginTaskTabGroup('打开 example.com 告诉我标题', undefined, true);
+    expect(tabsApi.group).not.toHaveBeenCalled();
+    expect(tabGroupsApi.update).not.toHaveBeenCalled();
     expect(tabsApi.update).not.toHaveBeenCalledWith(contentTab.id, expect.objectContaining({ active: true }));
 
     tabsApi.create.mockResolvedValue({ ...contentTab, id: 99, active: false, status: 'complete', groupId: -1 });
     tabsApi.get.mockResolvedValue({ ...contentTab, id: 99, status: 'complete', groupId: -1 });
     await context.openTab('https://example.com/next');
-    expect(tabsApi.group).toHaveBeenCalledWith({ tabIds: [99], groupId: 44 });
+    expect(tabsApi.group).toHaveBeenCalledWith({ tabIds: [99] });
+    expect(tabGroupsApi.update).toHaveBeenCalledWith(
+      44,
+      expect.objectContaining({ title: expect.stringMatching(/^任务/), color: 'orange', collapsed: false }),
+    );
     expect(tabsApi.create).toHaveBeenCalledWith(expect.objectContaining({ active: false }));
+  });
+
+  it('does not group a pre-existing tab switched to after the task group starts', async () => {
+    tabsApi.get.mockResolvedValue({ ...contentTab, status: 'complete', groupId: -1 });
+    tabsApi.group.mockResolvedValue(44);
+    tabGroupsApi.update.mockResolvedValue({ id: 44 });
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const context = new BrowserContext({});
+
+    await context.beginTaskTabGroup('查看页面', undefined, true);
+    await context.switchTab(contentTab.id!);
+
+    expect(tabsApi.group).not.toHaveBeenCalled();
+    expect(tabGroupsApi.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses to close a pre-existing tab unless the task explicitly authorizes it', async () => {
+    const context = new BrowserContext({});
+
+    await expect(context.closeTab(contentTab.id!)).rejects.toThrow('not created by this task');
+    expect(tabsApi.remove).not.toHaveBeenCalled();
+
+    context.authorizeUnownedTabClose(contentTab.id!);
+    await context.closeTab(contentTab.id!);
+    expect(tabsApi.remove).toHaveBeenCalledWith(contentTab.id);
+  });
+
+  it('does not carry tab ownership into a new task group', async () => {
+    const firstTaskTab = { ...contentTab, id: 99, active: false, status: 'complete' } as chrome.tabs.Tab;
+    const secondTaskTab = {
+      ...contentTab,
+      id: 100,
+      active: false,
+      url: 'https://example.com/second',
+      status: 'complete',
+    } as chrome.tabs.Tab;
+    tabsApi.create.mockResolvedValueOnce(firstTaskTab).mockResolvedValueOnce(secondTaskTab);
+    tabsApi.get.mockImplementation(async id => (id === firstTaskTab.id ? firstTaskTab : secondTaskTab));
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const navigatePage = vi.spyOn(Page.prototype, 'navigateTo').mockResolvedValue();
+    const context = new BrowserContext({});
+
+    await context.beginTaskTabGroup('first task', undefined, true);
+    await context.openTab(firstTaskTab.url!);
+    await context.beginTaskTabGroup('second task', undefined, true);
+    await context.navigateTo(secondTaskTab.url!);
+
+    expect(tabsApi.create).toHaveBeenLastCalledWith({ url: secondTaskTab.url, active: false });
+    expect(navigatePage).not.toHaveBeenCalled();
+  });
+
+  it('keeps task ownership when the same task resumes without a saved group id', async () => {
+    const taskTab = { ...contentTab, id: 99, active: false, status: 'complete' } as chrome.tabs.Tab;
+    tabsApi.create.mockResolvedValue(taskTab);
+    tabsApi.get.mockResolvedValue(taskTab);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const context = new BrowserContext({});
+
+    await context.beginTaskTabGroup('task', undefined, true);
+    await context.openTab(taskTab.url!);
+    await context.beginTaskTabGroup('task', undefined, false);
+    await context.navigateTo('https://example.com/resumed');
+
+    expect(tabsApi.create).toHaveBeenCalledTimes(1);
+    expect(tabsApi.update).toHaveBeenCalledWith(taskTab.id, { url: 'https://example.com/resumed' });
+  });
+
+  it('cleanup is idempotent and never discovers or creates a page', async () => {
+    const context = new BrowserContext({});
+    context.setRevealForeground(true);
+
+    await context.cleanup();
+    await context.cleanup();
+
+    expect(tabsApi.query).not.toHaveBeenCalled();
+    expect(tabsApi.create).not.toHaveBeenCalled();
+    expect(context.revealsForeground()).toBe(false);
   });
 });
 
@@ -673,9 +883,7 @@ describe('BrowserContext.openIndependentTabs', () => {
   it('keeps the other tab when one attach fails', async () => {
     const good = completeTab(41, 'https://one.test/ok', 'OK');
     const bad = completeTab(42, 'https://two.test/fail', 'Fail');
-    tabsApi.create
-      .mockResolvedValueOnce(good)
-      .mockResolvedValueOnce(bad);
+    tabsApi.create.mockResolvedValueOnce(good).mockResolvedValueOnce(bad);
     tabsApi.get.mockImplementation(async (id: number) => (id === 41 ? good : bad));
     vi.spyOn(Page.prototype, 'attachPuppeteer').mockImplementation(async function (this: Page) {
       if (this.tabId === 42) return false;
