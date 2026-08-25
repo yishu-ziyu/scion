@@ -1,6 +1,12 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { FiExternalLink, FiFileText, FiPauseCircle } from 'react-icons/fi';
 import type { ProgressHealthState, TaskProgressView } from '../presentation/task-progress-view';
+
+export type ProgressTurn = {
+  user: string;
+  result?: ReactNode;
+  nowBody?: ReactNode;
+};
 
 interface TaskProgressOverviewProps {
   view: TaskProgressView;
@@ -13,6 +19,8 @@ interface TaskProgressOverviewProps {
   nowBody?: ReactNode;
   /** Full original sentence. Not a 目标 label. */
   utterance?: string;
+  /** Follow-up rounds. Omit when there is only the original sentence. */
+  turns?: ProgressTurn[];
 }
 
 export function healthNeedsAttention(state: ProgressHealthState): boolean {
@@ -40,6 +48,46 @@ export function healthAnnouncement(health: TaskProgressView['health']): string {
   return health.summary;
 }
 
+function UserBubble({ text, first }: { text: string; first: boolean }) {
+  return (
+    <section
+      className="chijie-progress-mission chijie-user-bubble"
+      data-testid={first ? 'task-goal-block' : 'task-follow-up'}
+      data-turn="user">
+      <h2 data-testid={first ? 'task-goal-summary' : undefined}>{text}</h2>
+    </section>
+  );
+}
+
+function AgentTurn({
+  result,
+  now,
+  resultFirst,
+  testId,
+}: {
+  result: ReactNode;
+  now: ReactNode;
+  resultFirst: boolean;
+  testId?: string;
+}) {
+  if (!result && !now) return null;
+  return (
+    <div className="chijie-agent-turn" data-testid={testId} data-turn="agent">
+      {resultFirst ? result : now}
+      {resultFirst ? now : result}
+    </div>
+  );
+}
+
+function priorResult(node: ReactNode) {
+  if (!node) return null;
+  return (
+    <section className="chijie-progress-result" data-testid="task-prior-result">
+      {node}
+    </section>
+  );
+}
+
 export function TaskProgressOverview({
   view,
   now = Date.now(),
@@ -48,6 +96,7 @@ export function TaskProgressOverview({
   result,
   nowBody,
   utterance,
+  turns,
 }: TaskProgressOverviewProps) {
   const lastProgress = relativeTime(view.health.lastMeaningfulProgressAt, now);
   const healthVisible = healthNeedsAttention(view.health.state) && !result;
@@ -120,27 +169,35 @@ export function TaskProgressOverview({
     </section>
   ) : null;
 
+  const spokenTurns: ProgressTurn[] = turns && turns.length > 0 ? turns : [{ user: spoken }];
+
   return (
     <div
       className="chijie-progress-overview"
       data-kind={view.kind}
       data-surface={view.surface ?? 'console'}
       data-testid="task-progress-overview">
-      <section className="chijie-progress-mission chijie-user-bubble" data-testid="task-goal-block" data-turn="user">
-        <h2 data-testid="task-goal-summary">{spoken}</h2>
-      </section>
-
-      {view.directionChange ? (
-        <section className="chijie-system-note" data-testid="task-direction-change">
-          <p>{view.directionChange.summary}</p>
-        </section>
-      ) : null}
-
-      <div className="chijie-agent-turn" data-testid="task-agent-turn" data-turn="agent">
-        {resultFirst ? resultSection : null}
-        {nowSection}
-        {!resultFirst ? resultSection : null}
-      </div>
+      {spokenTurns.map((turn, index) => {
+        const user = turn.user.replace(/\s+/g, ' ').trim() || (index === 0 ? spoken : '');
+        if (!user) return null;
+        const last = index === spokenTurns.length - 1;
+        return (
+          <Fragment key={`${index}-${user}`}>
+            <UserBubble text={user} first={index === 0} />
+            {index === 0 && view.directionChange ? (
+              <section className="chijie-system-note" data-testid="task-direction-change">
+                <p>{view.directionChange.summary}</p>
+              </section>
+            ) : null}
+            <AgentTurn
+              result={last ? resultSection : priorResult(turn.result)}
+              now={last ? (turn.nowBody ?? nowSection) : turn.nowBody}
+              resultFirst={last ? resultFirst : Boolean(turn.result)}
+              testId={last ? 'task-agent-turn' : undefined}
+            />
+          </Fragment>
+        );
+      })}
 
       <section
         className="chijie-progress-health"

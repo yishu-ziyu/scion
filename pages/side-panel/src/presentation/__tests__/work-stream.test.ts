@@ -85,7 +85,8 @@ describe('deriveWorkStream', () => {
       currentSummary: '思考中',
       attempts: [attempt({ id: 'a1', actionName: 'observe', displaySummary: '获取页面快照' })],
     });
-    expect(deciding.blocks).toEqual([]);
+    expect(deciding.blocks).toEqual([expect.objectContaining({ type: 'act', id: 'a1', text: '获取页面快照' })]);
+    expect(deciding.blocks.some(block => block.type === 'thinking')).toBe(false);
 
     const afterPage = deriveWorkStream({
       status: 'running',
@@ -138,7 +139,8 @@ describe('deriveWorkStream', () => {
       currentSummary: '没做成',
       attempts: [attempt({ id: 'a1', actionName: 'observe' })],
     });
-    expect(failed.blocks).toEqual([]);
+    expect(failed.blocks).toEqual([expect.objectContaining({ type: 'act', id: 'a1', text: '获取页面快照' })]);
+    expect(failed.blocks.some(block => block.type === 'thinking')).toBe(false);
   });
 
   it('uses the page title, not the navigate verb, and keeps a click as its own line', () => {
@@ -215,10 +217,34 @@ describe('deriveWorkStream', () => {
       pageLabel: 'google.com.hk',
       attempts: [attempt({ id: 'o1', actionName: 'observe', displaySummary: '获取页面快照' })],
     });
-    expect(view.blocks.map(block => block.type)).toEqual(['search']);
+    expect(view.blocks.map(block => block.type)).toEqual(['search', 'act']);
     expect(view.blocks[0]).toMatchObject({
       type: 'search',
       queries: [{ query: '全部', results: [] }],
+    });
+    expect(view.blocks[1]).toMatchObject({ type: 'act', text: '获取页面快照' });
+  });
+
+  it('discloses snapshot and tab switch, and does not repeat the same snapshot chip', () => {
+    const view = deriveWorkStream({
+      status: 'running',
+      attempts: [
+        attempt({ id: 's1', actionName: 'snapshot', displaySummary: '获取页面快照' }),
+        attempt({ id: 'o1', actionName: 'observe', displaySummary: '获取页面快照' }),
+        attempt({
+          id: 't1',
+          actionName: 'switch_tab',
+          displaySummary: '切换到 YouTube',
+          targetLabel: 'youtube.com',
+          targetUrl: 'https://youtube.com',
+        }),
+      ],
+    });
+    expect(view.blocks.map(block => block.type)).toEqual(['act', 'page']);
+    expect(view.blocks[0]).toMatchObject({ type: 'act', text: '获取页面快照' });
+    expect(view.blocks[1]).toMatchObject({
+      type: 'page',
+      page: { title: 'youtube.com', host: 'youtube.com', url: 'https://youtube.com' },
     });
   });
 

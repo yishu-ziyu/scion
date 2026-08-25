@@ -1,4 +1,11 @@
-import type { ActionAttempt, EvidenceSpace, TaskCommand, TaskSnapshot, WaitReason } from '@extension/storage';
+import type {
+  ActionAttempt,
+  EvidenceSpace,
+  TaskCommand,
+  TaskRound,
+  TaskSnapshot,
+  WaitReason,
+} from '@extension/storage';
 import { t } from '@extension/i18n';
 import { useEffect, useState } from 'react';
 import { FiChevronDown, FiCopy } from 'react-icons/fi';
@@ -12,19 +19,26 @@ import { productFailureLabel, toProductFailureCode } from '../presentation/failu
 import { waitUserAction } from '../presentation/wait-affordance';
 import { deriveWaitAsk, waitAskOptionClassName } from '../presentation/wait-ask';
 import { deriveTaskProgressView } from '../presentation/task-progress-view';
-import { collectStreamSources, deriveWorkStream, type StreamSource } from '../presentation/work-stream';
+import {
+  collectStreamSources,
+  deriveWorkStream,
+  type StreamSource,
+  type WorkStreamView,
+} from '../presentation/work-stream';
 import { isFollowingForeground } from '../presentation/run-presence';
 import { WorkStream } from './WorkStream';
 import { AnswerProse } from './AnswerProse';
-import { TaskProgressOverview } from './TaskProgressOverview';
+import { TaskProgressOverview, type ProgressTurn } from './TaskProgressOverview';
 
 export interface TaskStatusCardProps {
   snapshot: TaskSnapshot;
   send(command: TaskCommand): void;
   /** Last user goal text - used to prefill skill template. */
   defaultInstruction?: string;
-  /** Original task instruction. Follow-ups must not replace the stable mission. */
+  /** Original task instruction. Follow-ups appear as later user turns. */
   missionInstruction?: string;
+  /** Chat text for each round, keyed by round id. */
+  roundUtterances?: Readonly<Record<string, string>>;
   evidenceSpace?: EvidenceSpace | null;
   /** Focus the continuous-control composer without changing the stable mission. */
   onAdjustDirection?: () => void;
@@ -330,19 +344,85 @@ export function mergeVerifiedTargetSources(
  * Prefer chat message text: task snapshots intentionally keep generic
  * goalSummary ("User task") so secrets never land in storage.
  */
+function isPlaceholderInstruction(value: string): boolean {
+  return !value || /^user\s+(task|instruction)$/i.test(value) || value === 'Direction changed';
+}
+
 export function displayGoalText(
   snapshot: TaskSnapshot,
   roundInstruction: string | undefined,
   defaultInstruction = '',
 ): string {
-  const isPlaceholder = (s: string) => !s || /^user\s+(task|instruction)$/i.test(s);
   const fromChat = defaultInstruction.replace(/\s+/g, ' ').trim();
-  if (fromChat && !isPlaceholder(fromChat)) return fromChat;
+  if (fromChat && !isPlaceholderInstruction(fromChat)) return fromChat;
   for (const c of [snapshot.goalSummary, roundInstruction]) {
     const text = (c ?? '').replace(/\s+/g, ' ').trim();
-    if (!isPlaceholder(text)) return text;
+    if (!isPlaceholderInstruction(text)) return text;
   }
   return fromChat || '—';
+}
+
+function workStreamBody(view: WorkStreamView, running: boolean, onStop?: () => void) {
+  if (running) {
+    return (
+      <div data-testid="task-activity-panel" className="chijie-activity-panel">
+        <WorkStream view={view} running onStop={onStop} />
+      </div>
+    );
+  }
+  if (view.blocks.length === 0) return null;
+  return (
+    <details className="chijie-process-disclosure" data-testid="task-process-disclosure">
+      <summary>
+        <span>{t('chat_task_process_disclosure')}</span>
+        <span className="chijie-process-disclosure-meta">
+          <small>{t('chat_task_process_count', [String(view.blocks.length)])}</small>
+          <FiChevronDown aria-hidden />
+        </span>
+      </summary>
+      <div data-testid="task-activity-panel" className="chijie-activity-panel">
+        <WorkStream view={view} running={false} />
+      </div>
+    </details>
+  );
+}
+
+function roundUserText(
+  round: TaskRound,
+  index: number,
+  goalText: string,
+  roundUtterances?: Readonly<Record<string, string>>,
+): string {
+  const fromChat = (roundUtterances?.[round.id] ?? '').replace(/\s+/g, ' ').trim();
+  if (fromChat && !isPlaceholderInstruction(fromChat)) return fromChat;
+  return index === 0 ? goalText : '';
+}
+
+function followUpTurns(
+  snapshot: TaskSnapshot,
+  goalText: string,
+  roundUtterances?: Readonly<Record<string, string>>,
+): ProgressTurn[] | undefined {
+  const rows = snapshot.rounds
+    .map((round, index) => ({ round, user: roundUserText(round, index, goalText, roundUtterances) }))
+    .filter(row => row.user.length > 0);
+  if (rows.length <= 1) return undefined;
+  return rows.map(row => {
+    if (row.round.id === snapshot.currentRoundId) return { user: row.user };
+    const priorBody = row.round.result?.body?.replace(/\r\n?/g, '\n').trim() ?? '';
+    return {
+      user: row.user,
+      result: priorBody ? <AnswerProse text={priorBody} /> : null,
+      nowBody: workStreamBody(
+        deriveWorkStream({
+          status: row.round.status,
+          attempts: row.round.attempts,
+          currentSummary: row.round.pageReading,
+        }),
+        false,
+      ),
+    };
+  });
 }
 
 export function TaskStatusCard({
@@ -350,6 +430,7 @@ export function TaskStatusCard({
   send,
   defaultInstruction = '',
   missionInstruction = '',
+  roundUtterances,
   evidenceSpace = null,
   onAdjustDirection,
   onContinueInComposer,
@@ -483,32 +564,12 @@ export function TaskStatusCard({
     failureCategory: round?.failureCategory,
     lastStepTitle: attempts.at(-1)?.displaySummary,
   });
-  const stream = (
-    <WorkStream
-      view={workStream}
-      running={snapshot.status === 'running'}
-      onStop={!readOnly && snapshot.status === 'running' ? onStop : undefined}
-    />
+  const nowTraceBody = workStreamBody(
+    workStream,
+    snapshot.status === 'running',
+    !readOnly && snapshot.status === 'running' ? onStop : undefined,
   );
-  const nowTraceBody =
-    snapshot.status === 'running' ? (
-      <div data-testid="task-activity-panel" className="chijie-activity-panel">
-        {stream}
-      </div>
-    ) : workStream.blocks.length > 0 ? (
-      <details className="chijie-process-disclosure" data-testid="task-process-disclosure">
-        <summary>
-          <span>{t('chat_task_process_disclosure')}</span>
-          <span className="chijie-process-disclosure-meta">
-            <small>{t('chat_task_process_count', [String(workStream.blocks.length)])}</small>
-            <FiChevronDown aria-hidden />
-          </span>
-        </summary>
-        <div data-testid="task-activity-panel" className="chijie-activity-panel">
-          {stream}
-        </div>
-      </details>
-    ) : null;
+  const turns = followUpTurns(snapshot, goalText, roundUtterances);
 
   const completionBlock =
     showDelivered || (showVerifiedDone && round?.receipt) ? (
@@ -602,11 +663,12 @@ export function TaskStatusCard({
         </span>
         <span className="chijie-run-presence-meta">{taskPresenceMeta(snapshot)}</span>
       </div>
-      {/* 2. Stable mission + durable gates + health. Follow-ups never replace Mission. */}
+      {/* Original sentence first. Follow-ups are later user turns. */}
       <TaskProgressOverview
         view={progressViewForUi}
         now={nowTick}
         utterance={goalText}
+        turns={turns}
         controls={taskControls}
         interrupted={snapshot.status === 'interrupted'}
         result={primaryOrganism === 'completion' || snapshot.status === 'failed' ? completionBlock : null}

@@ -162,6 +162,17 @@ export async function resolveActiveContentTab(
   return null;
 }
 
+function userTextByRoundId(rounds: TaskSnapshot['rounds'], messages: Message[]): Record<string, string> {
+  return Object.fromEntries(
+    rounds.map(round => {
+      const spoken = messages.find(
+        message => message.actor === Actors.USER && 'id' in message && message.id === round.instructionMessageId,
+      );
+      return [round.id, spoken?.content ?? ''];
+    }),
+  );
+}
+
 const SidePanel = () => {
   const progressMessage = PROGRESS_MESSAGE_CONTENT;
   const [messages, setMessages] = useState<Message[]>([]);
@@ -2266,6 +2277,7 @@ const SidePanel = () => {
                           isDarkMode={false}
                           defaultInstruction={latestInstruction}
                           missionInstruction={originalInstruction}
+                          roundUtterances={userTextByRoundId(taskSnapshot.rounds, displayMessages)}
                           evidenceSpace={evidenceSpace}
                           pendingCommandTypes={pendingCommandTypes}
                           readOnly={isHistoricalSession}

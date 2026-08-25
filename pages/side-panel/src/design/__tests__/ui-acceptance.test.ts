@@ -439,6 +439,22 @@ describe('Feature: design/003 task main blocks', () => {
     expect(componentsCss).toContain('.chijie-composer-intent');
   });
 
+  it('card is user/agent turns, result heavier than process, process fold keeps snapshot', () => {
+    expect(taskProgressOverviewSource).toContain('data-turn="user"');
+    expect(taskProgressOverviewSource).toContain('data-turn="agent"');
+    expect(taskProgressOverviewSource).toContain('task-follow-up');
+    expect(taskStatusCardSource).toContain('roundUtterances');
+    expect(taskStatusCardSource).toContain('workStreamBody');
+    expect(componentsCss).toContain('.chijie-user-bubble.chijie-progress-mission h2');
+    expect(componentsCss).toMatch(/\.chijie-answer p,[\s\S]{0,120}--chijie-foreground/);
+    expect(componentsCss).toMatch(/\.chijie-act-line,\s*\.chijie-act-chip \{[\s\S]*?--chijie-muted/);
+    expect(workStreamSource).toContain('chijie-act-chip');
+    const streamLogic = readFileSync(resolve(here, '../../presentation/work-stream.ts'), 'utf8');
+    expect(streamLogic).toContain("actionName === 'snapshot'");
+    expect(streamLogic).toContain("actionName === 'switch_tab'");
+    expect(streamLogic).not.toContain("'snapshot',");
+  });
+
   it('waiting_user option chips send follow_up text, not Auto Approve or resume', () => {
     expect(taskStatusCardSource).toContain('deriveWaitAsk');
     expect(taskStatusCardSource).toContain('wait-ask-option');
@@ -650,7 +666,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toContain('data-primary-organism={primaryOrganism}');
     expect(taskStatusCardSource).toContain('taskPrimaryOrganism');
     expect(taskStatusCardSource).toContain("snapshot.status === 'running'");
-    expect(taskStatusCardSource).toContain('workStream.blocks.length > 0');
+    expect(taskStatusCardSource).toContain('view.blocks.length === 0');
     expect(taskStatusCardSource).toContain('data-testid="task-process-disclosure"');
     expect(taskStatusCardSource).toContain('data-testid="task-presence"');
     expect(tree).toContain('nowBody={nowTraceBody}');

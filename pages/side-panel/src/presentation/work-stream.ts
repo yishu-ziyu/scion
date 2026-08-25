@@ -13,7 +13,6 @@ import {
 } from '@extension/storage';
 
 const HIDDEN_ACTIONS = new Set([
-  'snapshot',
   'evaluate',
   'wait',
   'done',
@@ -219,6 +218,15 @@ export function deriveWorkStream(input: {
   let lastPage: Extract<WorkStreamBlock, { type: 'page' }> | undefined;
   let hasSearch = false;
 
+  const pushAct = (id: string, text: string, live: boolean) => {
+    const last = blocks[blocks.length - 1];
+    if (last?.type === 'act' && last.text === text) {
+      last.live = last.live || live;
+      return;
+    }
+    blocks.push({ type: 'act', id, text, live });
+  };
+
   while (i < input.attempts.length) {
     const attempt = input.attempts[i]!;
     if (isSearchAttempt(attempt)) {
@@ -245,12 +253,12 @@ export function deriveWorkStream(input: {
       continue;
     }
 
-    if (attempt.actionName === 'observe') {
+    if (attempt.actionName === 'observe' || attempt.actionName === 'snapshot') {
       const summary = attempt.displaySummary?.replace(/\s+/g, ' ').trim() ?? '';
-      const text = summary.length >= 2 ? compact(summary, 80) : '查看页面';
+      const text = summary.length >= 2 ? compact(summary, 80) : '获取页面快照';
       const live = isLive(attempt.state);
       if (live && summary) liveSummaries.push(summary);
-      blocks.push({ type: 'act', id: attempt.id, text, live });
+      pushAct(attempt.id, text, live);
       i += 1;
       continue;
     }
@@ -337,12 +345,7 @@ export function deriveWorkStream(input: {
         i += 1;
         continue;
       }
-      blocks.push({
-        type: 'act',
-        id: attempt.id,
-        text: title,
-        live,
-      });
+      pushAct(attempt.id, title, live);
       i += 1;
       continue;
     }
