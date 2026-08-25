@@ -5,7 +5,7 @@ const { clickCdpElement } = vi.hoisted(() => {
     configurable: true,
     value: { runtime: { id: 'test-extension' } },
   });
-  return { clickCdpElement: vi.fn(async () => undefined) };
+  return { clickCdpElement: vi.fn(async (..._args: unknown[]) => undefined as void) };
 });
 
 import { DOMElementNode } from '../dom/views';
