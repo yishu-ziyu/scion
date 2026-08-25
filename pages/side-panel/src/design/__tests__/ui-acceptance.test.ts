@@ -351,7 +351,8 @@ describe('Feature: design/003 task main blocks', () => {
     expect(componentsCss).toContain('.chijie-progress-health');
     expect(componentsCss).toContain('.chijie-progress-now');
     expect(workStreamSource).not.toContain('思考中');
-    expect(workStreamSource).not.toContain('is-shimmer');
+    expect(componentsCss).toContain(".chijie-thinking[data-running='true'] .chijie-thinking-label");
+    expect(componentsCss).toContain('chijie-label-shine');
   });
 
   it('live path does not render the unused plan list or now-trace', () => {
@@ -658,7 +659,8 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(workStreamSource).toContain("t('chat_task_thinking_heading')");
     expect(workStreamSource).toContain('chijie-thinking');
     expect(workStreamSource).toContain('splitThinkingSentences');
-    expect(workStreamSource).not.toContain('trShimmer');
+    expect(componentsCss).toContain('chijie-live-wave');
+    expect(componentsCss).toContain('.chijie-live-dot::before');
   });
 
   it('progress-console hierarchy: status → durable progress → collapsed audit; composer remains usable', () => {

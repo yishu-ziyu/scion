@@ -14,10 +14,10 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 
 - Given a task snapshot with status `running`
 - When the status card is rendered
-- Then the user's original sentence is a sand card with no 目标 label
+- Then the user's original sentence is a quiet right-aligned bubble (`--chijie-accent-subtle`, not a sand card) with no 目标 label
 - And the stream shows what happened (search board / opened page / click line)
 - And 获取页面快照 may appear as a quiet action chip in the process, not as a page title
-- And a live cursor and 接管 are visible on the stream
+- And a live cursor (three-dot wave) and 接管 are visible on the stream
 
 ## Scenario: Already-open search results grow a board, a reading, and the click
 
@@ -129,7 +129,7 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - Then 思考过程 is open and splits the reading into sentences (no hardcoded SENTENCES / DELAYS)
 - And when status is `completed`, 思考过程 is collapsed
 - And the heading copy stays 思考过程; elapsed time stays in Health
-- And there is no infinite shimmer on the thinking label
+- And the thinking label carries a soft shine sweep only while the run is live, and returns to plain muted text when done
 
 ## Scenario: High-risk click is previewed
 
