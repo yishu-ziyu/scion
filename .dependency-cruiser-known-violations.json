@@ -1,0 +1,194 @@
+[
+  {
+    "type": "dependency",
+    "from": "chrome-extension/src/background/browser/page.ts",
+    "to": "chrome-extension/src/background/task/completion.ts",
+    "unresolvedTo": "../task/completion",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "browser-not-to-task-impl"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "chrome-extension/src/background/browser/page.ts",
+    "to": "chrome-extension/src/background/task/digest.ts",
+    "unresolvedTo": "../task/digest",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "browser-not-to-task-impl"
+    }
+  },
+  {
+    "type": "cycle",
+    "from": "chrome-extension/src/background/agent/history.ts",
+    "to": "chrome-extension/src/background/agent/types.ts",
+    "unresolvedTo": "./types",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "chrome-extension/src/background/agent/types.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "chrome-extension/src/background/agent/history.ts",
+        "dependencyTypes": ["local", "import"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "chrome-extension/src/background/agent/types.ts",
+    "to": "chrome-extension/src/background/browser/context.ts",
+    "unresolvedTo": "../browser/context",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "chrome-extension/src/background/browser/context.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "chrome-extension/src/background/browser/page.ts",
+        "dependencyTypes": ["local", "import"]
+      },
+      {
+        "name": "chrome-extension/src/background/task/completion.ts",
+        "dependencyTypes": ["local", "import"]
+      },
+      {
+        "name": "chrome-extension/src/background/task/contracts.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "chrome-extension/src/background/agent/types.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "chrome-extension/src/background/browser/dom/history/service.ts",
+    "to": "chrome-extension/src/background/browser/dom/views.ts",
+    "unresolvedTo": "../views",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "chrome-extension/src/background/browser/dom/views.ts",
+        "dependencyTypes": ["local", "import"]
+      },
+      {
+        "name": "chrome-extension/src/background/browser/dom/history/service.ts",
+        "dependencyTypes": ["local", "import"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "chrome-extension/src/background/browser/page.ts",
+    "to": "chrome-extension/src/background/task/contracts.ts",
+    "unresolvedTo": "../task/contracts",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "chrome-extension/src/background/task/contracts.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "chrome-extension/src/background/agent/types.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "chrome-extension/src/background/browser/context.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "chrome-extension/src/background/browser/page.ts",
+        "dependencyTypes": ["local", "import"]
+      }
+    ]
+  },
+  {
+    "type": "dependency",
+    "from": "chrome-extension/src/background/task/manager.ts",
+    "to": "chrome-extension/src/background/browser/sites/bilibili-first-video.ts",
+    "unresolvedTo": "../browser/sites/bilibili-first-video",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "task-not-to-sites"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "chrome-extension/src/background/task/manager.ts",
+    "to": "chrome-extension/src/background/browser/sites/product-table.ts",
+    "unresolvedTo": "../browser/sites/product-table",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "task-not-to-sites"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "chrome-extension/src/background/task/manager.ts",
+    "to": "chrome-extension/src/background/browser/sites/theme-citation.ts",
+    "unresolvedTo": "../browser/sites/theme-citation",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "task-not-to-sites"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "chrome-extension/src/background/task/manager.ts",
+    "to": "chrome-extension/src/background/browser/sites/understanding-answer.ts",
+    "unresolvedTo": "../browser/sites/understanding-answer",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "task-not-to-sites"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "chrome-extension/src/background/task/task-result.ts",
+    "to": "chrome-extension/src/background/browser/sites/form-fill.ts",
+    "unresolvedTo": "../browser/sites/form-fill",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "task-not-to-sites"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "chrome-extension/src/background/task/task-result.ts",
+    "to": "chrome-extension/src/background/browser/sites/product-table.ts",
+    "unresolvedTo": "../browser/sites/product-table",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "task-not-to-sites"
+    }
+  }
+]

@@ -94,6 +94,7 @@ When the work is product / design / placement: while restating intent, name in o
 - **Corrections are new evidence.** Update the working model; inspect why the previous interpretation failed; change direction immediately. If the correction changes any of the five blocks, re-lock. Do not keep earlier implementation because work was already invested.
 - **Simpler after the change.** Prefer existing abstractions, deleting code your change made obsolete, local edits, fewer dependencies, fewer new concepts. No framework for a one-off. No compatibility layer without evidence.
 - **How this file grows.** A one-off mistake stays in the session. A repeating mistake becomes one concrete rule here. If removing a line would not prevent a real mistake, cut it.
+- **Structure check.** Do not add a new import cycle or a forbidden layer import. Do not grow a listed giant file by more than 50 lines. `pnpm check:structure` enforces this. Do not turn the check off to pass CI.
 
 ## Runtime (hard)
 
@@ -108,6 +109,8 @@ pnpm install
 pnpm dev                          # inject personal secrets + watch
 pnpm build                        # inject → clean dist → turbo build; Load unpacked = ./dist
 pnpm type-check
+pnpm check:structure              # layer imports, cycles, file growth, complexity, duplication
+pnpm report:structure             # hotspots; does not fail CI
 pnpm -F chrome-extension test
 pnpm -F @extension/sidepanel test
 pnpm e2e:action-agent             # needs Chrome for Testing / CHROME_PATH
@@ -128,6 +131,7 @@ A task is not complete because code was written.
 | Agent / task loop | `pnpm -F chrome-extension test` on the touched test files |
 | Side panel / options UI | `pnpm -F @extension/sidepanel test` plus applicable scenes in `ui-acceptance.feature.md` |
 | Types | `pnpm type-check` |
+| Structure | `pnpm check:structure` |
 | User-visible UI | exercise the changed path; a single screenshot is not verification |
 | E2E | only when the change is the live Chrome path; `pnpm e2e:action-agent` |
 
