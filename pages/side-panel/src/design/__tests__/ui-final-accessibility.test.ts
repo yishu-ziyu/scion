@@ -59,6 +59,15 @@ describe('final side-panel accessibility gates', () => {
     expect(restoreFocus).toHaveBeenCalledOnce();
   });
 
+  it('keeps unsent instructions in the composer and explains the failed delivery', () => {
+    expect(chatInput).toContain('const result = await onSendMessage(messageContent, displayContent);');
+    expect(chatInput).toContain('if (!shouldClearComposerAfterDelivery(result))');
+    expect(chatInput).toContain('setDeliveryFeedback(result.feedback');
+    expect(chatInput).toContain('data-testid="goal-send-feedback"');
+    expect(chatInput).toContain('role="alert"');
+    expect(sidePanel).toContain("feedback: '上一个任务还在启动。输入已保留，请稍后再试。'");
+  });
+
   it('gives the live stream a thinking fold and a takeover control', () => {
     expect(workStream).toContain('chat_task_thinking_heading');
     expect(workStream).toContain('chat_task_takeover');

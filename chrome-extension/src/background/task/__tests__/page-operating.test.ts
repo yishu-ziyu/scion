@@ -3,6 +3,7 @@ import {
   PAGE_OPERATING_FOLLOW_LABEL,
   PAGE_OPERATING_TAKEOVER_LABEL,
   PAGE_OPERATING_TEXT,
+  createPageOperatingBarSyncQueue,
   pageOperatingCancelCommand,
   pageOperatingFollowCommand,
   pageOperatingTakeoverCommand,
@@ -54,6 +55,79 @@ describe('page operating bar (design/005 P3)', () => {
     const send = vi.fn().mockRejectedValue(new Error('no receiver'));
     await expect(syncPageOperatingBar({ status: 'running', activeTabId: 1 }, send)).resolves.toBeUndefined();
   });
+
+  it('delivers completed=false after a slower running=true sync', async () => {
+    let releaseRunning!: () => void;
+    const snapshots = [
+      { status: 'running', activeTabId: 7 },
+      { status: 'completed', activeTabId: 7 },
+    ];
+    const loadSnapshot = vi.fn(async () => snapshots.shift() ?? null);
+    const send = vi.fn(async (_tabId: number, message: { active: boolean }) => {
+      if (message.active) {
+        await new Promise<void>(resolve => {
+          releaseRunning = resolve;
+        });
+      }
+    });
+    const sync = createPageOperatingBarSyncQueue(loadSnapshot, send, vi.fn());
+
+    const running = sync();
+    const completed = sync();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(send.mock.calls[0]?.[1]).toMatchObject({ active: true });
+    releaseRunning();
+    await Promise.all([running, completed]);
+
+    expect(send.mock.calls.map(call => call[1].active)).toEqual([true, false]);
+  });
+
+  it('clears the bar from a previous task tab before syncing the next tab', async () => {
+    const snapshots = [
+      { status: 'running', activeTabId: 7 },
+      { status: 'running', activeTabId: 8 },
+      { status: 'completed', activeTabId: 8 },
+    ];
+    const loadSnapshot = vi.fn(async () => snapshots.shift() ?? null);
+    const send = vi.fn().mockResolvedValue(undefined);
+    const sync = createPageOperatingBarSyncQueue(loadSnapshot, send, vi.fn());
+
+    await sync();
+    await sync();
+    await sync();
+
+    expect(send.mock.calls.map(([tabId, message]) => [tabId, message.active])).toEqual([
+      [7, true],
+      [7, false],
+      [8, true],
+      [8, false],
+    ]);
+  });
+
+  it.each(['paused', 'failed', 'cancelled'] as const)(
+    'clears every shown tab when the task becomes %s',
+    async status => {
+      const snapshots = [
+        { status: 'running', activeTabId: 7 },
+        { status: 'running', activeTabId: 8 },
+        { status, activeTabId: 8 },
+      ];
+      const loadSnapshot = vi.fn(async () => snapshots.shift() ?? null);
+      const send = vi.fn().mockResolvedValue(undefined);
+      const sync = createPageOperatingBarSyncQueue(loadSnapshot, send, vi.fn());
+
+      await sync();
+      await sync();
+      await sync();
+
+      expect(send.mock.calls.map(([tabId, message]) => [tabId, message.active])).toEqual([
+        [7, true],
+        [7, false],
+        [8, true],
+        [8, false],
+      ]);
+    },
+  );
 
   it('cancels only from the tab the running task is driving', () => {
     const snapshot = { id: 'task-1', revision: 4, status: 'running', activeTabId: 42 };

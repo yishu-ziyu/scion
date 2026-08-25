@@ -2,12 +2,7 @@
  * Observation Diff (product/022).
  * Pure functions — no Chrome APIs.
  */
-import type {
-  ElementDigest,
-  InteractiveElementDigest,
-  ObservationDiff,
-  ObservationFrame,
-} from './types';
+import type { ElementDigest, InteractiveElementDigest, ObservationDiff, ObservationFrame } from './types';
 
 function toDigest(el: InteractiveElementDigest): ElementDigest {
   return {
@@ -138,9 +133,7 @@ export function renderDiffText(input: {
   const sample = [
     ...input.addedElements.slice(0, 5).map(el => `+ [${el.index}] ${el.tagName ?? ''} ${el.text ?? ''}`.trim()),
     ...input.removedElements.slice(0, 3).map(el => `- [${el.index}] ${el.tagName ?? ''} ${el.text ?? ''}`.trim()),
-    ...input.changedElements
-      .slice(0, 5)
-      .map(el => `~ [${el.index}] ${el.after?.text ?? el.before?.text ?? ''}`.trim()),
+    ...input.changedElements.slice(0, 5).map(el => `~ [${el.index}] ${el.after?.text ?? el.before?.text ?? ''}`.trim()),
   ];
   if (sample.length > 0) {
     lines.push('sample:');

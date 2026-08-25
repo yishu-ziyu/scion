@@ -71,7 +71,9 @@ describe('resolveProductEvidenceBasis', () => {
         observation: 'The product combines visual knowledge organization and AI-supported learning.',
         pageText,
       }),
-    ).toBe('Heptabase is an intelligent, visual knowledge base built for students, researchers, and lifelong learners.');
+    ).toBe(
+      'Heptabase is an intelligent, visual knowledge base built for students, researchers, and lifelong learners.',
+    );
   });
 
   it('rejects a product claim with no substantive page overlap', () => {

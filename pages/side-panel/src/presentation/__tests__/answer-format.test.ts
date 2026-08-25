@@ -13,6 +13,19 @@ describe('answer-format', () => {
     const first = blocks[0];
     if (first?.type !== 'p') throw new Error('expected paragraph');
     expect(first.spans.some(span => span.bold && span.text.includes('Bilibili'))).toBe(true);
+    expect(first.spans.some(span => span.text.includes('页面结构'))).toBe(false);
+    expect(
+      blocks.some(block => block.type === 'section' && block.spans.some(span => span.text.includes('页面结构与导航'))),
+    ).toBe(true);
+    const numbered = blocks.find(block => block.type === 'ol');
+    if (numbered?.type !== 'ol') throw new Error('expected numbered list');
+    expect(numbered.items[0]?.some(span => span.bold && span.text.includes('AI / 大模型'))).toBe(true);
+  });
+
+  it('treats a whole-line bold label as a section, not as a paragraph of strong', () => {
+    const blocks = parseAnswerBlocks('**报名入口**：\n- 官网首页\n普通一句。');
+    expect(blocks.map(block => block.type)).toEqual(['section', 'ul', 'p']);
+    expect(blocks[0]).toMatchObject({ type: 'section', spans: [{ text: '报名入口' }] });
   });
 
   it('marks a host mentioned in the answer so the user can open that page', () => {

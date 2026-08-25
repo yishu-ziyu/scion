@@ -15,6 +15,7 @@ export type WaitReason =
   | 'commit_outcome_uncertain'
   | 'target_missing'
   | 'target_ambiguous'
+  | 'confirm_execute'
   | 'skill_inputs_required';
 
 export interface BrowserTargetRef {
@@ -33,6 +34,8 @@ export interface BrowserTargetRef {
    * durable task state; ordering remains significant for exact provenance.
    */
   queryIdentityDigest?: string;
+  /** True only when this tab was created by the task, never for the user's initial source tab. */
+  taskOwned?: true;
   /** Digest of the normalized visible body captured on this exact page. */
   bodyDigest?: string;
   /** Digests of bounded visible sentences/lines; raw page text is never persisted. */
@@ -189,6 +192,8 @@ export type TaskCommand =
       tabId: number;
       /** Skip classify (再说一次 already knows this is the same task). */
       forceExecute?: boolean;
+      /** Composer 仅聊天 / 执行. execute skips the extra confirm ask; chat never operates pages. */
+      composerIntent?: 'chat' | 'execute';
     }
   | (ExistingTaskCommand & {
       type: 'follow_up';
@@ -198,6 +203,8 @@ export type TaskCommand =
       changeType?: 'follow_up' | 'direction_change';
       /** Skip classify (再说一次 already knows this is the same task). */
       forceExecute?: boolean;
+      /** Composer 仅聊天 / 执行. execute skips the extra confirm ask; chat never operates pages. */
+      composerIntent?: 'chat' | 'execute';
     })
   | (ExistingTaskCommand & { type: 'pause' | 'resume' | 'cancel' | 'takeover' })
   | (ExistingTaskCommand & { type: 'set_follow'; follow: boolean })
@@ -232,6 +239,19 @@ export interface TaskRound {
    */
   produced?: TaskResult;
   waitReason?: WaitReason;
+  /**
+   * Last human page reading from a control decide (`observation`).
+   * Empty / 思考中 / 获取页面快照 are never stored.
+   */
+  pageReading?: string;
+  /**
+   * Observed named choices when this round is waiting because a bind was not unique.
+   * Labels and sendText only; never selectors, HTML, or secrets.
+   */
+  waitAsk?: {
+    prompt: string;
+    options: Array<{ label: string; sendText: string }>;
+  };
   /**
    * Machine category when status is failed (e.g. llm_failed, observe_failed).
    * UI maps this to human copy; do not store raw secrets.

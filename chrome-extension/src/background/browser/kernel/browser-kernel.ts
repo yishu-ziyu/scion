@@ -25,6 +25,19 @@ import type {
 
 const logger = createLogger('BrowserKernel');
 
+/**
+ * Page.observeActionTarget throws these before the action executes when a
+ * model-selected element disappeared between observation and dispatch. The
+ * control loop must re-observe instead of treating that normal DOM race as an
+ * extension runtime error or a successful action.
+ */
+function isStaleActionTargetError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === 'Action target is missing' || error.message === 'Action target is no longer available')
+  );
+}
+
 export interface BrowserKernelDeps {
   browserContext: BrowserContext;
   /** Optional AgentContext for includeAttributes / useVision defaults. */
@@ -75,10 +88,7 @@ export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
         const vp = await page.evaluate(() => ({
           scrollY: window.scrollY || window.pageYOffset || 0,
           viewportHeight: window.innerHeight || 0,
-          documentHeight: Math.max(
-            document.documentElement?.scrollHeight || 0,
-            document.body?.scrollHeight || 0,
-          ),
+          documentHeight: Math.max(document.documentElement?.scrollHeight || 0, document.body?.scrollHeight || 0),
         }));
         if (vp && typeof vp === 'object') {
           viewport = vp as ObservationFrame['viewport'];
@@ -135,6 +145,10 @@ export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
         pageRevision: result.pageRevision ?? revision ?? undefined,
       };
     } catch (error) {
+      if (isStaleActionTargetError(error)) {
+        logger.debug('kernel.act action target became stale; re-observe before retrying');
+        return { error: 'action_target_stale' };
+      }
       logger.error('kernel.act dispatch failed', error);
       const message =
         error instanceof Error

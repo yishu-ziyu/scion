@@ -47,6 +47,25 @@ describe('instructionUrlsStillToOpen', () => {
     ).toEqual(['https://en.wikipedia.org/wiki/Web_browser']);
   });
 
+  it('opens distinct query pages while ignoring duplicate fragments', () => {
+    const plan = {
+      sourceUrls: [
+        'https://example.test/search?q=red#first',
+        'https://example.test/search?q=blue',
+        'https://example.test/search?q=red#second',
+      ],
+      requiresOrderedSourceProof: false,
+    };
+
+    expect(instructionUrlsStillToOpen(plan)).toEqual([
+      'https://example.test/search?q=red#first',
+      'https://example.test/search?q=blue',
+    ]);
+    expect(instructionUrlsStillToOpen(plan, ['https://example.test/search?q=red#already-open'])).toEqual([
+      'https://example.test/search?q=blue',
+    ]);
+  });
+
   it('caps at five URLs', () => {
     const plan = {
       sourceUrls: [
@@ -135,9 +154,9 @@ describe('opened page records', () => {
       state: 'observed',
       targetUrl: 'https://www.iana.org',
     });
-    expect(independentPagesMemory([{ url: 'https://www.iana.org', title: 'Internet Assigned Numbers Authority' }])).toContain(
-      'title=Internet Assigned Numbers Authority',
-    );
+    expect(
+      independentPagesMemory([{ url: 'https://www.iana.org', title: 'Internet Assigned Numbers Authority' }]),
+    ).toContain('title=Internet Assigned Numbers Authority');
   });
 
   it('does not record a 404 page', async () => {

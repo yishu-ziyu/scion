@@ -15,10 +15,7 @@ import { tableRowCount } from '../../../task/artifact';
 import type { AgentContext } from '../../types';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const productsHtml = readFileSync(
-  join(here, '../../../../../test/fixtures/products.html'),
-  'utf8',
-);
+const productsHtml = readFileSync(join(here, '../../../../../test/fixtures/products.html'), 'utf8');
 
 function fieldedRows(rows: Array<Record<string, string>>): Array<Record<string, string>> {
   return rows.filter(row => Object.keys(row).length >= 2 && Object.values(row).some(value => value.trim()));

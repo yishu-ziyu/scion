@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-08-24 常用邮箱变成通用记忆条目
+
+用户确立过的事实跨任务还能用。独立页 `pages/memory`（`dist/memory/index.html`）写下原文，后台 `structure_user_memory` 抽成「这是什么 → 值」。任务只读条目。抽错改条目。密码类丢掉。旧键 `usual-mailbox-v1` 迁入「常用邮箱」。`buildControlUserPrompt` 在 Task 之后插入条目；`resolveMailboxOpen` 的 `confirmedHost` 来自同一张表。侧栏书本图标打开记忆页。
+
+### 验证
+
+- `user-memory`、`mailbox-open`、`control-llm-prompt`、`manager`、侧栏 `ui-acceptance` 通过。
+- `@extension/storage`、`@extension/memory`、`chrome-extension` type-check 通过；记忆页 `vite build` 产出 `dist/memory/index.html`。
+- 审查后补：确认句必须带「常用」才写入；同一次打开只开一次；同 kind 合成一条；问完后的 pending 写入 `chrome.storage.session`，短答「是」在后台被回收后仍能落表。
+- 未在已加载的扩展里点开记忆页做真机整理（需要你本机 Chrome 加载 `./dist`）。
+
+---
+
 ## 2026-08-23 同一页观察里可以连做几步，不再每步都问模型
 
 对照 citrolabs/ego-lite：`run.ts` 把一段 JS 当一次脚本跑（`snapshot` → `click('@N')` → `fill`），中间不再调模型。浏览器壳不搬进持节。持节仍是日常 Chrome 上的扩展。

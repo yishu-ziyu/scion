@@ -120,10 +120,7 @@ export default function FirstRunSetup({ onConnected }: FirstRunSetupProps) {
   const [errorMessage, setErrorMessage] = useState('');
   const [hydrated, setHydrated] = useState(false);
 
-  const provider = useMemo(
-    () => SETUP_PROVIDERS.find(p => p.id === providerId) || SETUP_PROVIDERS[0],
-    [providerId],
-  );
+  const provider = useMemo(() => SETUP_PROVIDERS.find(p => p.id === providerId) || SETUP_PROVIDERS[0], [providerId]);
 
   // Prefill non-sensitive fields if a partial config already exists
   useEffect(() => {
@@ -132,10 +129,7 @@ export default function FirstRunSetup({ onConnected }: FirstRunSetupProps) {
       try {
         const all = await llmProviderStore.getAllProviders();
         const preferred =
-          all.minimax ||
-          all[ProviderTypeEnum.OpenAI] ||
-          all[ProviderTypeEnum.OpenRouter] ||
-          Object.values(all)[0];
+          all.minimax || all[ProviderTypeEnum.OpenAI] || all[ProviderTypeEnum.OpenRouter] || Object.values(all)[0];
         if (!preferred || cancelled) {
           setHydrated(true);
           return;
@@ -202,9 +196,7 @@ export default function FirstRunSetup({ onConnected }: FirstRunSetupProps) {
       type: provider.type,
       apiKey: keyToUse,
       baseUrl: resolveBaseUrl(provider.type, baseToUse) || undefined,
-      modelNames: model.trim()
-        ? Array.from(new Set([model.trim(), ...(provider.models || [])]))
-        : provider.models,
+      modelNames: model.trim() ? Array.from(new Set([model.trim(), ...(provider.models || [])])) : provider.models,
       createdAt: existing?.createdAt || Date.now(),
     });
 
@@ -231,7 +223,13 @@ export default function FirstRunSetup({ onConnected }: FirstRunSetupProps) {
   }
 
   const buttonLabel =
-    phase === 'connecting' ? '正在验证连接…' : phase === 'error' ? '重新连接' : phase === 'success' ? '连接成功' : '连接并开始';
+    phase === 'connecting'
+      ? '正在验证连接…'
+      : phase === 'error'
+        ? '重新连接'
+        : phase === 'success'
+          ? '连接成功'
+          : '连接并开始';
 
   const showBaseInAdvanced = provider.baseUrlAdvanced !== false || provider.id === 'custom_openai';
   const forceShowBase = provider.id === 'custom_openai';

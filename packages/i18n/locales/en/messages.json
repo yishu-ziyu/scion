@@ -31,6 +31,60 @@
   "nav_settings_a11y": {
     "message": "设置"
   },
+  "nav_memory_a11y": {
+    "message": "Memory"
+  },
+  "memory_page_title": {
+    "message": "Memory"
+  },
+  "memory_page_lead": {
+    "message": "Write facts you have established. After structuring, later tasks read the rows, not the raw note."
+  },
+  "memory_empty": {
+    "message": "No rows yet. Write something like “Gmail is my usual mail” and structure it."
+  },
+  "memory_source_label": {
+    "message": "Note"
+  },
+  "memory_source_placeholder": {
+    "message": "Gmail is my usual mail."
+  },
+  "memory_structure": {
+    "message": "Structure into rows"
+  },
+  "memory_structuring": {
+    "message": "Structuring…"
+  },
+  "memory_facts_heading": {
+    "message": "Rows used by tasks"
+  },
+  "memory_kind_label": {
+    "message": "What this is"
+  },
+  "memory_value_label": {
+    "message": "Value"
+  },
+  "memory_add_row": {
+    "message": "Add row"
+  },
+  "memory_delete": {
+    "message": "Delete"
+  },
+  "memory_error_empty": {
+    "message": "Write a note first."
+  },
+  "memory_error_no_model": {
+    "message": "No model key, so structuring is unavailable. Add a row by hand, or connect a model in Settings."
+  },
+  "memory_error_llm": {
+    "message": "Structuring failed. Try again, or add a row by hand."
+  },
+  "memory_error_no_facts": {
+    "message": "No usable rows were extracted. Edit the note, or add a row by hand."
+  },
+  "memory_error_secret": {
+    "message": "Passwords, API keys, and cookies are not stored."
+  },
   "nav_back": {
     "message": "← 返回"
   },
@@ -65,10 +119,43 @@
     "message": "我能帮你做什么？"
   },
   "chat_empty_hint": {
-    "message": "Open a page, extract a table, or read it and come back with something you can check."
+    "message": "Works in task tabs in the background. The current page is attached automatically."
+  },
+  "chat_task_presence_background": {
+    "message": "Working in background"
+  },
+  "chat_task_presence_following": {
+    "message": "Following this tab"
+  },
+  "chat_task_presence_not_completed": {
+    "message": "Not completed"
+  },
+  "chat_task_process_disclosure": {
+    "message": "View process"
+  },
+  "chat_task_process_count": {
+    "message": "$1 items"
+  },
+  "chat_task_copy_result": {
+    "message": "Copy result"
+  },
+  "chat_task_copy_done": {
+    "message": "Copied"
+  },
+  "chat_task_source_unavailable": {
+    "message": "Exact address not retained"
   },
   "chat_task_mode_badge": {
     "message": "Task"
+  },
+  "chat_composer_intent": {
+    "message": "What this send does"
+  },
+  "chat_composer_chat": {
+    "message": "Chat only"
+  },
+  "chat_composer_execute": {
+    "message": "Execute"
   },
   "chat_task_input_placeholder": {
     "message": "What should I do?"
@@ -963,7 +1050,7 @@
   "chat_task_status_paused": {
     "message": "Paused"
   },
-    "chat_task_status_waiting_user": {
+  "chat_task_status_waiting_user": {
     "message": "Needs you"
   },
   "chat_task_status_inputs_required": {
@@ -1008,7 +1095,7 @@
   "chat_task_failure_title": {
     "message": "Why it failed"
   },
-        "chat_task_confirm_done": {
+  "chat_task_confirm_done": {
     "message": "I confirm it is done"
   },
   "chat_task_follow": {
@@ -1047,7 +1134,7 @@
   "chat_task_hint_captcha": {
     "message": "Solve the captcha on the page, then continue."
   },
-    "chat_task_hint_proof": {
+  "chat_task_hint_proof": {
     "message": "It needs your eyes on the result. Tap confirm if it looks right."
   },
   "chat_task_hint_uncertain": {
@@ -1083,7 +1170,7 @@
   "chat_task_section_rounds": {
     "message": "Rounds"
   },
-    "chat_task_current_goal": {
+  "chat_task_current_goal": {
     "message": "Goal"
   },
   "chat_task_plan_heading": {
@@ -1095,7 +1182,7 @@
   "chat_task_progress": {
     "message": "Progress"
   },
-      "chat_task_receipt_id": {
+  "chat_task_receipt_id": {
     "message": "Receipt ID"
   },
   "chat_task_receipt_time": {
@@ -1152,7 +1239,7 @@
   "chat_task_action_generic": {
     "message": "Perform page action"
   },
-    "chat_task_attempt_observed": {
+  "chat_task_attempt_observed": {
     "message": "Verified"
   },
   "chat_task_attempt_executing": {
@@ -1206,7 +1293,7 @@
       }
     }
   },
-                        "chat_task_evidence_url": {
+  "chat_task_evidence_url": {
     "message": "Page address matches the goal"
   },
   "chat_task_evidence_text": {
@@ -1296,7 +1383,7 @@
   "chat_task_product_fail_selector_miss": {
     "message": "Target element or page not found"
   },
-    "chat_task_product_fail_false_complete": {
+  "chat_task_product_fail_false_complete": {
     "message": "Marked complete without page proof"
   },
   "chat_task_product_fail_model_loop": {

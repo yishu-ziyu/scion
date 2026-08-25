@@ -292,8 +292,7 @@ describe('EvidenceSpace', () => {
       kind: 'research_table',
       url: 'https://example.feishu.cn/base/research',
       title: 'Living Reader 研究表',
-      observedText:
-        '证据 来源 用户问题 观察 推断 置信度 相关产品 对应 Living Reader 能力 优先级',
+      observedText: '证据 来源 用户问题 观察 推断 置信度 相关产品 对应 Living Reader 能力 优先级',
       rowCount: 4,
       now: 60,
     });

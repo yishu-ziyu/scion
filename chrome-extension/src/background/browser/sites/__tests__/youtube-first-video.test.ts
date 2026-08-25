@@ -12,9 +12,7 @@ describe('youtube first video shortcut', () => {
 
   it('does not hijack a multi-step research task that only mentions YouTube as a source', () => {
     expect(
-      isYouTubeFirstVideoInstruction(
-        '第一步，理解项目。对每个产品实际打开页面观察，来源覆盖 YouTube 评论区。',
-      ),
+      isYouTubeFirstVideoInstruction('第一步，理解项目。对每个产品实际打开页面观察，来源覆盖 YouTube 评论区。'),
     ).toBe(false);
   });
 

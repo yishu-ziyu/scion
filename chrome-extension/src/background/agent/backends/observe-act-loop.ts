@@ -41,7 +41,7 @@ export type LoopFailureCategory =
 export type LoopAction = { name: string; args: Record<string, unknown> };
 
 export type LoopDecision =
-  | { kind: 'waiting_user'; reason: 'login_required' | 'captcha_required' }
+  | { kind: 'waiting_user'; reason: 'login_required' | 'captcha_required' | 'target_missing' | 'target_ambiguous' }
   | { kind: 'done'; summary: string }
   | {
       kind: 'action';
@@ -56,7 +56,7 @@ export type LoopDecision =
 
 export type LoopOutcome =
   | { kind: 'candidate_complete'; summary: string }
-  | { kind: 'waiting_user'; reason: 'login_required' | 'captcha_required' }
+  | { kind: 'waiting_user'; reason: 'login_required' | 'captcha_required' | 'target_missing' | 'target_ambiguous' }
   | { kind: 'cancelled' }
   | { kind: 'failed'; category: string };
 
@@ -286,6 +286,12 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
           break;
         }
         if (result.error) {
+          if (result.error === 'target_ambiguous' || result.error === 'media_target_ambiguous') {
+            return { kind: 'waiting_user', reason: 'target_ambiguous' };
+          }
+          if (result.error === 'target_missing' || result.error === 'media_target_missing') {
+            return { kind: 'waiting_user', reason: 'target_missing' };
+          }
           if (options.shouldRetryFailure && !options.shouldRetryFailure(result.error)) {
             return { kind: 'failed', category: 'action_failed' };
           }

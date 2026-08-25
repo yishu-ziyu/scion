@@ -6,8 +6,7 @@
 import { isPlaceholderDelivery } from '../../task/result-text';
 import { judgeBilibiliWatchComplete } from '../../browser/sites/bilibili-first-video';
 
-export const READ_PAGE_BEFORE_RESULT =
-  'Visible page wording is empty. Read the page text before writing the result.';
+export const READ_PAGE_BEFORE_RESULT = 'Visible page wording is empty. Read the page text before writing the result.';
 
 export const WRITE_RESULT_NOT_ACK =
   'That output was an acknowledgement or empty, not a checkable result. Write the result from the page text in observation and set done true. Do not promise to read later.';
@@ -23,11 +22,7 @@ export type ControlDeliveryResolution =
   | { kind: 'missing_action' };
 
 /** Page already shows the clicked video; stop and hand the visible title back. */
-export function judgeVisibleVideoOpenComplete(
-  instruction: string,
-  pageUrl: string,
-  pageTitle: string,
-): string | null {
+export function judgeVisibleVideoOpenComplete(instruction: string, pageUrl: string, pageTitle: string): string | null {
   return judgeBilibiliWatchComplete(instruction, pageUrl, pageTitle);
 }
 

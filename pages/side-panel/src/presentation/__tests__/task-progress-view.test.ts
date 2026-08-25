@@ -184,6 +184,18 @@ describe('deriveTaskProgressView', () => {
     expect(view.currentActivity?.summary).not.toMatch(/click|element|_/i);
   });
 
+  it('does not repeat the operate-page question in progress health', () => {
+    const task = snapshot('waiting_user');
+    task.rounds[0]!.waitReason = 'confirm_execute';
+    const view = deriveTaskProgressView({
+      snapshot: task,
+      missionInstruction: originalInstruction,
+      now: 12_000,
+    });
+    expect(view.health.summary).not.toBe('要我现在操作这个网页吗？');
+    expect(view.health.state).not.toBe('needs_user');
+  });
+
   it('does not mention login when waiting only for page proof', () => {
     const task = snapshot('waiting_user');
     task.rounds[0]!.waitReason = 'proof_required';

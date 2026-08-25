@@ -80,6 +80,32 @@ export async function chromeTabsSendMessage(tabId: number, message: PageOperatin
   await chrome.tabs.sendMessage(tabId, message);
 }
 
+export function createPageOperatingBarSyncQueue(
+  loadSnapshot: () => Promise<PageOperatingSnapshot>,
+  send: (tabId: number, message: PageOperatingBarMessage) => Promise<void>,
+  onError: (error: unknown) => void,
+): () => Promise<void> {
+  let tail = Promise.resolve();
+  let visibleTabId: number | undefined;
+  return () => {
+    const run = tail.then(async () => {
+      const snapshot = await loadSnapshot();
+      const candidateTabId = snapshot?.activeTabId;
+      const currentTabId =
+        typeof candidateTabId === 'number' && Number.isSafeInteger(candidateTabId) && candidateTabId >= 0
+          ? candidateTabId
+          : undefined;
+      if (visibleTabId !== undefined && visibleTabId !== currentTabId) {
+        await syncPageOperatingBar({ activeTabId: visibleTabId }, send);
+      }
+      await syncPageOperatingBar(snapshot, send);
+      visibleTabId = shouldShowPageOperatingBar(snapshot?.status) ? currentTabId : undefined;
+    });
+    tail = run.catch(onError);
+    return run;
+  };
+}
+
 export function pageOperatingFollowCommand(
   snapshot: PageOperatingCancelTarget,
   senderTabId: number | undefined,

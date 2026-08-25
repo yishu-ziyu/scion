@@ -1,4 +1,11 @@
-import { getActiveTask, getSkillSaveMeta, getTask, putSkillSaveMeta, saveTask } from '@extension/storage/lib/task';
+import {
+  deleteTask,
+  getActiveTask,
+  getSkillSaveMeta,
+  getTask,
+  putSkillSaveMeta,
+  saveTask,
+} from '@extension/storage/lib/task';
 import favoritesStorage, {
   assertExactSkillInputs,
   compileSkillTemplate,
@@ -8,6 +15,7 @@ import favoritesStorage, {
 import type {
   CommandAck,
   ActionAttempt,
+  AttemptFinding,
   CompletionCriterion,
   CompletionEvidence,
   TaskCommand,
@@ -16,6 +24,7 @@ import type {
   TaskSession,
   TaskSnapshot,
   TaskStatus,
+  BrowserTargetRef,
 } from '@extension/storage/lib/task';
 import {
   StaleTaskRoundError,
@@ -74,6 +83,17 @@ import {
   refineMissionPlanFromInstruction,
 } from './mission-plan';
 import { ActionResult } from '../agent/types';
+import { looksLikeMailboxConfirmation } from '../agent/mailbox-open';
+
+function instructionMatchesWaitAsk(waitAsk: TaskRound['waitAsk'] | undefined, instruction: string): boolean {
+  const text = instruction.replace(/\s+/g, ' ').trim();
+  if (!text || !waitAsk?.options?.length) return false;
+  return waitAsk.options.some(option => {
+    const sendText = option.sendText.replace(/\s+/g, ' ').trim();
+    const label = option.label.replace(/\s+/g, ' ').trim();
+    return text === sendText || text === label;
+  });
+}
 import { isUnderstandingOnlyInstruction } from '../browser/sites/understanding-answer';
 import { csvOrMarkdownBlockSpans } from './table-shape';
 import { instructionAsksPageAbout } from '../browser/sites/theme-citation';
@@ -96,6 +116,13 @@ import {
 } from '../instruction-language';
 import { isAcknowledgementOnly, isBasicSubstantiveAnswer, isPlaceholderDelivery } from './result-text';
 import type { UserTurnDecision } from '../intent/user-turn-decision';
+import {
+  CONFIRM_EXECUTE_CHAT_REPLY,
+  CONFIRM_EXECUTE_WAIT_ASK,
+  applyComposerIntent,
+  isConfirmExecuteChat,
+  isConfirmExecuteGo,
+} from '../intent/confirm-execute';
 import {
   checkVerifiedRecordDeliverable,
   instructionAsksVerifiedQuote,
@@ -134,7 +161,12 @@ interface TaskManagerDeps {
   /** Bring the task tab to the front (跟随 on, or 接管). */
   revealTab?: (tabId: number) => Promise<void>;
   /** Put this task's pages in one Chrome tab group. Returns the group id. */
-  beginTaskTabGroup?: (title: string, existingGroupId?: number) => Promise<number | null>;
+  beginTaskTabGroup?: (title: string, existingGroupId?: number, resetTaskOwnership?: boolean) => Promise<number | null>;
+  registerTaskOwnedTab?: (tabId: number) => Promise<void>;
+  /** Detach pages and clear per-task tab ownership after a terminal task. */
+  cleanupBrowserContext?: () => Promise<void>;
+  isTaskOwnedTab?: (tabId: number) => boolean;
+  authorizeUnownedTabClose?: (tabId: number) => void;
   observeCriteria: ObserveCriteria;
   now: () => number;
   /** Backoff after external_commit before re-probe (ms). Default covers async form rewrites. */
@@ -346,6 +378,46 @@ async function pageEvidence(inputs?: Iterable<DeliverableEvidenceInput>): Promis
   return results.filter((item): item is DeliverablePageEvidence => item !== null);
 }
 
+async function requestedTitleIdentities(instruction: string): Promise<DeliverablePageEvidence[]> {
+  const identities = (
+    await Promise.all(
+      extractInstructionUrlOccurrences(instruction).map(occurrence => redactedHttpUrlIdentity(occurrence.value)),
+    )
+  ).filter((identity): identity is DeliverablePageEvidence => identity !== null);
+  const seen = new Set<string>();
+  return identities.filter(identity => {
+    const key = provenanceIdentityKey(identity);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function verifiedRecordsForInstruction(
+  instruction: string,
+  evidence: DeliverablePageEvidence[],
+): Promise<Array<{ title: string; quote?: string }>> {
+  const records = evidence
+    .filter(item => item.title?.trim())
+    .map(item => ({
+      title: item.title!.replace(/\s+/g, ' ').trim(),
+      ...(item.quote ? { quote: item.quote } : {}),
+    }));
+  if (!instructionAsksVerifiedTitles(instruction)) return records;
+
+  const requested = await requestedTitleIdentities(instruction);
+  if (requested.length === 0) return records;
+  return requested.map(identity => {
+    const page = evidence.find(
+      item => provenanceIdentityKey(item) === provenanceIdentityKey(identity) && Boolean(item.title?.trim()),
+    );
+    return {
+      title: page?.title?.replace(/\s+/g, ' ').trim() ?? '',
+      ...(page?.quote ? { quote: page.quote } : {}),
+    };
+  });
+}
+
 export async function checkOrderedSourceVisitProof(
   instruction: string,
   evidenceInputs?: Iterable<DeliverableEvidenceInput>,
@@ -476,12 +548,7 @@ export async function checkInstructionDeliverable(
       reasons.push('url_not_visited');
     }
   }
-  const verifiedRecords = evidence
-    .filter(item => item.title?.trim())
-    .map(item => ({
-      title: item.title!.replace(/\s+/g, ' ').trim(),
-      ...(item.quote ? { quote: item.quote } : {}),
-    }));
+  const verifiedRecords = await verifiedRecordsForInstruction(instruction, evidence);
   const verified = checkVerifiedRecordDeliverable(instruction, answer, verifiedRecords);
   reasons.push(...verified.reasons);
   return { passed: reasons.length === 0, reasons };
@@ -512,6 +579,7 @@ export function extractExplicitTableFields(instruction: string): string[] {
 
 export class TaskManager {
   private readonly drivers = new Map<string, ExecutorDriver>();
+  private readonly runtimeStops = new Map<string, Promise<void>>();
   private readonly dispatchers = new Map<string, ActionDispatcher>();
   private readonly launches = new Map<string, symbol>();
   private readonly instructions = new Map<string, string>();
@@ -519,6 +587,8 @@ export class TaskManager {
   private readonly criterionTemplates = new Map<string, CompletionCriterionTemplate[]>();
   private readonly lockedCriteriaRounds = new Set<string>();
   private readonly unsafeSkillCriteriaRounds = new Set<string>();
+  /** Only tabs pre-opened for the current round may be substituted for a later open action. */
+  private readonly preopenedIndependentTargets = new Map<string, BrowserTargetRef[]>();
   private readonly listeners = new Set<(event: TaskEvent) => void>();
   private transition: Promise<void> = Promise.resolve();
   private readonly userTurnByCommand = new Map<string, UserTurnDecision>();
@@ -558,7 +628,30 @@ export class TaskManager {
 
   private async classifyStartOrFollowUp(command: TaskCommand): Promise<CommandAck | null> {
     if (command.type !== 'start' && command.type !== 'follow_up') return null;
-    if (command.forceExecute || !this.deps.decideUserTurn) return null;
+    if (command.forceExecute) return null;
+
+    if (command.type === 'follow_up') {
+      const parked = await getTask(command.taskId);
+      const parkedRound = parked ? this.currentRound(parked) : null;
+      const confirmWaiting =
+        parked !== null &&
+        parkedRound !== null &&
+        parked.status === 'waiting_user' &&
+        parkedRound.waitReason === 'confirm_execute';
+      if (confirmWaiting && isConfirmExecuteGo(command.instruction)) {
+        this.userTurnByCommand.set(command.commandId, { kind: 'execute', userVisibleText: '' });
+        return null;
+      }
+      if (confirmWaiting && isConfirmExecuteChat(command.instruction)) {
+        this.userTurnByCommand.set(command.commandId, {
+          kind: 'reply',
+          userVisibleText: CONFIRM_EXECUTE_CHAT_REPLY,
+        });
+        return null;
+      }
+    }
+
+    if (!this.deps.decideUserTurn) return null;
 
     let decision: UserTurnDecision;
     try {
@@ -574,6 +667,8 @@ export class TaskManager {
       decision = { kind: 'clarify', userVisibleText: text };
     }
 
+    decision = applyComposerIntent(command.composerIntent, decision);
+
     if (command.type === 'start' && decision.kind !== 'execute') {
       return this.notExecutableAck(
         command.commandId,
@@ -583,8 +678,24 @@ export class TaskManager {
           (decision.kind === 'stop' ? '好的，已停止。' : '我没太理解，请再说一遍你想在页面上做什么。'),
       );
     }
-    if (command.type === 'follow_up') {
+    if (command.type === 'start' && decision.kind === 'execute') {
       this.userTurnByCommand.set(command.commandId, decision);
+      return null;
+    }
+    if (command.type === 'follow_up') {
+      const task = await getTask(command.taskId);
+      const round = task ? this.currentRound(task) : null;
+      const waitingToChooseTarget =
+        task !== null &&
+        round !== null &&
+        task.status === 'waiting_user' &&
+        (round.waitReason === 'target_ambiguous' || round.waitReason === 'target_missing') &&
+        decision.kind !== 'stop';
+      const answeringAsk =
+        waitingToChooseTarget &&
+        (looksLikeMailboxConfirmation(command.instruction) ||
+          instructionMatchesWaitAsk(round.waitAsk, command.instruction));
+      this.userTurnByCommand.set(command.commandId, answeringAsk ? { kind: 'execute', userVisibleText: '' } : decision);
     }
     return null;
   }
@@ -731,7 +842,13 @@ export class TaskManager {
         error: 'invalid_input',
       };
     }
+    const classified = this.userTurnByCommand.get(command.commandId);
+    this.userTurnByCommand.delete(command.commandId);
+    if (classified?.kind === 'execute' && !command.forceExecute && command.composerIntent !== 'execute') {
+      return this.parkConfirmExecute(command);
+    }
     let tabId = command.tabId;
+    let createdTaskTab = false;
     if (tabId < 0) {
       if (instructionPointsAtCurrentPage(command.instruction)) {
         return {
@@ -753,6 +870,7 @@ export class TaskManager {
         };
       }
       tabId = await this.deps.openBlankTaskTab();
+      createdTaskTab = true;
     }
 
     const now = this.deps.now();
@@ -797,8 +915,9 @@ export class TaskManager {
       await this.deps.setFollowForeground?.(false);
       await this.deps.switchTab(tabId);
       try {
-        const groupId = await this.deps.beginTaskTabGroup?.(plan.goal || '任务');
+        const groupId = await this.deps.beginTaskTabGroup?.(plan.goal || '任务', undefined, true);
         if (typeof groupId === 'number') task.tabGroupId = groupId;
+        if (createdTaskTab) await this.deps.registerTaskOwnedTab?.(tabId);
       } catch {
         // Grouping is visible organization only; the task still runs.
       }
@@ -836,6 +955,136 @@ export class TaskManager {
       // Keep empty targetRefs; runCurrentRound will attach or fail honestly.
     }
     this.rememberAcceptedTask(task.id, command.instruction);
+    await this.persist(task);
+    void this.runCurrentRound(task.id);
+    return ack;
+  }
+
+  private async parkConfirmExecute(command: Extract<TaskCommand, { type: 'start' }>): Promise<CommandAck> {
+    const now = this.deps.now();
+    const roundId = crypto.randomUUID();
+    const ack: CommandAck = {
+      accepted: true,
+      commandId: command.commandId,
+      taskId: command.taskId,
+      revision: 1,
+    };
+    const plan = refineMissionPlanFromInstruction(command.instruction, now);
+    const round: TaskRound = {
+      id: roundId,
+      instructionMessageId: command.instructionMessageId,
+      instructionSummary: 'User instruction',
+      status: 'waiting_user',
+      commandAcks: { [command.commandId]: ack },
+      criteria: [],
+      attempts: [],
+      evidence: [],
+      waitReason: 'confirm_execute',
+      waitAsk: {
+        prompt: CONFIRM_EXECUTE_WAIT_ASK.prompt,
+        options: CONFIRM_EXECUTE_WAIT_ASK.options.map(option => ({ ...option })),
+      },
+    };
+    const task: TaskSession = {
+      id: command.taskId,
+      goalSummary: plan.goal,
+      chatSessionId: command.chatSessionId,
+      instructionMessageId: command.instructionMessageId,
+      status: 'waiting_user',
+      revision: 1,
+      activeTabId: command.tabId,
+      currentRoundId: roundId,
+      targetRefs: [],
+      rounds: [round],
+      plan,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.instructions.set(task.id, command.instruction);
+    await this.persist(task);
+    return ack;
+  }
+
+  private async beginParkedExecute(
+    task: TaskSession,
+    command: Extract<TaskCommand, { type: 'follow_up' }>,
+  ): Promise<CommandAck> {
+    const original = this.instructions.get(task.id)?.trim();
+    if (!original) {
+      return this.reject(task, command.commandId, 'invalid_input', '找不到刚才那句话，请再说一遍要做什么。');
+    }
+    let tabId = task.activeTabId;
+    let createdTaskTab = false;
+    if (tabId < 0) {
+      if (instructionPointsAtCurrentPage(original)) {
+        return this.reject(
+          task,
+          command.commandId,
+          'invalid_input',
+          '当前标签不是网页，读不了「这个页面」。打开一个网页再派，或改成搜一下。',
+        );
+      }
+      if (!this.deps.openBlankTaskTab) {
+        return this.reject(task, command.commandId, 'invalid_input');
+      }
+      tabId = await this.deps.openBlankTaskTab();
+      createdTaskTab = true;
+      task.activeTabId = tabId;
+    }
+    const round = this.currentRound(task);
+    const now = this.deps.now();
+    task.status = 'running';
+    round.status = 'running';
+    delete round.waitReason;
+    delete round.waitAsk;
+    delete round.pageReading;
+    if (round.attempts.length === 0) {
+      round.attempts.push(createObservePhaseAttempt(round.id, now));
+    }
+    const ack = this.accept(task, command.commandId);
+    try {
+      await this.deps.setFollowForeground?.(false);
+      await this.deps.switchTab(tabId);
+      try {
+        const groupId = await this.deps.beginTaskTabGroup?.(task.plan?.goal || '任务', undefined, true);
+        if (typeof groupId === 'number') task.tabGroupId = groupId;
+        if (createdTaskTab) await this.deps.registerTaskOwnedTab?.(tabId);
+      } catch {
+        // Grouping is visible organization only; the task still runs.
+      }
+      const tab = await chrome.tabs.get(tabId);
+      let urlOrigin = 'null';
+      let normalizedUrl: string | undefined;
+      let queryIdentityDigest: string | undefined;
+      if (tab.url) {
+        try {
+          urlOrigin = new URL(tab.url).origin;
+          const identity = await redactedHttpUrlIdentity(tab.url);
+          normalizedUrl = identity?.normalizedUrl;
+          queryIdentityDigest = identity?.queryIdentityDigest;
+        } catch {
+          urlOrigin = 'null';
+        }
+      }
+      const label = (tab.title ?? '').trim() || undefined;
+      task.targetRefs = [
+        {
+          id: `tab-${tabId}`,
+          kind: 'page',
+          tabId,
+          frameId: 0,
+          urlOrigin,
+          ...(normalizedUrl ? { normalizedUrl } : {}),
+          ...(queryIdentityDigest ? { queryIdentityDigest } : {}),
+          digest: '',
+          label,
+          visitSeq: 1,
+          observedAt: now,
+        },
+      ];
+    } catch {
+      // Keep empty targetRefs; runCurrentRound will attach or fail honestly.
+    }
     await this.persist(task);
     void this.runCurrentRound(task.id);
     return ack;
@@ -898,6 +1147,7 @@ export class TaskManager {
     }
 
     if (active) await this.stopTaskRuntime(active.id);
+    await this.deps.setFollowForeground?.(false);
     await this.deps.switchTab(command.tabId);
 
     const now = this.deps.now();
@@ -1041,6 +1291,7 @@ export class TaskManager {
       const groupId = await this.deps.beginTaskTabGroup?.(
         task.plan?.goal || task.goalSummary || '任务',
         task.tabGroupId,
+        false,
       );
       if (typeof groupId === 'number' && groupId !== task.tabGroupId) {
         task.tabGroupId = groupId;
@@ -1079,8 +1330,19 @@ export class TaskManager {
 
     const classified = this.userTurnByCommand.get(command.commandId);
     this.userTurnByCommand.delete(command.commandId);
+    if (task.status === 'waiting_user' && round.waitReason === 'confirm_execute') {
+      if (isConfirmExecuteChat(command.instruction) || command.composerIntent === 'chat') {
+        return this.dismissParkedConfirmExecute(task, command.commandId);
+      }
+      if (isConfirmExecuteGo(command.instruction) || command.composerIntent === 'execute') {
+        return this.beginParkedExecute(task, command);
+      }
+    }
     if (classified?.kind === 'stop') {
       return this.cancel(task, command.commandId, classified.userVisibleText || '好的，已停止。');
+    }
+    if (task.status === 'waiting_user' && round.waitReason === 'confirm_execute') {
+      return this.reject(task, command.commandId, 'not_executable', '请选仅聊天或执行。');
     }
     if (classified?.kind === 'reply' || classified?.kind === 'clarify') {
       return this.reject(
@@ -1091,6 +1353,8 @@ export class TaskManager {
       );
     }
 
+    const inFlightStop = this.runtimeStops.get(task.id);
+    if (inFlightStop) await inFlightStop;
     const previousStatus = task.status;
     const roundId = crypto.randomUUID();
     const now = this.deps.now();
@@ -1122,6 +1386,15 @@ export class TaskManager {
         void this.runDriver(task.id, driver, roundId);
       }
     }
+    return ack;
+  }
+
+  private async dismissParkedConfirmExecute(task: TaskSession, commandId: string): Promise<CommandAck> {
+    const ack = this.accept(task, commandId, CONFIRM_EXECUTE_CHAT_REPLY);
+    this.instructions.delete(task.id);
+    this.accepted.delete(task.id);
+    this.pendingConfirmArtifacts.delete(task.id);
+    await deleteTask(task.id);
     return ack;
   }
 
@@ -1288,7 +1561,7 @@ export class TaskManager {
         return this.executorMissionPlan(task);
       },
       reportLoopPhase: async (roundId, event) => {
-        await this.applyLoopPhase(taskId, roundId, event.phase, event.step);
+        await this.applyLoopPhase(taskId, roundId, event);
       },
       recordObservedPage: async (roundId, observation) =>
         this.recordVerifiedPageFromObservation(taskId, roundId, observation),
@@ -1363,17 +1636,45 @@ export class TaskManager {
           }
           resolvedArgs = { ...(resolvedArgs as Record<string, unknown>), target_digest: observed.targetDigest };
         }
+        if (action.name() === 'close_tab') {
+          const tabId = this.readNumberField(resolvedArgs, 'tab_id') ?? task.activeTabId;
+          const explicitClose = this.instructionRequestsCloseTab(this.instructions.get(taskId) ?? '');
+          const taskOwned = this.deps.isTaskOwnedTab?.(tabId) !== false;
+          if (!taskOwned) {
+            const initiallyBoundTabId = task.targetRefs.find(ref => ref.kind === 'page')?.tabId ?? task.activeTabId;
+            if (!explicitClose || tabId !== initiallyBoundTabId) {
+              return this.blockTabClose(taskId, roundId, resolvedArgs);
+            }
+            this.deps.authorizeUnownedTabClose?.(tabId);
+          }
+        }
+        const preopenedTarget = await this.preopenedIndependentTarget(taskId, roundId, action.name(), resolvedArgs);
+        if (preopenedTarget) {
+          const reused = await this.reusePreopenedIndependentTab(taskId, roundId, preopenedTarget);
+          if (reused) return reused;
+        }
         const result = await dispatcher.dispatch({
           taskId,
           roundId,
           action,
           rawArgs: resolvedArgs,
         });
-        if (result.targetRef) await this.persistTarget(taskId, roundId, result.targetRef);
-        if (result.actionResult.error === 'media_target_missing') {
-          await this.persistMediaWait(taskId, roundId, 'target_missing');
-        } else if (result.actionResult.error === 'media_target_ambiguous') {
-          await this.persistMediaWait(taskId, roundId, 'target_ambiguous');
+        if (result.targetRef) {
+          const taskOwned =
+            result.targetRef.kind === 'page' && this.deps.isTaskOwnedTab?.(result.targetRef.tabId) === true;
+          await this.persistTarget(
+            taskId,
+            roundId,
+            taskOwned ? { ...result.targetRef, taskOwned: true } : result.targetRef,
+          );
+        }
+        if (result.actionResult.error === 'media_target_missing' || result.actionResult.error === 'target_missing') {
+          await this.persistTargetWait(taskId, roundId, 'target_missing');
+        } else if (
+          result.actionResult.error === 'media_target_ambiguous' ||
+          result.actionResult.error === 'target_ambiguous'
+        ) {
+          await this.persistTargetWait(taskId, roundId, 'target_ambiguous', result.actionResult.waitAsk);
         } else if (!result.actionResult.error && result.attempt.state === 'observed') {
           const artifact = result.actionResult.artifact;
           if (artifact) {
@@ -1394,6 +1695,112 @@ export class TaskManager {
         return result;
       },
     };
+  }
+
+  private async preopenedIndependentTarget(
+    taskId: string,
+    roundId: string,
+    actionName: string,
+    rawArgs: unknown,
+  ): Promise<BrowserTargetRef | undefined> {
+    if (actionName !== 'open_tab' && actionName !== 'go_to_url') return undefined;
+    const url = this.readStringField(rawArgs, 'url');
+    if (!url) return undefined;
+    const requested = await redactedHttpUrlIdentity(url);
+    if (!requested) return undefined;
+    return this.preopenedIndependentTargets
+      .get(this.roundKey(taskId, roundId))
+      ?.find(
+        target =>
+          target.normalizedUrl === requested.normalizedUrl &&
+          target.queryIdentityDigest === requested.queryIdentityDigest,
+      );
+  }
+
+  private async reusePreopenedIndependentTab(
+    taskId: string,
+    roundId: string,
+    target: BrowserTargetRef,
+  ): Promise<DispatchResult | null> {
+    try {
+      await this.deps.switchTab(target.tabId);
+    } catch {
+      this.forgetPreopenedIndependentTarget(taskId, roundId, target);
+      return null;
+    }
+    try {
+      const tab = await chrome.tabs.get(target.tabId);
+      const live = await redactedHttpUrlIdentity(tab.url || tab.pendingUrl || '');
+      if (
+        !live ||
+        live.normalizedUrl !== target.normalizedUrl ||
+        live.queryIdentityDigest !== target.queryIdentityDigest
+      ) {
+        this.forgetPreopenedIndependentTarget(taskId, roundId, target);
+        return null;
+      }
+    } catch {
+      this.forgetPreopenedIndependentTarget(taskId, roundId, target);
+      return null;
+    }
+    const now = this.deps.now();
+    const args = { tab_id: target.tabId };
+    const display = { actionName: 'switch_tab', args, urlOrigin: target.urlOrigin };
+    const attempt: ActionAttempt = {
+      id: crypto.randomUUID(),
+      roundId,
+      actionName: 'switch_tab',
+      effect: 'reversible',
+      argsDigest: await sha256(JSON.stringify(args)),
+      displaySummary: buildAttemptDisplaySummary(display),
+      targetLabel: buildAttemptTargetLabel(display),
+      ...(target.normalizedUrl ? { targetUrl: target.normalizedUrl } : {}),
+      state: 'observed',
+      proposedAt: now,
+      executingAt: now,
+      observedAt: now,
+    };
+    await this.persistAttempt(taskId, attempt);
+    await this.persistTarget(taskId, roundId, { ...target, observedAt: now });
+    return {
+      actionResult: new ActionResult({
+        extractedContent: `Reused pre-opened tab_id=${target.tabId}; inspect its current page before answering.`,
+        includeInMemory: true,
+        success: true,
+      }),
+      attempt,
+      targetRef: target,
+      evidence: [],
+    };
+  }
+
+  private async blockTabClose(taskId: string, roundId: string, rawArgs: unknown): Promise<DispatchResult> {
+    const now = this.deps.now();
+    const display = { actionName: 'close_tab', args: rawArgs };
+    const attempt: ActionAttempt = {
+      id: crypto.randomUUID(),
+      roundId,
+      actionName: 'close_tab',
+      effect: 'reversible',
+      argsDigest: await sha256(JSON.stringify(rawArgs)),
+      displaySummary: buildAttemptDisplaySummary(display),
+      targetLabel: buildAttemptTargetLabel(display),
+      state: 'blocked',
+      proposedAt: now,
+    };
+    await this.persistAttempt(taskId, attempt);
+    return { actionResult: new ActionResult({ error: 'tab_not_owned_by_task' }), attempt, evidence: [] };
+  }
+
+  private rememberPreopenedIndependentTargets(taskId: string, roundId: string, targets: BrowserTargetRef[]): void {
+    if (targets.length > 0) this.preopenedIndependentTargets.set(this.roundKey(taskId, roundId), targets);
+  }
+
+  private forgetPreopenedIndependentTarget(taskId: string, roundId: string, target: BrowserTargetRef): void {
+    const key = this.roundKey(taskId, roundId);
+    const remaining = (this.preopenedIndependentTargets.get(key) ?? []).filter(item => item.id !== target.id);
+    if (remaining.length > 0) this.preopenedIndependentTargets.set(key, remaining);
+    else this.preopenedIndependentTargets.delete(key);
   }
 
   /**
@@ -1539,7 +1946,7 @@ export class TaskManager {
     await this.persistAttempt(taskId, attempt);
     attempt = { ...attempt, state: 'blocked' };
     await this.persistAttempt(taskId, attempt);
-    await this.persistMediaWait(taskId, roundId, reason);
+    await this.persistTargetWait(taskId, roundId, reason);
     return {
       actionResult: new ActionResult({
         error: reason === 'target_ambiguous' ? 'media_target_ambiguous' : 'media_target_missing',
@@ -1549,15 +1956,17 @@ export class TaskManager {
     };
   }
 
-  private async persistMediaWait(
+  private async persistTargetWait(
     taskId: string,
     roundId: string,
     reason: 'target_missing' | 'target_ambiguous',
+    waitAsk?: { prompt: string; options: Array<{ label: string; sendText: string }> } | null,
   ): Promise<void> {
     await this.queueTransition(async () => {
       const task = await getTask(taskId);
-      if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return;
-      await this.persistWaitingUser(task, this.currentRound(task), reason);
+      if (!task || task.currentRoundId !== roundId) return;
+      if (task.status !== 'running' && task.status !== 'waiting_user') return;
+      await this.persistWaitingUser(task, this.currentRound(task), reason, waitAsk);
     });
   }
 
@@ -1569,21 +1978,44 @@ export class TaskManager {
     await this.persistAttempt(taskId, createObservePhaseAttempt(roundId, this.deps.now()));
   }
 
-  private async applyLoopPhase(taskId: string, roundId: string, phase: LoopPhaseName, step: number): Promise<void> {
+  private async applyLoopPhase(
+    taskId: string,
+    roundId: string,
+    event: {
+      phase: LoopPhaseName;
+      step: number;
+      detail?: string;
+      findings?: AttemptFinding[];
+      targetUrl?: string;
+    },
+  ): Promise<void> {
     const task = await getTask(taskId);
     if (!task || task.currentRoundId !== roundId) return;
     const round = task.rounds.find(item => item.id === roundId);
     if (!round) return;
-    const { changed } = attemptsAfterLoopPhase({
+    const { changed, pageReading } = attemptsAfterLoopPhase({
       attempts: round.attempts,
-      phase,
-      step,
+      phase: event.phase,
+      step: event.step,
       roundId,
       now: this.deps.now(),
+      detail: event.detail,
+      findings: event.findings,
+      targetUrl: event.targetUrl,
     });
     for (const attempt of changed) {
       await this.persistAttempt(taskId, attempt);
     }
+    if (!pageReading) return;
+    await this.queueTransition(async () => {
+      const current = await getTask(taskId);
+      const currentRound = current?.rounds.find(item => item.id === roundId);
+      if (!current || !currentRound || current.currentRoundId !== roundId) return;
+      if (currentRound.pageReading === pageReading) return;
+      currentRound.pageReading = pageReading;
+      current.revision += 1;
+      await this.persist(current);
+    });
   }
 
   private async persistAttempt(taskId: string, attempt: ActionAttempt): Promise<void> {
@@ -1668,6 +2100,7 @@ export class TaskManager {
       JSON.stringify({
         tabId: current.activeTabId,
         normalizedUrl: identity.normalizedUrl,
+        queryIdentityDigest: identity.queryIdentityDigest,
         title,
       }),
     );
@@ -1737,7 +2170,11 @@ export class TaskManager {
       const urls = instructionUrlsStillToOpen(deriveInstructionUrlPlan(instruction), alreadyOpen);
       if (urls.length === 0) return;
       const opened = await this.openIndependentTabsViaContext(urls);
-      await this.recordOpenedIndependentTabs(taskId, roundId, opened);
+      this.rememberPreopenedIndependentTargets(
+        taskId,
+        roundId,
+        await this.recordOpenedIndependentTabs(taskId, roundId, opened),
+      );
     } catch {
       // Opening is best-effort. The loop still runs; a failed page is not a task failure.
     }
@@ -1786,7 +2223,8 @@ export class TaskManager {
     taskId: string,
     roundId: string,
     opened: IndependentTabOpenAttempt[],
-  ): Promise<void> {
+  ): Promise<BrowserTargetRef[]> {
+    const targets: BrowserTargetRef[] = [];
     for (const item of opened) {
       if (isIndependentTabOpenFailure(item)) continue;
       const records = await independentTabRecords({
@@ -1797,7 +2235,53 @@ export class TaskManager {
       if (!records) continue;
       await this.persistTarget(taskId, roundId, records.target);
       await this.persistAttempt(taskId, records.attempt);
+      targets.push(records.target);
     }
+    return targets;
+  }
+
+  private async instructionIsVerifiedTitleOnlyTask(instruction: string): Promise<boolean> {
+    const occurrences = extractInstructionUrlOccurrences(instruction);
+    if (!instructionAsksVerifiedTitles(instruction) || occurrences.length === 0) return false;
+    const withoutUrls = occurrences
+      .sort((left, right) => right.start - left.start)
+      .reduce((text, occurrence) => text.slice(0, occurrence.start) + text.slice(occurrence.end), instruction);
+    const remainder = withoutUrls
+      .replace(
+        /不要跟随|不跟随|无需跟随|打开|访问|进入|前往|然后|并且|以及|和|告诉我|告诉|写出|列出|确认|读取|页面|网页|标题|分别|每个|各自|请/gi,
+        ' ',
+      )
+      .replace(
+        /\b(?:open|visit|navigate|go|to|and|then|tell|me|write|list|confirm|read|the|title|titles|of|each|page|pages|do|not|follow|following|without|please)\b/gi,
+        ' ',
+      )
+      .replace(/[\s,.;:!?，。；：！？、()（）]+/g, '');
+    if (remainder) return false;
+    const identities = await requestedTitleIdentities(instruction);
+    const variantsByUrl = new Map<string, Set<string>>();
+    for (const identity of identities) {
+      const variants = variantsByUrl.get(identity.normalizedUrl) ?? new Set<string>();
+      variants.add(provenanceIdentityKey(identity));
+      variantsByUrl.set(identity.normalizedUrl, variants);
+    }
+    return [...variantsByUrl.values()].some(variants => variants.size > 1);
+  }
+
+  private async completeVerifiedTitleOnlyTask(taskId: string, roundId: string, instruction: string): Promise<boolean> {
+    if (!(await this.instructionIsVerifiedTitleOnlyTask(instruction))) return false;
+    let completed = false;
+    await this.queueTransition(async () => {
+      const task = await getTask(taskId);
+      if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return;
+      const evidence = this.visitedPageEvidence(task);
+      const answer = await this.verifiedTitleDelivery(instruction, evidence);
+      if (!answer || !(await checkInstructionDeliverable(instruction, answer, evidence)).passed) return;
+      const round = this.currentRound(task);
+      delete round.waitReason;
+      delete round.failureCategory;
+      completed = await this.persistMatchingResult(task, round, [], { kind: 'summary', body: answer });
+    });
+    return completed;
   }
 
   private async persistTarget(
@@ -2060,19 +2544,39 @@ export class TaskManager {
     this.dispatchers.get(taskId)?.interrupt();
   }
 
-  private async stopTaskRuntime(taskId: string): Promise<void> {
+  private stopTaskRuntime(taskId: string): Promise<void> {
+    const inFlight = this.runtimeStops.get(taskId);
+    if (inFlight) return inFlight;
+
+    const stop = this.stopTaskRuntimeOnce(taskId);
+    this.runtimeStops.set(taskId, stop);
+    const clear = () => {
+      if (this.runtimeStops.get(taskId) === stop) this.runtimeStops.delete(taskId);
+    };
+    void stop.then(clear, clear);
+    return stop;
+  }
+
+  private async stopTaskRuntimeOnce(taskId: string): Promise<void> {
     this.interruptTaskRuntime(taskId);
     const driver = this.drivers.get(taskId);
     this.drivers.delete(taskId);
     this.dispatchers.delete(taskId);
     this.instructions.delete(taskId);
+    for (const key of this.preopenedIndependentTargets.keys()) {
+      if (key.startsWith(`${taskId}:`)) this.preopenedIndependentTargets.delete(key);
+    }
     for (const key of this.lockedCriteriaRounds) {
       if (key.startsWith(`${taskId}:`)) this.lockedCriteriaRounds.delete(key);
     }
     for (const key of this.unsafeSkillCriteriaRounds) {
       if (key.startsWith(`${taskId}:`)) this.unsafeSkillCriteriaRounds.delete(key);
     }
-    if (driver) await driver.stop();
+    try {
+      if (driver) await driver.stop();
+    } finally {
+      await this.deps.cleanupBrowserContext?.();
+    }
   }
 
   private async runCurrentRound(taskId: string): Promise<void> {
@@ -2083,6 +2587,10 @@ export class TaskManager {
     try {
       let task = await getTask(taskId);
       if (!task || task.status !== 'running') return;
+      await this.deps.beginTaskTabGroup?.(task.plan?.goal || task.goalSummary || '任务', task.tabGroupId, false);
+      for (const target of task.targetRefs) {
+        if (target.kind === 'page' && target.taskOwned) await this.deps.registerTaskOwnedTab?.(target.tabId);
+      }
       await this.deps.switchTab(task.activeTabId);
 
       task = await getTask(taskId);
@@ -2109,6 +2617,7 @@ export class TaskManager {
 
       const roundId = round.id;
       await this.prepareIndependentInstructionTabs(taskId, roundId, instruction);
+      if (await this.completeVerifiedTitleOnlyTask(taskId, roundId, instruction)) return;
       await this.ensureLiveObserveAttempt(taskId, roundId);
       const isSkillRun = task.sourceSkillId !== undefined;
       // Freeze instruction-derived success text before the agent acts so baseline is pre-submit.
@@ -2177,6 +2686,7 @@ export class TaskManager {
         task.revision += 1;
         await this.persist(task);
       });
+      await this.stopTaskRuntime(taskId);
     } finally {
       if (this.launches.get(taskId) === launch) this.launches.delete(taskId);
     }
@@ -2695,6 +3205,30 @@ export class TaskManager {
   }
 
   /**
+   * A page title is already a verified observation, so do not fail a title
+   * request solely because the executor summarized the navigation as "opened".
+   * This deliberately requires every literal requested URL to have a recorded
+   * title; it never turns a URL-only visit into a made-up answer.
+   */
+  private async verifiedTitleDelivery(
+    instruction: string,
+    evidenceInputs?: Iterable<DeliverableEvidenceInput>,
+  ): Promise<string> {
+    if (!instructionAsksVerifiedTitles(instruction)) return '';
+    const requested = await requestedTitleIdentities(instruction);
+    const evidence = await pageEvidence(evidenceInputs);
+    const pages =
+      requested.length > 0
+        ? requested.map(identity =>
+            evidence.find(page => provenanceIdentityKey(page) === provenanceIdentityKey(identity)),
+          )
+        : [latestPageEvidence(evidence)];
+    const titles = pages.map(page => page?.title?.replace(/\s+/g, ' ').trim() ?? '');
+    if (titles.some(title => !title)) return '';
+    return `页面标题：${titles.join('；')}`;
+  }
+
+  /**
    * A text artifact is allowed to carry the chat deliverable, but mere artifact
    * existence is not enough. Prefer the first candidate that satisfies the same
    * instruction-derived contract used for ordinary model summaries.
@@ -2708,6 +3242,8 @@ export class TaskManager {
     const artifactTexts = artifacts.map(artifact => this.textFromArtifact(artifact)).filter(Boolean);
     const candidates = [summary.trim(), ...artifactTexts];
     if (artifactTexts.length > 1) candidates.push(artifactTexts.join('\n'));
+    const verifiedTitle = await this.verifiedTitleDelivery(instruction, pageEvidence);
+    if (verifiedTitle) candidates.push(verifiedTitle);
     for (const candidate of candidates) {
       if ((await checkInstructionDeliverable(instruction, candidate, pageEvidence)).passed) return candidate;
     }
@@ -3365,15 +3901,21 @@ export class TaskManager {
   }
 
   private instructionRequestsCloseTab(instruction: string): boolean {
-    const text = instruction.replace(/\s+/g, ' ').trim();
+    const text = instruction
+      .replace(/@当前页（[^）]*）/g, '@当前页')
+      .replace(/\s+/g, ' ')
+      .trim();
     if (!text) return false;
-    return (
-      /关掉(这个)?(页|标签|标签页|tab)?/i.test(text) ||
-      /关闭(这个)?(页|标签|标签页|窗口)/.test(text) ||
-      /关页/.test(text) ||
-      /close\s+(this\s+)?(tab|page|window)/i.test(text) ||
-      /close\s+the\s+(current\s+)?(tab|page)/i.test(text)
-    );
+    const closePattern =
+      /关掉(这个)?(页|标签|标签页|tab)?|关闭(这个)?(页|标签|标签页|窗口)|关页|close\s+(?:(?:this|the|current)\s+)*(?:tab|page|window)/gi;
+    for (const match of text.matchAll(closePattern)) {
+      const prefix = text.slice(Math.max(0, (match.index ?? 0) - 64), match.index ?? 0);
+      const negated =
+        /(?:不要|别|无需|禁止|请勿)[^，。；！？,.!?;]{0,32}$/i.test(prefix) ||
+        /\b(?:do\s+not|don't|never)\b[^,.!?;]{0,48}$/i.test(prefix);
+      if (!negated) return true;
+    }
+    return false;
   }
 
   private instructionRequestsDownload(instruction: string): boolean {
@@ -3660,10 +4202,14 @@ export class TaskManager {
     task: TaskSession,
     round: TaskRound,
     reason: TaskRound['waitReason'],
+    waitAsk?: { prompt: string; options: Array<{ label: string; sendText: string }> } | null,
   ): Promise<void> {
     task.status = 'waiting_user';
     round.status = 'waiting_user';
     round.waitReason = reason;
+    if (waitAsk && waitAsk.options.length >= 2) {
+      round.waitAsk = waitAsk;
+    }
     task.revision += 1;
     await this.persist(task);
   }
@@ -3862,7 +4408,10 @@ export class TaskManager {
       verifiedStepRecordsEnabled(instructionForReceipt) &&
       (instructionAsksVerifiedTitles(instructionForReceipt) || instructionAsksVerifiedQuote(instructionForReceipt))
     ) {
-      const verifiedRecords = verifiedPageRecordsFromTargets(task.targetRefs);
+      const verifiedRecords = await verifiedRecordsForInstruction(
+        instructionForReceipt,
+        this.visitedPageEvidence(task),
+      );
       const verified = checkVerifiedRecordDeliverable(instructionForReceipt, visibleAnswer, verifiedRecords, {
         requireRecords: instructionAsksVerifiedTitles(instructionForReceipt),
       });

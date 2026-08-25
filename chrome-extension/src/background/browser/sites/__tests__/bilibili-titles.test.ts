@@ -62,9 +62,7 @@ describe('title noise filter (harvest clean list)', () => {
     expect(isBilibiliTitleNoise('7645101:54')).toBe(true);
     expect(isBilibiliTitleNoise('4.0万3903:15')).toBe(true);
     expect(isBilibiliTitleNoise('3:15')).toBe(true);
-    expect(isBilibiliTitleNoise('【为了追数学老师妹子做的AI工具】llm接入geogebra的最近一些进展 | GeoChat')).toBe(
-      false,
-    );
+    expect(isBilibiliTitleNoise('【为了追数学老师妹子做的AI工具】llm接入geogebra的最近一些进展 | GeoChat')).toBe(false);
   });
 
   it('cleanBilibiliTitles keeps real titles only', () => {
@@ -92,9 +90,7 @@ describe('extractBilibiliTitlesFromHtml', () => {
 
   it('extracts favlist title and strips stats noise', () => {
     const titles = extractBilibiliTitlesFromHtml(FAV_HTML);
-    expect(titles).toEqual([
-      '【为了追数学老师妹子做的AI工具】llm接入geogebra的最近一些进展 | GeoChat',
-    ]);
+    expect(titles).toEqual(['【为了追数学老师妹子做的AI工具】llm接入geogebra的最近一些进展 | GeoChat']);
   });
 
   it('returns empty without card markup', () => {

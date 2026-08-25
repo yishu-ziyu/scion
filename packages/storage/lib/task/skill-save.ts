@@ -20,21 +20,14 @@ function key(taskId: string, roundId: string): string {
   return `${taskId}:${roundId}`;
 }
 
-export async function putSkillSaveMeta(
-  taskId: string,
-  roundId: string,
-  meta: SkillSaveMeta,
-): Promise<void> {
+export async function putSkillSaveMeta(taskId: string, roundId: string, meta: SkillSaveMeta): Promise<void> {
   await storage.set(previous => ({
     ...previous,
     [key(taskId, roundId)]: structuredClone(meta),
   }));
 }
 
-export async function getSkillSaveMeta(
-  taskId: string,
-  roundId: string,
-): Promise<SkillSaveMeta | null> {
+export async function getSkillSaveMeta(taskId: string, roundId: string): Promise<SkillSaveMeta | null> {
   return (await storage.get())[key(taskId, roundId)] ?? null;
 }
 

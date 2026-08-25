@@ -23,7 +23,8 @@ describe('side-panel task lifecycle', () => {
       backgroundSource.indexOf('// Cleanup when tab is closed'),
     );
 
-    expect(debuggerBlock).toContain("reason === 'canceled_by_user'");
-    expect(debuggerBlock).toContain('taskManager.interruptActive()');
+    expect(debuggerBlock).toContain('createDebuggerDetachHandler');
+    expect(debuggerBlock).toContain('interruptActive: () => taskManager.interruptActive()');
+    expect(debuggerBlock).not.toContain('cleanupBrowserContext: () => browserContext.cleanup()');
   });
 });

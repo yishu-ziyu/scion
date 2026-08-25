@@ -120,6 +120,8 @@ export class ActionResult {
   interactedElement: DOMHistoryElement | null;
   artifact: TaskArtifact | null;
   findings: Array<{ title: string; url?: string; host?: string }>;
+  /** Observed named choices when bind was ambiguous. Never selectors or page HTML. */
+  waitAsk: { prompt: string; options: Array<{ label: string; sendText: string }> } | null;
 
   constructor(params: Partial<ActionResult> = {}) {
     this.isDone = params.isDone ?? false;
@@ -130,6 +132,7 @@ export class ActionResult {
     this.includeInMemory = params.includeInMemory ?? false;
     this.artifact = params.artifact ?? null;
     this.findings = params.findings ?? [];
+    this.waitAsk = params.waitAsk ?? null;
   }
 }
 

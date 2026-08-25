@@ -12,8 +12,29 @@ import {
   type MentionPage,
 } from '../presentation/composer-mention';
 
+export type SendMessageResult = { delivered: true } | { delivered: false; feedback?: string };
+export type ComposerIntent = 'chat' | 'execute';
+export type SendMessageOptions = { execute?: boolean; retry?: boolean };
+
+export function sendOptionsFromComposerIntent(intent: ComposerIntent): { execute: boolean } {
+  return { execute: intent === 'execute' };
+}
+
+/** Keep ordinary instructions literal; only an explicit @当前页 token adds page context. */
+export function messageContentForChatInput(text: string, currentPage: MentionPage | null): string {
+  return expandCurrentPageMention(text, currentPage);
+}
+
+export function shouldClearComposerAfterDelivery(result: SendMessageResult): result is { delivered: true } {
+  return result.delivered;
+}
+
 interface ChatInputProps {
-  onSendMessage: (text: string, displayText?: string) => void;
+  onSendMessage: (
+    text: string,
+    displayText?: string,
+    options?: SendMessageOptions,
+  ) => SendMessageResult | Promise<SendMessageResult>;
   onStopTask: () => void;
   onMicClick?: () => void;
   isRecording?: boolean;
@@ -61,6 +82,8 @@ export default function ChatInput({
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
+  const [deliveryFeedback, setDeliveryFeedback] = useState<string | null>(null);
+  const [composerIntent, setComposerIntent] = useState<ComposerIntent>('execute');
   const isSendButtonDisabled = useMemo(
     () => disabled || (text.trim() === '' && attachedFiles.length === 0),
     [disabled, text, attachedFiles],
@@ -90,6 +113,7 @@ export default function ChatInput({
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newText = e.target.value;
     setText(newText);
+    setDeliveryFeedback(null);
     syncMentionMenu(newText, e.target.selectionStart ?? newText.length);
 
     // Resize textarea
@@ -137,12 +161,12 @@ export default function ChatInput({
   }, [attachmentMenuOpen]);
 
   const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
+    async (e: React.FormEvent) => {
       e.preventDefault();
       const trimmedText = text.trim();
 
       if (trimmedText || attachedFiles.length > 0) {
-        let messageContent = expandCurrentPageMention(trimmedText, currentPage);
+        let messageContent = messageContentForChatInput(trimmedText, currentPage);
         let displayContent = trimmedText;
 
         // Security: Clearly separate user input from file content
@@ -165,12 +189,21 @@ export default function ChatInput({
           displayContent = trimmedText ? `${trimmedText}\n\n${fileList}` : fileList;
         }
 
-        onSendMessage(messageContent, displayContent);
+        const result = await onSendMessage(
+          messageContent,
+          displayContent,
+          sendOptionsFromComposerIntent(composerIntent),
+        );
+        if (!shouldClearComposerAfterDelivery(result)) {
+          setDeliveryFeedback(result.feedback ?? '指令没有发送。输入已保留，请稍后再试。');
+          return;
+        }
+        setDeliveryFeedback(null);
         setText('');
         setAttachedFiles([]);
       }
     },
-    [text, attachedFiles, currentPage, onSendMessage],
+    [text, attachedFiles, currentPage, onSendMessage, composerIntent],
   );
 
   const handleKeyDown = useCallback(
@@ -383,6 +416,31 @@ export default function ChatInput({
             </span>
           </div>
 
+          <div
+            className="chijie-composer-intent"
+            role="radiogroup"
+            aria-label={t('chat_composer_intent')}
+            data-testid="composer-intent">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={composerIntent === 'chat'}
+              data-testid="composer-intent-chat"
+              disabled={disabled}
+              onClick={() => setComposerIntent('chat')}>
+              {t('chat_composer_chat')}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={composerIntent === 'execute'}
+              data-testid="composer-intent-execute"
+              disabled={disabled}
+              onClick={() => setComposerIntent('execute')}>
+              {t('chat_composer_execute')}
+            </button>
+          </div>
+
           {showStopButton ? (
             <button
               type="button"
@@ -403,6 +461,11 @@ export default function ChatInput({
             </button>
           )}
         </div>
+        {deliveryFeedback ? (
+          <p role="alert" data-testid="goal-send-feedback" className="chijie-prompt-feedback">
+            {deliveryFeedback}
+          </p>
+        ) : null}
       </div>
     </form>
   );

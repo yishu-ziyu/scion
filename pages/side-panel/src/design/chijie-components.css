@@ -31,13 +31,13 @@
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: var(--chijie-space-section);
+  gap: var(--chijie-space-4);
   max-height: none;
-  margin: 16px 16px 0;
-  padding: 24px 20px 20px;
+  margin: 0;
+  padding: 18px 16px 16px;
   overflow: auto;
-  border: 1px solid var(--chijie-border);
-  border-radius: var(--chijie-radius-xl);
+  border: 0;
+  border-radius: 0;
   background: var(--chijie-paper);
   color: var(--chijie-paper-ink);
   animation: chijie-surface-enter 180ms ease-out;
@@ -50,10 +50,10 @@
 }
 
 .chijie-paper-card[data-status='running'] {
-  margin: 10px 12px 0;
-  padding: 16px 16px 12px;
-  border-color: var(--chijie-border);
-  border-radius: 12px;
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  border-radius: 0;
 }
 
 .chijie-workspace {
@@ -65,7 +65,7 @@
 }
 
 .chijie-paper-card[data-attention='true'] {
-  border-color: #e8c98f;
+  border-top: 2px solid var(--chijie-warning);
 }
 
 .chijie-paper-card[data-status='completed'] {
@@ -74,7 +74,66 @@
 
 .chijie-paper-card[data-coverage='partial'],
 .chijie-paper-card[data-status='waiting_user'][data-coverage='partial'] {
-  border-color: #e8c98f;
+  border-top-color: var(--chijie-warning);
+}
+
+.chijie-run-presence {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--chijie-muted);
+  font-size: var(--chijie-text-xs);
+  line-height: 1.35;
+}
+
+.chijie-run-presence-state {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.chijie-run-presence-state strong {
+  color: var(--chijie-foreground);
+  font-size: var(--chijie-text-sm);
+  font-weight: var(--chijie-weight-semibold);
+}
+
+.chijie-run-presence-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--chijie-muted);
+}
+
+.chijie-run-presence[data-status='running'] .chijie-run-presence-dot {
+  background: var(--chijie-success);
+  animation: chijie-activity-pulse 900ms ease-in-out infinite alternate;
+}
+
+.chijie-run-presence[data-status='waiting_user'] .chijie-run-presence-dot,
+.chijie-run-presence[data-status='inputs_required'] .chijie-run-presence-dot,
+.chijie-run-presence[data-status='interrupted'] .chijie-run-presence-dot {
+  background: var(--chijie-warning);
+}
+
+.chijie-run-presence[data-status='failed'] .chijie-run-presence-dot {
+  background: var(--chijie-danger);
+}
+
+.chijie-run-presence[data-status='completed'] .chijie-run-presence-dot {
+  background: var(--chijie-success);
+}
+
+.chijie-run-presence-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--chijie-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chijie-surface-card {
@@ -282,13 +341,13 @@ summary:focus-visible,
 .chijie-progress-overview {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
 .chijie-stream {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
 }
 
 .chijie-stream-caption {
@@ -297,31 +356,6 @@ summary:focus-visible,
   font-size: var(--chijie-text-sm);
   font-weight: 400;
   line-height: 1.3;
-}
-
-.chijie-thinking-fold {
-  margin: 0;
-}
-
-.chijie-thinking-fold > summary {
-  cursor: pointer;
-  color: var(--chijie-muted);
-  font-size: var(--chijie-text-sm);
-  font-weight: 400;
-  list-style: none;
-}
-
-.chijie-thinking-fold > summary::-webkit-details-marker {
-  display: none;
-}
-
-.chijie-thinking-fold > p {
-  margin: 8px 0 0;
-  padding-left: 12px;
-  border-left: 2px solid var(--chijie-border-strong);
-  color: var(--chijie-ink-mid, #5c5c5c);
-  font-size: var(--chijie-text-md);
-  line-height: 1.65;
 }
 
 .chijie-search-board {
@@ -425,6 +459,15 @@ button.chijie-page-card:hover {
   line-height: 1.35;
 }
 
+.chijie-act-line {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--chijie-border-strong);
+  color: var(--chijie-ink-soft, #3d342c);
+  font-size: var(--chijie-text-md);
+  line-height: 1.5;
+}
+
 .chijie-system-note {
   margin: 0;
   color: var(--chijie-muted);
@@ -440,7 +483,7 @@ button.chijie-page-card:hover {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin: 10px 0 0;
+  margin: 16px 0 0;
 }
 
 .chijie-answer-sources ul {
@@ -469,6 +512,16 @@ button.chijie-page-card:hover {
 
 .chijie-answer-source {
   padding: 6px 0;
+}
+
+.chijie-answer-source-unavailable {
+  cursor: default;
+}
+
+.chijie-answer-source-unavailable small {
+  color: var(--chijie-muted);
+  font-size: var(--chijie-text-xs);
+  line-height: 1.35;
 }
 
 .chijie-answer-link {
@@ -1504,6 +1557,59 @@ button.chijie-page-card:hover {
   padding-top: 2px;
 }
 
+.chijie-process-disclosure {
+  border-top: 1px solid var(--chijie-border);
+}
+
+.chijie-process-disclosure > summary {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  color: var(--chijie-muted);
+  font-size: var(--chijie-text-sm);
+  font-weight: var(--chijie-weight-medium);
+  list-style: none;
+  cursor: pointer;
+}
+
+.chijie-process-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chijie-process-disclosure > summary small {
+  color: var(--chijie-muted);
+  font-family: var(--chijie-font-mono);
+  font-size: var(--chijie-text-xs);
+  font-weight: var(--chijie-weight-regular);
+}
+
+.chijie-process-disclosure-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chijie-process-disclosure-meta svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 160ms ease;
+}
+
+.chijie-process-disclosure[open] .chijie-process-disclosure-meta svg {
+  transform: rotate(180deg);
+}
+
+.chijie-process-disclosure[open] > summary {
+  color: var(--chijie-foreground);
+}
+
+.chijie-process-disclosure > .chijie-activity-panel {
+  padding: 4px 0 8px;
+}
+
 .chijie-activity-panel[data-secondary='true'] {
   opacity: 0.96;
 }
@@ -1768,25 +1874,63 @@ button.chijie-page-card:hover {
 .chijie-answer {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  animation: chijie-answer-in 180ms ease-out both;
+}
+
+.chijie-answer p.chijie-answer-section {
+  margin: 12px 0 0;
+  color: var(--chijie-foreground);
+  font-size: var(--chijie-text-md);
+  font-weight: var(--chijie-weight-semibold);
+  line-height: var(--chijie-leading-normal);
+}
+
+.chijie-answer p.chijie-answer-section:first-child {
+  margin-top: 0;
 }
 
 .chijie-answer p,
 .chijie-answer li {
   margin: 0;
-  font-size: 14px;
-  font-weight: 400;
+  color: var(--chijie-paper-ink);
+  font-size: var(--chijie-text-md);
+  font-weight: var(--chijie-weight-regular);
   line-height: 1.65;
 }
 
 .chijie-answer ul,
 .chijie-answer ol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin: 0;
   padding-left: 1.2em;
 }
 
+.chijie-answer .chijie-answer-sources,
+.chijie-answer .chijie-answer-sources p,
+.chijie-answer .chijie-answer-sources li {
+  color: var(--chijie-muted);
+  font-size: var(--chijie-text-sm);
+  font-weight: var(--chijie-weight-regular);
+}
+
+.chijie-answer .chijie-answer-sources ul {
+  padding-left: 0;
+}
+
 .chijie-answer strong {
-  font-weight: 600;
+  font-weight: var(--chijie-weight-semibold);
+}
+
+@keyframes chijie-answer-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .chijie-answer-copy {
@@ -1834,13 +1978,33 @@ button.chijie-page-card:hover {
 /* Deliverable slot: clickable / copyable result payload (design/006 §5 #2). */
 .chijie-completion-deliverable {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
-  padding: 8px 9px;
-  border: 1px dashed #a9c7bb;
-  border-radius: var(--chijie-radius-lg);
-  background: rgba(255, 255, 255, 0.55);
+  align-items: center;
+  margin-top: 6px;
+}
+
+.chijie-completion-deliverable .chijie-answer-copy {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--chijie-border-strong);
+  border-radius: var(--chijie-radius-pill);
+  background: var(--chijie-surface);
+  color: var(--chijie-foreground);
+  font-size: var(--chijie-text-sm);
+  font-weight: var(--chijie-weight-medium);
+}
+
+.chijie-completion-deliverable .chijie-answer-copy:hover {
+  border-color: var(--chijie-accent);
+  background: var(--chijie-accent-subtle);
+}
+
+.chijie-completion-deliverable .chijie-answer-copy svg {
+  width: 14px;
+  height: 14px;
 }
 
 .chijie-completion-deliverable-text {
@@ -2053,6 +2217,52 @@ button.chijie-page-card:hover {
   line-height: 1.5;
 }
 
+.chijie-wait-ask-prompt {
+  margin: 0;
+  color: var(--chijie-foreground);
+  font-size: var(--chijie-text-md);
+  font-weight: var(--chijie-weight-semibold);
+  line-height: var(--chijie-leading-normal);
+}
+
+.chijie-wait-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  animation: chijie-answer-in 180ms ease-out both;
+}
+
+.chijie-wait-ask-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chijie-wait-ask-options .chijie-btn-primary,
+.chijie-wait-ask-options .chijie-btn-secondary {
+  width: 100%;
+}
+
+.chijie-wait-compose-follow-up {
+  margin-top: 4px;
+  min-height: 36px;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: var(--chijie-muted);
+  font-family: var(--chijie-font-body);
+  font-size: var(--chijie-text-sm);
+  font-weight: var(--chijie-weight-regular);
+  line-height: 1.4;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chijie-wait-compose-follow-up:hover {
+  color: var(--chijie-foreground);
+}
+
 .chijie-interrupted-status {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
@@ -2172,6 +2382,10 @@ button.chijie-page-card:hover {
 }
 
 .chijie-chat-log[data-live='true'] {
+  display: none;
+}
+
+.chijie-chat-log[data-task-visible='true'] {
   display: none;
 }
 

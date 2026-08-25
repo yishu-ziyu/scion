@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  downloadJpegToDownloads,
-  jpegBase64ToDataUrl,
-  sanitizeScreenshotFilename,
-} from '../save-screenshot';
+import { downloadJpegToDownloads, jpegBase64ToDataUrl, sanitizeScreenshotFilename } from '../save-screenshot';
 
 describe('sanitizeScreenshotFilename', () => {
   it('adds .jpg and strips unsafe characters', () => {

@@ -25,6 +25,9 @@ vi.mock('@extension/storage/lib/task', () => {
     saveTask: async (task: { id: string }) => {
       store.sessions.set(task.id, structuredClone(task));
     },
+    deleteTask: async (id: string) => {
+      store.sessions.delete(id);
+    },
     putSkillSaveMeta: async (taskId: string, roundId: string, meta: { templates: unknown[]; unsafe: boolean }) => {
       skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
     },

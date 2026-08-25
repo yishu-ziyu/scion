@@ -23,13 +23,12 @@ export const CHEAP_STOP_TEXT = '好的，已停止。';
 
 const WHOLE_GREETING =
   /^(?:你好|您好|嗨+|哈喽|在吗|在不在|谢谢(?:你|您)?|感谢|早上好|晚上好|下午好|hi|hello|hey|thanks|thank\s+you|ok(?:ay)?|好的)[.!?。！？~]*$/i;
-const WHOLE_STOP = /^(?:停止|停下|停一下|取消|取消任务|停止任务|别做了|不要做了|停|stop|cancel)(?:吧|啊|呀)?[.!?。！？]*$/i;
+const WHOLE_STOP =
+  /^(?:停止|停下|停一下|取消|取消任务|停止任务|别做了|不要做了|停|stop|cancel)(?:吧|啊|呀)?[.!?。！？]*$/i;
 const BROWSER_VERB =
   /打开|开启|搜索|查找|点击|点开|填写|填入|播放|暂停|关闭|关掉|提取|摘录|滚动|跳转|前往|访问|\bopen\b|\bsearch\b|\bclick\b|\bfill\b|\bplay\b|\bpause\b|\bclose\b|\bextract\b|\bscroll\b|\bnavigate\b|go\s+to/i;
 
-export type ParseUserTurnResult =
-  | { ok: true; decision: UserTurnDecision }
-  | { ok: false; error: string };
+export type ParseUserTurnResult = { ok: true; decision: UserTurnDecision } | { ok: false; error: string };
 
 const KINDS = new Set<UserTurnKind>(['reply', 'clarify', 'execute', 'stop']);
 
@@ -96,9 +95,7 @@ export interface HistoryTurn {
   content: string;
 }
 
-export function historyTurnsFromMessages(
-  messages: Array<{ actor?: string; content?: string }>,
-): HistoryTurn[] {
+export function historyTurnsFromMessages(messages: Array<{ actor?: string; content?: string }>): HistoryTurn[] {
   return messages
     .filter(
       (message): message is { actor?: string; content: string } =>
@@ -115,17 +112,13 @@ export function historyTurnsFromMessages(
  * Reading the bound page requires browser observation even when the classifier
  * mistakenly writes a conversational acknowledgement.
  */
-export function enforcePageObservationInvariant(
-  latestUserText: string,
-  decision: UserTurnDecision,
-): UserTurnDecision {
+export function enforcePageObservationInvariant(latestUserText: string, decision: UserTurnDecision): UserTurnDecision {
   if (decision.kind === 'execute' || decision.kind === 'stop') return decision;
 
   const text = latestUserText.replace(/\s+/g, ' ').trim();
   const referencesPage =
-    /(?:当前|这个|本)(?:[^。！？!?]{0,20})?(?:页面|网页|网站|标签页)|(?:页面|网页)(?:上|中|展示|内容)/.test(
-      text,
-    ) || /\b(?:this|the|current)\s+(?:page|webpage|site|tab)\b/i.test(text);
+    /(?:当前|这个|本)(?:[^。！？!?]{0,20})?(?:页面|网页|网站|标签页)|(?:页面|网页)(?:上|中|展示|内容)/.test(text) ||
+    /\b(?:this|the|current)\s+(?:page|webpage|site|tab)\b/i.test(text);
   const requestsReading =
     /说明|描述|总结|摘要|概括|读取|读一下|提取|摘录|列出|展示的内容|是什么|有哪些/.test(text) ||
     /\b(?:summari[sz]e|describe|read|extract|quote|list|tell me|what(?:'s| is)|what are)\b/i.test(text);
@@ -215,11 +208,7 @@ export async function decideUserTurn(input: {
     const label = turn.role === 'user' ? '用户' : '助手';
     messages.push(new HumanMessage(`${label}：${turn.content}`));
   }
-  messages.push(
-    new HumanMessage(
-      `请判断用户最新这句话，只输出 JSON。\n用户：${latest}`,
-    ),
-  );
+  messages.push(new HumanMessage(`请判断用户最新这句话，只输出 JSON。\n用户：${latest}`));
 
   logger.info('deciding user turn', {
     provider: navigatorModel.provider,

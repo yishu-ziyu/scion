@@ -769,9 +769,9 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                 value={modelParameters[agentName].temperature}
                 onChange={e => handleParameterChange(agentName, 'temperature', Number.parseFloat(e.target.value))}
                 style={{
-                  background: `linear-gradient(to right, ${isDarkMode ? '#3b82f6' : '#60a5fa'} 0%, ${isDarkMode ? '#3b82f6' : '#60a5fa'} ${(modelParameters[agentName].temperature / 2) * 100}%, ${isDarkMode ? '#475569' : '#cbd5e1'} ${(modelParameters[agentName].temperature / 2) * 100}%, ${isDarkMode ? '#475569' : '#cbd5e1'} 100%)`,
+                  background: `linear-gradient(to right, var(--chijie-accent) 0%, var(--chijie-accent) ${(modelParameters[agentName].temperature / 2) * 100}%, var(--chijie-border-strong) ${(modelParameters[agentName].temperature / 2) * 100}%, var(--chijie-border-strong) 100%)`,
                 }}
-                className={`flex-1 ${isDarkMode ? 'accent-blue-500' : 'accent-blue-400'} h-1 appearance-none rounded-full`}
+                className="h-1 flex-1 appearance-none rounded-full accent-[var(--chijie-accent)]"
               />
               <div className="flex items-center space-x-2">
                 <span
@@ -818,9 +818,9 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                   value={modelParameters[agentName].topP}
                   onChange={e => handleParameterChange(agentName, 'topP', Number.parseFloat(e.target.value))}
                   style={{
-                    background: `linear-gradient(to right, ${isDarkMode ? '#3b82f6' : '#60a5fa'} 0%, ${isDarkMode ? '#3b82f6' : '#60a5fa'} ${modelParameters[agentName].topP * 100}%, ${isDarkMode ? '#475569' : '#cbd5e1'} ${modelParameters[agentName].topP * 100}%, ${isDarkMode ? '#475569' : '#cbd5e1'} 100%)`,
+                    background: `linear-gradient(to right, var(--chijie-accent) 0%, var(--chijie-accent) ${modelParameters[agentName].topP * 100}%, var(--chijie-border-strong) ${modelParameters[agentName].topP * 100}%, var(--chijie-border-strong) 100%)`,
                   }}
-                  className={`flex-1 ${isDarkMode ? 'accent-blue-500' : 'accent-blue-400'} h-1 appearance-none rounded-full`}
+                  className="h-1 flex-1 appearance-none rounded-full accent-[var(--chijie-accent)]"
                 />
                 <div className="flex items-center space-x-2">
                   <span
@@ -1140,7 +1140,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
       <div
         className={`rounded-lg border ${isDarkMode ? 'border-[var(--chijie-border)] bg-[var(--chijie-surface)]' : 'border-[var(--chijie-border)] bg-[var(--chijie-surface)]'} p-6 text-left `}>
         <h2
-          className={`mb-4 text-xl font-semibold ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-paper)]'}`}>
+          className={`mb-4 text-xl font-semibold ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
           {t('options_models_providers_header')}
         </h2>
         <div className="space-y-6">
@@ -1188,7 +1188,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
 
                   {/* Show message for newly added providers */}
                   {modifiedProviders.has(providerId) && !providersFromStorage.has(providerId) && (
-                    <div className={`mb-2 text-sm ${isDarkMode ? 'text-teal-300' : 'text-teal-700'}`}>
+                    <div className="mb-2 text-sm text-[var(--chijie-muted)]">
                       <p>{t('options_models_providers_setupInstructions')}</p>
                     </div>
                   )}
@@ -1319,7 +1319,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                       providerConfig.apiKey && (
                         <div className="ml-20 mt-1">
                           <p
-                            className={`break-words font-mono text-sm ${isDarkMode ? 'text-[var(--chijie-paper)]' : 'text-[var(--chijie-paper)]'}`}>
+                            className={`break-words font-mono text-sm ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
                             {providerConfig.apiKey}
                           </p>
                         </div>
@@ -1385,12 +1385,12 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                               ? (providerConfig.azureDeploymentNames || []).map((deploymentName: string) => (
                                   <div
                                     key={deploymentName}
-                                    className={`flex items-center rounded-full ${isDarkMode ? 'bg-[var(--chijie-surface-raised)] text-[var(--chijie-paper)]' : 'bg-[var(--chijie-accent-subtle)] text-[var(--chijie-paper)]'} px-2 py-1 text-sm`}>
+                                    className={`flex items-center rounded-full ${isDarkMode ? 'bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)]' : 'bg-[var(--chijie-accent-subtle)] text-[var(--chijie-foreground)]'} px-2 py-1 text-sm`}>
                                     <span>{deploymentName}</span>
                                     <button
                                       type="button"
                                       onClick={() => removeAzureDeployment(providerId, deploymentName)}
-                                      className={`ml-1 font-bold ${isDarkMode ? 'text-[var(--chijie-muted)] hover:text-[var(--chijie-paper)]' : 'text-[var(--chijie-paper)] hover:text-[var(--chijie-paper)]'}`}
+                                      className={`ml-1 font-bold ${isDarkMode ? 'text-[var(--chijie-muted)] hover:text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)] hover:text-[var(--chijie-foreground)]'}`}
                                       aria-label={`Remove ${deploymentName}`}>
                                       ×
                                     </button>
@@ -1465,12 +1465,12 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                                   providerConfig.modelNames.map(model => (
                                     <div
                                       key={model}
-                                      className={`flex items-center rounded-full ${isDarkMode ? 'bg-[var(--chijie-surface-raised)] text-[var(--chijie-paper)]' : 'bg-[var(--chijie-accent-subtle)] text-[var(--chijie-paper)]'} px-2 py-1 text-sm`}>
+                                      className={`flex items-center rounded-full ${isDarkMode ? 'bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)]' : 'bg-[var(--chijie-accent-subtle)] text-[var(--chijie-foreground)]'} px-2 py-1 text-sm`}>
                                       <span>{model}</span>
                                       <button
                                         type="button"
                                         onClick={() => removeModel(providerId, model)}
-                                        className={`ml-1 font-bold ${isDarkMode ? 'text-[var(--chijie-muted)] hover:text-[var(--chijie-paper)]' : 'text-[var(--chijie-paper)] hover:text-[var(--chijie-paper)]'}`}
+                                        className={`ml-1 font-bold ${isDarkMode ? 'text-[var(--chijie-muted)] hover:text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)] hover:text-[var(--chijie-foreground)]'}`}
                                         aria-label={`Remove ${model}`}>
                                         ×
                                       </button>
@@ -1510,12 +1510,12 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                                   return models.map(model => (
                                     <div
                                       key={model}
-                                      className={`flex items-center rounded-full ${isDarkMode ? 'bg-[var(--chijie-surface-raised)] text-[var(--chijie-paper)]' : 'bg-[var(--chijie-accent-subtle)] text-[var(--chijie-paper)]'} px-2 py-1 text-sm`}>
+                                      className={`flex items-center rounded-full ${isDarkMode ? 'bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)]' : 'bg-[var(--chijie-accent-subtle)] text-[var(--chijie-foreground)]'} px-2 py-1 text-sm`}>
                                       <span>{model}</span>
                                       <button
                                         type="button"
                                         onClick={() => removeModel(providerId, model)}
-                                        className={`ml-1 font-bold ${isDarkMode ? 'text-[var(--chijie-muted)] hover:text-[var(--chijie-paper)]' : 'text-[var(--chijie-paper)] hover:text-[var(--chijie-paper)]'}`}
+                                        className={`ml-1 font-bold ${isDarkMode ? 'text-[var(--chijie-muted)] hover:text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)] hover:text-[var(--chijie-foreground)]'}`}
                                         aria-label={`Remove ${model}`}>
                                         ×
                                       </button>
@@ -1561,7 +1561,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                             href="https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-allow-additional-web-origins-to-access-ollama"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className={`ml-1 ${isDarkMode ? 'text-[var(--chijie-muted)] hover:text-[var(--chijie-muted)]' : 'text-[var(--chijie-paper)] hover:text-[var(--chijie-paper)]'}`}>
+                            className={`ml-1 ${isDarkMode ? 'text-[var(--chijie-muted)] hover:text-[var(--chijie-muted)]' : 'text-[var(--chijie-foreground)] hover:text-[var(--chijie-foreground)]'}`}>
                             {t('options_models_providers_ollama_learnMore')}
                           </a>
                         </p>
@@ -1587,8 +1587,8 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
               onClick={() => setIsProviderSelectorOpen(prev => !prev)}
               className={`flex w-full items-center justify-center font-medium ${
                 isDarkMode
-                  ? 'border-[var(--chijie-accent)] bg-[var(--chijie-accent)] text-[var(--chijie-foreground)] hover:bg-[var(--chijie-accent)]'
-                  : 'border-[var(--chijie-border)] bg-[var(--chijie-accent-subtle)] text-[var(--chijie-paper)] hover:bg-[var(--chijie-accent-subtle)]'
+                  ? 'border-[var(--chijie-accent)] bg-[var(--chijie-accent)] text-white hover:bg-[#2e2c29]'
+                  : 'border-[var(--chijie-border)] bg-[var(--chijie-accent-subtle)] text-[var(--chijie-foreground)] hover:bg-[var(--chijie-accent-subtle)]'
               }`}>
               <span className="mr-2 text-sm">+</span>{' '}
               <span className="text-sm">{t('options_models_addNewProvider')}</span>
@@ -1619,7 +1619,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                         className={`flex w-full items-center px-4 py-3 text-left text-sm ${
                           isDarkMode
                             ? 'hover:bg-[var(--chijie-accent)]/30 text-[var(--chijie-muted)] hover:text-[var(--chijie-foreground)]'
-                            : 'text-[var(--chijie-paper)] hover:bg-[var(--chijie-accent-subtle)] hover:text-[var(--chijie-paper)]'
+                            : 'text-[var(--chijie-foreground)] hover:bg-[var(--chijie-accent-subtle)] hover:text-[var(--chijie-foreground)]'
                         } transition-colors duration-150`}
                         onClick={() => handleProviderSelection(type)}>
                         <span className="font-medium">{getDefaultDisplayNameFromProviderId(type)}</span>
@@ -1632,7 +1632,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
                     className={`flex w-full items-center px-4 py-3 text-left text-sm ${
                       isDarkMode
                         ? 'hover:bg-[var(--chijie-accent)]/30 text-[var(--chijie-muted)] hover:text-[var(--chijie-foreground)]'
-                        : 'text-[var(--chijie-paper)] hover:bg-[var(--chijie-accent-subtle)] hover:text-[var(--chijie-paper)]'
+                        : 'text-[var(--chijie-foreground)] hover:bg-[var(--chijie-accent-subtle)] hover:text-[var(--chijie-foreground)]'
                     } transition-colors duration-150`}
                     onClick={() => handleProviderSelection(ProviderTypeEnum.CustomOpenAI)}>
                     <span className="font-medium">{t('options_models_providers_openaiCompatible')}</span>
@@ -1648,7 +1648,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
       <div
         className={`rounded-lg border ${isDarkMode ? 'border-[var(--chijie-border)] bg-[var(--chijie-surface)]' : 'border-[var(--chijie-border)] bg-[var(--chijie-surface)]'} p-6 text-left `}>
         <h2
-          className={`mb-4 text-left text-xl font-semibold ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-paper)]'}`}>
+          className={`mb-4 text-left text-xl font-semibold ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
           {t('options_models_selection_header')}
         </h2>
         <div className="space-y-4">
@@ -1662,7 +1662,7 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
       <div
         className={`rounded-lg border ${isDarkMode ? 'border-[var(--chijie-border)] bg-[var(--chijie-surface)]' : 'border-[var(--chijie-border)] bg-[var(--chijie-surface)]'} p-6 text-left `}>
         <h2
-          className={`mb-4 text-left text-xl font-semibold ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-paper)]'}`}>
+          className={`mb-4 text-left text-xl font-semibold ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
           {t('options_models_speechToText_header')}
         </h2>
         <p className={`mb-4 text-sm ${isDarkMode ? 'text-[var(--chijie-muted)]' : 'text-[var(--chijie-muted)]'}`}>

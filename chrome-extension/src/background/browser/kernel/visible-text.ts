@@ -6,10 +6,7 @@
 export const DEFAULT_VISIBLE_TEXT_CHARS = 16_000;
 export const MIN_USABLE_PAGE_BODY_CHARS = 20;
 
-export function normalizeVisiblePageText(
-  raw: unknown,
-  maxChars = DEFAULT_VISIBLE_TEXT_CHARS,
-): string {
+export function normalizeVisiblePageText(raw: unknown, maxChars = DEFAULT_VISIBLE_TEXT_CHARS): string {
   if (typeof raw !== 'string') return '';
   return raw
     .replace(/[ \t]+\n/g, '\n')

@@ -17,6 +17,9 @@ vi.mock('@extension/storage/lib/task', () => ({
   saveTask: async (task: { id: string }) => {
     state.sessions.set(task.id, structuredClone(task));
   },
+  deleteTask: async (id: string) => {
+    state.sessions.delete(id);
+  },
   putSkillSaveMeta: async (taskId: string, roundId: string, meta: { templates: unknown[]; unsafe: boolean }) => {
     state.skillSave.set(`${taskId}:${roundId}`, structuredClone(meta));
   },
@@ -378,9 +381,11 @@ describe('local semantic Skill', () => {
         };
       }),
     );
+    const setFollowForeground = vi.fn(async () => undefined);
     const manager = new TaskManager({
       createExecutor,
       switchTab: vi.fn(async () => undefined),
+      setFollowForeground,
       observeCriteria,
       now: () => 300,
     });
@@ -441,6 +446,7 @@ describe('local semantic Skill', () => {
     }
 
     expect(usedIndexes).toEqual([2, 9]);
+    expect(setFollowForeground).toHaveBeenCalledWith(false);
     expect(JSON.stringify(skill)).not.toMatch(/Ada|Grace/);
     expect(JSON.stringify(emittedEvents)).not.toMatch(/Ada|Grace/);
   });

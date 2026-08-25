@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyComposerIntent,
+  COMPOSER_CHAT_REPLY,
+  CONFIRM_EXECUTE_CHAT_LABEL,
+  CONFIRM_EXECUTE_GO_LABEL,
+  isConfirmExecuteChat,
+  isConfirmExecuteGo,
+} from '../confirm-execute';
+import {
   CHEAP_GREETING_REPLY_TEXT,
   CHEAP_STOP_TEXT,
   EMPTY_TURN_CLARIFY_TEXT,
@@ -10,9 +18,7 @@ import {
 
 describe('parseUserTurnDecision', () => {
   it('accepts valid reply JSON', () => {
-    const r = parseUserTurnDecision(
-      JSON.stringify({ kind: 'reply', user_visible_text: '你好，需要我帮你做什么？' }),
-    );
+    const r = parseUserTurnDecision(JSON.stringify({ kind: 'reply', user_visible_text: '你好，需要我帮你做什么？' }));
     expect(r).toEqual({
       ok: true,
       decision: { kind: 'reply', userVisibleText: '你好，需要我帮你做什么？' },
@@ -93,27 +99,50 @@ describe('resolveUserTurnCheap', () => {
 describe('enforcePageObservationInvariant', () => {
   it('routes the exact AICSS current-page summary request to execute even after a reply misclassification', () => {
     expect(
-      enforcePageObservationInvariant(
-        '用一句话说明当前 AICSS 页面展示的内容。不要点击或修改页面。',
-        {
-          kind: 'reply',
-          userVisibleText: '好的，请稍等，我来描述一下当前 AICSS 页面的内容。',
-        },
-      ),
+      enforcePageObservationInvariant('用一句话说明当前 AICSS 页面展示的内容。不要点击或修改页面。', {
+        kind: 'reply',
+        userVisibleText: '好的，请稍等，我来描述一下当前 AICSS 页面的内容。',
+      }),
     ).toEqual({ kind: 'execute', userVisibleText: '' });
   });
 
-  it.each([
-    '请用一句话说明什么是 AICSS。',
-    '总结一下我们刚才的对话。',
-    '你好，你是谁？',
-  ])('keeps pure chat as reply: %s', text => {
-    const decision = { kind: 'reply' as const, userVisibleText: '普通回复' };
-    expect(enforcePageObservationInvariant(text, decision)).toEqual(decision);
-  });
+  it.each(['请用一句话说明什么是 AICSS。', '总结一下我们刚才的对话。', '你好，你是谁？'])(
+    'keeps pure chat as reply: %s',
+    text => {
+      const decision = { kind: 'reply' as const, userVisibleText: '普通回复' };
+      expect(enforcePageObservationInvariant(text, decision)).toEqual(decision);
+    },
+  );
 
   it('preserves stop even when the sentence mentions the current page', () => {
     const decision = { kind: 'stop' as const, userVisibleText: '已停止' };
     expect(enforcePageObservationInvariant('停止读取当前页面', decision)).toEqual(decision);
+  });
+});
+
+describe('confirm-execute labels', () => {
+  it('matches the two option labels and nothing else', () => {
+    expect(isConfirmExecuteChat(CONFIRM_EXECUTE_CHAT_LABEL)).toBe(true);
+    expect(isConfirmExecuteGo(CONFIRM_EXECUTE_GO_LABEL)).toBe(true);
+    expect(isConfirmExecuteChat(' 仅聊天 ')).toBe(true);
+    expect(isConfirmExecuteGo('执行')).toBe(true);
+    expect(isConfirmExecuteGo('仅聊天')).toBe(false);
+    expect(isConfirmExecuteChat('执行')).toBe(false);
+    expect(isConfirmExecuteGo('打开 YouTube')).toBe(false);
+  });
+
+  it('composer 仅聊天 turns execute into a spoken reply', () => {
+    expect(applyComposerIntent('chat', { kind: 'execute', userVisibleText: '' })).toEqual({
+      kind: 'reply',
+      userVisibleText: COMPOSER_CHAT_REPLY,
+    });
+    expect(applyComposerIntent('execute', { kind: 'execute', userVisibleText: '' })).toEqual({
+      kind: 'execute',
+      userVisibleText: '',
+    });
+    expect(applyComposerIntent('chat', { kind: 'reply', userVisibleText: '你好' })).toEqual({
+      kind: 'reply',
+      userVisibleText: '你好',
+    });
   });
 });

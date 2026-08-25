@@ -11,7 +11,9 @@ export type WaitUserAction = 'continue-in-composer' | 'clarify-in-composer';
  */
 export function waitUserAction(waitReason: WaitReason | undefined | null): WaitUserAction | null {
   if (waitReason === 'login_required' || waitReason === 'captcha_required') return 'continue-in-composer';
-  if (waitReason === 'target_missing' || waitReason === 'target_ambiguous') return 'clarify-in-composer';
+  if (waitReason === 'target_missing' || waitReason === 'target_ambiguous' || waitReason === 'confirm_execute') {
+    return 'clarify-in-composer';
+  }
   return null;
 }
 
@@ -19,7 +21,10 @@ export function taskAllowsDirectionChange(status: TaskStatus, reason?: WaitReaso
   if (status === 'inputs_required') return false;
   if (
     status === 'waiting_user' &&
-    (reason === 'commit_outcome_uncertain' || reason === 'target_missing' || reason === 'target_ambiguous')
+    (reason === 'commit_outcome_uncertain' ||
+      reason === 'target_missing' ||
+      reason === 'target_ambiguous' ||
+      reason === 'confirm_execute')
   ) {
     return false;
   }

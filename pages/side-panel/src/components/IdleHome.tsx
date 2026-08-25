@@ -42,9 +42,7 @@ export function IdleHome({ hint, onPick, savedCount = 0 }: IdleHomeProps) {
             </button>
           );
         })}
-        {savedCount > 0 ? (
-          <p className="chijie-example-more">已保存 {savedCount} 条，可在下方再跑</p>
-        ) : null}
+        {savedCount > 0 ? <p className="chijie-example-more">已保存 {savedCount} 条，可在下方再跑</p> : null}
       </section>
     </div>
   );

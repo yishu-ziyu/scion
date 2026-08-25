@@ -1,5 +1,7 @@
 import type { AttemptFinding } from '@extension/storage';
 
+// Local copy of packages/storage/lib/task/search-url.ts: re-exporting from @extension/storage pulled chrome.storage into action-target tests.
+// Keep isSearchResultsUrl / searchQueryFromResultsUrl / searchQueryFromPageTitle aligned with that file.
 const MAX_FINDINGS = 6;
 const TITLE_MAX = 80;
 
@@ -14,7 +16,10 @@ export function isSearchResultsUrl(value: string | undefined): boolean {
     if (host === 'duckduckgo.com' || host.endsWith('.duckduckgo.com')) {
       return Boolean(url.searchParams.get('q') || path.startsWith('/html'));
     }
-    if ((host === 'baidu.com' || host.endsWith('.baidu.com')) && (path === '/s' || path.startsWith('/s/') || path.startsWith('/baidu'))) {
+    if (
+      (host === 'baidu.com' || host.endsWith('.baidu.com')) &&
+      (path === '/s' || path.startsWith('/s/') || path.startsWith('/baidu'))
+    ) {
       return true;
     }
     return false;
@@ -34,6 +39,39 @@ export function searchQueryFromResultsUrl(value: string | undefined): string | u
   } catch {
     return undefined;
   }
+}
+
+export function searchQueryFromPageTitle(value: string | undefined): string | undefined {
+  const text = value?.replace(/\s+/g, ' ').trim() ?? '';
+  if (!text) return undefined;
+  const matched = /^(.*)\s+[-–—]\s+Google(?:\s*(?:搜索|Search))?$/i.exec(text);
+  const query = matched?.[1]?.replace(/\s+/g, ' ').trim();
+  if (!query || /^https?:\/\//i.test(query)) return undefined;
+  return query.slice(0, 80);
+}
+
+export function searchObserveLoopPhase(input: {
+  url: string;
+  step: number;
+  title?: string;
+  findings?: AttemptFinding[];
+}): {
+  phase: 'observe';
+  step: number;
+  detail: string;
+  targetUrl: string;
+  findings?: AttemptFinding[];
+} | null {
+  if (!isSearchResultsUrl(input.url)) return null;
+  const query = searchQueryFromResultsUrl(input.url) ?? searchQueryFromPageTitle(input.title);
+  const findings = input.findings && input.findings.length > 0 ? input.findings : undefined;
+  return {
+    phase: 'observe',
+    step: input.step,
+    detail: query ? `搜索：${query}` : '搜索网页',
+    targetUrl: input.url,
+    ...(findings ? { findings } : {}),
+  };
 }
 
 export function normalizeSearchFindings(raw: unknown): AttemptFinding[] {
@@ -66,22 +104,34 @@ export function normalizeSearchFindings(raw: unknown): AttemptFinding[] {
   return out;
 }
 
+type SearchHeading = {
+  textContent: string | null;
+  closest: (selector: string) => { href: string } | null;
+  querySelector: (selector: string) => { href: string } | null;
+  parentElement: { closest: (selector: string) => { href: string } | null } | null;
+};
+
 /** Runs inside the search page. Must stay self-contained for page.evaluate. */
-export function readSearchResultsInPage(): Array<{ title: string; url: string; host: string }> {
+export function readSearchResultsInPage(root?: {
+  querySelectorAll: (selector: string) => ArrayLike<SearchHeading>;
+}): Array<{ title: string; url: string; host: string }> {
+  const scope = root ?? (typeof document === 'undefined' ? undefined : document);
+  if (!scope) return [];
   const out: Array<{ title: string; url: string; host: string }> = [];
   const seen = new Set<string>();
   const heads = Array.from(
-    document.querySelectorAll(
-      '#search h3, #rso h3, div.g h3, [data-snf] h3, li.b_algo h2, #b_results h2, article[data-testid="result"] h2, a.result__a',
+    scope.querySelectorAll(
+      '#search h3, #rso h3, div.g h3, div.MjjYud h3, h3.LC20lb, [data-snf] h3, [data-snhf] h3, li.b_algo h2, #b_results h2, article[data-testid="result"] h2, a.result__a',
     ),
   );
+  const base = typeof location === 'undefined' ? 'https://www.google.com.hk' : location.origin;
   for (const head of heads) {
-    const link = head.closest('a') ?? head.parentElement?.closest('a');
+    const link = head.closest('a') ?? head.querySelector('a') ?? head.parentElement?.closest('a') ?? null;
     const title = (head.textContent ?? '').replace(/\s+/g, ' ').trim();
     if (!link || title.length < 2) continue;
-    let href = (link as HTMLAnchorElement).href || '';
+    let href = link.href || '';
     try {
-      const parsed = new URL(href, location.origin);
+      const parsed = new URL(href, base);
       if (parsed.hostname.includes('google.') && parsed.pathname === '/url') {
         href = parsed.searchParams.get('q') || parsed.searchParams.get('url') || href;
       }
@@ -90,7 +140,7 @@ export function readSearchResultsInPage(): Array<{ title: string; url: string; h
     }
     let host = '';
     try {
-      host = new URL(href, location.origin).hostname.replace(/^www\./, '');
+      host = new URL(href, base).hostname.replace(/^www\./, '');
     } catch {
       host = '';
     }

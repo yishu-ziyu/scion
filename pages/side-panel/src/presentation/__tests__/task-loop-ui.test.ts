@@ -10,6 +10,7 @@ import {
   shouldAutoRestoreTaskSession,
   shouldShowMainTaskSurface,
   shouldShowOutcomeRating,
+  shouldShowTaskCard,
   shouldShowVerifiedDone,
   taskPrimaryOrganism,
   visibleAttemptWindow,
@@ -121,6 +122,30 @@ describe('Feature: Tabbit-class task loop UI (ticket 01, seam S1)', () => {
     expect(shouldShowMainTaskSurface({ status: 'running', isHistoricalSession: false })).toBe(true);
     expect(shouldShowMainTaskSurface({ status: 'completed', isHistoricalSession: true })).toBe(true);
     expect(shouldShowMainTaskSurface({ status: null, isHistoricalSession: false })).toBe(false);
+  });
+
+  it('keeps a completed snapshot visible after a side-panel reconnect before chat history restores', () => {
+    expect(
+      shouldShowTaskCard({
+        snapshot: completedSnapshot,
+        currentSessionId: null,
+        isHistoricalSession: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowTaskCard({
+        snapshot: { ...completedSnapshot, status: 'running' },
+        currentSessionId: null,
+        isHistoricalSession: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowTaskCard({
+        snapshot: completedSnapshot,
+        currentSessionId: 'other-session',
+        isHistoricalSession: false,
+      }),
+    ).toBe(false);
   });
 
   it.each(['completed', 'failed', 'cancelled'] as const)(

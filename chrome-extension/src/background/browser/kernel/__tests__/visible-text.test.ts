@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DEFAULT_VISIBLE_TEXT_CHARS,
-  hasUsablePageBody,
-  normalizeVisiblePageText,
-} from '../visible-text';
+import { DEFAULT_VISIBLE_TEXT_CHARS, hasUsablePageBody, normalizeVisiblePageText } from '../visible-text';
 
 describe('normalizeVisiblePageText', () => {
   it('collapses blank lines and bounds length', () => {

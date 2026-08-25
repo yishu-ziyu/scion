@@ -4,9 +4,17 @@
     <meta charset="utf-8" />
     <title>Interactive Catalog</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 1.5rem; }
-      .hidden { display: none; }
-      tr.detail td { background: #f4f7fb; font-size: 0.9rem; }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 1.5rem;
+      }
+      .hidden {
+        display: none;
+      }
+      tr.detail td {
+        background: #f4f7fb;
+        font-size: 0.9rem;
+      }
     </style>
   </head>
   <body>
@@ -38,12 +46,54 @@
     <div id="expanded" data-testid="expanded-panel" class="hidden"></div>
     <script>
       const rows = [
-        { name: 'Orion Capsule', category: 'capsule', price: 2100000, rating: 4.7, serial: 'CAP-OR-01', source: 'SRC-ORION-01' },
-        { name: 'Nova Capsule', category: 'capsule', price: 1800000, rating: 4.3, serial: 'CAP-NV-02', source: 'SRC-NOVA-02' },
-        { name: 'Vega Capsule', category: 'capsule', price: 2900000, rating: 4.9, serial: 'CAP-VG-03', source: 'SRC-VEGA-03' },
-        { name: 'Alpha Dock Module', category: 'module', price: 420000, rating: 4.1, serial: 'Z-MOD-0041', source: 'SRC-MOD-A' },
-        { name: 'Beta Dock Module', category: 'module', price: 510000, rating: 4.6, serial: 'Z-MOD-0042', source: 'SRC-MOD-B' },
-        { name: 'Gamma Dock Module', category: 'module', price: 390000, rating: 3.8, serial: 'Z-MOD-0043', source: 'SRC-MOD-C' },
+        {
+          name: 'Orion Capsule',
+          category: 'capsule',
+          price: 2100000,
+          rating: 4.7,
+          serial: 'CAP-OR-01',
+          source: 'SRC-ORION-01',
+        },
+        {
+          name: 'Nova Capsule',
+          category: 'capsule',
+          price: 1800000,
+          rating: 4.3,
+          serial: 'CAP-NV-02',
+          source: 'SRC-NOVA-02',
+        },
+        {
+          name: 'Vega Capsule',
+          category: 'capsule',
+          price: 2900000,
+          rating: 4.9,
+          serial: 'CAP-VG-03',
+          source: 'SRC-VEGA-03',
+        },
+        {
+          name: 'Alpha Dock Module',
+          category: 'module',
+          price: 420000,
+          rating: 4.1,
+          serial: 'Z-MOD-0041',
+          source: 'SRC-MOD-A',
+        },
+        {
+          name: 'Beta Dock Module',
+          category: 'module',
+          price: 510000,
+          rating: 4.6,
+          serial: 'Z-MOD-0042',
+          source: 'SRC-MOD-B',
+        },
+        {
+          name: 'Gamma Dock Module',
+          category: 'module',
+          price: 390000,
+          rating: 3.8,
+          serial: 'Z-MOD-0043',
+          source: 'SRC-MOD-C',
+        },
         { name: 'Seal Kit 9', category: 'part', price: 1200, rating: 4.0, serial: 'PART-09', source: 'SRC-PART-9' },
         { name: 'Seal Kit 11', category: 'part', price: 1500, rating: 4.4, serial: 'PART-11', source: 'SRC-PART-11' },
       ];

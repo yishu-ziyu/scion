@@ -54,7 +54,11 @@ describe('022 Skill side-effect boundary', () => {
         .join('\n');
       for (const pattern of FORBIDDEN) {
         // BrowserKernel type imports are ok; BrowserContext is not
-        if (pattern.source.includes('BrowserContext') && /import\s+type[\s\S]*BrowserContext/.test(code) && !/BrowserContext\b/.test(runtimeCode.replace(/import\s+type[\s\S]*?;/g, ''))) {
+        if (
+          pattern.source.includes('BrowserContext') &&
+          /import\s+type[\s\S]*BrowserContext/.test(code) &&
+          !/BrowserContext\b/.test(runtimeCode.replace(/import\s+type[\s\S]*?;/g, ''))
+        ) {
           continue;
         }
         expect(runtimeCode, `${rel} matches ${pattern}`).not.toMatch(pattern);

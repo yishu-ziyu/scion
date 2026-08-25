@@ -7,8 +7,7 @@ describe('pageLooksUnavailable', () => {
       pageLooksUnavailable({
         url: 'https://www.youtube.com/playlist?list=FL',
         title: '404 Not Found',
-        bodyText:
-          "This page isn't available. Sorry about that. Try searching for something else.",
+        bodyText: "This page isn't available. Sorry about that. Try searching for something else.",
       }),
     ).toBe(true);
   });

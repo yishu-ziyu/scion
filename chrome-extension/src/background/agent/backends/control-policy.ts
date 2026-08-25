@@ -22,7 +22,7 @@ export interface ControlPolicyDecision {
    * Each `args.index` refers to the ObservationFrame that will be shown for this decide.
    */
   actions: ControlActionSpec[];
-  waitingUser: 'login_required' | 'captcha_required' | null;
+  waitingUser: 'login_required' | 'captcha_required' | 'target_missing' | null;
 }
 
 /** Control prompt/parser alias for the loop's hard limit. */
@@ -145,6 +145,10 @@ export function observationSupportsWaitingUser(
     .join('\n');
   const pageText = [frame.tab.title, frame.tab.url, frame.text, elementText].join('\n');
 
+  if (reason === 'target_missing') {
+    return Boolean(frame.inaccessibleIframes && frame.inaccessibleIframes.length > 0);
+  }
+
   if (reason === 'captcha_required') {
     return /\b(?:captcha|recaptcha|hcaptcha|cf-turnstile)\b|verify (?:that )?you are human|人机验证|验证码/i.test(
       pageText,
@@ -167,6 +171,43 @@ export function observationSupportsWaitingUser(
   }
   const hasLoginControl = /\b(?:sign|log)\s*in\b|登录|登入/i.test(elementText);
   return pathSignalsLogin && hasLoginControl;
+}
+
+export function observationHasInaccessibleIframes(frame: ObservationFrame | null | undefined): boolean {
+  return Boolean(frame?.inaccessibleIframes && frame.inaccessibleIframes.length > 0);
+}
+
+const ACTING_ON_PAGE = new Set(['input_text', 'click_element', 'select_dropdown_option', 'send_keys']);
+
+/** Login wall: stop. Never type credentials the user did not provide. */
+export function applyLoginWallGate(
+  decision: ControlPolicyDecision,
+  frame: ObservationFrame | null,
+): ControlPolicyDecision {
+  if (!observationSupportsWaitingUser(frame, 'login_required')) return decision;
+  return {
+    ...decision,
+    done: false,
+    action: null,
+    actions: [],
+    waitingUser: 'login_required',
+  };
+}
+
+/** A needed iframe did not attach: do not fill or claim done. */
+export function applyInaccessibleIframeGate(
+  decision: ControlPolicyDecision,
+  frame: ObservationFrame | null,
+): ControlPolicyDecision {
+  if (!observationHasInaccessibleIframes(frame)) return decision;
+  if (decision.done) {
+    return { ...decision, done: false, action: null, actions: [], waitingUser: 'target_missing' };
+  }
+  const queued = decision.actions.length > 0 ? decision.actions : decision.action ? [decision.action] : [];
+  if (queued.some(item => ACTING_ON_PAGE.has(item.name))) {
+    return { ...decision, done: false, action: null, actions: [], waitingUser: 'target_missing' };
+  }
+  return decision;
 }
 
 export function renderControlSystemPrompt(options: ControlSystemPromptOptions = {}): string {
@@ -394,7 +435,7 @@ export function parseControlPolicyDecision(raw: Record<string, unknown>): Contro
 
   let waitingUser: ControlPolicyDecision['waitingUser'] = null;
   const reason = typeof raw.waiting_user === 'string' ? raw.waiting_user : '';
-  if (reason === 'login_required' || reason === 'captcha_required') {
+  if (reason === 'login_required' || reason === 'captcha_required' || reason === 'target_missing') {
     waitingUser = reason;
   } else if (/login required|需要登录|请先登录/i.test(observation) && !done) {
     // Only soft-flag; TaskManager / product may ignore false positives.

@@ -507,4 +507,54 @@ describe('ActionDispatcher', () => {
     expect(result.attempt.state).toBe('uncertain');
     expect(persistedStates).toEqual(['proposed', 'authorized', 'executing', 'uncertain']);
   });
+
+  it('does not treat a named bind wait as an uncertain submit', async () => {
+    const action = new Action(
+      vi.fn(
+        async () =>
+          new ActionResult({
+            error: 'target_ambiguous',
+            waitAsk: {
+              prompt: '这几个都对得上「Submit」，要哪一个？',
+              options: [
+                { label: 'Submit（1）', sendText: '第1个Submit' },
+                { label: 'Submit（2）', sendText: '第2个Submit' },
+              ],
+            },
+          }),
+      ),
+      clickElementActionSchema,
+      true,
+    );
+    const persistedStates: string[] = [];
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      persistAttempt: vi.fn(async attempt => {
+        persistedStates.push(attempt.state);
+      }),
+      observe: vi.fn(async () => ({
+        target: {
+          id: 'target-1',
+          kind: 'element' as const,
+          tabId: 7,
+          frameId: 0 as const,
+          urlOrigin: 'https://example.test',
+          digest: 'button-1',
+        },
+        effectTarget: { tag: 'button', type: 'submit', inForm: true },
+        evidence: [],
+      })),
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action,
+      rawArgs: { query: 'Submit', intent: 'submit form' },
+    });
+
+    expect(result.attempt.state).toBe('blocked');
+    expect(result.actionResult.waitAsk?.options.map(option => option.sendText)).toEqual(['第1个Submit', '第2个Submit']);
+    expect(persistedStates).toEqual(['proposed', 'authorized', 'executing', 'blocked']);
+  });
 });

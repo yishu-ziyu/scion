@@ -75,7 +75,11 @@ export function pageTextForSupervisor(input: {
   maxChars?: number;
 }): string {
   const maxChars = input.maxChars ?? 20_000;
-  const text = [input.url ? `URL: ${input.url}` : '', input.title ? `Title: ${input.title}` : '', input.visibleText || input.fallback]
+  const text = [
+    input.url ? `URL: ${input.url}` : '',
+    input.title ? `Title: ${input.title}` : '',
+    input.visibleText || input.fallback,
+  ]
     .filter(Boolean)
     .join('\n');
   return text.slice(0, maxChars);

@@ -130,6 +130,25 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
     expect(outcome).toEqual({ kind: 'failed', category: 'action_failed' });
   });
 
+  it('stops for user choice when bind is ambiguous, even if retries are off', async () => {
+    let acts = 0;
+    const outcome = await runObserveActLoop({
+      maxSteps: 10,
+      maxFailures: 2,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => 'ok',
+      decide: async () => ({ kind: 'action', name: 'click_element', args: { query: 'Submit' } }),
+      act: async () => {
+        acts += 1;
+        return { error: 'target_ambiguous' };
+      },
+      shouldRetryFailure: () => false,
+    });
+    expect(outcome).toEqual({ kind: 'waiting_user', reason: 'target_ambiguous' });
+    expect(acts).toBe(1);
+  });
+
   it('fails immediately when the caller policy says the error is not retryable', async () => {
     const outcome = await runObserveActLoop({
       maxSteps: 10,

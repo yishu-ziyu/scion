@@ -42,9 +42,7 @@ describe('normalizeBilibiliVideoUrl', () => {
     expect(normalizeBilibiliVideoUrl('//www.bilibili.com/video/BV1CbKb6qEze?spm=1')).toBe(
       'https://www.bilibili.com/video/BV1CbKb6qEze',
     );
-    expect(normalizeBilibiliVideoUrl('/video/BV15gMa6NEPG')).toBe(
-      'https://www.bilibili.com/video/BV15gMa6NEPG',
-    );
+    expect(normalizeBilibiliVideoUrl('/video/BV15gMa6NEPG')).toBe('https://www.bilibili.com/video/BV15gMa6NEPG');
   });
 
   it('rejects upload / member links', () => {
@@ -54,9 +52,7 @@ describe('normalizeBilibiliVideoUrl', () => {
 
 describe('extractFirstBilibiliVideoUrlFromHtml', () => {
   it('returns the first card cover BV in document order', () => {
-    expect(extractFirstBilibiliVideoUrlFromHtml(HOME_HTML)).toBe(
-      'https://www.bilibili.com/video/BV1CbKb6qEze',
-    );
+    expect(extractFirstBilibiliVideoUrlFromHtml(HOME_HTML)).toBe('https://www.bilibili.com/video/BV1CbKb6qEze');
   });
 
   it('returns null without video links', () => {
@@ -66,38 +62,21 @@ describe('extractFirstBilibiliVideoUrlFromHtml', () => {
 
 describe('shouldDeterministicOpenFirstBilibiliVideo', () => {
   it('true only on list surface with first-video intent', () => {
+    expect(shouldDeterministicOpenFirstBilibiliVideo('打开第一行第一个视频', 'https://www.bilibili.com/')).toBe(true);
     expect(
-      shouldDeterministicOpenFirstBilibiliVideo(
-        '打开第一行第一个视频',
-        'https://www.bilibili.com/',
-      ),
-    ).toBe(true);
-    expect(
-      shouldDeterministicOpenFirstBilibiliVideo(
-        '打开第一行第一个视频',
-        'https://www.bilibili.com/video/BV1CbKb6qEze',
-      ),
+      shouldDeterministicOpenFirstBilibiliVideo('打开第一行第一个视频', 'https://www.bilibili.com/video/BV1CbKb6qEze'),
     ).toBe(false);
-    expect(shouldDeterministicOpenFirstBilibiliVideo('打开 bilibili', 'https://www.bilibili.com/')).toBe(
-      false,
-    );
+    expect(shouldDeterministicOpenFirstBilibiliVideo('打开 bilibili', 'https://www.bilibili.com/')).toBe(false);
   });
 
   it('does not open homepage first card when the goal names a UP', () => {
     expect(instructionNamesSpecificBilibiliCreator('打开B站，点开老番茄的第一个视频')).toBe(true);
     expect(instructionRequestsFirstVideo('打开B站，点开老番茄的第一个视频')).toBe(true);
     expect(
-      shouldDeterministicOpenFirstBilibiliVideo(
-        '打开B站，点开老番茄的第一个视频',
-        'https://www.bilibili.com/',
-      ),
+      shouldDeterministicOpenFirstBilibiliVideo('打开B站，点开老番茄的第一个视频', 'https://www.bilibili.com/'),
     ).toBe(false);
-    expect(
-      shouldDeterministicOpenFirstBilibiliVideo('打开第一行第一个视频', 'https://www.bilibili.com/'),
-    ).toBe(true);
-    expect(
-      shouldDeterministicOpenFirstBilibiliVideo('打开第一行的第一个视频', 'https://www.bilibili.com/'),
-    ).toBe(true);
+    expect(shouldDeterministicOpenFirstBilibiliVideo('打开第一行第一个视频', 'https://www.bilibili.com/')).toBe(true);
+    expect(shouldDeterministicOpenFirstBilibiliVideo('打开第一行的第一个视频', 'https://www.bilibili.com/')).toBe(true);
   });
 });
 
@@ -134,25 +113,19 @@ describe('judgeBilibiliWatchComplete', () => {
 describe('pickNewerBilibiliWatchTab', () => {
   it('adopts a watch tab opened after the search list', () => {
     expect(
-      pickNewerBilibiliWatchTab(
+      pickNewerBilibiliWatchTab({ id: 1, url: 'https://search.bilibili.com/all?keyword=x', lastAccessed: 10 }, [
         { id: 1, url: 'https://search.bilibili.com/all?keyword=x', lastAccessed: 10 },
-        [
-          { id: 1, url: 'https://search.bilibili.com/all?keyword=x', lastAccessed: 10 },
-          { id: 2, url: 'https://www.bilibili.com/video/BV1kguq6YEN6/', lastAccessed: 20 },
-        ],
-      ),
+        { id: 2, url: 'https://www.bilibili.com/video/BV1kguq6YEN6/', lastAccessed: 20 },
+      ]),
     ).toBe(2);
   });
 
   it('keeps an older leftover watch tab from stealing a new search', () => {
     expect(
-      pickNewerBilibiliWatchTab(
+      pickNewerBilibiliWatchTab({ id: 1, url: 'https://search.bilibili.com/all?keyword=x', lastAccessed: 30 }, [
         { id: 1, url: 'https://search.bilibili.com/all?keyword=x', lastAccessed: 30 },
-        [
-          { id: 1, url: 'https://search.bilibili.com/all?keyword=x', lastAccessed: 30 },
-          { id: 2, url: 'https://www.bilibili.com/video/BV1oldxxxx01/', lastAccessed: 5 },
-        ],
-      ),
+        { id: 2, url: 'https://www.bilibili.com/video/BV1oldxxxx01/', lastAccessed: 5 },
+      ]),
     ).toBeNull();
   });
 

@@ -101,12 +101,21 @@ export async function buildObservationFrame(input: ObservationBuildInput): Promi
     elementsText !== '' || formFieldsBlock || Boolean(query)
       ? wrapUntrustedContent(interactiveRaw)
       : 'empty interactive list';
+  const inaccessible = input.browserState.inaccessibleIframes ?? [];
+  const inaccessibleBlock =
+    inaccessible.length > 0
+      ? [
+          'Inaccessible iframes (do not treat the form as complete):',
+          ...inaccessible.map(item => `- ${item.targetId}${item.url ? ` ${item.url}` : ''} ${item.error}`.trim()),
+        ].join('\n')
+      : '';
   const text = compactStateText(
     [
       `Current tab: {id: ${input.browserState.tabId}, url: ${input.browserState.url}, title: ${input.browserState.title}}`,
       `Snapshot frame: ${frame.pageRevision} (${frame.targetCount} indexed targets)`,
       mediaLine,
       input.enrichment ?? '',
+      inaccessibleBlock,
       visibleBlock,
       interactiveBlock,
     ]
@@ -133,6 +142,7 @@ export async function buildObservationFrame(input: ObservationBuildInput): Promi
     screenshotRef: input.screenshotRef,
     signals: input.enrichment ? [{ kind: 'enrichment', label: 'skill', detail: 'attached' }] : [],
     enrichment: input.enrichment,
+    inaccessibleIframes: inaccessible.length > 0 ? inaccessible : undefined,
   };
 }
 
@@ -151,9 +161,7 @@ export function renderContextForModel(input: {
   }
   // Diff mode: change summary + short relevant element list already inside diff text.
   const visibleText = input.frame.visibleText?.trim() ?? '';
-  const visibleBlock = visibleText
-    ? `Visible page text:\n${wrapUntrustedContent(visibleText)}`
-    : '';
+  const visibleBlock = visibleText ? `Visible page text:\n${wrapUntrustedContent(visibleText)}` : '';
   const formFieldsBlock = input.frame.formFieldsText || renderFormFieldsBlock(input.frame.interactiveElements);
   const header = [
     `Current tab: {id: ${input.frame.tab.id}, url: ${input.frame.tab.url}, title: ${input.frame.tab.title}}`,

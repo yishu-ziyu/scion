@@ -107,11 +107,7 @@ export function pickNewerBilibiliWatchTab(
 }
 
 /** On a watch page, the click-video sentence is already done. */
-export function judgeBilibiliWatchComplete(
-  instruction: string,
-  pageUrl: string,
-  pageTitle: string,
-): string | null {
+export function judgeBilibiliWatchComplete(instruction: string, pageUrl: string, pageTitle: string): string | null {
   if (!instructionRequestsOpenBilibiliVideo(instruction)) return null;
   if (!isBilibiliWatchUrl(pageUrl)) return null;
   return bilibiliWatchResultSummary(pageTitle, pageUrl);

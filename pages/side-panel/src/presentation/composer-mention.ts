@@ -40,9 +40,37 @@ export function insertCurrentPageMention(text: string, start: number, cursor: nu
   return `${before}${CURRENT_PAGE_TOKEN}${spacer}${after}`;
 }
 
+function normalizedPageUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    url.hash = '';
+    const pathname = url.pathname.replace(/\/+$/, '') || '/';
+    return `${url.origin}${pathname}${url.search}`;
+  } catch {
+    return null;
+  }
+}
+
+function instructionAlreadyNamesPage(text: string, pageUrl: string): boolean {
+  const pageKey = normalizedPageUrl(pageUrl);
+  if (!pageKey) return false;
+  return [...text.matchAll(/https?:\/\/[^\s<>]+/gi)].some(match => {
+    const literal = match[0].replace(/[.,!?;:]+$/, '');
+    return normalizedPageUrl(literal) === pageKey;
+  });
+}
+
 /** Expand @当前页 so the agent sees host, title, and URL. Display text stays short. */
 export function expandCurrentPageMention(text: string, page: MentionPage | null): string {
   if (!page || !text.includes(CURRENT_PAGE_TOKEN)) return text;
-  const detail = `${CURRENT_PAGE_TOKEN}（${page.host} · ${page.title} ${page.url}）`;
+  const detail = instructionAlreadyNamesPage(text, page.url)
+    ? `${CURRENT_PAGE_TOKEN}（${page.host} · ${page.title}）`
+    : `${CURRENT_PAGE_TOKEN}（${page.host} · ${page.title} ${page.url}）`;
   return text.split(CURRENT_PAGE_TOKEN).join(detail);
+}
+
+/** Stored task text carries page context for the agent; UI titles keep the user's compact token. */
+export function displayCurrentPageMention(text: string): string {
+  return text.replace(/@当前页（[^）]*）/g, CURRENT_PAGE_TOKEN);
 }

@@ -161,20 +161,15 @@ describe('continuous media control', () => {
 
 describe('tab close control + evidence', () => {
   it('defaults close_tab to the task active tab when tab_id is omitted', () => {
-    const resolved = resolveTabArgs(
-      'close_tab',
-      { intent: 'close this page' },
-      { activeTabId: 42, targetRefs: [] } as unknown as TaskSession,
-    );
+    const resolved = resolveTabArgs('close_tab', { intent: 'close this page' }, {
+      activeTabId: 42,
+      targetRefs: [],
+    } as unknown as TaskSession);
     expect(resolved).toMatchObject({ tab_id: 42 });
   });
 
   it('maps focus_tab args onto the task tab when tab_id is omitted', () => {
-    const resolved = resolveTabArgs(
-      'focus_tab',
-      {},
-      { activeTabId: 9, targetRefs: [] } as unknown as TaskSession,
-    );
+    const resolved = resolveTabArgs('focus_tab', {}, { activeTabId: 9, targetRefs: [] } as unknown as TaskSession);
     expect(resolved).toMatchObject({ tab_id: 9 });
   });
 
@@ -230,9 +225,7 @@ describe('tab close control + evidence', () => {
     });
 
     expect(closed.has(7)).toBe(true);
-    expect(result.evidence).toEqual([
-      expect.objectContaining({ value: 'closed', passed: true, targetRefId: 'tab-7' }),
-    ]);
+    expect(result.evidence).toEqual([expect.objectContaining({ value: 'closed', passed: true, targetRefId: 'tab-7' })]);
   });
 
   it('verifies tab_state closed only with matching target evidence', () => {

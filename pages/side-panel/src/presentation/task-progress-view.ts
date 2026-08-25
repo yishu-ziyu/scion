@@ -227,6 +227,13 @@ export function deriveProgressHealth(
     case 'waiting_user':
     case 'inputs_required': {
       const reason = snapshot.rounds.find(item => item.id === snapshot.currentRoundId)?.waitReason;
+      if (reason === 'confirm_execute') {
+        return {
+          state: 'advancing',
+          summary: '',
+          lastMeaningfulProgressAt: lastAt,
+        };
+      }
       const summary =
         reason === 'login_required'
           ? '需要你处理登录、验证或确认后才能继续'
@@ -314,7 +321,6 @@ function latestDirectionChange(snapshot: TaskSnapshot): TaskProgressView['direct
     occurredAt: round.createdAt ?? snapshot.updatedAt,
   };
 }
-
 
 function genericProgressView(input: DeriveTaskProgressViewInput): TaskProgressView {
   const { snapshot } = input;

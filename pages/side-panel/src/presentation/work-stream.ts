@@ -4,9 +4,15 @@
  */
 
 import type { ActionAttempt, AttemptFinding, TaskStatus } from '@extension/storage';
+import {
+  compactPageReading,
+  isHumanPageReading,
+  isSearchResultsUrl,
+  searchQueryFromPageTitle,
+  searchQueryFromResultsUrl,
+} from '@extension/storage';
 
 const HIDDEN_ACTIONS = new Set([
-  'observe',
   'snapshot',
   'evaluate',
   'wait',
@@ -23,9 +29,6 @@ const HIDDEN_ACTIONS = new Set([
   'scroll_to_text',
   'scroll_to_percent',
 ]);
-
-const THINKING_NOISE =
-  /^(思考中|获取页面快照|查看页面|推进当前任务|已按步骤做完|正在处理|正在操作页面|在想下一步|正在看\s)/;
 
 export interface StreamSearchQuery {
   id: string;
@@ -54,13 +57,18 @@ export interface StreamSource {
   title: string;
   host?: string;
   url: string;
+  /** Prefer the already-open verified task tab when the normalized URL omits a private query. */
+  tabId?: number;
+  /** The page was verified, but its private query is intentionally not durable or reopenable. */
+  unavailable?: boolean;
 }
 
 export type WorkStreamBlock =
   | { type: 'thinking'; id: string; text: string; open: boolean }
   | { type: 'search'; id: string; queries: StreamSearchQuery[] }
   | { type: 'page'; id: string; page: StreamPage }
-  | { type: 'commit'; id: string; commit: StreamCommit };
+  | { type: 'commit'; id: string; commit: StreamCommit }
+  | { type: 'act'; id: string; text: string; live: boolean };
 
 export interface WorkStreamView {
   blocks: WorkStreamBlock[];
@@ -71,21 +79,53 @@ function compact(value: string, max: number): string {
   return text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
 }
 
+/** Split a live page reading into sentences. Do not invent a canned SENTENCES list. */
+export function splitThinkingSentences(text: string): string[] {
+  const trimmed = text.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return [];
+  const parts = trimmed.match(/[^。！？]+[。！？]?/g);
+  const sentences = (parts ?? [trimmed]).map(part => part.trim()).filter(Boolean);
+  return sentences.length > 0 ? sentences : [trimmed];
+}
+
 function isLive(state: ActionAttempt['state'] | string): boolean {
   return state === 'proposed' || state === 'authorized' || state === 'executing';
 }
 
-export function isSearchAttempt(attempt: Pick<ActionAttempt, 'actionName' | 'displaySummary'>): boolean {
+export function isSearchAttempt(
+  attempt: Pick<ActionAttempt, 'actionName' | 'displaySummary'> & { findings?: ActionAttempt['findings'] },
+): boolean {
   if (attempt.actionName === 'search_google') return true;
-  return /^搜索[:：]/.test(attempt.displaySummary?.replace(/\s+/g, ' ').trim() ?? '');
+  if (/^搜索/.test(attempt.displaySummary?.replace(/\s+/g, ' ').trim() ?? '')) return true;
+  return attempt.actionName === 'observe' && (attempt.findings?.length ?? 0) > 0;
 }
+
+const SEARCH_QUERY_NOISE = /^(搜索网页|获取页面快照|思考中|查看页面|page_state)$/;
 
 export function searchQueryFromAttempt(attempt: Pick<ActionAttempt, 'displaySummary' | 'targetLabel'>): string {
   const summary = attempt.displaySummary?.replace(/\s+/g, ' ').trim() ?? '';
   const matched = /^搜索[:：]\s*(.+)$/.exec(summary);
-  if (matched?.[1]) return compact(matched[1], 48);
-  if (attempt.targetLabel?.trim()) return compact(attempt.targetLabel, 48);
-  return summary.length >= 2 ? compact(summary, 48) : '搜索网页';
+  if (matched?.[1] && !SEARCH_QUERY_NOISE.test(matched[1])) return compact(matched[1], 48);
+  const label = attempt.targetLabel?.trim() ?? '';
+  if (
+    label &&
+    !SEARCH_QUERY_NOISE.test(label) &&
+    !/^https?:\/\//i.test(label) &&
+    !/^[a-z0-9][a-z0-9.-]+\.[a-z]{2,}$/i.test(label)
+  ) {
+    return compact(label, 48);
+  }
+  return '搜索网页';
+}
+
+function resolvedSearchQuery(
+  attempt: Pick<ActionAttempt, 'displaySummary' | 'targetLabel'>,
+  pageTitle?: string,
+): string {
+  const fromAttempt = searchQueryFromAttempt(attempt);
+  if (fromAttempt !== '搜索网页') return fromAttempt;
+  const fromTitle = searchQueryFromPageTitle(pageTitle);
+  return fromTitle ? compact(fromTitle, 48) : '搜索网页';
 }
 
 export function pageUrlFromAttempt(
@@ -103,9 +143,7 @@ export function pageUrlFromAttempt(
 function isCommitAttempt(attempt: Pick<ActionAttempt, 'effect' | 'actionName'>): boolean {
   if (attempt.effect !== 'external_commit') return false;
   return (
-    attempt.actionName === 'click_element' ||
-    attempt.actionName === 'send_keys' ||
-    attempt.actionName === 'input_text'
+    attempt.actionName === 'click_element' || attempt.actionName === 'send_keys' || attempt.actionName === 'input_text'
   );
 }
 
@@ -139,15 +177,30 @@ function pageTitleFromAttempt(
 function thinkingText(input: {
   status: TaskStatus | string;
   currentSummary?: string;
-  hasLiveObject: boolean;
+  liveSummaries: string[];
   lastPublicText?: string;
 }): string {
   if (input.status === 'failed' || input.status === 'cancelled') return '';
-  if (input.hasLiveObject) return '';
   const current = input.currentSummary?.replace(/\s+/g, ' ').trim() ?? '';
-  if (current && input.lastPublicText && current === input.lastPublicText) return '';
-  if (current && !THINKING_NOISE.test(current)) return current;
-  return '';
+  if (!isHumanPageReading(current)) return '';
+  if (input.lastPublicText && current === input.lastPublicText) return '';
+  if (input.liveSummaries.includes(current)) return '';
+  return compactPageReading(current, 160);
+}
+
+function urlsInBlocks(blocks: WorkStreamBlock[]): Set<string> {
+  const urls = new Set<string>();
+  for (const block of blocks) {
+    if (block.type === 'page' && block.page.url) urls.add(block.page.url);
+    if (block.type === 'search') {
+      for (const query of block.queries) {
+        for (const hit of query.results) {
+          if (hit.url) urls.add(hit.url);
+        }
+      }
+    }
+  }
+  return urls;
 }
 
 export function deriveWorkStream(input: {
@@ -155,32 +208,30 @@ export function deriveWorkStream(input: {
   attempts: ActionAttempt[];
   currentSummary?: string;
   pageLabel?: string;
+  pageUrl?: string;
+  pageTitle?: string;
 }): WorkStreamView {
   const blocks: WorkStreamBlock[] = [];
   const running = input.status === 'running';
   const searchHits: AttemptFinding[] = [];
+  const liveSummaries: string[] = [];
   let i = 0;
   let lastPage: Extract<WorkStreamBlock, { type: 'page' }> | undefined;
-  let hasLiveObject = false;
+  let hasSearch = false;
 
   while (i < input.attempts.length) {
     const attempt = input.attempts[i]!;
-    if (HIDDEN_ACTIONS.has(attempt.actionName)) {
-      i += 1;
-      continue;
-    }
-
     if (isSearchAttempt(attempt)) {
       const queries: StreamSearchQuery[] = [];
       while (i < input.attempts.length && input.attempts[i] && isSearchAttempt(input.attempts[i]!)) {
         const row = input.attempts[i]!;
         const live = isLive(row.state);
-        if (live) hasLiveObject = true;
+        if (live && row.displaySummary) liveSummaries.push(row.displaySummary.replace(/\s+/g, ' ').trim());
         const results = row.findings ?? [];
         searchHits.push(...results);
         queries.push({
           id: row.id,
-          query: searchQueryFromAttempt(row),
+          query: resolvedSearchQuery(row, input.pageTitle),
           results,
           live,
         });
@@ -189,7 +240,23 @@ export function deriveWorkStream(input: {
       if (queries.length > 0) {
         blocks.push({ type: 'search', id: queries[0]!.id, queries });
         lastPage = undefined;
+        hasSearch = true;
       }
+      continue;
+    }
+
+    if (attempt.actionName === 'observe') {
+      const summary = attempt.displaySummary?.replace(/\s+/g, ' ').trim() ?? '';
+      const text = summary.length >= 2 ? compact(summary, 80) : '查看页面';
+      const live = isLive(attempt.state);
+      if (live && summary) liveSummaries.push(summary);
+      blocks.push({ type: 'act', id: attempt.id, text, live });
+      i += 1;
+      continue;
+    }
+
+    if (HIDDEN_ACTIONS.has(attempt.actionName)) {
+      i += 1;
       continue;
     }
 
@@ -200,7 +267,7 @@ export function deriveWorkStream(input: {
       attempt.actionName === 'focus_tab'
     ) {
       const live = isLive(attempt.state);
-      if (live) hasLiveObject = true;
+      if (live && attempt.displaySummary) liveSummaries.push(attempt.displaySummary.replace(/\s+/g, ' ').trim());
       const page: StreamPage = {
         id: attempt.id,
         title: pageTitleFromAttempt(attempt, searchHits),
@@ -222,7 +289,7 @@ export function deriveWorkStream(input: {
         lastPage.page.url = lastPage.page.url ?? pageUrlFromAttempt(attempt);
       } else {
         const live = isLive(attempt.state);
-        if (live) hasLiveObject = true;
+        if (live && attempt.displaySummary) liveSummaries.push(attempt.displaySummary.replace(/\s+/g, ' ').trim());
         const block: WorkStreamBlock = {
           type: 'page',
           id: attempt.id,
@@ -245,15 +312,21 @@ export function deriveWorkStream(input: {
       attempt.actionName === 'click_element' ||
       attempt.actionName === 'control_media' ||
       attempt.actionName === 'input_text' ||
-      attempt.actionName === 'send_keys'
+      attempt.actionName === 'send_keys' ||
+      attempt.actionName === 'select_dropdown_option'
     ) {
+      if (attempt.state === 'blocked') {
+        i += 1;
+        continue;
+      }
       if (attempt.actionName === 'send_keys' && !isCommitAttempt(attempt)) {
         i += 1;
         continue;
       }
-      const title = pageTitleFromAttempt(attempt, searchHits);
+      const summary = attempt.displaySummary?.replace(/\s+/g, ' ').trim();
+      const title = summary && summary.length >= 2 ? compact(summary, 80) : pageTitleFromAttempt(attempt, searchHits);
       const live = isLive(attempt.state);
-      if (live) hasLiveObject = true;
+      if (live && summary) liveSummaries.push(summary);
       if (isCommitAttempt(attempt)) {
         blocks.push({
           type: 'commit',
@@ -264,24 +337,12 @@ export function deriveWorkStream(input: {
         i += 1;
         continue;
       }
-      if (lastPage) {
-        lastPage.page.live = live;
-        lastPage.page.url = lastPage.page.url ?? pageUrlFromAttempt(attempt);
-      } else {
-        const block: WorkStreamBlock = {
-          type: 'page',
-          id: attempt.id,
-          page: {
-            id: attempt.id,
-            title,
-            host: attempt.targetLabel?.trim(),
-            url: pageUrlFromAttempt(attempt),
-            live,
-          },
-        };
-        blocks.push(block);
-        lastPage = block;
-      }
+      blocks.push({
+        type: 'act',
+        id: attempt.id,
+        text: title,
+        live,
+      });
       i += 1;
       continue;
     }
@@ -289,13 +350,46 @@ export function deriveWorkStream(input: {
     i += 1;
   }
 
-  if (blocks.length === 0 && input.pageLabel?.trim()) {
+  const pageUrl = input.pageUrl?.trim();
+  if (!hasSearch && pageUrl && isSearchResultsUrl(pageUrl)) {
+    const query = searchQueryFromResultsUrl(pageUrl) ?? searchQueryFromPageTitle(input.pageTitle) ?? '搜索网页';
+    blocks.unshift({
+      type: 'search',
+      id: 'bound-search',
+      queries: [{ id: 'bound-search', query: compact(query, 48), results: searchHits.slice(0, 6), live: running }],
+    });
+    hasSearch = true;
+  } else if (blocks.length === 0 && input.pageLabel?.trim()) {
+    const title = compact(input.pageTitle?.trim() || input.pageLabel, 80);
+    const host = input.pageLabel.replace(/\s+·\s+.*$/, '').trim();
     blocks.push({
       type: 'page',
       id: 'bound-page',
-      page: { id: 'bound-page', title: compact(input.pageLabel, 80), live: running },
+      page: {
+        id: 'bound-page',
+        title,
+        host: host && host !== title ? host : undefined,
+        url: pageUrl,
+        live: running,
+      },
     });
-    if (running) hasLiveObject = true;
+    lastPage = blocks[0] as Extract<WorkStreamBlock, { type: 'page' }>;
+  } else if (pageUrl && !isSearchResultsUrl(pageUrl) && /^https?:\/\//i.test(pageUrl)) {
+    const seen = urlsInBlocks(blocks);
+    const already = [...seen].some(url => url === pageUrl || pageUrl.startsWith(url) || url.startsWith(pageUrl));
+    if (!already && input.pageTitle?.trim()) {
+      blocks.push({
+        type: 'page',
+        id: 'bound-page',
+        page: {
+          id: 'bound-page',
+          title: compact(input.pageTitle, 80),
+          host: undefined,
+          url: pageUrl,
+          live: running,
+        },
+      });
+    }
   }
 
   const lastPublic = [...blocks].reverse().find(block => block.type !== 'thinking');
@@ -306,20 +400,23 @@ export function deriveWorkStream(input: {
         ? lastPublic.queries[lastPublic.queries.length - 1]?.query
         : lastPublic?.type === 'commit'
           ? lastPublic.commit.text
-          : undefined;
+          : lastPublic?.type === 'act'
+            ? lastPublic.text
+            : undefined;
   const thinking = thinkingText({
     status: input.status,
     currentSummary: input.currentSummary,
-    hasLiveObject,
+    liveSummaries,
     lastPublicText,
   });
   if (thinking) {
-    blocks.push({
-      type: 'thinking',
-      id: 'thinking',
-      text: thinking,
-      open: running,
-    });
+    const reading = { type: 'thinking' as const, id: 'thinking', text: thinking, open: running };
+    const lastSeen = [...blocks]
+      .map((block, index) => ({ block, index }))
+      .reverse()
+      .find(item => item.block.type === 'search' || item.block.type === 'page');
+    if (lastSeen) blocks.splice(lastSeen.index + 1, 0, reading);
+    else blocks.push(reading);
   }
 
   return { blocks };

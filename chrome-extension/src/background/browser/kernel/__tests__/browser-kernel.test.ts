@@ -6,30 +6,28 @@ import { ActionResult } from '../../../agent/types';
 
 describe('BrowserKernel', () => {
   it('act routes through dispatchAction with bound page_revision', async () => {
-    const dispatchAction = vi.fn(
-      async (...args: [string, Action, unknown]): Promise<DispatchResult> => {
-        void args;
-        return {
-          actionResult: new ActionResult({
-            error: undefined,
-            isDone: false,
-            extractedContent: 'ok',
-            includeInMemory: true,
-          }),
-          attempt: {
-            id: 'a1',
-            roundId: 'round-1',
-            actionName: 'click_element',
-            effect: 'reversible',
-            argsDigest: 'x',
-            state: 'observed',
-            proposedAt: 1,
-          },
-          evidence: [],
-          pageRevision: 'rev-1',
-        };
-      },
-    );
+    const dispatchAction = vi.fn(async (...args: [string, Action, unknown]): Promise<DispatchResult> => {
+      void args;
+      return {
+        actionResult: new ActionResult({
+          error: undefined,
+          isDone: false,
+          extractedContent: 'ok',
+          includeInMemory: true,
+        }),
+        attempt: {
+          id: 'a1',
+          roundId: 'round-1',
+          actionName: 'click_element',
+          effect: 'reversible',
+          argsDigest: 'x',
+          state: 'observed',
+          proposedAt: 1,
+        },
+        evidence: [],
+        pageRevision: 'rev-1',
+      };
+    });
     const action = {
       name: () => 'click_element',
       call: vi.fn(),
@@ -63,6 +61,26 @@ describe('BrowserKernel', () => {
     const result = await kernel.act('r', 'nope', {});
     expect(result.error).toMatch(/unknown action/);
     expect(dispatchAction).not.toHaveBeenCalled();
+  });
+
+  it('returns a retryable error when an indexed target disappears before dispatch', async () => {
+    const dispatchAction = vi.fn(async () => {
+      throw new Error('Action target is no longer available');
+    });
+    const action = {
+      name: () => 'click_element',
+      call: vi.fn(),
+    } as unknown as Action;
+    const kernel = createBrowserKernel({
+      browserContext: {} as never,
+      hooks: { dispatchAction },
+      resolveAction: () => action,
+    });
+
+    await expect(kernel.act('round-1', 'click_element', { index: 3 })).resolves.toEqual({
+      error: 'action_target_stale',
+    });
+    expect(dispatchAction).toHaveBeenCalledOnce();
   });
 
   it('observe applies query to interactive elements', async () => {

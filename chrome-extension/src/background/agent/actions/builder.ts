@@ -58,7 +58,12 @@ import { wrapUntrustedContent } from '../messages/utils';
 import { downloadJpegToDownloads, sanitizeScreenshotFilename } from './save-screenshot';
 import { digestInteractiveElements } from '../../browser/kernel/observation';
 import { filterInteractiveElements, formatInteractiveList } from '../../browser/kernel/filter-interactive';
-import { formatResolveIntentError, resolveIntent } from '../../browser/kernel/resolve-intent';
+import {
+  formatResolveIntentError,
+  resolveIntent,
+  waitAskFromAmbiguousBind,
+  type NamedWaitAsk,
+} from '../../browser/kernel/resolve-intent';
 import { runExtractContent } from './extract-content';
 import { preferBoundTabForActiveFind, tabUrlMatchesQuery } from '../../browser/kernel/find-tab';
 import { tableRowCount } from '../../task/artifact';
@@ -347,7 +352,7 @@ export class ActionBuilder {
   private async resolveControlIndex(input: {
     index?: number;
     query?: string;
-  }): Promise<{ ok: true; index: number } | { ok: false; error: string }> {
+  }): Promise<{ ok: true; index: number } | { ok: false; error: string; waitAsk?: NamedWaitAsk }> {
     const query = input.query?.trim() ?? '';
     if (query) {
       const state = await this.context.browserContext.getState(this.context.options.useVision);
@@ -356,20 +361,25 @@ export class ActionBuilder {
       if (resolved.kind === 'match') {
         return { ok: true, index: resolved.index };
       }
-      if (
-        resolved.kind === 'ambiguous' &&
-        input.index !== undefined &&
-        Number.isFinite(input.index) &&
-        resolved.candidates.some(candidate => candidate.index === input.index)
-      ) {
-        return { ok: true, index: input.index };
+      if (resolved.kind === 'ambiguous') {
+        const waitAsk = waitAskFromAmbiguousBind(query, resolved.candidates);
+        if (waitAsk) {
+          return { ok: false, error: 'target_ambiguous', waitAsk };
+        }
+        if (
+          input.index !== undefined &&
+          Number.isFinite(input.index) &&
+          resolved.candidates.some(candidate => candidate.index === input.index)
+        ) {
+          return { ok: true, index: input.index };
+        }
       }
       return { ok: false, error: formatResolveIntentError(resolved, query) };
     }
     if (input.index !== undefined && Number.isFinite(input.index)) {
       return { ok: true, index: input.index };
     }
-    return { ok: false, error: 'Needs index or query. Did not click.' };
+    return { ok: false, error: 'Needs index or query. Did not act.' };
   }
 
   buildDefaultActions() {
@@ -480,7 +490,13 @@ export class ActionBuilder {
         const resolved = await this.resolveControlIndex(input);
         if (!resolved.ok) {
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, resolved.error);
-          return new ActionResult({ error: resolved.error, includeInMemory: true, success: false, isDone: false });
+          return new ActionResult({
+            error: resolved.error,
+            includeInMemory: true,
+            success: false,
+            isDone: false,
+            waitAsk: resolved.waitAsk,
+          });
         }
         const intent = input.intent || t('act_click_start', [resolved.index.toString()]);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
@@ -537,7 +553,13 @@ export class ActionBuilder {
         const resolved = await this.resolveControlIndex(input);
         if (!resolved.ok) {
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, resolved.error);
-          return new ActionResult({ error: resolved.error, includeInMemory: true, success: false, isDone: false });
+          return new ActionResult({
+            error: resolved.error,
+            includeInMemory: true,
+            success: false,
+            isDone: false,
+            waitAsk: resolved.waitAsk,
+          });
         }
         const intent = input.intent || t('act_inputText_start', [resolved.index.toString()]);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
@@ -1198,15 +1220,26 @@ export class ActionBuilder {
     // Get all options from a native dropdown
     const getDropdownOptions = new Action(
       async (input: z.infer<typeof getDropdownOptionsActionSchema.schema>) => {
-        const intent = input.intent || t('act_getDropdownOptions_start', [input.index.toString()]);
+        const resolved = await this.resolveControlIndex(input);
+        if (!resolved.ok) {
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, resolved.error);
+          return new ActionResult({
+            error: resolved.error,
+            includeInMemory: true,
+            success: false,
+            isDone: false,
+            waitAsk: resolved.waitAsk,
+          });
+        }
+        const intent = input.intent || t('act_getDropdownOptions_start', [resolved.index.toString()]);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
         const page = await this.context.browserContext.getCurrentPage();
         const state = await page.getState();
 
-        const elementNode = state?.selectorMap.get(input.index);
+        const elementNode = state?.selectorMap.get(resolved.index);
         if (!elementNode) {
-          const errorMsg = t('act_errors_elementNotExist', [input.index.toString()]);
+          const errorMsg = t('act_errors_elementNotExist', [resolved.index.toString()]);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
           return new ActionResult({
             error: errorMsg,
@@ -1216,7 +1249,7 @@ export class ActionBuilder {
 
         try {
           // Use the existing getDropdownOptions method
-          const options = await page.getDropdownOptions(input.index);
+          const options = await page.getDropdownOptions(resolved.index);
 
           if (options && options.length > 0) {
             // Format options for display
@@ -1264,15 +1297,26 @@ export class ActionBuilder {
     // Select dropdown option for interactive element index by the text of the option you want to select'
     const selectDropdownOption = new Action(
       async (input: z.infer<typeof selectDropdownOptionActionSchema.schema>) => {
-        const intent = input.intent || t('act_selectDropdownOption_start', [input.text, input.index.toString()]);
+        const resolved = await this.resolveControlIndex(input);
+        if (!resolved.ok) {
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, resolved.error);
+          return new ActionResult({
+            error: resolved.error,
+            includeInMemory: true,
+            success: false,
+            isDone: false,
+            waitAsk: resolved.waitAsk,
+          });
+        }
+        const intent = input.intent || t('act_selectDropdownOption_start', [input.text, resolved.index.toString()]);
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
 
         const page = await this.context.browserContext.getCurrentPage();
         const state = await page.getState();
 
-        const elementNode = state?.selectorMap.get(input.index);
+        const elementNode = state?.selectorMap.get(resolved.index);
         if (!elementNode) {
-          const errorMsg = t('act_errors_elementNotExist', [input.index.toString()]);
+          const errorMsg = t('act_errors_elementNotExist', [resolved.index.toString()]);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
           return new ActionResult({
             error: errorMsg,
@@ -1283,7 +1327,7 @@ export class ActionBuilder {
         // Validate that we're working with a select element
         if (!elementNode.tagName || elementNode.tagName.toLowerCase() !== 'select') {
           const errorMsg = t('act_selectDropdownOption_notSelect', [
-            input.index.toString(),
+            resolved.index.toString(),
             elementNode.tagName || 'unknown',
           ]);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMsg);
@@ -1293,11 +1337,11 @@ export class ActionBuilder {
           });
         }
 
-        logger.debug('Selecting dropdown option', { elementIndex: input.index });
+        logger.debug('Selecting dropdown option', { elementIndex: resolved.index });
 
         try {
-          const result = await page.selectDropdownOption(input.index, input.text);
-          const msg = t('act_selectDropdownOption_ok', [input.text, input.index.toString()]);
+          const result = await page.selectDropdownOption(resolved.index, input.text);
+          const msg = t('act_selectDropdownOption_ok', [input.text, resolved.index.toString()]);
           this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, msg);
           return new ActionResult({
             extractedContent: result,

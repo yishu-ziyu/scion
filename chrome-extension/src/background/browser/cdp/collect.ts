@@ -4,7 +4,7 @@
  * Each cross-origin iframe target is attached separately.
  */
 import { attach, getTargets, sendCommand, type DebuggerTarget } from './session';
-import type { CdpDomNode, CdpInteractiveNode } from './types';
+import type { CdpDomNode, CdpInteractiveNode, CollectInteractiveResult, InaccessibleIframe } from './types';
 
 const INTERACTIVE_TAGS = new Set(['a', 'button', 'input', 'select', 'textarea', 'summary', 'option']);
 const INTERACTIVE_ROLES = new Set([
@@ -104,7 +104,11 @@ export function walkInteractiveNodes(
     const frameId = current.frameId || state.frameId;
     const attrs = attrsOf(current);
     const tag = (current.localName || current.nodeName || '').toLowerCase();
-    if (isInteractiveCdpNode(current, attrs) && typeof current.backendNodeId === 'number' && current.backendNodeId > 0) {
+    if (
+      isInteractiveCdpNode(current, attrs) &&
+      typeof current.backendNodeId === 'number' &&
+      current.backendNodeId > 0
+    ) {
       const text = collectText(current) || attrs['aria-label'] || attrs.value || undefined;
       out.push({
         handle: {
@@ -228,14 +232,23 @@ async function collectFromTarget(
   return nodes;
 }
 
-export async function collectInteractive(tabId: number): Promise<CdpInteractiveNode[]> {
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return String(error);
+}
+
+export async function collectInteractiveDetailed(tabId: number): Promise<CollectInteractiveResult> {
   const collected = await collectFromTarget(tabId, { tabId, frameId: 'main' });
+  const inaccessibleIframes: InaccessibleIframe[] = [];
 
   let targets: Awaited<ReturnType<typeof getTargets>> = [];
   try {
     targets = await getTargets();
-  } catch {
-    return collected;
+  } catch (error) {
+    return {
+      nodes: collected,
+      inaccessibleIframes: [{ targetId: 'getTargets', error: errorMessage(error) }],
+    };
   }
 
   for (const iframe of targets) {
@@ -246,9 +259,17 @@ export async function collectInteractive(tabId: number): Promise<CdpInteractiveN
         { tabId, frameId: iframe.id, targetId: iframe.id, inIframe: true },
       );
       pushUnique(collected, extra);
-    } catch {
-      // skip inaccessible iframe target
+    } catch (error) {
+      inaccessibleIframes.push({
+        targetId: iframe.id,
+        url: iframe.url || undefined,
+        error: errorMessage(error),
+      });
     }
   }
-  return collected;
+  return { nodes: collected, inaccessibleIframes };
+}
+
+export async function collectInteractive(tabId: number): Promise<CdpInteractiveNode[]> {
+  return (await collectInteractiveDetailed(tabId)).nodes;
 }

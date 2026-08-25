@@ -120,7 +120,6 @@ export async function createNanoExecutorDriver(
     },
     stop: async () => {
       await executor.cancel();
-      await executor.cleanup();
     },
   };
 }

@@ -372,10 +372,7 @@ export async function resetEvidenceWorkCycles(taskId: string, now = Date.now()):
   return next;
 }
 
-function validateResearchDecision(
-  space: EvidenceSpace,
-  draft: Omit<ResearchDecision, 'createdAt'>,
-): string[] {
+function validateResearchDecision(space: EvidenceSpace, draft: Omit<ResearchDecision, 'createdAt'>): string[] {
   const reasons: string[] = [];
   if (draft.capabilities.length !== 3) reasons.push('exactly_three_capabilities_required');
   const titles = new Set(draft.capabilities.map(item => compact(item.title, 240).toLowerCase()).filter(Boolean));
@@ -401,7 +398,9 @@ function validateResearchDecision(
     const userSources = new Set(
       capability.userEvidenceIds
         .map(id => byId.get(id))
-        .filter(record => record?.recordType === 'user_discussion' && !isSearchResultsEvidenceSource(record.canonicalSource))
+        .filter(
+          record => record?.recordType === 'user_discussion' && !isSearchResultsEvidenceSource(record.canonicalSource),
+        )
         .map(record => record!.canonicalSource),
     );
     const productIdentities = new Set(
@@ -497,7 +496,9 @@ const REQUIRED_RESEARCH_TABLE_FIELDS = [
 function isFeishuDocumentUrl(value: string): boolean {
   try {
     const host = new URL(value).hostname.toLowerCase();
-    return host === 'feishu.cn' || host.endsWith('.feishu.cn') || host === 'larksuite.com' || host.endsWith('.larksuite.com');
+    return (
+      host === 'feishu.cn' || host.endsWith('.feishu.cn') || host === 'larksuite.com' || host.endsWith('.larksuite.com')
+    );
   } catch {
     return false;
   }
@@ -519,7 +520,8 @@ export function putResearchDeliveryInSpace(input: {
   if (input.kind === 'research_table') {
     const missingFields = REQUIRED_RESEARCH_TABLE_FIELDS.filter(field => !observedText.includes(field));
     if (missingFields.length > 0) reasons.push(`missing_table_fields:${missingFields.join(',')}`);
-    if ((input.rowCount ?? 0) < evidenceSpaceProgress(input.space).total) reasons.push('table_row_count_below_evidence_count');
+    if ((input.rowCount ?? 0) < evidenceSpaceProgress(input.space).total)
+      reasons.push('table_row_count_below_evidence_count');
   } else {
     if (!researchDecisionReady(input.space)) reasons.push('research_decision_required');
     for (const heading of ['下一步做什么', '为什么', '暂时不做']) {

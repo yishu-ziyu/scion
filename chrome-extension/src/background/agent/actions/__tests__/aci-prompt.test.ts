@@ -32,7 +32,7 @@ describe('action ACI prompt', () => {
 
   it('exposes input_text fields after ZodEffects unwrap', () => {
     const prompt = renderActionSchemaPrompt(inputTextActionSchema);
-    expect(prompt).toContain("{input_text: {");
+    expect(prompt).toContain('{input_text: {');
     expect(prompt).toContain("'text'");
     expect(prompt).toContain("'index'");
     expect(prompt).toContain("'query'");

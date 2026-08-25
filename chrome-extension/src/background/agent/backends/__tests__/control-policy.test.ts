@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { renderActionSchemaPrompt } from '../../actions/action-prompt';
 import { ALL_ACTION_SCHEMAS, clickElementActionSchema, searchGoogleActionSchema } from '../../actions/schemas';
 import {
+  applyInaccessibleIframeGate,
+  applyLoginWallGate,
   buildAgentStatusBar,
   instructionLooksLikeResearch,
   observationSupportsWaitingUser,
@@ -408,5 +410,58 @@ describe('observationSupportsWaitingUser', () => {
         'captcha_required',
       ),
     ).toBe(true);
+  });
+
+  it('forces waiting_user on a login wall instead of typing a password', () => {
+    const gated = applyLoginWallGate(
+      {
+        observation: 'password field',
+        criteria: [],
+        done: false,
+        action: { name: 'input_text', args: { index: 1, text: 'secret' } },
+        actions: [{ name: 'input_text', args: { index: 1, text: 'secret' } }],
+        waitingUser: null,
+      },
+      frame({
+        tab: { id: 7, url: 'https://mail.example.test/login', title: 'Sign in' },
+        interactiveElements: [{ index: 1, tagName: 'input', type: 'password', name: 'password' }],
+        text: 'Sign in',
+      }),
+    );
+    expect(gated.waitingUser).toBe('login_required');
+    expect(gated.action).toBeNull();
+    expect(gated.actions).toEqual([]);
+  });
+
+  it('refuses done and form fill when an iframe attach failed', () => {
+    const blocked = frame({
+      inaccessibleIframes: [{ targetId: 'tgt-pay', url: 'https://pay.test', error: 'Target closed' }],
+    });
+    const done = applyInaccessibleIframeGate(
+      {
+        observation: 'looks filled',
+        criteria: [],
+        done: true,
+        action: null,
+        actions: [],
+        waitingUser: null,
+      },
+      blocked,
+    );
+    expect(done.done).toBe(false);
+    expect(done.waitingUser).toBe('target_missing');
+    const fill = applyInaccessibleIframeGate(
+      {
+        observation: 'type card',
+        criteria: [],
+        done: false,
+        action: { name: 'input_text', args: { index: 4, text: '4242' } },
+        actions: [{ name: 'input_text', args: { index: 4, text: '4242' } }],
+        waitingUser: null,
+      },
+      blocked,
+    );
+    expect(fill.action).toBeNull();
+    expect(fill.waitingUser).toBe('target_missing');
   });
 });

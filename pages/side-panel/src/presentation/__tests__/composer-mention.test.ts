@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CURRENT_PAGE_TOKEN,
+  displayCurrentPageMention,
   expandCurrentPageMention,
   insertCurrentPageMention,
   mentionMatchesCurrentPage,
@@ -32,6 +33,25 @@ describe('composer mention', () => {
         url: 'https://www.bilibili.com/',
       }),
     ).toBe(`${CURRENT_PAGE_TOKEN}（bilibili.com · 首页 https://www.bilibili.com/） 视频在讲什么`);
+    expect(
+      expandCurrentPageMention(`打开 https://www.iana.org 并读取 ${CURRENT_PAGE_TOKEN} 的标题`, {
+        host: 'iana.org',
+        title: 'Example Domain',
+        url: 'https://www.iana.org/',
+      }),
+    ).toBe(`打开 https://www.iana.org 并读取 ${CURRENT_PAGE_TOKEN}（iana.org · Example Domain） 的标题`);
+    expect(
+      expandCurrentPageMention(`打开 https://example.test/search?q=red 并读取 ${CURRENT_PAGE_TOKEN}`, {
+        host: 'example.test',
+        title: 'Blue results',
+        url: 'https://example.test/search?q=blue',
+      }),
+    ).toBe(
+      `打开 https://example.test/search?q=red 并读取 ${CURRENT_PAGE_TOKEN}（example.test · Blue results https://example.test/search?q=blue）`,
+    );
+    expect(
+      displayCurrentPageMention(`${CURRENT_PAGE_TOKEN}（iana.org · Example Domain https://www.iana.org/） 的标题`),
+    ).toBe(`${CURRENT_PAGE_TOKEN} 的标题`);
     expect(expandCurrentPageMention('无提及', { host: 'x', title: 't', url: 'u' })).toBe('无提及');
   });
 });

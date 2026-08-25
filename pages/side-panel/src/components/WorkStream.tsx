@@ -1,7 +1,8 @@
-import { FiSearch, FiSquare } from 'react-icons/fi';
+import { useEffect, useState } from 'react';
+import { FiChevronDown, FiSearch, FiSquare } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import { openFoundUrl } from '../presentation/open-found-url';
-import type { WorkStreamView } from '../presentation/work-stream';
+import { splitThinkingSentences, type WorkStreamView } from '../presentation/work-stream';
 
 interface WorkStreamProps {
   view: WorkStreamView;
@@ -17,16 +18,7 @@ export function WorkStream({ view, running, onStop, onOpenUrl }: WorkStreamProps
     <div className="chijie-stream" data-testid="task-work-stream">
       {view.blocks.map(block => {
         if (block.type === 'thinking') {
-          return (
-            <details
-              key={block.id}
-              className="chijie-thinking-fold"
-              data-testid="task-thinking-process"
-              open={block.open}>
-              <summary>{t('chat_task_thinking_heading')}</summary>
-              <p data-testid="task-thinking-line">{block.text}</p>
-            </details>
-          );
+          return <ThinkingFold key={block.id} text={block.text} open={block.open} running={running} />;
         }
 
         if (block.type === 'search') {
@@ -83,17 +75,29 @@ export function WorkStream({ view, running, onStop, onOpenUrl }: WorkStreamProps
               className="chijie-commit-note"
               data-testid="task-commit-note"
               data-live={block.commit.live ? 'true' : undefined}>
-              <p className="chijie-stream-caption">
-                {block.commit.live ? '下一步要提交或确认' : '已提交或确认'}
-              </p>
+              <p className="chijie-stream-caption">{block.commit.live ? '下一步要提交或确认' : '已提交或确认'}</p>
               <strong>{block.commit.text}</strong>
             </section>
           );
         }
 
+        if (block.type === 'act') {
+          return (
+            <p
+              key={block.id}
+              className="chijie-act-line chijie-act-chip"
+              data-testid="task-act-line"
+              data-live={block.live ? 'true' : undefined}>
+              {block.text}
+            </p>
+          );
+        }
+
         const pageBody = (
           <>
-            {block.page.host ? <span className="chijie-page-host">{block.page.host}</span> : null}
+            {block.page.host && block.page.host !== block.page.title ? (
+              <span className="chijie-page-host">{block.page.host}</span>
+            ) : null}
             <strong>{block.page.title}</strong>
             {block.page.snippet ? <p>{block.page.snippet}</p> : null}
           </>
@@ -138,6 +142,44 @@ export function WorkStream({ view, running, onStop, onOpenUrl }: WorkStreamProps
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ThinkingFold({ text, open, running }: { text: string; open: boolean; running: boolean }) {
+  const [expanded, setExpanded] = useState(open);
+  useEffect(() => {
+    setExpanded(open);
+  }, [open]);
+  const sentences = splitThinkingSentences(text);
+  const canToggle = !running;
+
+  return (
+    <div className="chijie-thinking" data-testid="task-thinking-process" data-running={running ? 'true' : undefined}>
+      <button
+        type="button"
+        className="chijie-thinking-head"
+        aria-expanded={expanded}
+        disabled={!canToggle}
+        onClick={() => {
+          if (canToggle) setExpanded(next => !next);
+        }}>
+        <span className="chijie-thinking-label">{t('chat_task_thinking_heading')}</span>
+        {canToggle ? <FiChevronDown className="chijie-thinking-chevron" aria-hidden /> : null}
+      </button>
+      <div className={`chijie-thinking-collapsible${expanded ? '' : ' is-collapsed'}`} aria-hidden={!expanded}>
+        <div className="chijie-thinking-inner">
+          <div className="chijie-thinking-viewport">
+            <ul className="chijie-thinking-stream">
+              {sentences.map((sentence, index) => (
+                <li key={`${index}-${sentence}`} data-testid={index === 0 ? 'task-thinking-line' : undefined}>
+                  {sentence}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

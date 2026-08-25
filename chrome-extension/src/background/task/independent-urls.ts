@@ -38,9 +38,7 @@ export type IndependentTabOpenFailure = {
 
 export type IndependentTabOpenAttempt = OpenedIndependentTab | IndependentTabOpenFailure;
 
-export function isIndependentTabOpenFailure(
-  result: IndependentTabOpenAttempt,
-): result is IndependentTabOpenFailure {
+export function isIndependentTabOpenFailure(result: IndependentTabOpenAttempt): result is IndependentTabOpenFailure {
   return 'error' in result && !('tabId' in result);
 }
 
@@ -54,10 +52,23 @@ export function provenanceUrlKey(value: string): string | null {
   }
 }
 
-function provenanceKeys(urls: Iterable<string>): Set<string> {
+/** Page identity while opening tabs: query selects the page; fragments do not. */
+function openTabUrlKey(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    url.hash = '';
+    const pathname = url.pathname.replace(/\/+$/, '') || '/';
+    return `${url.origin}${pathname}${url.search}`;
+  } catch {
+    return null;
+  }
+}
+
+function openTabUrlKeys(urls: Iterable<string>): Set<string> {
   const keys = new Set<string>();
   for (const value of urls) {
-    const key = provenanceUrlKey(value);
+    const key = openTabUrlKey(value);
     if (key) keys.add(key);
   }
   return keys;
@@ -72,11 +83,11 @@ export function instructionUrlsStillToOpen(
   alreadyOpenUrls: Iterable<string> = [],
 ): string[] {
   if (plan.sourceUrls.length < 2 || plan.requiresOrderedSourceProof) return [];
-  const openKeys = provenanceKeys(alreadyOpenUrls);
+  const openKeys = openTabUrlKeys(alreadyOpenUrls);
   const out: string[] = [];
   const seen = new Set<string>();
   for (const url of plan.sourceUrls) {
-    const key = provenanceUrlKey(url);
+    const key = openTabUrlKey(url);
     if (!key || seen.has(key) || openKeys.has(key)) continue;
     seen.add(key);
     out.push(url);
@@ -96,13 +107,13 @@ export function searchFindingUrlsToOpen(
   alreadyOpenUrls: Iterable<string> = [],
   limit = MAX_PARALLEL_TABS,
 ): string[] {
-  const openKeys = provenanceKeys(alreadyOpenUrls);
+  const openKeys = openTabUrlKeys(alreadyOpenUrls);
   const out: string[] = [];
   const seen = new Set<string>();
   for (const finding of findings) {
     const url = finding.url?.trim();
     if (!url) continue;
-    const key = provenanceUrlKey(url);
+    const key = openTabUrlKey(url);
     if (!key || seen.has(key) || openKeys.has(key)) continue;
     seen.add(key);
     out.push(url);
@@ -191,11 +202,11 @@ export function pagesMatchingPlan(
   plan: InstructionUrlPlanLike,
   tabs: Array<{ url: string; title: string }>,
 ): Array<{ url: string; title: string }> {
-  const keys = provenanceKeys(plan.sourceUrls);
+  const keys = openTabUrlKeys(plan.sourceUrls);
   const out: Array<{ url: string; title: string }> = [];
   const seen = new Set<string>();
   for (const tab of tabs) {
-    const key = provenanceUrlKey(tab.url);
+    const key = openTabUrlKey(tab.url);
     const title = tab.title.replace(/\s+/g, ' ').trim();
     if (!key || !keys.has(key) || !title || seen.has(key)) continue;
     seen.add(key);
@@ -247,9 +258,7 @@ export async function independentTabRecords(input: {
   } catch {
     urlOrigin = 'null';
   }
-  const digest = await sha256(
-    JSON.stringify({ tabId: input.tab.tabId, normalizedUrl: identity.normalizedUrl, title }),
-  );
+  const digest = await sha256(JSON.stringify({ tabId: input.tab.tabId, normalizedUrl: identity.normalizedUrl, title }));
   const targetUrl = persistableHttpUrl(pageUrl);
   const displayInput = { actionName: 'open_tab', args: { url: input.tab.requestedUrl }, urlOrigin };
   const attempt: ActionAttempt = {
@@ -282,6 +291,7 @@ export async function independentTabRecords(input: {
     urlOrigin,
     normalizedUrl: identity.normalizedUrl,
     ...(identity.queryIdentityDigest ? { queryIdentityDigest: identity.queryIdentityDigest } : {}),
+    taskOwned: true,
     digest,
     label: title,
     title,

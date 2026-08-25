@@ -44,3 +44,6 @@ chrome-extension/public/manifest.json
 
 # eval / dogfood output (created at runtime)
 reports/
+
+# local architecture atlas (system-atlas scratch; do not commit generated HTML)
+.atlas/
