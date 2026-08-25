@@ -39,15 +39,7 @@ describe('legacy replay migration', () => {
 
   it('contains no replay caller or raw action-argument logger', () => {
     const root = resolve(process.cwd(), 'src/background');
-    const source = [
-      'index.ts',
-      'agent/executor.ts',
-      'agent/agents/navigator.ts',
-      'agent/agents/base.ts',
-      'agent/actions/builder.ts',
-      'browser/page.ts',
-      'utils.ts',
-    ]
+    const source = ['index.ts', 'agent/factory.ts', 'agent/actions/builder.ts', 'browser/page.ts', 'utils.ts']
       .map(file => readFileSync(resolve(root, file), 'utf8'))
       .join('\n');
     expect(source).not.toMatch(/replayHistory|executeHistoryStep|JSON\.stringify\(actionArgs/);

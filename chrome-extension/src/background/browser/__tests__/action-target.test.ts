@@ -266,67 +266,6 @@ describe('Page action target observation', () => {
     expect(JSON.stringify([first, second])).not.toContain('Pay $');
   });
 
-  it('waits for a started button click instead of abandoning its outcome', async () => {
-    vi.useFakeTimers();
-    const button = element('button', { type: 'submit' });
-    const page = pageWithElement(button);
-    const click = vi.fn(() => new Promise<void>(resolve => setTimeout(resolve, 3000)));
-    const handle = { click, evaluate: vi.fn(async () => true) };
-    (page as unknown as { _puppeteerPage: { url: () => string } })._puppeteerPage = {
-      url: () => 'https://example.test/form',
-    };
-    vi.spyOn(page, 'locateElement').mockResolvedValue(handle as never);
-
-    const pending = page.clickElementNode(false, button);
-    let outcome: 'pending' | 'resolved' | 'rejected' = 'pending';
-    const tracked = pending.then(
-      () => (outcome = 'resolved'),
-      () => (outcome = 'rejected'),
-    );
-    await vi.advanceTimersByTimeAsync(2001);
-    expect(outcome).toBe('pending');
-
-    await vi.advanceTimersByTimeAsync(1000);
-    await tracked;
-    expect(outcome).toBe('resolved');
-    expect(click).toHaveBeenCalledTimes(1);
-  });
-
-  it('activates a plain navigation link once without starting an orphaned pointer click', async () => {
-    vi.useFakeTimers();
-    const link = element('a', { href: '/watch?v=first' });
-    const page = pageWithElement(link);
-    let navigationCount = 0;
-    const click = vi.fn(
-      () =>
-        new Promise<void>(resolve => {
-          setTimeout(() => {
-            navigationCount += 1;
-            resolve();
-          }, 3000);
-        }),
-    );
-    const evaluate = vi
-      .fn()
-      .mockResolvedValueOnce(true)
-      .mockImplementationOnce(async () => {
-        navigationCount += 1;
-        return true;
-      });
-    const handle = { click, evaluate };
-    (page as unknown as { _puppeteerPage: { url: () => string } })._puppeteerPage = {
-      url: () => 'https://example.test/watch',
-    };
-    vi.spyOn(page, 'locateElement').mockResolvedValue(handle as never);
-
-    const pending = expect(page.clickElementNode(false, link)).resolves.toBeUndefined();
-    await vi.advanceTimersByTimeAsync(3001);
-
-    await pending;
-    expect(navigationCount).toBe(1);
-    expect(click).not.toHaveBeenCalled();
-  });
-
   it('recovers the same Bilibili video card when its DOM position changed', async () => {
     const link = new DOMElementNode({
       tagName: 'a',

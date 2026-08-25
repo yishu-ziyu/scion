@@ -1,9 +1,4 @@
-/** Options overview. The only persisted control here is agentCoreBackend. */
-import { useEffect, useState } from 'react';
-import { type GeneralSettingsConfig, generalSettingsStore, DEFAULT_GENERAL_SETTINGS } from '@extension/storage';
-
-type Backend = 'control' | 'nano';
-
+/** Options overview. Model keys live on the model page; tasks run in the side panel. */
 export function OverviewSettings({
   onOpenModels,
   onOpenFirewall,
@@ -11,20 +6,6 @@ export function OverviewSettings({
   onOpenModels: () => void;
   onOpenFirewall: () => void;
 }) {
-  const [settings, setSettings] = useState<GeneralSettingsConfig>(DEFAULT_GENERAL_SETTINGS);
-
-  useEffect(() => {
-    void generalSettingsStore.getSettings().then(setSettings);
-  }, []);
-
-  const backend = (settings.agentCoreBackend ?? 'control') as Backend;
-
-  const setBackend = async (next: Backend) => {
-    setSettings(prev => ({ ...prev, agentCoreBackend: next }));
-    await generalSettingsStore.updateSettings({ agentCoreBackend: next });
-    setSettings(await generalSettingsStore.getSettings());
-  };
-
   return (
     <section className="chijie-options-stack" data-testid="options-overview">
       <header className="chijie-options-block">
@@ -38,24 +19,8 @@ export function OverviewSettings({
       </article>
 
       <article className="chijie-options-block" data-testid="overview-model">
-        <h3>执行核</h3>
-        <p className="chijie-settings-muted">多数任务用默认即可。密钥和模型名在「模型」里改。</p>
-        <div className="chijie-segment" role="group" aria-label="执行核">
-          <button
-            type="button"
-            data-testid="backend-control"
-            data-active={String(backend === 'control')}
-            onClick={() => void setBackend('control')}>
-            默认（control）
-          </button>
-          <button
-            type="button"
-            data-testid="backend-nano"
-            data-active={String(backend === 'nano')}
-            onClick={() => void setBackend('nano')}>
-            轻量（nano）
-          </button>
-        </div>
+        <h3>模型</h3>
+        <p className="chijie-settings-muted">密钥和模型名在「模型」里改。</p>
         <button type="button" className="chijie-options-link" onClick={onOpenModels}>
           打开模型
         </button>

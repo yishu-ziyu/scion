@@ -1,6 +1,6 @@
 /**
  * Presentation layer: map machine actors/events to human-facing chat copy.
- * Backend may still use Planner/Navigator; the UI must not.
+ * The UI must not name Planner / Navigator.
  */
 import { Actors, type Message } from '@extension/storage';
 import type { AgentEvent } from '../types/event';
