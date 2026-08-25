@@ -186,6 +186,7 @@ describe('Feature: Side panel uses 持节 design system', () => {
     it('does not decide user turns in the side panel; start/follow_up is classified in TaskManager.dispatch', () => {
       expect(sidePanelSource).not.toContain("type: 'user_turn_decision'");
       expect(sidePanelSource).toContain('forceExecute');
+      expect(sidePanelSource).toContain('composerIntent');
     });
   });
 
@@ -426,11 +427,16 @@ describe('Feature: design/003 task main blocks', () => {
 
   it('confirm_execute is a wait-ask reason so 仅聊天 / 执行 can draw', () => {
     const waitAskSource = readFileSync(resolve(here, '../../presentation/wait-ask.ts'), 'utf8');
+    const chatInput = readFileSync(resolve(here, '../../components/ChatInput.tsx'), 'utf8');
     expect(waitAskSource).toContain('confirm_execute');
     expect(taskStatusCardSource).toContain("case 'confirm_execute'");
     expect(taskStatusCardSource).toContain('waitAskOptionClassName');
     expect(taskStatusCardSource).toContain('!waitAskBusy');
     expect(sidePanelSource).toContain('shouldDismissConfirmExecuteChat');
+    expect(chatInput).toContain('data-testid="composer-intent"');
+    expect(chatInput).toContain('chat_composer_chat');
+    expect(chatInput).toContain('chat_composer_execute');
+    expect(componentsCss).toContain('.chijie-composer-intent');
   });
 
   it('waiting_user option chips send follow_up text, not Auto Approve or resume', () => {
@@ -566,7 +572,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(chatInput).toContain('chijie-prompt-frame');
     expect(chatInput).toContain('chijie-prompt-send');
     expect(chatInput).toContain('FiArrowUp');
-    expect(chatInput).toContain('onSendMessage(messageContent, displayContent)');
+    expect(chatInput).toContain('sendOptionsFromComposerIntent(composerIntent)');
     expect(chatInput).toContain('onClick={onMicClick}');
     expect(chatInput).toContain('accept=".txt,.md,.markdown,.json,.csv,.log,.xml,.yaml,.yml"');
     expect(chatInput).toContain('data-testid="composer-mention-menu"');

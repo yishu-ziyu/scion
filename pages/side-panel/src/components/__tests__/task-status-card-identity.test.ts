@@ -678,7 +678,8 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).not.toContain('>现在<');
     expect(html).not.toContain('>结果<');
     expect(html).not.toContain('做过');
-    expect(html).not.toContain('获取页面快照');
+    expect(html).toContain('获取页面快照');
+    expect(html).toContain('data-testid="task-process-disclosure"');
     expect(html).not.toContain('data-testid="task-status-label"');
     expect(html).not.toContain('失败了');
     expect(html).not.toContain('本次任务完成得怎么样');
