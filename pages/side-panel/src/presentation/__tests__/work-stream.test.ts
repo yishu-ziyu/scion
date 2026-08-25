@@ -6,6 +6,8 @@ import {
   isSearchAttempt,
   searchQueryFromAttempt,
   splitThinkingSentences,
+  thinkingRevealStep,
+  THINKING_REVEAL_MS,
 } from '../work-stream';
 
 const attempt = (partial: Partial<ActionAttempt> & Pick<ActionAttempt, 'id' | 'actionName'>): ActionAttempt =>
@@ -441,6 +443,44 @@ describe('splitThinkingSentences', () => {
       '第四条是某某教程。',
     ]);
     expect(splitThinkingSentences('要比对报名入口')).toEqual(['要比对报名入口']);
+  });
+
+  it('never shows raw markdown tokens in a live reading', () => {
+    const sentences = splitThinkingSentences(
+      '已通读当前页面，下面给出提炼。## 关键信息提炼 **1. AI 产品经理角色定义** AI 产品经理 = 传统产品经理 + AI 技术理解。',
+    );
+    expect(sentences.length).toBeGreaterThan(0);
+    for (const sentence of sentences) {
+      expect(sentence).not.toContain('#');
+      expect(sentence).not.toContain('*');
+    }
+    expect(sentences.some(sentence => sentence.includes('关键信息提炼'))).toBe(true);
+  });
+});
+
+describe('thinkingRevealStep', () => {
+  it('shows everything at once once the task is no longer running', () => {
+    expect(thinkingRevealStep(5, 1, { running: false, reduceMotion: false })).toEqual({ visible: 5 });
+  });
+
+  it('shows everything at once when the user prefers reduced motion', () => {
+    expect(thinkingRevealStep(5, 0, { running: true, reduceMotion: true })).toEqual({ visible: 5 });
+  });
+
+  it('reveals the first sentence almost immediately while running', () => {
+    const step = thinkingRevealStep(3, 0, { running: true, reduceMotion: false });
+    expect(step.visible).toBe(1);
+    expect(step.againInMs).toBeLessThanOrEqual(80);
+  });
+
+  it('reveals already-arrived sentences one at a time on a single cadence', () => {
+    const step = thinkingRevealStep(4, 2, { running: true, reduceMotion: false });
+    expect(step.visible).toBe(3);
+    expect(step.againInMs).toBe(THINKING_REVEAL_MS);
+  });
+
+  it('stops scheduling once every arrived sentence is visible', () => {
+    expect(thinkingRevealStep(3, 3, { running: true, reduceMotion: false })).toEqual({ visible: 3 });
   });
 });
 
