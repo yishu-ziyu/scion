@@ -617,15 +617,6 @@ button.chijie-page-card:hover {
   background: var(--chijie-sand, #e8ddd4);
 }
 
-.chijie-user-bubble h2 {
-  margin: 0;
-  color: var(--chijie-ink-soft, #3d342c);
-  font-size: 14px;
-  font-weight: 450;
-  line-height: 1.5;
-  letter-spacing: 0;
-}
-
 .chijie-progress-kicker,
 .chijie-progress-section-head {
   color: var(--chijie-muted);
@@ -648,6 +639,14 @@ button.chijie-page-card:hover {
   line-height: var(--chijie-leading-tight, 1.15);
   letter-spacing: -0.012em;
   overflow-wrap: anywhere;
+}
+
+.chijie-user-bubble.chijie-progress-mission h2 {
+  color: var(--chijie-ink-soft, #3d342c);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
 }
 
 .chijie-progress-mission > p:last-child {

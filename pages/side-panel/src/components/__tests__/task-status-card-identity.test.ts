@@ -916,6 +916,101 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).not.toContain('做完会出现在这里');
   });
 
+  it('keeps the original sentence and draws a follow-up as a later user turn', () => {
+    const snapshot = {
+      id: 'task-follow',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      status: 'running',
+      revision: 6,
+      activeTabId: 7,
+      currentRoundId: 'round-2',
+      targetRefs: [],
+      rounds: [
+        {
+          id: 'round-1',
+          instructionMessageId: 'message-1',
+          instructionSummary: 'User instruction',
+          changeType: 'follow_up',
+          status: 'completed',
+          commandAcks: {},
+          criteria: [],
+          attempts: [
+            {
+              id: 'snap-1',
+              roundId: 'round-1',
+              actionName: 'snapshot',
+              effect: 'read',
+              argsDigest: 'args',
+              displaySummary: '获取页面快照',
+              state: 'observed',
+              proposedAt: 1,
+              observedAt: 2,
+            },
+          ],
+          evidence: [],
+          result: { kind: 'summary', body: '找到 5 个相框' },
+        },
+        {
+          id: 'round-2',
+          instructionMessageId: 'message-2',
+          instructionSummary: 'User instruction',
+          changeType: 'follow_up',
+          status: 'running',
+          commandAcks: {},
+          criteria: [],
+          attempts: [
+            {
+              id: 'tab-1',
+              roundId: 'round-2',
+              actionName: 'switch_tab',
+              effect: 'read',
+              argsDigest: 'tab',
+              displaySummary: '切换到 YouTube',
+              targetLabel: 'youtube.com',
+              targetUrl: 'https://youtube.com',
+              state: 'executing',
+              proposedAt: 3,
+              executingAt: 4,
+            },
+          ],
+          evidence: [],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 6,
+    } satisfies TaskSnapshot;
+
+    const html = renderToStaticMarkup(
+      createElement(TaskStatusCard, {
+        snapshot,
+        send: vi.fn(),
+        defaultInstruction: '只要木质的',
+        missionInstruction: '打开 etsy 搜相框',
+        roundUtterances: {
+          'round-1': '打开 etsy 搜相框',
+          'round-2': '只要木质的',
+        },
+        onStop: vi.fn(),
+      }),
+    );
+
+    expect(html).toContain('data-testid="task-goal-block"');
+    expect(html).toContain('打开 etsy 搜相框');
+    expect(html).toContain('data-testid="task-follow-up"');
+    expect(html).toContain('只要木质的');
+    expect(html).toContain('找到 5 个相框');
+    expect(html).toContain('获取页面快照');
+    expect(html).toContain('youtube.com');
+    expect(html).toContain('data-turn="user"');
+    expect(html).toContain('data-turn="agent"');
+    expect(html).not.toContain('>目标<');
+    expect(html).not.toContain('>现在<');
+    expect(html).not.toContain('>结果<');
+    expect(html).not.toContain('做过');
+  });
+
   it('does not repeat the same failure sentence as both hint and product label', () => {
     const label = productFailureLabel('target_missing');
     expect(distinctFailureCategoryLabel(label, 'target_missing')).toBeNull();

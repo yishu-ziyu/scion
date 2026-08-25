@@ -60,6 +60,17 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - And a start without composerIntent still parks `confirm_execute` with 仅聊天 / 执行
 - And there is no Auto Approve countdown
 
+## Scenario: the card is turns, not four labeled slots
+
+- Given a running or completed task
+- When the status card is rendered
+- Then the user's sentence is a bubble (`data-turn="user"`)
+- And the answer and process sit in the agent turn (`data-turn="agent"`)
+- And a follow-up sentence is a later user bubble, not a replacement of the first
+- And after the run, process is a closed fold; opening it shows 获取页面快照 and tab switches
+- And the answer uses foreground ink; the user bubble and process use softer ink
+- And there is no 目标 / 现在 / 结果 / 做过 label
+
 ## Scenario: waiting_user with stored named bind choices shows those names
 
 - Given a task snapshot with status `waiting_user` and waitReason `target_ambiguous`
