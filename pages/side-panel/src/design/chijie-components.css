@@ -1751,10 +1751,29 @@ button.chijie-page-card:hover {
   scrollbar-width: none;
 }
 
+/* While running the viewport stays capped and follows the newest sentence;
+   the fade sits on top so the latest line is never dimmed. */
 .chijie-thinking[data-running='true'] .chijie-thinking-viewport {
-  max-height: none;
-  margin-top: 4px;
+  scroll-behavior: smooth;
   mask-image: none;
+}
+
+.chijie-thinking[data-running='true'] .chijie-thinking-viewport[data-capped='true'] {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16px, #000 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chijie-thinking-collapsible {
+    transition: none;
+  }
+
+  .chijie-thinking[data-running='true'] .chijie-thinking-viewport {
+    scroll-behavior: auto;
+  }
+
+  .chijie-thinking-stream li {
+    animation: none;
+  }
 }
 
 .chijie-thinking-viewport::-webkit-scrollbar {

@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FiChevronDown, FiSearch, FiSquare } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import { openFoundUrl } from '../presentation/open-found-url';
-import { splitThinkingSentences, type WorkStreamView } from '../presentation/work-stream';
+import { splitThinkingSentences, thinkingRevealStep, type WorkStreamView } from '../presentation/work-stream';
 
 interface WorkStreamProps {
   view: WorkStreamView;
@@ -153,6 +153,33 @@ function ThinkingFold({ text, open, running }: { text: string; open: boolean; ru
   }, [open]);
   const sentences = splitThinkingSentences(text);
   const canToggle = !running;
+  const [reduceMotion] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true,
+  );
+  const [revealed, setRevealed] = useState(() => sentences.length);
+  const viewportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const step = thinkingRevealStep(sentences.length, revealed, { running, reduceMotion });
+    if (step.visible === revealed) return;
+    if (step.againInMs === undefined) {
+      setRevealed(step.visible);
+      return;
+    }
+    const timer = setTimeout(() => setRevealed(step.visible), step.againInMs);
+    return () => clearTimeout(timer);
+  }, [sentences.length, revealed, running, reduceMotion]);
+
+  useEffect(() => {
+    if (!running) return;
+    const el = viewportRef.current;
+    if (!el) return;
+    if (el.scrollHeight > el.clientHeight + 1) el.dataset.capped = 'true';
+    else delete el.dataset.capped;
+    el.scrollTop = el.scrollHeight;
+  }, [revealed, running]);
+
+  const visible = sentences.slice(0, revealed);
 
   return (
     <div className="chijie-thinking" data-testid="task-thinking-process" data-running={running ? 'true' : undefined}>
@@ -169,9 +196,9 @@ function ThinkingFold({ text, open, running }: { text: string; open: boolean; ru
       </button>
       <div className={`chijie-thinking-collapsible${expanded ? '' : ' is-collapsed'}`} aria-hidden={!expanded}>
         <div className="chijie-thinking-inner">
-          <div className="chijie-thinking-viewport">
+          <div className="chijie-thinking-viewport" ref={viewportRef}>
             <ul className="chijie-thinking-stream">
-              {sentences.map((sentence, index) => (
+              {visible.map((sentence, index) => (
                 <li key={`${index}-${sentence}`} data-testid={index === 0 ? 'task-thinking-line' : undefined}>
                   {sentence}
                 </li>

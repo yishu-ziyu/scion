@@ -11,6 +11,7 @@ import {
   searchQueryFromPageTitle,
   searchQueryFromResultsUrl,
 } from '@extension/storage';
+import { stripAnswerMarkup } from './answer-format';
 
 const HIDDEN_ACTIONS = new Set([
   'evaluate',
@@ -80,11 +81,26 @@ function compact(value: string, max: number): string {
 
 /** Split a live page reading into sentences. Do not invent a canned SENTENCES list. */
 export function splitThinkingSentences(text: string): string[] {
-  const trimmed = text.replace(/\s+/g, ' ').trim();
+  const trimmed = stripAnswerMarkup(text).replace(/\s+/g, ' ').trim();
   if (!trimmed) return [];
   const parts = trimmed.match(/[^。！？]+[。！？]?/g);
   const sentences = (parts ?? [trimmed]).map(part => part.trim()).filter(Boolean);
   return sentences.length > 0 ? sentences : [trimmed];
+}
+
+/** Cadence between revealing two already-arrived sentences. Text is real; only the reveal is paced. */
+export const THINKING_REVEAL_MS = 420;
+
+export function thinkingRevealStep(
+  total: number,
+  revealed: number,
+  opts: { running: boolean; reduceMotion: boolean },
+): { visible: number; againInMs?: number } {
+  if (opts.reduceMotion || !opts.running) return { visible: total };
+  if (total <= 0) return { visible: 0 };
+  if (revealed <= 0) return { visible: 1, againInMs: 30 };
+  if (revealed >= total) return { visible: total };
+  return { visible: revealed + 1, againInMs: THINKING_REVEAL_MS };
 }
 
 function isLive(state: ActionAttempt['state'] | string): boolean {
