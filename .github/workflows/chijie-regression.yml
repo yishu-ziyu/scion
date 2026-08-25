@@ -155,6 +155,15 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm exec turbo lint --continue
 
+      - name: Check structure
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm check:structure
+
+      - name: Report structure hotspots
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        continue-on-error: true
+        run: pnpm report:structure
+
       - name: Check formatting
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         working-directory: ${{ github.workspace }}

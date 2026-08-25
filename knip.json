@@ -1,0 +1,3 @@
+{
+  "ignoreDependencies": ["dependency-cruiser", "eslint-plugin-sonarjs", "jscpd", "knip"]
+}
