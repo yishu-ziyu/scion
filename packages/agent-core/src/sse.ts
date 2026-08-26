@@ -22,6 +22,52 @@ export class SseStreamError extends Error {
   }
 }
 
+const THINK_OPEN = '<think>';
+const THINK_CLOSE = '</think>';
+
+function suffixPrefixLength(value: string, marker: string): number {
+  const maxLength = Math.min(value.length, marker.length - 1);
+  for (let length = maxLength; length > 0; length -= 1) {
+    if (value.endsWith(marker.slice(0, length))) return length;
+  }
+  return 0;
+}
+
+/** Remove model reasoning while retaining state across streamed content chunks. */
+function createThinkFilter() {
+  let inThink = false;
+  let buffered = '';
+
+  const push = (text: string): string => {
+    buffered += text;
+    let visible = '';
+
+    while (buffered) {
+      const marker = inThink ? THINK_CLOSE : THINK_OPEN;
+      const markerIndex = buffered.indexOf(marker);
+      if (markerIndex !== -1) {
+        if (!inThink) visible += buffered.slice(0, markerIndex);
+        buffered = buffered.slice(markerIndex + marker.length);
+        inThink = !inThink;
+        continue;
+      }
+
+      const partialLength = suffixPrefixLength(buffered, marker);
+      if (inThink) {
+        buffered = partialLength > 0 ? buffered.slice(-partialLength) : '';
+      } else {
+        visible += buffered.slice(0, buffered.length - partialLength);
+        buffered = partialLength > 0 ? buffered.slice(-partialLength) : '';
+      }
+      break;
+    }
+
+    return visible;
+  };
+
+  return { push };
+}
+
 /**
  * Parse one SSE event payload (the joined `data:` lines). Returns the chunk,
  * or null when the payload was the `[DONE]` sentinel.
@@ -107,12 +153,13 @@ async function* streamLines(body: ReadableStream<Uint8Array>): AsyncGenerator<st
  */
 export async function* parseChatCompletionsSse(body: ReadableStream<Uint8Array>): AsyncGenerator<ChatCompletionChunk> {
   const assembler = createEventAssembler();
+  const thinkFilter = createThinkFilter();
   for await (const line of streamLines(body)) {
     const result = assembler.pushLine(line);
     if (result && 'done' in result) return;
-    if (result) yield result.chunk;
+    if (result) yield { ...result.chunk, content: thinkFilter.push(result.chunk.content) };
   }
   const tail = assembler.flushEvent();
   if (tail && 'done' in tail) return;
-  if (tail) yield tail.chunk;
+  if (tail) yield { ...tail.chunk, content: thinkFilter.push(tail.chunk.content) };
 }

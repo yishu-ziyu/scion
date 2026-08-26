@@ -72,6 +72,27 @@ describe('parseChatCompletionsSse', () => {
     await expect(collect('data: {not json\n\n')).rejects.toThrowError(SseStreamError);
   });
 
+  it('removes a closing think tag split across streamed content chunks', async () => {
+    const payload = delta('<think>private reasoning</thi') + delta('nk>visible answer') + 'data: [DONE]\n\n';
+
+    expect(await collect(payload)).toEqual(['visible answer']);
+  });
+
+  it('suppresses an unclosed think block through the end of the stream', async () => {
+    const payload = delta('visible prefix') + delta('<think>private reasoning') + 'data: [DONE]\n\n';
+
+    expect(await collect(payload)).toEqual(['visible prefix']);
+  });
+
+  it('removes multiple think blocks while preserving surrounding content', async () => {
+    const payload =
+      delta('<think>first reasoning</think>first answer') +
+      delta('<think>second reasoning</think>second answer') +
+      'data: [DONE]\n\n';
+
+    expect(await collect(payload)).toEqual(['first answer', 'second answer']);
+  });
+
   it('flushes a trailing event that is not followed by a blank line', async () => {
     expect(await collect(delta('tail').replace(/\n\n$/, ''))).toEqual(['tail']);
   });
