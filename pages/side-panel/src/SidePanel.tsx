@@ -1058,12 +1058,8 @@ const SidePanel = () => {
               setShowStopButton(false);
               setTaskSnapshotLoaded(true);
             }
-            if (pendingNewChatCancellationRef.current) {
-              portRef.current?.postMessage({
-                type: 'get_task',
-                taskId: pendingNewChatCancellationRef.current.taskId,
-              });
-            }
+            const pendingResetAck = pendingNewChatCancellationRef.current;
+            if (pendingResetAck) portRef.current?.postMessage({ type: 'get_task', taskId: pendingResetAck.taskId });
             if (
               !rejectsNewChatCancellation &&
               message.ack.error !== 'stale_revision' &&
@@ -1157,14 +1153,11 @@ const SidePanel = () => {
         }
       }, 25000);
       const pendingReset = pendingNewChatCancellationRef.current;
-      const reconnectRequest = reconnectTaskSnapshotRequest(
-        pendingReset,
-        pendingStartCommandRef.current,
-        Boolean(
-          !blankComposerSessionRef.current &&
-            (sessionIdRef.current || taskSnapshotRef.current || authoritativeTaskSnapshotRef.current),
-        ),
+      const hasLiveSurface = Boolean(
+        !blankComposerSessionRef.current &&
+          (sessionIdRef.current || taskSnapshotRef.current || authoritativeTaskSnapshotRef.current),
       );
+      const reconnectRequest = reconnectTaskSnapshotRequest(pendingReset, pendingStartCommandRef.current, hasLiveSurface);
       if (reconnectRequest) portRef.current.postMessage(reconnectRequest);
       else setTaskSnapshotLoaded(true);
     } catch (error) {
