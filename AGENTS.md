@@ -9,11 +9,9 @@ The current user message overrides this file for that turn.
 
 Personal second-dev lab (接穗). Maintainer: yishu-ziyu · remote: `origin` → https://github.com/yishu-ziyu/scion.git
 
-持节 = Chrome MV3 **browser automation agent** in the user's daily Chrome.
 The user assigns a task; the extension operates the relevant tabs until it is done.
-The side panel is turn-taking: the user sends a sentence, the agent works and replies, the user can follow up.
-Not a pre-printed 目标 / 现在 / 结果 / 做过 column. Not step-by-step approval of every click.
-The composer has 仅聊天 / 执行. Default: do not follow the foreground tab.
+Not a pre-printed 目标 / 现在 / 结果 / 做过 column.
+One send, one loop: the loop answers or operates. Default: do not follow the foreground tab.
 
 Owner 指哪打哪. Do not write documents for numbering, gates, indexes, or milestones.
 
@@ -34,11 +32,26 @@ The agent drafts the contract from what they said, and guides them until they co
 
 Before changing product behavior, this file, or anything the user can see, write all five back in ordinary Chinese. Do not ask the user to fill a template. Do not drop a block because it would make the message shorter.
 
-1. **做成什么样** — what must be true when you stop
-2. **现在已经怎样、问题不是什么** — what is already true; what the problem is not
-3. **不能动的约束** — invariants (hard). Preserve is not the same as "don't do X"
-4. **对照什么** — screenshot, URL, file, component, prior version. Always state this block; write 「没有对照」 if there is none
-5. **怎样算完** — falsifiable checks
+| # | 块 | 回答什么 |
+|---|----|---------|
+| 1 | 做成什么样 | 停手时必须为真的事 |
+| 2 | 现在已经怎样、问题不是什么 | 已经成立的事实；以及问题不是 X |
+| 3 | 不能动的约束 | 硬的不变量；「保留」≠「不做 X」 |
+| 4 | 对照什么 | 截图 / URL / 文件 / 组件 / 前一个版本；没有就写「没有对照」 |
+| 5 | 怎样算完 | 可证伪的检查 |
+
+```mermaid
+flowchart TD
+    A[用户一句话] --> B[草拟契约：五块<br/>普通中文，不许丢块]
+    B --> C{有洞？}
+    C -- 有 --> D[问一个问题<br/>带上你的猜测<br/>然后等]
+    D --> C
+    C -- 没有 --> E{用户确认？}
+    E -- 对 / 对的 / 做 --> F[动手<br/>agent 拥有路径，不再请示]
+    E -- 沉默 / 随便什么 / 你看着办 --> B
+    B -. 机械请求：点名命令 / 错字 / 纯问题 .-> F
+```
+
 
 If a hole remains, ask **one** question, with your guess attached. Wait.
 Do not edit code, this file, or user-visible files until the user confirms (对 / 对的 / 做 / equivalent).
@@ -56,7 +69,7 @@ After the lock: the agent owns the path. Do not ask how to implement. Do not req
 Chat is with 奕枢 (product owner), not with another model.
 
 - First sentence: what this means for them, or what you need from them.
-- One idea per sentence. Full sentences. Delete filler; do not pack several claims into a coined label or a half-sentence they have to unpack.
+- Full sentences. Delete filler; do not pack several claims into a coined label or a half-sentence they have to unpack.
 - Product meaning first. A file, function, or Chrome API only when you must point at that thing — then one clause of what it does.
 - Concrete scene + direct cause. Who, at what moment, what happens.
 - Think as deep as needed. Speak in ordinary Chinese. Unclear prose is the writer's failure.
@@ -99,8 +112,7 @@ When the work is product / design / placement: while restating intent, name in o
 ## Runtime (hard)
 
 - Do not bring the user's current tab or window to the front while the agent works, unless the user chose 跟随 (`TaskSession.followForeground`). Default `BrowserContext.switchTab` / `openTab` / `navigateTo` attach in the background. 接管 (`takeover`) pauses the task and reveals the page so the user can drive. Side panel grows from what happened; do not pre-print 目标 / 现在 / 结果 / 做过.
-- Composer 仅聊天 / 执行 is always on the input. 仅聊天 = this send does not operate pages. 执行 = this send may operate pages and skips the extra confirm ask. Whole-message greetings still reply with no task. 再说一次 (`forceExecute`) skips classify. If the composer did not already pick 执行, still ask 要我现在操作这个网页吗？ Do not approve every click.
-- Computer-use (`orca computer`) must not steal the user's front app. Never `--restore-window`, `orca open`, or `osascript activate`. Prefer `orca serve` (no desktop window) and `get-app-state --no-screenshot`. If the target has no on-screen window, stop; do not restore it.
+- One send, one loop. The loop may answer without attaching to a page, or attach and operate. No 仅聊天 / 执行 toggle. No reply/clarify/execute/stop classify. Whole-message 停止 still stops. 再说一次 (`forceExecute`) still starts. Do not approve every click.
 
 ## Commands
 
@@ -114,6 +126,7 @@ pnpm report:structure             # hotspots; does not fail CI
 pnpm -F chrome-extension test
 pnpm -F @extension/sidepanel test
 pnpm e2e:action-agent             # needs Chrome for Testing / CHROME_PATH
+pnpm reload:extension            # reload unpacked dist in a running debug Chrome (CDP 9222)
 ```
 
 UI tokens: `pages/side-panel/src/design/chijie-*.css`.
@@ -136,13 +149,3 @@ A task is not complete because code was written.
 | E2E | only when the change is the live Chrome path; `pnpm e2e:action-agent` |
 
 If a check cannot be run, name it as unverified. Do not claim done.
-
-## Review
-
-After user-visible or multi-file work, before claiming done: two passes against `origin/main` (or the last agreed commit). Do not merge the two reports into one ranked list.
-
-- **Standards:** this file + `pages/side-panel/src/design/ui-acceptance.feature.md`. Fowler smells are judgement only; a rule in this file wins. Skip what lint/typecheck already enforces.
-- **Spec:** the owner's last spoken scene. If there is no spec, write "no spec available". Do not invent one.
-
-The agent performs both passes. Spawn separate reviewers only when the user typed `/code-review` or `/review`.
-Playbook: `/Users/mahaoxuan/Desktop/coding/wiki/skills/code-review.md`. Do not copy that skill tree into this repo.

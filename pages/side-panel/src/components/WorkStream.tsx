@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FiChevronDown, FiSearch, FiSquare } from 'react-icons/fi';
+import { FiChevronDown, FiSearch } from 'react-icons/fi';
 import { t } from '@extension/i18n';
 import { openFoundUrl } from '../presentation/open-found-url';
 import { splitThinkingSentences, thinkingRevealStep, type WorkStreamView } from '../presentation/work-stream';
@@ -7,11 +7,10 @@ import { splitThinkingSentences, thinkingRevealStep, type WorkStreamView } from 
 interface WorkStreamProps {
   view: WorkStreamView;
   running: boolean;
-  onStop?: () => void;
   onOpenUrl?: (url: string) => void;
 }
 
-export function WorkStream({ view, running, onStop, onOpenUrl }: WorkStreamProps) {
+export function WorkStream({ view, running, onOpenUrl }: WorkStreamProps) {
   if (view.blocks.length === 0 && !running) return null;
 
   return (
@@ -128,20 +127,6 @@ export function WorkStream({ view, running, onStop, onOpenUrl }: WorkStreamProps
           </section>
         );
       })}
-
-      {running ? (
-        <div className="chijie-stream-live" data-testid="live-tool-log">
-          <span className="chijie-live-cursor" data-testid="live-cursor" aria-hidden>
-            <span className="chijie-live-dot" />
-          </span>
-          {onStop ? (
-            <button type="button" className="chijie-stop-pill" data-testid="live-stop-generating" onClick={onStop}>
-              <FiSquare aria-hidden />
-              {t('chat_task_takeover')}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -193,10 +178,14 @@ function ThinkingFold({ text, open, running }: { text: string; open: boolean; ru
   const visible = sentences.slice(0, revealed);
 
   return (
-    <div className="chijie-thinking" data-testid="task-thinking-process" data-running={running ? 'true' : undefined}>
+    <div
+      className="chijie-thinking t-acc"
+      data-testid="task-thinking-process"
+      data-running={running ? 'true' : undefined}
+      data-open={expanded ? 'true' : 'false'}>
       <button
         type="button"
-        className="chijie-thinking-head"
+        className="chijie-thinking-head t-acc-head"
         aria-expanded={expanded}
         disabled={!canToggle}
         onClick={() => {
@@ -205,8 +194,10 @@ function ThinkingFold({ text, open, running }: { text: string; open: boolean; ru
         <span className="chijie-thinking-label">{t('chat_task_thinking_heading')}</span>
         {canToggle ? <FiChevronDown className="chijie-thinking-chevron" aria-hidden /> : null}
       </button>
-      <div className={`chijie-thinking-collapsible${expanded ? '' : ' is-collapsed'}`} aria-hidden={!expanded}>
-        <div className="chijie-thinking-inner">
+      <div
+        className={`chijie-thinking-collapsible t-acc-panel${expanded ? '' : ' is-collapsed'}`}
+        aria-hidden={!expanded}>
+        <div className="chijie-thinking-inner t-acc-panel-inner">
           <div className="chijie-thinking-viewport" ref={viewportRef}>
             <ul className="chijie-thinking-stream">
               {visible.map((sentence, index) => (

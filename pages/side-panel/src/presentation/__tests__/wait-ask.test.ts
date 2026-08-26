@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveWaitAsk, shouldDismissConfirmExecuteChat, waitAskOptionClassName } from '../wait-ask';
+import { deriveWaitAsk } from '../wait-ask';
 
 describe('deriveWaitAsk', () => {
   it('splits the which-webmail question into 谷歌 and 微软', () => {
@@ -88,7 +88,7 @@ describe('deriveWaitAsk', () => {
     expect(ask?.options.map(option => option.sendText)).toEqual(['入门教程', '进阶教程']);
   });
 
-  it('draws 仅聊天 / 执行 from a stored confirm_execute waitAsk', () => {
+  it('does not draw 仅聊天 / 执行 from a leftover confirm_execute waitAsk', () => {
     const ask = deriveWaitAsk({
       status: 'waiting_user',
       waitReason: 'confirm_execute',
@@ -100,8 +100,7 @@ describe('deriveWaitAsk', () => {
         ],
       },
     });
-    expect(ask?.prompt).toBe('要我现在操作这个网页吗？');
-    expect(ask?.options.map(option => option.label)).toEqual(['仅聊天', '执行']);
+    expect(ask).toBeNull();
   });
 
   it('keeps proof, commit uncertainty, and skill inputs off this card', () => {
@@ -109,39 +108,5 @@ describe('deriveWaitAsk', () => {
     expect(deriveWaitAsk({ status: 'waiting_user', waitReason: 'proof_required', pageReading })).toBeNull();
     expect(deriveWaitAsk({ status: 'waiting_user', waitReason: 'commit_outcome_uncertain', pageReading })).toBeNull();
     expect(deriveWaitAsk({ status: 'inputs_required', waitReason: 'skill_inputs_required', pageReading })).toBeNull();
-  });
-});
-
-describe('waitAskOptionClassName', () => {
-  it('makes 执行 the primary chip on confirm_execute and keeps 仅聊天 readable secondary', () => {
-    expect(waitAskOptionClassName({ waitReason: 'confirm_execute', sendText: '执行' })).toBe('chijie-btn-primary');
-    expect(waitAskOptionClassName({ waitReason: 'confirm_execute', sendText: '仅聊天' })).toBe('chijie-btn-secondary');
-    expect(waitAskOptionClassName({ waitReason: 'target_ambiguous', sendText: '谷歌' })).toBe('chijie-btn-secondary');
-  });
-});
-
-describe('shouldDismissConfirmExecuteChat', () => {
-  it('dismisses only an accepted 仅聊天 reply on the parked confirm', () => {
-    expect(
-      shouldDismissConfirmExecuteChat({
-        accepted: true,
-        waitReason: 'confirm_execute',
-        userVisibleText: '好的，这次不操作页面。',
-      }),
-    ).toBe(true);
-    expect(
-      shouldDismissConfirmExecuteChat({
-        accepted: true,
-        waitReason: 'confirm_execute',
-        userVisibleText: '好的，已停止。',
-      }),
-    ).toBe(false);
-    expect(
-      shouldDismissConfirmExecuteChat({
-        accepted: true,
-        waitReason: 'target_ambiguous',
-        userVisibleText: '好的，这次不操作页面。',
-      }),
-    ).toBe(false);
   });
 });

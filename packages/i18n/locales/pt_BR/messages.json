@@ -34,6 +34,18 @@
   "nav_memory_a11y": {
     "message": "Memória"
   },
+  "nav_pictureInPicture_open_a11y": {
+    "message": "Abrir picture-in-picture"
+  },
+  "nav_pictureInPicture_close_a11y": {
+    "message": "Recolher o chat"
+  },
+  "chat_pip_parked": {
+    "message": "O chat está flutuando. Continua ao trocar de aba; fechar o painel lateral fecha junto."
+  },
+  "chat_pip_unsupported": {
+    "message": "Este Chrome não abre picture-in-picture"
+  },
   "memory_page_title": {
     "message": "Memória"
   },
@@ -147,15 +159,6 @@
   },
   "chat_task_mode_badge": {
     "message": "Tarefa"
-  },
-  "chat_composer_intent": {
-    "message": "O que este envio faz"
-  },
-  "chat_composer_chat": {
-    "message": "Só conversar"
-  },
-  "chat_composer_execute": {
-    "message": "Executar"
   },
   "chat_task_input_placeholder": {
     "message": "O que fazer?"
@@ -1443,5 +1446,8 @@
   },
   "chat_task_fail_missing_instruction": {
     "message": "Instrução ausente. Inicie uma nova tarefa."
+  },
+  "chat_task_hint_proof_unconfirmable": {
+    "message": "O resultado já foi obtido, mas as evidências da página ainda não conferem. Tente de novo ou deixe o pedido mais específico."
   }
 }

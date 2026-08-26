@@ -123,7 +123,9 @@ test('fixture oracle requires an exact CSV tuple set plus the correct highest-pr
   }));
   const rows = products.map(product => `${product.name},${product.price},${product.rating}`);
   const valid = ['```csv', 'name,price,rating', ...rows, '```', '最贵商品是 dynamic-4，价格为 $5。'].join('\n');
-  assert.equal(FINAL_DELIVERABLE_SELECTOR, '[data-testid="completion-deliverable-copy"]');
+  // Deliverable content is the answer sentence; the copy button's localized
+  // label ("复制结果") must never be read as deliverable content.
+  assert.equal(FINAL_DELIVERABLE_SELECTOR, '[data-testid="completion-result"]');
   assert.equal(productDeliverablePass(valid, products), true);
   assert.equal(productDeliverablePass(promptText, products), false);
   assert.equal(productDeliverablePass(`name,price,rating\n${products[0].name},$1,4`, products), false);

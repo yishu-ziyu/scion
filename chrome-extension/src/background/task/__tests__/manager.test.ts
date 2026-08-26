@@ -403,8 +403,7 @@ describe('TaskManager lifecycle', () => {
     const duplicate = await manager.dispatch(command);
     expect(duplicate).toEqual(first);
     await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
-    expect(switchTab).toHaveBeenCalledWith(7);
-    expect(switchTab.mock.invocationCallOrder[0]).toBeLessThan(createExecutor.mock.invocationCallOrder[0]);
+    expect(switchTab).not.toHaveBeenCalled();
     expect(store.sessions.get('task-1')).toMatchObject({
       rounds: [{ commandAcks: { 'cmd-1': first } }],
     });
@@ -479,21 +478,18 @@ describe('TaskManager lifecycle', () => {
     await firstStop;
     expect(oldDriver.stop).toHaveBeenCalledOnce();
     expect(cleanupBrowserContext).toHaveBeenCalledOnce();
-    expect(switchTab).toHaveBeenCalledWith(8);
+    expect(switchTab).not.toHaveBeenCalled();
   });
 
-  it('does not create a task when decideUserTurn says reply, even without a tab', async () => {
+  it('starts a greeting as a task instead of classifying reply', async () => {
     const createExecutor = vi.fn(async () => fakeDriver());
-    const decideUserTurn = vi.fn(async () => ({
-      kind: 'reply' as const,
-      userVisibleText: '你好，需要我帮你在页面上做什么？',
-    }));
+    const switchTab = vi.fn();
     const manager = new TaskManager({
       createExecutor,
-      switchTab: vi.fn(),
+      switchTab,
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
-      decideUserTurn,
+      openBlankTaskTab: async () => 9,
       ...noPostCommitBackoff,
     });
     const ack = await manager.dispatch({
@@ -505,139 +501,19 @@ describe('TaskManager lifecycle', () => {
       instructionMessageId: 'msg-classify',
       tabId: -1,
     });
-    expect(ack).toMatchObject({
-      accepted: false,
-      error: 'not_executable',
-      userVisibleText: '你好，需要我帮你在页面上做什么？',
-    });
-    expect(decideUserTurn).toHaveBeenCalledTimes(1);
-    expect(createExecutor).not.toHaveBeenCalled();
-    expect(store.sessions.get('task-classify-reply')).toBeUndefined();
-  });
-
-  it('parks an execute start until the user picks 执行, without switching tab', async () => {
-    const createExecutor = vi.fn(async () => fakeDriver());
-    const switchTab = vi.fn(async () => undefined);
-    const decideUserTurn = vi.fn(async () => ({
-      kind: 'execute' as const,
-      userVisibleText: '',
-    }));
-    const manager = new TaskManager({
-      createExecutor,
-      switchTab,
-      observeCriteria: vi.fn(async () => []),
-      now: () => 100,
-      decideUserTurn,
-      ...noPostCommitBackoff,
-    });
-    const ack = await manager.dispatch({
-      type: 'start',
-      commandId: 'cmd-confirm-park',
-      taskId: 'task-confirm-park',
-      instruction: '打开 B 站搜猫 播第一条',
-      chatSessionId: 'chat-confirm',
-      instructionMessageId: 'msg-confirm',
-      tabId: 7,
-    });
-    expect(ack).toMatchObject({ accepted: true, taskId: 'task-confirm-park' });
-    const parked = await manager.snapshot('task-confirm-park');
-    expect(parked?.status).toBe('waiting_user');
-    expect(parked?.rounds[0]?.waitReason).toBe('confirm_execute');
-    expect(parked?.rounds[0]?.waitAsk?.options.map(option => option.sendText)).toEqual(['仅聊天', '执行']);
-    expect(parked?.rounds[0]?.pageReading).not.toBe('要我现在操作这个网页吗？');
-    expect(createExecutor).not.toHaveBeenCalled();
-    expect(switchTab).not.toHaveBeenCalled();
-  });
-
-  it('starts the parked task after 执行', async () => {
-    const createExecutor = vi.fn(async () => fakeDriver());
-    const switchTab = vi.fn(async () => undefined);
-    const decideUserTurn = vi.fn(async () => ({ kind: 'execute' as const, userVisibleText: '' }));
-    const manager = new TaskManager({
-      createExecutor,
-      switchTab,
-      observeCriteria: vi.fn(async () => []),
-      now: () => 100,
-      decideUserTurn,
-      ...noPostCommitBackoff,
-    });
-    await manager.dispatch({
-      type: 'start',
-      commandId: 'cmd-go-park',
-      taskId: 'task-confirm-go',
-      instruction: '打开 YouTube',
-      chatSessionId: 'chat-confirm-go',
-      instructionMessageId: 'msg-confirm-go',
-      tabId: 7,
-    });
-    const parked = await manager.snapshot('task-confirm-go');
-    const go = await manager.dispatch({
-      type: 'follow_up',
-      commandId: 'cmd-go',
-      taskId: 'task-confirm-go',
-      expectedRevision: parked?.revision ?? 0,
-      instruction: '执行',
-      chatSessionId: 'chat-confirm-go',
-      instructionMessageId: 'msg-go',
-    });
-    expect(go.accepted).toBe(true);
-    expect(decideUserTurn).toHaveBeenCalledTimes(1);
+    expect(ack.accepted).toBe(true);
     await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
-    expect(switchTab).toHaveBeenCalledWith(7);
-    expect((await manager.snapshot('task-confirm-go'))?.status).toBe('running');
-  });
-
-  it('dismisses the parked task after 仅聊天 without cancelling or switching tab', async () => {
-    const createExecutor = vi.fn(async () => fakeDriver());
-    const switchTab = vi.fn(async () => undefined);
-    const decideUserTurn = vi.fn(async () => ({ kind: 'execute' as const, userVisibleText: '' }));
-    const manager = new TaskManager({
-      createExecutor,
-      switchTab,
-      observeCriteria: vi.fn(async () => []),
-      now: () => 100,
-      decideUserTurn,
-      ...noPostCommitBackoff,
-    });
-    await manager.dispatch({
-      type: 'start',
-      commandId: 'cmd-chat-park',
-      taskId: 'task-confirm-chat',
-      instruction: '打开 YouTube',
-      chatSessionId: 'chat-confirm-chat',
-      instructionMessageId: 'msg-confirm-chat',
-      tabId: 8,
-    });
-    const parked = await manager.snapshot('task-confirm-chat');
-    const chat = await manager.dispatch({
-      type: 'follow_up',
-      commandId: 'cmd-chat',
-      taskId: 'task-confirm-chat',
-      expectedRevision: parked?.revision ?? 0,
-      instruction: '仅聊天',
-      chatSessionId: 'chat-confirm-chat',
-      instructionMessageId: 'msg-chat',
-    });
-    expect(chat).toMatchObject({ accepted: true, userVisibleText: '好的，这次不操作页面。' });
-    expect(decideUserTurn).toHaveBeenCalledTimes(1);
-    expect(await manager.snapshot('task-confirm-chat')).toBeNull();
-    expect(store.sessions.get('task-confirm-chat')).toBeUndefined();
-    expect(createExecutor).not.toHaveBeenCalled();
+    expect(store.sessions.get('task-classify-reply')).toBeDefined();
     expect(switchTab).not.toHaveBeenCalled();
   });
 
-  it('composerIntent execute starts without parking confirm', async () => {
+  it('starts a page instruction without parking 仅聊天 / 执行', async () => {
     const createExecutor = vi.fn(async () => fakeDriver());
-    const decideUserTurn = vi.fn(async () => ({
-      kind: 'execute' as const,
-      userVisibleText: '',
-    }));
     const manager = new TaskManager({
       createExecutor,
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
-      decideUserTurn,
       ...noPostCommitBackoff,
     });
     const ack = await manager.dispatch({
@@ -648,61 +524,47 @@ describe('TaskManager lifecycle', () => {
       chatSessionId: 'chat-composer-go',
       instructionMessageId: 'msg-composer-go',
       tabId: 7,
-      composerIntent: 'execute',
     });
     expect(ack.accepted).toBe(true);
-    expect(decideUserTurn).toHaveBeenCalledTimes(1);
     const live = await manager.snapshot('task-composer-go');
     expect(live?.status).toBe('running');
     expect(live?.rounds[0]?.waitReason).toBeUndefined();
     await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
   });
 
-  it('composerIntent chat does not operate a page task', async () => {
+  it('does not create a task for a whole-message stop', async () => {
     const createExecutor = vi.fn(async () => fakeDriver());
-    const decideUserTurn = vi.fn(async () => ({
-      kind: 'execute' as const,
-      userVisibleText: '',
-    }));
     const manager = new TaskManager({
       createExecutor,
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
-      decideUserTurn,
       ...noPostCommitBackoff,
     });
     const ack = await manager.dispatch({
       type: 'start',
-      commandId: 'cmd-composer-chat',
-      taskId: 'task-composer-chat',
-      instruction: '打开 YouTube',
-      chatSessionId: 'chat-composer-chat',
-      instructionMessageId: 'msg-composer-chat',
+      commandId: 'cmd-stop-start',
+      taskId: 'task-stop-start',
+      instruction: '停止',
+      chatSessionId: 'chat-stop-start',
+      instructionMessageId: 'msg-stop-start',
       tabId: 7,
-      composerIntent: 'chat',
     });
     expect(ack).toMatchObject({
       accepted: false,
       error: 'not_executable',
-      userVisibleText: '这次按仅聊天，不操作页面。要动手的话，选执行再发。',
+      userVisibleText: '好的，已停止。',
     });
     expect(createExecutor).not.toHaveBeenCalled();
-    expect(await manager.snapshot('task-composer-chat')).toBeNull();
   });
 
-  it('skips decideUserTurn when forceExecute is set', async () => {
+  it('forceExecute starts even when the sentence is a greeting', async () => {
     const createExecutor = vi.fn(async () => fakeDriver());
-    const decideUserTurn = vi.fn(async () => ({
-      kind: 'reply' as const,
-      userVisibleText: 'should not run',
-    }));
     const manager = new TaskManager({
       createExecutor,
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
-      decideUserTurn,
       ...noPostCommitBackoff,
     });
     const ack = await manager.dispatch({
@@ -716,11 +578,10 @@ describe('TaskManager lifecycle', () => {
       forceExecute: true,
     });
     expect(ack.accepted).toBe(true);
-    expect(decideUserTurn).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
   });
 
-  it('cancels the live task when follow_up is classified as stop', async () => {
+  it('cancels the live task when follow_up is a whole-message stop', async () => {
     const driver = fakeDriver();
     const cleanupBrowserContext = vi.fn(async () => undefined);
     const manager = new TaskManager({
@@ -728,10 +589,6 @@ describe('TaskManager lifecycle', () => {
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
-      decideUserTurn: async ({ text }) =>
-        text === '停止'
-          ? { kind: 'stop', userVisibleText: '好的，已停止。' }
-          : { kind: 'execute', userVisibleText: '' },
       cleanupBrowserContext,
       ...noPostCommitBackoff,
     });
@@ -771,14 +628,13 @@ describe('TaskManager lifecycle', () => {
     expect(cleanupBrowserContext).toHaveBeenCalledOnce();
   });
 
-  it('accepts a mailbox confirmation follow_up even when decideUserTurn calls it a reply', async () => {
+  it('accepts a mailbox confirmation follow_up', async () => {
     const driver = fakeDriver();
     const manager = new TaskManager({
       createExecutor: async () => driver,
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
-      decideUserTurn: async () => ({ kind: 'reply', userVisibleText: '你好' }),
       ...noPostCommitBackoff,
     });
     store.sessions.set('task-mailbox-confirm', {
@@ -816,14 +672,13 @@ describe('TaskManager lifecycle', () => {
     expect(ack.accepted).toBe(true);
   });
 
-  it('does not force execute a chat reply while waiting_user for a non-mailbox target', async () => {
+  it('takes a greeting follow_up as the next instruction while waiting_user', async () => {
     const driver = fakeDriver();
     const manager = new TaskManager({
       createExecutor: async () => driver,
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
-      decideUserTurn: async () => ({ kind: 'reply', userVisibleText: '你好' }),
       ...noPostCommitBackoff,
     });
     store.sessions.set('task-media-wait', {
@@ -858,17 +713,16 @@ describe('TaskManager lifecycle', () => {
       chatSessionId: 'chat-media',
       instructionMessageId: 'msg-hello',
     });
-    expect(ack.accepted).toBe(false);
+    expect(ack.accepted).toBe(true);
   });
 
-  it('accepts a stored waitAsk option follow_up even when decideUserTurn calls it a reply', async () => {
+  it('accepts a stored waitAsk option follow_up', async () => {
     const driver = fakeDriver();
     const manager = new TaskManager({
       createExecutor: async () => driver,
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
-      decideUserTurn: async () => ({ kind: 'reply', userVisibleText: '你好' }),
       ...noPostCommitBackoff,
     });
     store.sessions.set('task-bind-follow', {
@@ -913,14 +767,13 @@ describe('TaskManager lifecycle', () => {
     expect(ack.accepted).toBe(true);
   });
 
-  it('still rejects a greeting follow_up when waitAsk is stored', async () => {
+  it('takes a greeting follow_up as the next instruction when waitAsk is stored', async () => {
     const driver = fakeDriver();
     const manager = new TaskManager({
       createExecutor: async () => driver,
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
-      decideUserTurn: async () => ({ kind: 'reply', userVisibleText: '你好' }),
       ...noPostCommitBackoff,
     });
     store.sessions.set('task-bind-hello', {
@@ -962,64 +815,7 @@ describe('TaskManager lifecycle', () => {
       chatSessionId: 'chat-bind',
       instructionMessageId: 'msg-bind-hello',
     });
-    expect(ack.accepted).toBe(false);
-  });
-
-  it('does not hold this.transition while decideUserTurn is still running', async () => {
-    const driver = fakeDriver();
-    let finishClassify!: (decision: { kind: 'execute'; userVisibleText: string }) => void;
-    const decideUserTurn = vi.fn(
-      () =>
-        new Promise<{ kind: 'execute'; userVisibleText: string }>(resolve => {
-          finishClassify = resolve;
-        }),
-    );
-    const manager = new TaskManager({
-      createExecutor: async () => driver,
-      switchTab: vi.fn(),
-      observeCriteria: vi.fn(async () => []),
-      now: () => 100,
-      decideUserTurn,
-      ...noPostCommitBackoff,
-    });
-    const started = await manager.dispatch({
-      type: 'start',
-      commandId: 'cmd-lock-start',
-      taskId: 'task-lock',
-      instruction: '打开 YouTube',
-      chatSessionId: 'chat-lock',
-      instructionMessageId: 'msg-lock-start',
-      tabId: 7,
-      forceExecute: true,
-    });
-    expect(started.accepted).toBe(true);
-    await vi.waitFor(async () => {
-      const live = await manager.snapshot('task-lock');
-      expect(live?.status).toBe('running');
-    });
-    const live = await manager.snapshot('task-lock');
-    const followPromise = manager.dispatch({
-      type: 'follow_up',
-      commandId: 'cmd-lock-follow',
-      taskId: 'task-lock',
-      expectedRevision: live?.revision ?? 0,
-      instruction: '再搜一次',
-      chatSessionId: 'chat-lock',
-      instructionMessageId: 'msg-lock-follow',
-    });
-    await vi.waitFor(() => expect(decideUserTurn).toHaveBeenCalled());
-    const beforePause = await manager.snapshot('task-lock');
-    const paused = await manager.dispatch({
-      type: 'pause',
-      commandId: 'cmd-lock-pause',
-      taskId: 'task-lock',
-      expectedRevision: beforePause?.revision ?? 0,
-    });
-    // Must settle while decideUserTurn is still hanging. stale_revision is
-    // still a dispatch result; hanging would mean this.transition held the classify.
-    expect(paused.accepted || (paused.accepted === false && paused.error === 'stale_revision')).toBe(true);
-    finishClassify({ kind: 'execute', userVisibleText: '' });
-    await followPromise;
+    expect(ack.accepted).toBe(true);
   });
 
   it('writes a live 获取页面快照 step on start before createExecutor returns', async () => {
@@ -4539,7 +4335,6 @@ describe('TaskManager lifecycle', () => {
     // freeze + post-commit verify; no candidate_complete path
     expect(observeCall).toBeGreaterThanOrEqual(2);
     expect(driver.run).toHaveBeenCalled();
-    expect(switchTab).toHaveBeenCalledWith(7);
   });
 
   it('stops automatic execution when an external commit outcome is uncertain', async () => {
@@ -4919,7 +4714,7 @@ describe('TaskManager lifecycle', () => {
     expect(ack.accepted).toBe(true);
     expect(openBlankTaskTab).toHaveBeenCalledTimes(1);
     expect(registerTaskOwnedTab).toHaveBeenCalledWith(42);
-    expect(switchTab).toHaveBeenCalledWith(42);
+    expect(switchTab).not.toHaveBeenCalled();
     expect(store.sessions.get('task-search-blank')).toMatchObject({ activeTabId: 42 });
   });
 

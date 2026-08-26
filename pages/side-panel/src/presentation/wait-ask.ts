@@ -11,34 +11,9 @@ export type WaitAsk = {
   options: WaitAskOption[];
 };
 
-const ASK_REASONS = new Set<WaitReason>(['target_ambiguous', 'target_missing', 'confirm_execute']);
+const ASK_REASONS = new Set<WaitReason>(['target_ambiguous', 'target_missing']);
 const MAX_OPTIONS = 7;
 const MAX_LABEL = 40;
-const CONFIRM_EXECUTE_GO_LABEL = '执行';
-const CONFIRM_EXECUTE_CHAT_REPLY = '好的，这次不操作页面。';
-
-export function waitAskOptionClassName(input: {
-  waitReason?: WaitReason | null;
-  sendText: string;
-}): 'chijie-btn-primary' | 'chijie-btn-secondary' {
-  const text = input.sendText.replace(/\s+/g, ' ').trim();
-  if (input.waitReason === 'confirm_execute' && text === CONFIRM_EXECUTE_GO_LABEL) {
-    return 'chijie-btn-primary';
-  }
-  return 'chijie-btn-secondary';
-}
-
-export function shouldDismissConfirmExecuteChat(input: {
-  accepted: boolean;
-  waitReason?: WaitReason | null;
-  userVisibleText?: string | null;
-}): boolean {
-  return (
-    input.accepted &&
-    input.waitReason === 'confirm_execute' &&
-    (input.userVisibleText ?? '').replace(/\s+/g, ' ').trim() === CONFIRM_EXECUTE_CHAT_REPLY
-  );
-}
 
 function cleanLabel(value: string): string {
   return value.replace(/^[，,、\s]+|[。！!，,、\s]+$/g, '').trim();

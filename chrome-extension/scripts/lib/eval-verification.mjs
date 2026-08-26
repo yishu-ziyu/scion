@@ -1,7 +1,13 @@
 import { hasAffirmedPredicateTarget, predicateTargetClaims } from './eval-claim-polarity.mjs';
 
-export const FINAL_DELIVERABLE_SELECTOR = '[data-testid="completion-deliverable-copy"]';
 export const COMPLETION_RESULT_SELECTOR = '[data-testid="completion-result"]';
+/**
+ * The completion card's one answer sentence is both the result and the
+ * deliverable (design/006: 复制结果 button trails the answer). The
+ * `completion-deliverable-copy` node carries the button's localized label
+ * ("复制结果"), never the deliverable content — do not read it as a deliverable.
+ */
+export const FINAL_DELIVERABLE_SELECTOR = COMPLETION_RESULT_SELECTOR;
 
 const TEXT_DELIVERABLE_VERIFIERS = new Set([
   'action_scenarios',

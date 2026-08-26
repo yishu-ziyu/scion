@@ -305,12 +305,13 @@ describe('TaskStatusCard identity markers', () => {
       updatedAt: 2,
     } satisfies TaskSnapshot;
 
-    expect(failureNextStep(snapshot)).toBe(t('chat_task_fail_no_deliverable'));
+    expect(failureNextStep(snapshot)).toBe(t('chat_task_hint_proof_unconfirmable'));
     expect(failureNextStep(snapshot)).not.toBe(t('chat_task_fail_no_action'));
     expect(failureNextStep(snapshot)).not.toContain('把目标写具体');
+    expect(failureNextStep(snapshot)).not.toContain('没有写出可检查的结果');
   });
 
-  it('waiting_user confirm_execute shows 仅聊天 / 执行 and the operate-page question', () => {
+  it('does not draw 仅聊天 / 执行 for a leftover confirm_execute snapshot', () => {
     const snapshot = {
       id: 'task-confirm-execute',
       goalSummary: '打开 B 站搜猫',
@@ -351,15 +352,10 @@ describe('TaskStatusCard identity markers', () => {
       }),
     );
 
-    expect(html).toContain('要我现在操作这个网页吗？');
-    expect((html.match(/要我现在操作这个网页吗？/g) ?? []).length).toBeLessThanOrEqual(2);
-    expect(html).not.toMatch(/chijie-progress-health-summary">要我现在操作这个网页吗？/);
-    expect(html).toContain('data-testid="wait-ask-option"');
-    expect(html).toMatch(/chijie-btn-secondary[^>]*>仅聊天</);
-    expect(html).toMatch(/chijie-btn-primary[^>]*>执行</);
-    expect(html).toContain('自己写');
+    expect(html).not.toContain('data-testid="wait-ask-option"');
+    expect(html).not.toMatch(/>仅聊天</);
+    expect(html).not.toMatch(/>执行</);
     expect(html).not.toContain('Auto Approve');
-    expect(html).not.toContain('Chat / Claw');
   });
 
   it('waiting_user mailbox question shows option chips instead of the generic target hint', () => {
@@ -576,9 +572,9 @@ describe('TaskStatusCard identity markers', () => {
       }),
     );
 
-    expect(html).toContain('data-testid="task-presence"');
-    expect(html).toContain('data-mode="background"');
-    expect(html).toContain('后台进行');
+    expect(html).not.toContain('data-testid="task-presence"');
+    expect(html).not.toContain('data-mode="background"');
+    expect(html).not.toContain('后台进行');
     expect(html).toContain('chijie-user-bubble');
     expect(html).toContain('data-turn="user"');
     expect(html).toContain('data-testid="task-agent-turn"');
@@ -588,11 +584,15 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).toContain('data-testid="task-work-stream"');
     expect(html).toContain('data-testid="task-page-card"');
     expect(html).toContain('data-testid="live-tool-log"');
-    expect(html).toContain('data-testid="live-cursor"');
+    expect(html).not.toContain('data-testid="live-cursor"');
     expect(html).toContain('data-testid="live-stop-generating"');
     expect(html).toContain('接管');
     expect(html).toContain('etsy.com');
-    expect(html).not.toContain('打开 etsy.com');
+    expect(html).toContain('data-testid="task-process-disclosure"');
+    expect(html).toContain('data-live="true"');
+    expect(html).toContain('data-testid="task-now-line"');
+    expect(html).toContain('data-testid="task-now-summary"');
+    expect(html).not.toContain('chijie-act-chip');
     expect(html).toContain('https://etsy.com');
     expect(html).not.toContain('>目标<');
     expect(html).not.toContain('>现在<');
@@ -600,6 +600,75 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).not.toContain('做完会出现在这里');
     expect(html).not.toContain('获取页面快照');
     expect(html).not.toContain('data-testid="task-status-label"');
+  });
+
+  it('running noise snapshot is a closed 正在读取 fold, not a snapshot chip', () => {
+    const snapshot = {
+      id: 'task-zhihu',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      status: 'running',
+      revision: 2,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [
+        {
+          id: 'page-1',
+          kind: 'page',
+          tabId: 7,
+          frameId: 0,
+          urlOrigin: 'https://zhuanlan.zhihu.com',
+          digest: 'digest',
+          title: '为什么AI产品经理总在做功能清单',
+        },
+      ],
+      rounds: [
+        {
+          id: 'round-1',
+          instructionSummary: 'User task',
+          status: 'running',
+          commandAcks: {},
+          criteria: [],
+          attempts: [
+            {
+              id: 'attempt-1',
+              roundId: 'round-1',
+              actionName: 'observe',
+              effect: 'read',
+              argsDigest: 'args',
+              displaySummary: '获取页面快照',
+              state: 'executing',
+              proposedAt: 1,
+              executingAt: 2,
+            },
+          ],
+          evidence: [],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 3,
+    } satisfies TaskSnapshot;
+
+    const html = renderToStaticMarkup(
+      createElement(TaskStatusCard, {
+        snapshot,
+        send: vi.fn(),
+        defaultInstruction: '这篇在说什么？',
+        onStop: vi.fn(),
+      }),
+    );
+
+    expect(html).toContain('这篇在说什么？');
+    expect(html).toContain('data-testid="task-process-disclosure"');
+    expect(html).toContain('data-live="true"');
+    expect(html).toContain('正在读取');
+    expect(html).toContain('zhuanlan.zhihu.com');
+    expect(html).toContain('接管');
+    expect(html).not.toContain('后台进行');
+    expect(html).not.toContain('获取页面快照');
+    expect(html).not.toContain('data-testid="live-cursor"');
+    expect(html).not.toContain('chijie-now-line');
   });
 
   it('uses a truthful terminal presence label instead of calling a failed task idle', () => {
@@ -681,8 +750,8 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).not.toContain('>现在<');
     expect(html).not.toContain('>结果<');
     expect(html).not.toContain('做过');
-    expect(html).toContain('获取页面快照');
-    expect(html).toContain('data-testid="task-process-disclosure"');
+    expect(html).not.toContain('获取页面快照');
+    expect(html).not.toContain('data-testid="task-process-disclosure"');
     expect(html).not.toContain('data-testid="task-status-label"');
     expect(html).not.toContain('失败了');
     expect(html).not.toContain('本次任务完成得怎么样');
@@ -842,7 +911,8 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).toContain('点击第四个：某某教程');
     expect(html).toContain('data-testid="task-search-board"');
     expect(html).toContain('data-testid="task-act-line"');
-    expect(html).toContain('data-testid="live-cursor"');
+    expect(html).not.toContain('data-testid="live-cursor"');
+    expect(html).toContain('data-testid="task-process-disclosure"');
     expect(html).toContain('接管');
     expect(html).toContain('全部');
     expect(html).not.toContain('获取页面快照');
@@ -1001,7 +1071,7 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).toContain('data-testid="task-follow-up"');
     expect(html).toContain('只要木质的');
     expect(html).toContain('找到 5 个相框');
-    expect(html).toContain('获取页面快照');
+    expect(html).not.toContain('获取页面快照');
     expect(html).toContain('youtube.com');
     expect(html).toContain('data-turn="user"');
     expect(html).toContain('data-turn="agent"');
@@ -1018,4 +1088,101 @@ describe('TaskStatusCard identity markers', () => {
       label,
     );
   });
+});
+it('promotes the produced answer and offers retry when page proof is pending', () => {
+  const round: TaskRound = {
+    id: 'round-proof',
+    instructionSummary: 'User instruction',
+    status: 'waiting_user',
+    commandAcks: {},
+    criteria: [
+      {
+        id: 'criterion-url',
+        roundId: 'round-proof',
+        targetRefId: 'tab-7',
+        kind: 'url',
+        operator: 'starts_with',
+        expected: 'https://example.com',
+        required: true,
+        frozenAt: 1,
+        notBefore: 1,
+        timeoutMs: 120_000,
+        baseline: false,
+      },
+    ],
+    attempts: [],
+    evidence: [
+      {
+        criterionId: 'criterion-url',
+        roundId: 'round-proof',
+        targetRefId: 'tab-7',
+        observedAt: 2,
+        source: 'page',
+        value: 'https://example.com/',
+        passed: false,
+        reason: 'mismatch',
+      },
+    ],
+    waitReason: 'proof_required',
+    produced: { kind: 'summary', body: '页面标题是：Example Domain' },
+  };
+  const snapshot = {
+    id: 'task-proof',
+    goalSummary: '打开 https://example.com 并告诉我页面标题',
+    status: 'waiting_user',
+    revision: 2,
+    activeTabId: 7,
+    currentRoundId: round.id,
+    targetRefs: [],
+    rounds: [round],
+    createdAt: 1,
+    updatedAt: 2,
+  } satisfies TaskSnapshot;
+
+  const html = renderToStaticMarkup(
+    createElement(TaskStatusCard, {
+      snapshot,
+      send: vi.fn(),
+      defaultInstruction: '打开 https://example.com 并告诉我页面标题',
+      onRetry: vi.fn(),
+      readOnly: false,
+    }),
+  );
+
+  expect(html).toContain('data-testid="produced-answer"');
+  expect(html).toContain('页面标题是：Example Domain');
+  expect(html).toContain('data-testid="proof-retry"');
+  // No confirm button when no user_confirmed criterion exists.
+  expect(html).not.toContain('data-testid="criterion-confirm"');
+  // The unconfirmable-proof hint does not claim "没有写出可检查的结果".
+  expect(html).not.toContain('没有写出可检查的结果');
+});
+
+it('maps an unconfirmable proof_required wait to the accurate next-step copy', () => {
+  const round: TaskRound = {
+    id: 'round-copy',
+    instructionSummary: 'User instruction',
+    status: 'waiting_user',
+    commandAcks: {},
+    criteria: [],
+    attempts: [],
+    evidence: [],
+    waitReason: 'proof_required',
+    produced: { kind: 'summary', body: '页面标题是：Example Domain' },
+  };
+  const snapshot = {
+    id: 'task-copy',
+    goalSummary: '讲一下这个页面',
+    status: 'waiting_user',
+    revision: 1,
+    activeTabId: 7,
+    currentRoundId: round.id,
+    targetRefs: [],
+    rounds: [round],
+    createdAt: 1,
+    updatedAt: 2,
+  } satisfies TaskSnapshot;
+  const next = failureNextStep(snapshot);
+  expect(next).toBe(t('chat_task_hint_proof_unconfirmable'));
+  expect(next).toContain('结果已经拿到');
 });

@@ -3,6 +3,7 @@ import { classifyRetry } from '../../retry-policy';
 import {
   actionInvalidatesElementSnapshot,
   isForbiddenTaskContentUrl,
+  NO_PAGE_SNAPSHOT,
   runObserveActLoop,
   type LoopDecision,
   type LoopPhaseEvent,
@@ -906,5 +907,62 @@ describe('observe → act → re-observe loop (ticket 02, S3)', () => {
     expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'observed again' });
     expect(acted).toEqual([1]);
     expect(observeCount).toBe(2);
+  });
+
+  it('answers on the first decide without observing when skipInitialObserve is on', async () => {
+    let observeCount = 0;
+    let decideState = '';
+    const outcome = await runObserveActLoop({
+      skipInitialObserve: true,
+      maxSteps: 3,
+      maxFailures: 1,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => {
+        observeCount += 1;
+        return 'url=https://example.test';
+      },
+      decide: async (state): Promise<LoopDecision> => {
+        decideState = state;
+        return { kind: 'done', summary: '你好，需要我帮你做什么？' };
+      },
+      act: async () => ({ error: null }),
+    });
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: '你好，需要我帮你做什么？' });
+    expect(decideState).toBe(NO_PAGE_SNAPSHOT);
+    expect(observeCount).toBe(0);
+  });
+
+  it('runs the first page action when skipInitialObserve is on', async () => {
+    const acted: string[] = [];
+    let observeCount = 0;
+    const states: string[] = [];
+    const outcome = await runObserveActLoop({
+      skipInitialObserve: true,
+      maxSteps: 4,
+      maxFailures: 2,
+      isStopped: () => false,
+      waitIfPaused: async () => undefined,
+      observe: async () => {
+        observeCount += 1;
+        return 'url=https://www.youtube.com/';
+      },
+      decide: async (state): Promise<LoopDecision> => {
+        states.push(state);
+        if (state === NO_PAGE_SNAPSHOT) {
+          return { kind: 'action', name: 'go_to_url', args: { url: 'https://www.youtube.com/' } };
+        }
+        return { kind: 'done', summary: 'YouTube opened' };
+      },
+      act: async action => {
+        acted.push(action.name);
+        return { error: null };
+      },
+      reobserve: async () => 'url=https://www.youtube.com/',
+    });
+    expect(outcome).toEqual({ kind: 'candidate_complete', summary: 'YouTube opened' });
+    expect(acted).toEqual(['go_to_url']);
+    expect(states[0]).toBe(NO_PAGE_SNAPSHOT);
+    expect(observeCount).toBe(0);
   });
 });

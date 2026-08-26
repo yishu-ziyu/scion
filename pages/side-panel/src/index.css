@@ -1,5 +1,7 @@
 @import './design/chijie-tokens.css';
+@import './design/transitions-root.css';
 @import './design/chijie-components.css';
+@import './design/chijie-motion.css';
 
 @tailwind base;
 @tailwind components;

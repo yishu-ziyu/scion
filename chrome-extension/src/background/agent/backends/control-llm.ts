@@ -68,6 +68,7 @@ import { Actors, ExecutionState } from '../event/types';
 import type { Action } from '../actions/builder';
 import {
   isForbiddenTaskContentUrl,
+  NO_PAGE_SNAPSHOT,
   runObserveActLoop,
   type LoopAction,
   type LoopDecision,
@@ -545,11 +546,12 @@ export async function createLlmControlDriver(
   return {
     run: async (roundId: string): Promise<ExecutorOutcome> => {
       logger.info('LLM control run', { taskId: input.taskId, roundId, enableKernel, enableSkillRuntime, enableDiff });
-      try {
+      let pageAttached = false;
+      const attachPageIfNeeded = async () => {
+        if (pageAttached) return;
         await browserContext.switchTab(input.tabId);
-      } catch (error) {
-        logger.error('switchTab failed', error);
-      }
+        pageAttached = true;
+      };
 
       const instruction = [input.instruction, ...followUps].filter(Boolean).join('\n');
       const maxSteps = generalSettings.maxSteps || DEFAULT_AGENT_OPTIONS.maxSteps;
@@ -557,6 +559,9 @@ export async function createLlmControlDriver(
       const maxNoProgress = CONTROL_MAX_NO_PROGRESS;
 
       const settleProposedDone = async (summary: string, stateText: string): Promise<LoopDecision> => {
+        if (stateText === NO_PAGE_SNAPSHOT) {
+          return { kind: 'done', summary };
+        }
         const pageText = pageTextForSupervisor({
           url: currentFrame?.tab.url,
           title: currentFrame?.tab.title,
@@ -602,6 +607,7 @@ export async function createLlmControlDriver(
       };
 
       const loopOutcome = await runObserveActLoop({
+        skipInitialObserve: true,
         maxSteps,
         maxFailures,
         maxNoProgress,
@@ -623,6 +629,7 @@ export async function createLlmControlDriver(
           await hooks.reportLoopPhase?.(roundId, event);
         },
         observe: async () => {
+          await attachPageIfNeeded();
           agentContext.nSteps = agentContext.nSteps ?? 0;
           const frame = await observeFrame({ waitForLoad: false });
           await recordObservedPageIfNeeded(roundId, frame);
@@ -988,6 +995,7 @@ export async function createLlmControlDriver(
             observation: decision.observation,
             hasAction: Boolean(decision.action),
             hasPageBody: pageBodyRead,
+            pageAttached: stateText !== NO_PAGE_SNAPSHOT,
           });
           if (delivery.kind === 'read_page') {
             return {
@@ -1041,6 +1049,7 @@ export async function createLlmControlDriver(
           });
         },
         act: async ({ name, args }) => {
+          await attachPageIfNeeded();
           if (name === 'observe') {
             const rawQuery = args && typeof args === 'object' ? (args as { query?: unknown }).query : undefined;
             observeQuery = typeof rawQuery === 'string' && rawQuery.trim() ? rawQuery.trim() : undefined;

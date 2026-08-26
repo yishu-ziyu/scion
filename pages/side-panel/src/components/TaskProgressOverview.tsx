@@ -111,23 +111,8 @@ export function TaskProgressOverview({
   const hasDeliveredResult = Boolean(result) || view.findings.length > 0 || visibleArtifacts.length > 0;
   const resultFirst = Boolean(result);
   const spoken = (utterance ?? view.mission.title).replace(/\s+/g, ' ').trim();
-  const showNow = Boolean(nowBody || view.currentActivity);
-  const nowSection = showNow ? (
-    <section
-      className="chijie-progress-now"
-      data-testid="task-progress-current-activity"
-      data-live-log={nowBody ? 'true' : undefined}>
-      {!nowBody && view.currentActivity ? (
-        <>
-          <strong data-testid="task-now-summary">{view.currentActivity.summary}</strong>
-          {view.currentActivity.site && (
-            <span className="chijie-progress-now-site" data-testid="task-now-site">
-              {view.currentActivity.site}
-            </span>
-          )}
-          <span data-testid="task-now-purpose">{view.currentActivity.purpose}</span>
-        </>
-      ) : null}
+  const nowSection = nowBody ? (
+    <section className="chijie-progress-now" data-testid="task-progress-current-activity" data-live-log="true">
       {nowBody}
     </section>
   ) : null;

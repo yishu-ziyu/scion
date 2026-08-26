@@ -8,8 +8,9 @@ import type {
 } from '@extension/storage';
 import { t } from '@extension/i18n';
 import { useEffect, useState } from 'react';
-import { FiChevronDown, FiCopy } from 'react-icons/fi';
-import { primaryButtonClassName, taskCardClassName } from '../design/contracts';
+import { FiCopy } from 'react-icons/fi';
+import { primaryButtonClassName, secondaryButtonClassName, taskCardClassName } from '../design/contracts';
+import { PanelReveal } from './MotionPrimitives';
 import { shouldShowDeliveredResult, shouldShowVerifiedDone, taskPrimaryOrganism } from '../presentation/task-loop-ui';
 import { deriveFailedResult } from '../presentation/failed-result';
 import { looksLikeActionName } from '../presentation/activity-stream';
@@ -17,16 +18,11 @@ import { requiredCompletionResult } from '../presentation/completion-outcome';
 import { assessGoalCoverage, resolveDeliverableAnswer } from '../presentation/goal-coverage';
 import { productFailureLabel, toProductFailureCode } from '../presentation/failure-taxonomy';
 import { waitUserAction } from '../presentation/wait-affordance';
-import { deriveWaitAsk, waitAskOptionClassName } from '../presentation/wait-ask';
+import { deriveWaitAsk } from '../presentation/wait-ask';
 import { deriveTaskProgressView } from '../presentation/task-progress-view';
-import {
-  collectStreamSources,
-  deriveWorkStream,
-  type StreamSource,
-  type WorkStreamView,
-} from '../presentation/work-stream';
+import { collectStreamSources, deriveWorkStream, type StreamSource } from '../presentation/work-stream';
 import { isFollowingForeground } from '../presentation/run-presence';
-import { WorkStream } from './WorkStream';
+import { processNowBody, workStreamBody } from './ProcessDisclosure';
 import { AnswerProse } from './AnswerProse';
 import { TaskProgressOverview, type ProgressTurn } from './TaskProgressOverview';
 
@@ -138,7 +134,7 @@ export function failureNextStep(snapshot: TaskSnapshot): string {
   const waitReason = strippedUnconfirmableProof ? undefined : round?.waitReason;
   const hint = waitReasonHint(waitReason);
   if (hint) return hint;
-  if (strippedUnconfirmableProof) return t('chat_task_fail_no_deliverable');
+  if (strippedUnconfirmableProof) return t('chat_task_hint_proof_unconfirmable');
   if (snapshot.status === 'waiting_user') return t('chat_task_fail_no_action');
   if (snapshot.status === 'failed') {
     const category = round?.failureCategory;
@@ -362,31 +358,6 @@ export function displayGoalText(
   return fromChat || '—';
 }
 
-function workStreamBody(view: WorkStreamView, running: boolean, onStop?: () => void) {
-  if (running) {
-    return (
-      <div data-testid="task-activity-panel" className="chijie-activity-panel">
-        <WorkStream view={view} running onStop={onStop} />
-      </div>
-    );
-  }
-  if (view.blocks.length === 0) return null;
-  return (
-    <details className="chijie-process-disclosure" data-testid="task-process-disclosure">
-      <summary>
-        <span>{t('chat_task_process_disclosure')}</span>
-        <span className="chijie-process-disclosure-meta">
-          <small>{t('chat_task_process_count', [String(view.blocks.length)])}</small>
-          <FiChevronDown aria-hidden />
-        </span>
-      </summary>
-      <div data-testid="task-activity-panel" className="chijie-activity-panel">
-        <WorkStream view={view} running={false} />
-      </div>
-    </details>
-  );
-}
-
 function roundUserText(
   round: TaskRound,
   index: number,
@@ -423,6 +394,49 @@ function followUpTurns(
       ),
     };
   });
+}
+
+function RunPresence({ snapshot, showPartialComplete }: { snapshot: TaskSnapshot; showPartialComplete: boolean }) {
+  if (snapshot.status === 'running') return null;
+  return (
+    <div
+      className="chijie-run-presence"
+      data-testid="task-presence"
+      data-status={showPartialComplete ? 'waiting_user' : snapshot.status}
+      role="status"
+      aria-live="polite">
+      <span className="chijie-run-presence-state">
+        <span className="chijie-run-presence-dot" aria-hidden />
+        <strong>{showPartialComplete ? t('chat_task_status_waiting_user') : taskPresenceLabel(snapshot)}</strong>
+      </span>
+      <span className="chijie-run-presence-meta">{taskPresenceMeta(snapshot)}</span>
+    </div>
+  );
+}
+
+function ProofRecovery({
+  producedBody,
+  onRetry,
+  buttonClassName,
+}: {
+  producedBody?: string;
+  onRetry?: () => void;
+  buttonClassName: string;
+}) {
+  return (
+    <div className="chijie-proof-recovery" data-testid="proof-recovery">
+      {producedBody ? (
+        <section className="chijie-produced-answer" data-testid="produced-answer">
+          <AnswerProse text={producedBody} />
+        </section>
+      ) : null}
+      {onRetry ? (
+        <button type="button" data-testid="proof-retry" className={buttonClassName} onClick={onRetry}>
+          {t('chat_task_fail_action')}
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 export function TaskStatusCard({
@@ -564,10 +578,12 @@ export function TaskStatusCard({
     failureCategory: round?.failureCategory,
     lastStepTitle: attempts.at(-1)?.displaySummary,
   });
-  const nowTraceBody = workStreamBody(
+  const nowTraceBody = processNowBody(
     workStream,
     snapshot.status === 'running',
-    !readOnly && snapshot.status === 'running' ? onStop : undefined,
+    onStop,
+    progressView.currentActivity,
+    readOnly,
   );
   const turns = followUpTurns(snapshot, goalText, roundUtterances);
 
@@ -649,20 +665,8 @@ export function TaskStatusCard({
       data-attention={needsAttention || showPartialComplete ? 'true' : 'false'}
       data-primary-organism={primaryOrganism}
       data-readonly={readOnly ? 'true' : undefined}
-      className={taskCardClassName}>
-      <div
-        className="chijie-run-presence"
-        data-testid="task-presence"
-        data-status={showPartialComplete ? 'waiting_user' : snapshot.status}
-        data-mode={snapshot.status === 'running' && !isFollowingForeground(snapshot) ? 'background' : undefined}
-        role="status"
-        aria-live="polite">
-        <span className="chijie-run-presence-state">
-          <span className="chijie-run-presence-dot" aria-hidden />
-          <strong>{showPartialComplete ? t('chat_task_status_waiting_user') : taskPresenceLabel(snapshot)}</strong>
-        </span>
-        <span className="chijie-run-presence-meta">{taskPresenceMeta(snapshot)}</span>
-      </div>
+      className={`${taskCardClassName} t-resize`}>
+      <RunPresence snapshot={snapshot} showPartialComplete={showPartialComplete} />
       {/* Original sentence first. Follow-ups are later user turns. */}
       <TaskProgressOverview
         view={progressViewForUi}
@@ -684,6 +688,17 @@ export function TaskStatusCard({
           <div className={waitAsk ? 'chijie-wait-ask-prompt' : 'mt-1'} data-testid="task-failure-reason">
             {waitAsk?.prompt ?? recoveryNextStep}
           </div>
+
+          {!readOnly &&
+            snapshot.status === 'waiting_user' &&
+            round?.waitReason === 'proof_required' &&
+            confirmations.length === 0 && (
+              <ProofRecovery
+                producedBody={round.produced?.body}
+                onRetry={onRetry}
+                buttonClassName={primaryButtonClassName}
+              />
+            )}
 
           {/* One valid CTA: proof command or a composer follow-up. Stop stays in composer controls. */}
           {!readOnly &&
@@ -712,17 +727,14 @@ export function TaskStatusCard({
             ))}
 
           {!readOnly && waitAsk && onFollowUp && !waitAskBusy && (
-            <div className="chijie-wait-ask" data-testid="wait-ask">
+            <PanelReveal className="chijie-wait-ask" testId="wait-ask">
               <div className="chijie-wait-ask-options" role="group" aria-label={waitAsk.prompt}>
                 {waitAsk.options.map(option => (
                   <button
                     key={option.id}
                     type="button"
                     data-testid="wait-ask-option"
-                    className={waitAskOptionClassName({
-                      waitReason: round?.waitReason,
-                      sendText: option.sendText,
-                    })}
+                    className={secondaryButtonClassName}
                     onClick={() => {
                       setWaitAskBusy(true);
                       onFollowUp(option.sendText);
@@ -731,7 +743,7 @@ export function TaskStatusCard({
                   </button>
                 ))}
               </div>
-            </div>
+            </PanelReveal>
           )}
 
           {!readOnly && waitAction && onContinueInComposer && (

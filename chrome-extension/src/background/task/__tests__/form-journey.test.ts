@@ -416,7 +416,8 @@ describe('verified form journey', () => {
 
     await expect(manager.snapshot('task-live-target')).resolves.toMatchObject({
       activeTabId: 8,
-      rounds: [{ criteria: [{ targetRefId: 'tab-8', baseline: 'https://example.test/start' }] }],
+      // url criteria are state evidence: the pre-act baseline never gates pass/fail.
+      rounds: [{ criteria: [{ targetRefId: 'tab-8', baseline: false }] }],
     });
   });
 
