@@ -9,7 +9,8 @@ const AZURE_API_VERSION = '2025-04-01-preview';
 export interface ProviderConfig {
   name?: string; // Display name in the options
   type?: ProviderTypeEnum; // Help to decide which LangChain ChatModel package to use
-  apiKey: string; // Must be provided, but may be empty for local models
+  apiKey: string; // Legacy plaintext key; empty once migrated into the vault. Local models may keep an empty/dummy key.
+  apiKeyRef?: string; // Names the key held in the api-key-vault; when set, `apiKey` stays empty.
   baseUrl?: string; // Optional base URL if provided // For Azure: Endpoint
   modelNames?: string[]; // Chosen model names (NOT used for Azure OpenAI)
   createdAt?: number; // Timestamp in milliseconds when the provider was created
@@ -222,6 +223,20 @@ function ensureBackwardCompatibility(providerId: string, config: ProviderConfig)
   return updatedConfig;
 }
 
+// Key material is either an inline plaintext key (legacy) or a vault reference.
+// Local/custom providers may legitimately have neither.
+function assertKeyMaterial(providerId: string, config: ProviderConfig, providerType: ProviderTypeEnum): void {
+  if (config.apiKey?.trim() || config.apiKeyRef) {
+    return;
+  }
+  if (providerType === ProviderTypeEnum.AzureOpenAI) {
+    throw new Error('API Key is required for Azure OpenAI');
+  }
+  if (providerType !== ProviderTypeEnum.CustomOpenAI && providerType !== ProviderTypeEnum.Ollama) {
+    throw new Error(`API Key is required for ${getDefaultDisplayNameFromProviderId(providerId)}`);
+  }
+}
+
 export const llmProviderStore: LLMProviderStorage = {
   ...storage,
   async setProvider(providerId: string, config: ProviderConfig) {
@@ -229,11 +244,12 @@ export const llmProviderStore: LLMProviderStorage = {
       throw new Error('Provider id cannot be empty');
     }
 
-    if (config.apiKey === undefined) {
+    if (config.apiKey === undefined && !config.apiKeyRef) {
       throw new Error('API key must be provided (can be empty for local models)');
     }
 
     const providerType = config.type || getProviderTypeByProviderId(providerId);
+    assertKeyMaterial(providerId, config, providerType);
 
     if (providerType === ProviderTypeEnum.AzureOpenAI) {
       if (!config.baseUrl?.trim()) {
@@ -245,13 +261,6 @@ export const llmProviderStore: LLMProviderStorage = {
       if (!config.azureApiVersion?.trim()) {
         throw new Error('Azure API Version is required');
       }
-      if (!config.apiKey?.trim()) {
-        throw new Error('API Key is required for Azure OpenAI');
-      }
-    } else if (providerType !== ProviderTypeEnum.CustomOpenAI && providerType !== ProviderTypeEnum.Ollama) {
-      if (!config.apiKey?.trim()) {
-        throw new Error(`API Key is required for ${getDefaultDisplayNameFromProviderId(providerId)}`);
-      }
     }
 
     if (providerType !== ProviderTypeEnum.AzureOpenAI) {
@@ -262,6 +271,7 @@ export const llmProviderStore: LLMProviderStorage = {
 
     const completeConfig: ProviderConfig = {
       apiKey: config.apiKey || '',
+      ...(config.apiKeyRef ? { apiKeyRef: config.apiKeyRef } : {}),
       baseUrl: config.baseUrl,
       name: config.name || getDefaultDisplayNameFromProviderId(providerId),
       type: providerType,
