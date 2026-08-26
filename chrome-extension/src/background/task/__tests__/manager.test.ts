@@ -1814,7 +1814,7 @@ describe('TaskManager lifecycle', () => {
     expect(done?.plan?.phases[0]?.evidenceIds).toEqual(done?.plan?.phases[0]?.criteriaIds);
   });
 
-  it('rejects a second concurrent task', async () => {
+  it('starts a second session without stopping the first', async () => {
     const manager = new TaskManager({
       createExecutor: async () => fakeDriver(),
       switchTab: vi.fn(),
@@ -1841,7 +1841,11 @@ describe('TaskManager lifecycle', () => {
         instructionMessageId: 'message-2',
         tabId: 8,
       }),
-    ).resolves.toMatchObject({ accepted: false, error: 'invalid_transition' });
+    ).resolves.toMatchObject({ accepted: true, taskId: 'task-2' });
+    const first = await manager.snapshot('task-1');
+    const second = await manager.snapshot('task-2');
+    expect(first?.status).toBe('running');
+    expect(second?.status).toBe('running');
   });
 
   it('recovers stored running work as interrupted', async () => {
