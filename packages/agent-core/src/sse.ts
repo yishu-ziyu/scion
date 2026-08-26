@@ -38,30 +38,34 @@ function createThinkFilter() {
   let inThink = false;
   let buffered = '';
 
+  /** Consume a full marker when present; returns whether one was consumed. */
+  const consumeMarker = (visible: string): { visible: string; consumed: boolean } => {
+    const marker = inThink ? THINK_CLOSE : THINK_OPEN;
+    const markerIndex = buffered.indexOf(marker);
+    if (markerIndex === -1) return { visible, consumed: false };
+    const kept = inThink ? visible : visible + buffered.slice(0, markerIndex);
+    buffered = buffered.slice(markerIndex + marker.length);
+    inThink = !inThink;
+    return { visible: kept, consumed: true };
+  };
+
+  /** No marker ahead: emit safe content, keep a possible partial marker. */
+  const drainTail = (visible: string): string => {
+    const partialLength = suffixPrefixLength(buffered, inThink ? THINK_CLOSE : THINK_OPEN);
+    const safeEnd = buffered.length - partialLength;
+    const kept = inThink ? visible : visible + buffered.slice(0, safeEnd);
+    buffered = partialLength > 0 ? buffered.slice(safeEnd) : '';
+    return kept;
+  };
+
   const push = (text: string): string => {
     buffered += text;
     let visible = '';
-
     while (buffered) {
-      const marker = inThink ? THINK_CLOSE : THINK_OPEN;
-      const markerIndex = buffered.indexOf(marker);
-      if (markerIndex !== -1) {
-        if (!inThink) visible += buffered.slice(0, markerIndex);
-        buffered = buffered.slice(markerIndex + marker.length);
-        inThink = !inThink;
-        continue;
-      }
-
-      const partialLength = suffixPrefixLength(buffered, marker);
-      if (inThink) {
-        buffered = partialLength > 0 ? buffered.slice(-partialLength) : '';
-      } else {
-        visible += buffered.slice(0, buffered.length - partialLength);
-        buffered = partialLength > 0 ? buffered.slice(-partialLength) : '';
-      }
-      break;
+      const step = consumeMarker(visible);
+      visible = step.visible;
+      if (!step.consumed) return drainTail(visible);
     }
-
     return visible;
   };
 
