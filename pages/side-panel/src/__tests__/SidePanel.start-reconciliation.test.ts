@@ -49,5 +49,6 @@ describe('SidePanel accepted task start reconciliation', () => {
       taskId: 'cancelling-task',
     });
     expect(reconnectTaskSnapshotRequest(null, null)).toEqual({ type: 'get_active_task' });
+    expect(reconnectTaskSnapshotRequest(null, null, false)).toBeNull();
   });
 });

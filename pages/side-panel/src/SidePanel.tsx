@@ -133,9 +133,11 @@ export function acceptedStartSnapshotRequest(
 export function reconnectTaskSnapshotRequest(
   pendingReset: { taskId: string } | null,
   pendingStart: { taskId: string } | null,
-): { type: 'get_task'; taskId: string } | { type: 'get_active_task' } {
+  restoreActive = true,
+): { type: 'get_task'; taskId: string } | { type: 'get_active_task' } | null {
   if (pendingReset) return { type: 'get_task', taskId: pendingReset.taskId };
   if (pendingStart) return { type: 'get_task', taskId: pendingStart.taskId };
+  if (!restoreActive) return null;
   return { type: 'get_active_task' };
 }
 
@@ -196,6 +198,7 @@ const SidePanel = () => {
   const [chatLogExpanded, setChatLogExpanded] = useState(false);
   const [composerResetKey, setComposerResetKey] = useState(0);
   const [newChatPending, setNewChatPending] = useState(false);
+  const newChatCancellationTimeoutRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
@@ -209,6 +212,7 @@ const SidePanel = () => {
   const pendingStartCommandRef = useRef<{ taskId: string; commandId: string } | null>(null);
   const pendingHistoryTaskIdRef = useRef<string | null>(null);
   const pendingNewChatCancellationRef = useRef<{ taskId: string; commandId: string | null } | null>(null);
+  const blankComposerSessionRef = useRef(false);
   const dismissedTaskIdsRef = useRef(new Set<string>());
   const sessionGenerationRef = useRef(0);
   const taskSnapshotRef = useRef<TaskSnapshot | null>(null);
@@ -249,7 +253,12 @@ const SidePanel = () => {
   isHistoricalSessionRef.current = isHistoricalSession;
 
   const finalizeNewChat = useCallback((cancelledTaskId?: string) => {
+    if (newChatCancellationTimeoutRef.current) {
+      clearTimeout(newChatCancellationTimeoutRef.current);
+      newChatCancellationTimeoutRef.current = null;
+    }
     if (cancelledTaskId) dismissedTaskIdsRef.current.add(cancelledTaskId);
+    blankComposerSessionRef.current = true;
     pendingNewChatCancellationRef.current = null;
     setNewChatPending(false);
     setInputTextRef.current?.('');
@@ -281,6 +290,7 @@ const SidePanel = () => {
     pendingTaskCommandsRef.current.clear();
     setPendingCommandTypes(new Set());
     sessionGenerationRef.current += 1;
+    setTaskSnapshotLoaded(true);
   }, []);
   finalizeNewChatRef.current = finalizeNewChat;
 
@@ -678,6 +688,27 @@ const SidePanel = () => {
   }, []);
 
   // Setup connection management
+  const handleNewChatCancelAck = useCallback(
+    (ack: { taskId: string; commandId: string; accepted: boolean; error?: string; revision?: number }): boolean => {
+      const pending = pendingNewChatCancellationRef.current;
+      if (!pending || pending.taskId !== ack.taskId || pending.commandId !== ack.commandId) return false;
+      if (ack.error === 'not_found' || ack.error === 'invalid_transition') {
+        finalizeNewChatRef.current(ack.taskId);
+        return true;
+      }
+      pendingNewChatCancellationRef.current = { taskId: pending.taskId, commandId: null };
+      setInputEnabled(false);
+      if (ack.error === 'stale_revision' && typeof ack.revision === 'number') {
+        requestNewChatCancellationRef.current(pending.taskId, ack.revision);
+        try {
+          portRef.current?.postMessage({ type: 'get_task', taskId: pending.taskId });
+        } catch {}
+      }
+      return false;
+    },
+    [],
+  );
+
   const setupConnection = useCallback(() => {
     // Only setup if no existing connection
     if (portRef.current) {
@@ -985,17 +1016,18 @@ const SidePanel = () => {
             const rejectsNewChatCancellation =
               pendingNewChatCancellation?.taskId === message.ack.taskId &&
               pendingNewChatCancellation?.commandId === message.ack.commandId;
-            if (pendingNewChatCancellation && rejectsNewChatCancellation) {
-              if (message.ack.error === 'not_found') {
-                finalizeNewChatRef.current(message.ack.taskId);
-                return;
-              }
-              pendingNewChatCancellationRef.current = {
-                taskId: pendingNewChatCancellation.taskId,
-                commandId: null,
-              };
-              setInputEnabled(false);
-            }
+            if (
+              handleNewChatCancelAck(
+                message.ack as {
+                  taskId: string;
+                  commandId: string;
+                  accepted: boolean;
+                  error?: string;
+                  revision?: number;
+                },
+              )
+            )
+              return;
             if (pendingStartCommandRef.current?.taskId === message.ack.taskId) {
               pendingStartCommandRef.current = null;
               pendingTaskIdRef.current = null;
@@ -1010,11 +1042,12 @@ const SidePanel = () => {
               setShowStopButton(false);
               setTaskSnapshotLoaded(true);
             }
-            portRef.current?.postMessage(
-              pendingNewChatCancellationRef.current
-                ? { type: 'get_task', taskId: pendingNewChatCancellationRef.current.taskId }
-                : { type: 'get_active_task' },
-            );
+            if (pendingNewChatCancellationRef.current) {
+              portRef.current?.postMessage({
+                type: 'get_task',
+                taskId: pendingNewChatCancellationRef.current.taskId,
+              });
+            }
             if (
               !rejectsNewChatCancellation &&
               message.ack.error !== 'stale_revision' &&
@@ -1102,7 +1135,16 @@ const SidePanel = () => {
         }
       }, 25000);
       const pendingReset = pendingNewChatCancellationRef.current;
-      portRef.current.postMessage(reconnectTaskSnapshotRequest(pendingReset, pendingStartCommandRef.current));
+      const reconnectRequest = reconnectTaskSnapshotRequest(
+        pendingReset,
+        pendingStartCommandRef.current,
+        Boolean(
+          !blankComposerSessionRef.current &&
+            (sessionIdRef.current || taskSnapshotRef.current || authoritativeTaskSnapshotRef.current),
+        ),
+      );
+      if (reconnectRequest) portRef.current.postMessage(reconnectRequest);
+      else setTaskSnapshotLoaded(true);
     } catch (error) {
       console.error('Failed to establish connection:', error);
       appendMessage({
@@ -1127,6 +1169,10 @@ const SidePanel = () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
+      }
+      if (newChatCancellationTimeoutRef.current) {
+        clearTimeout(newChatCancellationTimeoutRef.current);
+        newChatCancellationTimeoutRef.current = null;
       }
     };
   }, [setupConnection]);
@@ -1203,6 +1249,10 @@ const SidePanel = () => {
       try {
         const dispatched = sendTaskCommand({ type: 'cancel', commandId, taskId, expectedRevision: revision });
         pendingNewChatCancellationRef.current = cancellationIntentAfterDispatch(taskId, commandId, dispatched);
+        if (!dispatched)
+          try {
+            portRef.current?.postMessage({ type: 'get_task', taskId });
+          } catch {}
       } catch (error) {
         pendingNewChatCancellationRef.current = { taskId, commandId: null };
         setInputEnabled(false);
@@ -1211,6 +1261,9 @@ const SidePanel = () => {
           content: error instanceof Error ? error.message : String(error),
           timestamp: Date.now(),
         });
+        try {
+          portRef.current?.postMessage({ type: 'get_task', taskId });
+        } catch {}
       }
     },
     [appendMessage, sendTaskCommand],
@@ -1411,6 +1464,7 @@ const SidePanel = () => {
           return { delivered: false, feedback: '当前页面不是网页。输入已保留。' };
         }
         setBindPreview(bound);
+        blankComposerSessionRef.current = false;
         commandDispatched = sendTaskCommand({
           type: 'start',
           commandId: crypto.randomUUID(),
@@ -1529,7 +1583,39 @@ const SidePanel = () => {
     });
   }, [pendingCommandTypes, sendTaskCommand, taskSnapshot]);
 
-  const handleNewChat = () => {
+  const scheduleNewChatTimeout = useCallback(
+    (id: string) => {
+      if (newChatCancellationTimeoutRef.current) clearTimeout(newChatCancellationTimeoutRef.current);
+      newChatCancellationTimeoutRef.current = window.setTimeout(() => {
+        if (pendingNewChatCancellationRef.current?.taskId !== id) return;
+        newChatCancellationTimeoutRef.current = null;
+        void appendMessage({ actor: Actors.SYSTEM, content: '取消超时，已为你重置到新会话。', timestamp: Date.now() });
+        finalizeNewChatRef.current(id);
+      }, 4000);
+    },
+    [appendMessage],
+  );
+
+  const beginNewChatCancellation = useCallback(
+    (cancellationTaskId: string) => {
+      const authoritative = authoritativeTaskSnapshotRef.current;
+      const known =
+        authoritative?.id === cancellationTaskId
+          ? authoritative
+          : taskSnapshot?.id === cancellationTaskId
+            ? taskSnapshot
+            : null;
+      if (known) requestNewChatCancellation(cancellationTaskId, known.revision);
+      else
+        try {
+          portRef.current?.postMessage({ type: 'get_task', taskId: cancellationTaskId });
+        } catch {}
+      scheduleNewChatTimeout(cancellationTaskId);
+    },
+    [taskSnapshot],
+  );
+
+  const handleNewChat = useCallback(() => {
     const authoritative = authoritativeTaskSnapshotRef.current;
     const cancellationTaskId = newChatCancellationTarget({
       authoritativeTask: authoritative ? { taskId: authoritative.id, status: authoritative.status } : null,
@@ -1542,17 +1628,11 @@ const SidePanel = () => {
       setNewChatPending(true);
       sessionGenerationRef.current += 1;
       setInputEnabled(false);
-      const known =
-        authoritative?.id === cancellationTaskId
-          ? authoritative
-          : taskSnapshot?.id === cancellationTaskId
-            ? taskSnapshot
-            : null;
-      if (known) requestNewChatCancellation(cancellationTaskId, known.revision);
+      beginNewChatCancellation(cancellationTaskId);
       return;
     }
     finalizeNewChat(taskSnapshot?.id ?? authoritative?.id);
-  };
+  }, [taskSnapshot, beginNewChatCancellation]);
 
   const loadChatSessions = useCallback(async () => {
     try {
@@ -2298,7 +2378,11 @@ const SidePanel = () => {
                             void handleSendMessage(text);
                           }}
                           onRetry={
-                            !isHistoricalSession && taskSnapshot.status === 'failed'
+                            !isHistoricalSession &&
+                            (taskSnapshot.status === 'failed' ||
+                              (taskSnapshot.status === 'waiting_user' &&
+                                taskSnapshot.rounds.find(item => item.id === taskSnapshot.currentRoundId)
+                                  ?.waitReason === 'proof_required'))
                               ? () => {
                                   void handleSendMessage(originalInstruction, originalInstruction, {
                                     execute: true,

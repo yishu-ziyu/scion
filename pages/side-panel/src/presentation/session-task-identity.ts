@@ -61,15 +61,12 @@ export function isLiveTaskIdentity(task: TaskIdentity | null | undefined): task 
   return Boolean(task?.taskId && task.status && LIVE_TASK_STATUSES.has(task.status as TaskStatus));
 }
 
-/** Pick the backend work that New Chat must stop before clearing local state. */
-export function newChatCancellationTarget(input: {
+/** New Chat is a new session. It does not stop other sessions. */
+export function newChatCancellationTarget(_input: {
   authoritativeTask?: TaskIdentity | null;
   pendingStartTaskId?: string | null;
   displayedTask?: TaskIdentity | null;
 }): string | null {
-  if (isLiveTaskIdentity(input.authoritativeTask)) return input.authoritativeTask.taskId;
-  if (input.pendingStartTaskId) return input.pendingStartTaskId;
-  if (isLiveTaskIdentity(input.displayedTask)) return input.displayedTask.taskId;
   return null;
 }
 

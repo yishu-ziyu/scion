@@ -779,17 +779,6 @@ export class TaskManager {
 
     if (command.type === 'start') {
       if (existing) return this.reject(existing, command.commandId, 'invalid_transition');
-      const active = await getActiveTask();
-      if (active && !TERMINAL_STATUSES.includes(active.status)) {
-        return {
-          accepted: false,
-          commandId: command.commandId,
-          taskId: command.taskId,
-          revision: 0,
-          error: 'invalid_transition',
-        };
-      }
-      if (active) await this.stopTaskRuntime(active.id);
       return this.start(command);
     }
 
@@ -1130,10 +1119,6 @@ export class TaskManager {
 
   private async runSkill(command: Extract<TaskCommand, { type: 'run_skill' }>): Promise<CommandAck> {
     if (command.tabId < 0) return this.commandError(command, 'invalid_input');
-    const active = await getActiveTask();
-    if (active && !TERMINAL_STATUSES.includes(active.status)) {
-      return this.commandError(command, 'invalid_transition');
-    }
 
     const skill = await favoritesStorage.getSkill(command.skillId);
     if (!skill) return this.commandError(command, 'not_found');
@@ -1146,7 +1131,6 @@ export class TaskManager {
       return this.commandError(command, 'invalid_input');
     }
 
-    if (active) await this.stopTaskRuntime(active.id);
     await this.deps.setFollowForeground?.(false);
     await this.deps.switchTab(command.tabId);
 
