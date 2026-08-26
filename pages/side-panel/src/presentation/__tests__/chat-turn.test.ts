@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest';
+import { Actors, type Message } from '@extension/storage';
+import { applyChatStreamDelta, isChatOnlyMessage } from '../chat-turn';
+
+describe('isChatOnlyMessage', () => {
+  it('treats plain conversation as chat-only', () => {
+    expect(isChatOnlyMessage('你好')).toBe(true);
+    expect(isChatOnlyMessage('解释一下什么是 Transformer')).toBe(true);
+    expect(isChatOnlyMessage('help me brainstorm names for a cat')).toBe(true);
+  });
+
+  it('keeps page-pointing instructions on the task path', () => {
+    expect(isChatOnlyMessage('总结一下这个页面')).toBe(false);
+    expect(isChatOnlyMessage('what is this page about')).toBe(false);
+  });
+
+  it('keeps browser-operation verbs on the task path', () => {
+    expect(isChatOnlyMessage('打开淘宝首页')).toBe(false);
+    expect(isChatOnlyMessage('click the login button')).toBe(false);
+    expect(isChatOnlyMessage('帮我登录邮箱')).toBe(false);
+  });
+
+  it('rejects empty input', () => {
+    expect(isChatOnlyMessage('   ')).toBe(false);
+  });
+});
+
+describe('applyChatStreamDelta', () => {
+  const stream = { sessionId: 's1', timestamp: 100, text: '' };
+  const user: Message = { actor: Actors.USER, content: '你好', timestamp: 99 };
+
+  it('creates the assistant message on the first delta', () => {
+    const next = applyChatStreamDelta([user], stream, '你');
+    expect(next).toHaveLength(2);
+    expect(next[1]).toEqual({ actor: Actors.SYSTEM, content: '你', timestamp: 100 });
+  });
+
+  it('appends later deltas to the same message', () => {
+    const start = applyChatStreamDelta([user], stream, '你');
+    const next = applyChatStreamDelta(start, stream, '好');
+    expect(next).toHaveLength(2);
+    expect(next[1].content).toBe('你好');
+  });
+
+  it('never grows the user message', () => {
+    const colliding = { ...user, timestamp: 100 };
+    const next = applyChatStreamDelta([colliding], stream, 'x');
+    expect(next).toHaveLength(2);
+    expect(next[0].content).toBe('你好');
+  });
+});

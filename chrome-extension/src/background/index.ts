@@ -21,6 +21,7 @@ import {
   createPageOperatingBarSyncQueue,
 } from './task/page-operating';
 import { browserContext, createExecutorDriver } from './agent/factory';
+import { handleChatStreamRequest } from './chat-stream';
 
 import { createDebuggerDetachHandler } from './runtime/debugger-detach';
 import { STRUCTURE_USER_MEMORY_TYPE, structureUserMemoryFromSource } from './agent/structure-user-memory';
@@ -244,6 +245,9 @@ chrome.runtime.onConnect.addListener(port => {
             // Acknowledge heartbeat
             port.postMessage({ type: 'heartbeat_ack' });
             break;
+
+          case 'chat_stream':
+            return handleChatStreamRequest(message, port);
 
           case 'task_command':
             return port.postMessage({ type: 'command_ack', ack: await taskManager.dispatch(message.command) });
