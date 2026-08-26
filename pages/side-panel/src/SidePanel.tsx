@@ -334,7 +334,8 @@ const SidePanel = () => {
         return;
       }
       const needsKey = provider.type !== ProviderTypeEnum.Ollama;
-      if (needsKey && !(provider.apiKey || '').trim()) {
+      // Migrated providers hold only apiKeyRef; the vault holds the key itself.
+      if (needsKey && !(provider.apiKey || '').trim() && !provider.apiKeyRef) {
         setHasConfiguredModels(false);
         return;
       }

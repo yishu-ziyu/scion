@@ -1,32 +1,32 @@
 {
-  "name": "@extension/storage",
+  "name": "@extension/contracts",
   "version": "0.1.13",
-  "description": "chrome extension - storage",
+  "description": "Capability protocol layer: model, provider, and feature-binding contracts with deterministic resolution",
   "private": true,
+  "type": "module",
   "sideEffects": false,
   "files": [
     "dist/**"
   ],
-  "main": "./dist/index.js",
   "types": "index.ts",
+  "main": "./dist/index.js",
   "scripts": {
     "clean:bundle": "rimraf dist",
     "clean:node_modules": "pnpx rimraf node_modules",
     "clean:turbo": "rimraf .turbo",
     "clean": "pnpm clean:bundle && pnpm clean:node_modules && pnpm clean:turbo",
     "ready": "node build.mjs",
+    "test": "vitest run",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "pnpm lint --fix",
     "prettier": "prettier . --write --ignore-path ../../.prettierignore",
-    "type-check": "tsc --noEmit",
-    "test": "vitest run"
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@extension/tsconfig": "workspace:*",
-    "fake-indexeddb": "^6.2.5",
     "vitest": "2.1.9"
-  },
-  "dependencies": {
-    "dexie": "^4.4.5"
   }
 }

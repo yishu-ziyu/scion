@@ -319,7 +319,7 @@ export async function createLlmControlDriver(
     throw markSetupError(t('bg_setup_noProvider', [navigatorModel.provider]));
   }
 
-  const llm: BaseChatModel = createChatModel(providers[navigatorModel.provider], navigatorModel);
+  const llm: BaseChatModel = await createChatModel(providers[navigatorModel.provider], navigatorModel);
   const supervisorModel =
     agentModels[AgentNameEnum.Validator] && providers[agentModels[AgentNameEnum.Validator].provider]
       ? agentModels[AgentNameEnum.Validator]
@@ -327,7 +327,7 @@ export async function createLlmControlDriver(
   const supervisorLlm: BaseChatModel =
     supervisorModel.provider === navigatorModel.provider && supervisorModel.modelName === navigatorModel.modelName
       ? llm
-      : createChatModel(providers[supervisorModel.provider], supervisorModel);
+      : await createChatModel(providers[supervisorModel.provider], supervisorModel);
   logger.info('LLM control backend model', {
     provider: navigatorModel.provider,
     model: navigatorModel.modelName,

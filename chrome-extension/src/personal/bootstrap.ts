@@ -1,4 +1,12 @@
-import { agentModelStore, AgentNameEnum, llmProviderStore } from '@extension/storage';
+import {
+  agentModelStore,
+  AgentNameEnum,
+  deriveApiKeyRef,
+  getApiKey,
+  llmProviderStore,
+  maskApiKey,
+  putApiKey,
+} from '@extension/storage';
 import { createLogger } from '../background/log';
 import { PERSONAL_AGENT_MODELS, PERSONAL_PROVIDER, PERSONAL_PROVIDER_ID } from './config';
 import { PERSONAL_MINIMAX_API_KEY } from './secrets.local';
@@ -6,6 +14,24 @@ import { PERSONAL_MINIMAX_API_KEY } from './secrets.local';
 const logger = createLogger('PersonalBootstrap');
 
 let bootstrapPromise: Promise<void> | null = null;
+
+/**
+ * Move any legacy plaintext `ProviderConfig.apiKey` into the vault and leave
+ * only `apiKeyRef` on the provider record. Idempotent: a record whose
+ * plaintext key is empty (already migrated) is skipped, and the vault write
+ * uses a deterministic ref so re-runs converge on the same entry.
+ */
+export async function migratePlaintextApiKeys(): Promise<void> {
+  const providers = await llmProviderStore.getAllProviders();
+  for (const [providerId, config] of Object.entries(providers)) {
+    const plaintext = (config.apiKey || '').trim();
+    if (!plaintext) continue;
+    const ref = await deriveApiKeyRef(plaintext);
+    await putApiKey(ref, plaintext);
+    await llmProviderStore.setProvider(providerId, { ...config, apiKey: '', apiKeyRef: ref });
+    logger.info(`Migrated API key into vault: provider=${providerId} ref=${ref}`);
+  }
+}
 
 /**
  * Force-seed personal MiniMax-M3 config into chrome.storage.
@@ -27,6 +53,13 @@ export async function ensurePersonalDefaults(): Promise<void> {
       return;
     }
 
+    // Move legacy plaintext keys into the vault before anything else reads them.
+    await migratePlaintextApiKeys();
+
+    // The personal key lives in the vault; provider records only hold its ref.
+    const apiKeyRef = await deriveApiKeyRef(apiKey);
+    await putApiKey(apiKeyRef, apiKey);
+
     // Drop other providers so GUI leftovers cannot steal agent routing.
     const existing = await llmProviderStore.getAllProviders();
     for (const id of Object.keys(existing)) {
@@ -38,7 +71,8 @@ export async function ensurePersonalDefaults(): Promise<void> {
     await llmProviderStore.setProvider(PERSONAL_PROVIDER_ID, {
       name: PERSONAL_PROVIDER.name,
       type: PERSONAL_PROVIDER.type,
-      apiKey,
+      apiKey: '',
+      apiKeyRef,
       baseUrl: PERSONAL_PROVIDER.baseUrl,
       modelNames: [...PERSONAL_PROVIDER.modelNames],
       createdAt: Date.now(),
@@ -53,15 +87,14 @@ export async function ensurePersonalDefaults(): Promise<void> {
       });
     }
 
-    // Verify round-trip from storage (what createChatModel will actually read).
+    // Verify the vault round-trip (what createChatModel will actually resolve).
     const saved = await llmProviderStore.getProvider(PERSONAL_PROVIDER_ID);
-    const prefix = (saved?.apiKey || '').slice(0, 10);
-    const base = saved?.baseUrl || '';
+    const savedKey = saved?.apiKeyRef ? await getApiKey(saved.apiKeyRef) : undefined;
     logger.info(
-      `Personal defaults applied: provider=${PERSONAL_PROVIDER_ID} model=${PERSONAL_AGENT_MODELS[AgentNameEnum.Navigator].modelName} base=${base} keyPrefix=${prefix}… keyLen=${(saved?.apiKey || '').length}`,
+      `Personal defaults applied: provider=${PERSONAL_PROVIDER_ID} model=${PERSONAL_AGENT_MODELS[AgentNameEnum.Navigator].modelName} base=${saved?.baseUrl || ''} keyRef=${saved?.apiKeyRef || 'none'} key=${maskApiKey(savedKey || '')}`,
     );
-    if (!saved?.apiKey || saved.apiKey !== apiKey) {
-      logger.error('Storage round-trip mismatch for MiniMax API key after bootstrap');
+    if (!savedKey || savedKey !== apiKey) {
+      logger.error('Vault round-trip mismatch for MiniMax API key after bootstrap');
     }
   })();
 

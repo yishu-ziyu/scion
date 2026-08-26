@@ -36,7 +36,7 @@ export async function structureUserMemoryFromSource(sourceText: string): Promise
     return { ok: false, error: 'no_model' };
   }
 
-  const llm = createChatModel(providers[navigatorModel.provider], navigatorModel);
+  const llm = await createChatModel(providers[navigatorModel.provider], navigatorModel);
   let raw = '';
   try {
     const response = await llm.invoke([new SystemMessage(STRUCTURE_SYSTEM_PROMPT), new HumanMessage(text)]);

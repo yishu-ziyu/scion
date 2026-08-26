@@ -1,4 +1,4 @@
-import { type ProviderConfig, type ModelConfig, ProviderTypeEnum } from '@extension/storage';
+import { type ProviderConfig, type ModelConfig, ProviderTypeEnum, getApiKey } from '@extension/storage';
 import { ChatOpenAI, AzureChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
@@ -225,8 +225,29 @@ function createAzureChatModel(providerConfig: ProviderConfig, modelConfig: Model
   return new AzureChatOpenAI(args);
 }
 
+/**
+ * Resolve the API key for a provider config. Migrated providers carry only an
+ * `apiKeyRef`; the plaintext key comes from the vault and never from storage
+ * records that UI or logs might serialize. Legacy inline `apiKey` still works
+ * as a fallback (e.g. Ollama's dummy key).
+ */
+async function resolveApiKey(providerConfig: ProviderConfig): Promise<string> {
+  if (providerConfig.apiKeyRef) {
+    const key = await getApiKey(providerConfig.apiKeyRef);
+    if (key !== undefined) {
+      return key;
+    }
+    console.warn(`[createChatModel] apiKeyRef ${providerConfig.apiKeyRef} missing from vault; falling back`);
+  }
+  return providerConfig.apiKey ?? '';
+}
+
 // create a chat model based on the agent name, the model name and provider
-export function createChatModel(providerConfig: ProviderConfig, modelConfig: ModelConfig): BaseChatModel {
+export async function createChatModel(
+  providerConfig: ProviderConfig,
+  modelConfig: ModelConfig,
+): Promise<BaseChatModel> {
+  const resolvedProvider: ProviderConfig = { ...providerConfig, apiKey: await resolveApiKey(providerConfig) };
   const temperature = (modelConfig.parameters?.temperature ?? 0.1) as number;
   const topP = (modelConfig.parameters?.topP ?? 0.1) as number;
 
@@ -235,20 +256,20 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
 
   // If this is any type of Azure provider, handle it with the dedicated function
   if (isAzure) {
-    return createAzureChatModel(providerConfig, modelConfig);
+    return createAzureChatModel(resolvedProvider, modelConfig);
   }
 
   switch (modelConfig.provider) {
     case ProviderTypeEnum.OpenAI: {
       // Call helper without extra options
-      return createOpenAIChatModel(providerConfig, modelConfig, undefined);
+      return createOpenAIChatModel(resolvedProvider, modelConfig, undefined);
     }
     case ProviderTypeEnum.Anthropic: {
       // For Opus models, only support temperature, not topP
       // For 4.5 models, only support either temperature or topP, not both, so we only use temperature to align with Opus
       const args = {
         model: modelConfig.modelName,
-        apiKey: providerConfig.apiKey,
+        apiKey: resolvedProvider.apiKey,
         maxTokens,
         temperature,
         clientOptions: {},
@@ -258,7 +279,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
     case ProviderTypeEnum.DeepSeek: {
       const args = {
         model: modelConfig.modelName,
-        apiKey: providerConfig.apiKey,
+        apiKey: resolvedProvider.apiKey,
         temperature,
         topP,
       };
@@ -267,7 +288,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
     case ProviderTypeEnum.Gemini: {
       const args = {
         model: modelConfig.modelName,
-        apiKey: providerConfig.apiKey,
+        apiKey: resolvedProvider.apiKey,
         temperature,
         topP,
       };
@@ -276,7 +297,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
     case ProviderTypeEnum.Grok: {
       const args = {
         model: modelConfig.modelName,
-        apiKey: providerConfig.apiKey,
+        apiKey: resolvedProvider.apiKey,
         temperature,
         topP,
         maxTokens,
@@ -287,7 +308,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
     case ProviderTypeEnum.Groq: {
       const args = {
         model: modelConfig.modelName,
-        apiKey: providerConfig.apiKey,
+        apiKey: resolvedProvider.apiKey,
         temperature,
         topP,
         maxTokens,
@@ -297,7 +318,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
     case ProviderTypeEnum.Cerebras: {
       const args = {
         model: modelConfig.modelName,
-        apiKey: providerConfig.apiKey,
+        apiKey: resolvedProvider.apiKey,
         temperature,
         topP,
         maxTokens,
@@ -317,8 +338,8 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
       } = {
         model: modelConfig.modelName,
         // required but ignored by ollama
-        apiKey: providerConfig.apiKey === '' ? 'ollama' : providerConfig.apiKey,
-        baseUrl: providerConfig.baseUrl ?? 'http://localhost:11434',
+        apiKey: resolvedProvider.apiKey === '' ? 'ollama' : resolvedProvider.apiKey,
+        baseUrl: resolvedProvider.baseUrl ?? 'http://localhost:11434',
         topP,
         temperature,
         maxTokens,
@@ -333,7 +354,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
     case ProviderTypeEnum.OpenRouter: {
       // Call the helper function, passing OpenRouter headers via the third argument
       console.log('[createChatModel] Calling createOpenAIChatModel for OpenRouter');
-      return createOpenAIChatModel(providerConfig, modelConfig, {
+      return createOpenAIChatModel(resolvedProvider, modelConfig, {
         headers: {
           'HTTP-Referer': 'https://github.com/chijie-ziyu/scion',
           'X-Title': 'Chijie',
@@ -351,15 +372,15 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
         maxTokens?: number;
       } = {
         model: modelConfig.modelName,
-        apiKey: providerConfig.apiKey,
+        apiKey: resolvedProvider.apiKey,
         topP: (modelConfig.parameters?.topP ?? 0.1) as number,
         temperature: (modelConfig.parameters?.temperature ?? 0.1) as number,
         maxTokens,
       };
 
       const configuration: Record<string, unknown> = {};
-      if (providerConfig.baseUrl) {
-        configuration.baseURL = providerConfig.baseUrl;
+      if (resolvedProvider.baseUrl) {
+        configuration.baseURL = resolvedProvider.baseUrl;
       }
       args.configuration = configuration;
 
@@ -368,7 +389,7 @@ export function createChatModel(providerConfig: ProviderConfig, modelConfig: Mod
     default: {
       // by default, we think it's a openai-compatible provider
       // Pass undefined for extraFetchOptions for default/custom cases
-      return createOpenAIChatModel(providerConfig, modelConfig, undefined);
+      return createOpenAIChatModel(resolvedProvider, modelConfig, undefined);
     }
   }
 }
