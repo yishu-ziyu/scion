@@ -19,6 +19,8 @@
     "e2e:sw-restart": "node scripts/sw-restart-e2e.mjs"
   },
   "dependencies": {
+    "@extension/agent-core": "workspace:*",
+    "@extension/contracts": "workspace:*",
     "@extension/i18n": "workspace:*",
     "@extension/shared": "workspace:*",
     "@extension/storage": "workspace:*",

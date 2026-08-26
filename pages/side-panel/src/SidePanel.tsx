@@ -38,6 +38,7 @@ import {
   taskBoundContentTab,
   type BoundContentTab,
 } from './presentation/active-tab-bind';
+import { applyChatStreamDelta, isChatOnlyMessage, type ChatStreamState } from './presentation/chat-turn';
 import {
   isActiveTaskStatus,
   shouldAutoRestoreTaskSession,
@@ -208,6 +209,7 @@ const SidePanel = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const setInputTextRef = useRef<((text: string) => void) | null>(null);
   const pendingDirectionChangeRef = useRef(false);
+  const chatStreamRef = useRef<ChatStreamState | null>(null);
   const pendingTaskIdRef = useRef<string | null>(null);
   const pendingStartCommandRef = useRef<{ taskId: string; commandId: string } | null>(null);
   const pendingHistoryTaskIdRef = useRef<string | null>(null);
@@ -688,6 +690,40 @@ const SidePanel = () => {
     }, 500);
   }, []);
 
+  // Direct chat stream (agent-core SSE): token deltas grow one assistant message in place.
+  const handleChatStreamDelta = useCallback((sessionId: string, text: string) => {
+    const stream = chatStreamRef.current;
+    if (!stream || stream.sessionId !== sessionId) return;
+    stream.text += text;
+    if (sessionIdRef.current === sessionId) {
+      setMessages(prev => applyChatStreamDelta(prev, stream, text));
+    }
+  }, []);
+
+  const handleChatStreamDone = useCallback((sessionId: string) => {
+    const stream = chatStreamRef.current;
+    if (!stream || stream.sessionId !== sessionId) return;
+    chatStreamRef.current = null;
+    setInputEnabled(true);
+    if (stream.text.trim()) {
+      void chatHistoryStore.addMessage(stream.sessionId, {
+        actor: Actors.SYSTEM,
+        content: stream.text,
+        timestamp: stream.timestamp,
+      });
+    }
+  }, []);
+
+  const handleChatStreamError = useCallback(
+    (sessionId: string, error: string) => {
+      chatStreamRef.current = null;
+      setInputEnabled(true);
+      if (sessionIdRef.current !== sessionId) return;
+      void appendMessage({ actor: Actors.SYSTEM, content: error, timestamp: Date.now() });
+    },
+    [appendMessage],
+  );
+
   // Setup connection management
   const handleNewChatCancelAck = useCallback(
     (ack: { taskId: string; commandId: string; accepted: boolean; error?: string; revision?: number }): boolean => {
@@ -1068,6 +1104,12 @@ const SidePanel = () => {
             timestamp: Date.now(),
           });
           setIsProcessingSpeech(false);
+        } else if (message && message.type === 'chat_stream_delta') {
+          handleChatStreamDelta(message.sessionId, message.text);
+        } else if (message && message.type === 'chat_stream_done') {
+          handleChatStreamDone(message.sessionId);
+        } else if (message && message.type === 'chat_stream_error') {
+          handleChatStreamError(message.sessionId, message.error ?? t('errors_unknown'));
         } else if (message && message.type === 'heartbeat_ack') {
           console.log('Heartbeat acknowledged');
         }
@@ -1137,7 +1179,16 @@ const SidePanel = () => {
       setTaskSnapshotLoaded(false);
       scheduleReconnect();
     }
-  }, [handleTaskState, appendMessage, scheduleReconnect, stopConnection]);
+    // prettier-ignore
+  }, [
+    handleTaskState,
+    appendMessage,
+    scheduleReconnect,
+    stopConnection,
+    handleChatStreamDelta,
+    handleChatStreamDone,
+    handleChatStreamError,
+  ]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1212,6 +1263,22 @@ const SidePanel = () => {
       return true;
     },
     [appendMessage, sendMessage],
+  );
+
+  // Send a chat-only message over the direct stream; false when the port is gone.
+  const sendChatStreamMessage = useCallback(
+    (sessionId: string, text: string): boolean => {
+      if (!portRef.current) setupConnection();
+      try {
+        chatStreamRef.current = { sessionId, timestamp: Date.now(), text: '' };
+        portRef.current?.postMessage({ type: 'chat_stream', sessionId, text });
+        return true;
+      } catch {
+        chatStreamRef.current = null;
+        return false;
+      }
+    },
+    [setupConnection],
   );
 
   const requestNewChatCancellation = useCallback(
@@ -1414,6 +1481,8 @@ const SidePanel = () => {
           changeType: isDirectionChange ? 'direction_change' : 'follow_up',
           forceExecute: options?.retry === true,
         });
+      } else if (isChatOnlyMessage(text)) {
+        commandDispatched = sendChatStreamMessage(turnSessionId, text);
       } else {
         const bound = await resolveActiveContentTab({ allowLastFocused: false });
         if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) {
