@@ -190,10 +190,8 @@ export type TaskCommand =
       chatSessionId: string;
       instructionMessageId: string;
       tabId: number;
-      /** Skip classify (再说一次 already knows this is the same task). */
+      /** Skip cheap whole-message 停止 (再说一次 already knows this is the same task). */
       forceExecute?: boolean;
-      /** Composer 仅聊天 / 执行. execute skips the extra confirm ask; chat never operates pages. */
-      composerIntent?: 'chat' | 'execute';
     }
   | (ExistingTaskCommand & {
       type: 'follow_up';
@@ -201,10 +199,8 @@ export type TaskCommand =
       chatSessionId: string;
       instructionMessageId: string;
       changeType?: 'follow_up' | 'direction_change';
-      /** Skip classify (再说一次 already knows this is the same task). */
+      /** Skip cheap whole-message 停止 (再说一次 already knows this is the same task). */
       forceExecute?: boolean;
-      /** Composer 仅聊天 / 执行. execute skips the extra confirm ask; chat never operates pages. */
-      composerIntent?: 'chat' | 'execute';
     })
   | (ExistingTaskCommand & { type: 'pause' | 'resume' | 'cancel' | 'takeover' })
   | (ExistingTaskCommand & { type: 'set_follow'; follow: boolean })

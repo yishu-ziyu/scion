@@ -1,8 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FiBookOpen, FiGlobe, FiSettings } from 'react-icons/fi';
-import { PiPlusBold } from 'react-icons/pi';
-import { GrHistory } from 'react-icons/gr';
+import { FiGlobe } from 'react-icons/fi';
 import {
   type ChatMessage,
   type EvidenceSpace,
@@ -24,8 +22,10 @@ import ChatInput, { type SendMessageResult } from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
 import { TaskStatusCard } from './components/TaskStatusCard';
+import { SidePanelHeader } from './components/SidePanelHeader';
 import FirstRunSetup from './components/FirstRunSetup';
 import { IdleHome } from './components/IdleHome';
+import { MatrixLoader, PanelReveal } from './components/MotionPrimitives';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import { shouldPersistExecutionEvent } from './event-persistence';
 import { mergeTaskSnapshot } from './task-snapshot';
@@ -45,8 +45,8 @@ import {
   shouldShowTaskCard,
 } from './presentation/task-loop-ui';
 import { completionChatDelivery, hasCompletionChatDelivery } from './presentation/completion-chat-delivery';
+import { APP_CONTAINER_ID, focusChatComposer, queryChatComposer } from './presentation/document-pip';
 import { taskAllowsDirectionChange, taskLocksComposer, taskNeedsDirectStop } from './presentation/wait-affordance';
-import { shouldDismissConfirmExecuteChat } from './presentation/wait-ask';
 import { isFollowingForeground, setFollowCommand, takeoverCommand } from './presentation/run-presence';
 import {
   cancellationIntentAfterDisconnect,
@@ -965,27 +965,6 @@ const SidePanel = () => {
               timestamp: Date.now(),
             });
           }
-          const parked = taskSnapshotRef.current;
-          const parkedRound = parked?.rounds.find(item => item.id === parked.currentRoundId);
-          if (
-            ownsPendingAck &&
-            parked?.id === message.ack.taskId &&
-            shouldDismissConfirmExecuteChat({
-              accepted: message.ack.accepted,
-              waitReason: parkedRound?.waitReason,
-              userVisibleText: message.ack.userVisibleText,
-            })
-          ) {
-            dismissedTaskIdsRef.current.add(message.ack.taskId);
-            taskSnapshotRef.current = null;
-            if (authoritativeTaskSnapshotRef.current?.id === message.ack.taskId) {
-              authoritativeTaskSnapshotRef.current = null;
-            }
-            setTaskSnapshot(null);
-            setEvidenceSpace(null);
-            setShowStopButton(false);
-            setInputEnabled(true);
-          }
           if (!message.ack.accepted) {
             if (message.ack.error === 'not_executable' && ownsPendingAck) {
               if (pendingStartCommandRef.current?.taskId === message.ack.taskId) {
@@ -1315,25 +1294,19 @@ const SidePanel = () => {
   const handleSendMessage = async (
     text: string,
     displayText?: string,
-    options?: { execute?: boolean; retry?: boolean },
+    options?: { retry?: boolean },
   ): Promise<SendMessageResult> => {
-    // Trim the input text first
     const trimmedText = text.trim();
-
     if (!trimmedText) return { delivered: false };
     const isDirectionChange = pendingDirectionChangeRef.current;
     pendingDirectionChangeRef.current = false;
 
-    // Check if the input is a command (starts with /)
     if (trimmedText.startsWith('/')) {
-      // Process command and return if it was handled
       const wasHandled = await handleCommand(trimmedText);
       if (wasHandled) return { delivered: true };
     }
 
-    // Block sending messages in historical sessions
     if (isHistoricalSession) {
-      console.log('Cannot send messages in historical sessions');
       return { delivered: false, feedback: '历史会话不能继续发送。输入已保留。' };
     }
     if (
@@ -1424,11 +1397,8 @@ const SidePanel = () => {
         return { delivered: false };
       }
 
-      if (!portRef.current) {
-        setupConnection();
-      }
+      if (!portRef.current) setupConnection();
 
-      // classify lives on TaskManager.dispatch (start / follow_up). 再说一次 already knows this is the same task.
       const currentTask = taskSnapshotRef.current;
       const canFollowUp = canFollowUpInOwnedSession(currentTask, turnSessionId);
       if (canFollowUp && currentTask) {
@@ -1442,7 +1412,6 @@ const SidePanel = () => {
           instructionMessageId: storedMessage.id,
           changeType: isDirectionChange ? 'direction_change' : 'follow_up',
           forceExecute: options?.retry === true,
-          composerIntent: options?.execute === true ? 'execute' : options?.execute === false ? 'chat' : undefined,
         });
       } else {
         const bound = await resolveActiveContentTab({ allowLastFocused: false });
@@ -1474,7 +1443,6 @@ const SidePanel = () => {
           instructionMessageId: storedMessage.id,
           tabId: bound?.tabId ?? -1,
           forceExecute: options?.retry === true,
-          composerIntent: options?.execute === true ? 'execute' : options?.execute === false ? 'chat' : undefined,
         });
       }
       if (!commandDispatched) {
@@ -1762,8 +1730,7 @@ const SidePanel = () => {
     }
     setInputEnabled(true);
     window.requestAnimationFrame(() => {
-      const composer = document.querySelector('.chijie-composer textarea') as HTMLTextAreaElement | null;
-      composer?.focus();
+      focusChatComposer();
     });
   };
 
@@ -2208,112 +2175,45 @@ const SidePanel = () => {
 
   return (
     <div className="chijie-shell">
-      <div className="chijie-shell flex h-screen flex-col overflow-hidden">
-        <header className="header relative border-b border-[var(--chijie-border)] bg-[var(--chijie-surface)] p-3">
-          <div className="header-logo">
-            {showHistory ? (
-              <button
-                type="button"
-                onClick={() => handleBackToChat(false)}
-                className="min-h-10 cursor-pointer px-2 text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
-                aria-label={t('nav_back_a11y')}>
-                {t('nav_back')}
-              </button>
-            ) : (
-              <div className="chijie-header-brand">
-                <img
-                  src={chrome.runtime.getURL('logo-header.png')}
-                  alt="scion"
-                  className="chijie-header-logo"
-                  data-testid="header-logo"
-                />
-                <span
-                  className="chijie-header-brand-sub"
-                  data-testid="header-task-status"
-                  aria-live="polite"
-                  aria-atomic="true">
-                  {taskSnapshot && showTaskCard
-                    ? t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
-                    : t('chat_task_header_idle')}
-                </span>
-              </div>
-            )}
-          </div>
-          <div className="header-icons">
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
-              aria-label={t('nav_newChat_a11y')}
-              title={t('nav_newChat_a11y')}
-              aria-busy={newChatPending}
-              disabled={newChatPending}>
-              <PiPlusBold size={20} />
-            </button>
-            <button
-              type="button"
-              onClick={handleLoadHistory}
-              className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
-              data-active={showHistory ? 'true' : undefined}
-              aria-label={t('nav_loadHistory_a11y')}
-              title={t('nav_loadHistory_a11y')}>
-              <GrHistory size={20} />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                void chrome.tabs.create({ url: chrome.runtime.getURL('memory/index.html') });
-              }}
-              className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
-              aria-label={t('nav_memory_a11y')}
-              title={t('nav_memory_a11y')}>
-              <FiBookOpen size={20} />
-            </button>
-            <button
-              type="button"
-              onClick={() => chrome.runtime.openOptionsPage()}
-              className="header-icon cursor-pointer text-[var(--chijie-foreground)] hover:text-[var(--chijie-accent)]"
-              aria-label={t('nav_settings_a11y')}
-              title={t('nav_settings_a11y')}>
-              <FiSettings size={20} />
-            </button>
-          </div>
-        </header>
-        {showHistory ? (
-          <div className="flex-1 overflow-hidden">
-            <ChatHistoryList
-              sessions={chatSessions}
-              onSessionSelect={handleSessionSelect}
-              onSessionDelete={handleSessionDelete}
-              onSessionBookmark={handleSessionBookmark}
-              protectedSessionId={protectedLiveHistorySessionId(authoritativeTaskSnapshotRef.current)}
-              visible={true}
-              isDarkMode={false}
-            />
-          </div>
-        ) : (
-          <>
+      <div id={APP_CONTAINER_ID} className="chijie-shell flex h-screen flex-col overflow-hidden">
+        <SidePanelHeader
+          showHistory={showHistory}
+          statusLabel={
+            taskSnapshot && showTaskCard
+              ? t(`chat_task_status_${taskSnapshot.status}` as `chat_task_status_${typeof taskSnapshot.status}`)
+              : t('chat_task_header_idle')
+          }
+          newChatPending={newChatPending}
+          onBack={() => handleBackToChat(false)}
+          onNewChat={handleNewChat}
+          onLoadHistory={handleLoadHistory}
+        />
+        <div className="t-page-slide chijie-page-slide" data-page={showHistory ? '2' : '1'}>
+          <section className="t-page" data-page-id="1">
             {/* Show loading state while checking model configuration */}
             {hasConfiguredModels === null && (
               <div className="chijie-welcome">
                 <div className="text-center">
-                  <div
-                    className="mx-auto mb-4 size-8 animate-spin rounded-full border-2 border-[var(--chijie-accent)] border-t-transparent"
-                    aria-hidden
-                  />
-                  <p className="text-[var(--chijie-muted)]">{t('status_checkingConfig')}</p>
+                  <div className="mx-auto mb-4 flex justify-center" aria-hidden>
+                    <MatrixLoader variant="pulse" />
+                  </div>
+                  <p className="t-shimmer text-[var(--chijie-muted)]" data-text={t('status_checkingConfig')}>
+                    {t('status_checkingConfig')}
+                  </p>
                 </div>
               </div>
             )}
 
             {/* First-run: connect one model, then idle (no multi-page onboarding) */}
             {hasConfiguredModels === false && (
-              <FirstRunSetup
-                onConnected={() => {
-                  setHasConfiguredModels(true);
-                  void checkModelConfiguration();
-                }}
-              />
+              <PanelReveal className="flex min-h-0 flex-1 flex-col overflow-auto">
+                <FirstRunSetup
+                  onConnected={() => {
+                    setHasConfiguredModels(true);
+                    void checkModelConfiguration();
+                  }}
+                />
+              </PanelReveal>
             )}
 
             {/* Show normal chat interface when models are configured */}
@@ -2367,11 +2267,7 @@ const SidePanel = () => {
                             setIsHistoricalSession(false);
                             setInputEnabled(true);
                             window.requestAnimationFrame(() => {
-                              const composer = document.querySelector(
-                                '.chijie-composer textarea',
-                              ) as HTMLTextAreaElement | null;
-                              composer?.focus();
-                              composer?.scrollIntoView({ block: 'nearest' });
+                              focusChatComposer();
                             });
                           }}
                           onFollowUp={text => {
@@ -2385,7 +2281,6 @@ const SidePanel = () => {
                                   ?.waitReason === 'proof_required'))
                               ? () => {
                                   void handleSendMessage(originalInstruction, originalInstruction, {
-                                    execute: true,
                                     retry: true,
                                   });
                                 }
@@ -2399,19 +2294,13 @@ const SidePanel = () => {
                               ? () => {
                                   pendingDirectionChangeRef.current = true;
                                   setIsHistoricalSession(false);
-                                  const existingComposer = document.querySelector(
-                                    '.chijie-composer textarea',
-                                  ) as HTMLTextAreaElement | null;
+                                  const existingComposer = queryChatComposer();
                                   if (!existingComposer?.value.trim()) {
                                     setInputTextRef.current?.(t('chat_task_adjust_prompt'));
                                   }
                                   setInputEnabled(true);
                                   window.requestAnimationFrame(() => {
-                                    const composer = document.querySelector(
-                                      '.chijie-composer textarea',
-                                    ) as HTMLTextAreaElement | null;
-                                    composer?.focus();
-                                    composer?.scrollIntoView({ block: 'nearest' });
+                                    focusChatComposer();
                                   });
                                 }
                               : undefined
@@ -2446,10 +2335,7 @@ const SidePanel = () => {
                           onRephrase={
                             messageRecoveryEnabled
                               ? () => {
-                                  const el = document.querySelector(
-                                    '.chijie-composer textarea',
-                                  ) as HTMLTextAreaElement | null;
-                                  el?.focus();
+                                  queryChatComposer()?.focus();
                                 }
                               : undefined
                           }
@@ -2588,8 +2474,21 @@ const SidePanel = () => {
                 </div>
               </>
             )}
-          </>
-        )}
+          </section>
+          <section className="t-page" data-page-id="2">
+            <div className="h-full flex-1 overflow-hidden">
+              <ChatHistoryList
+                sessions={chatSessions}
+                onSessionSelect={handleSessionSelect}
+                onSessionDelete={handleSessionDelete}
+                onSessionBookmark={handleSessionBookmark}
+                protectedSessionId={protectedLiveHistorySessionId(authoritativeTaskSnapshotRef.current)}
+                visible={true}
+                isDarkMode={false}
+              />
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );

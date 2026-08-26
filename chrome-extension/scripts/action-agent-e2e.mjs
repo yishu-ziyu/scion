@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
@@ -66,6 +66,7 @@ let rowEmitted = false;
 let unexpectedCommitDetected = false;
 let browserVersion = '';
 let runtimeExtensionAttestation = null;
+let firewallSnapshotBefore = null;
 let lastScenarioEvidence = [];
 let traceTabSamples = [];
 let currentScenarioScope = null;
@@ -1016,6 +1017,28 @@ async function runAllScenarios(extensionId, run) {
   await target.bringToFront();
   await new Promise(r => setTimeout(r, 500));
 
+  // Connect mode shares the owner profile. If a non-terminal user task is live,
+  // the composer binds to it and a new goal becomes a follow-up (mutates user
+  // data). Refuse to start instead of polluting the owner's task.
+  if (isConnectMode) {
+    const liveTask = await panel.evaluate(async () => {
+      const stored = await chrome.storage.local.get(['task-runtime-v1']);
+      const tasks = Object.values(stored['task-runtime-v1'] || {});
+      const live = tasks.find(
+        task =>
+          task?.id &&
+          ['running', 'paused', 'waiting_user', 'inputs_required', 'interrupted'].includes(task.status),
+      );
+      return live ? { id: live.id, status: live.status } : null;
+    });
+    if (liveTask) {
+      throw new Error(
+        `connect mode refuses to run with a live owner task ${liveTask.id} (${liveTask.status}); ` +
+          'finish or cancel it first, or run with Chrome for Testing (recommended)',
+      );
+    }
+  }
+
   const formReceiptBefore = await readReceiptId(panel);
   await beginActionScenario(panel, 'form');
   const formBoundTab = await sendGoal(
@@ -1317,13 +1340,29 @@ async function runAllScenarios(extensionId, run) {
   await Promise.all([target.close(), media.close(), panel.close(), mediaPanel.close()]);
 }
 
+/**
+ * Match the target extension's own service worker file from the built manifest.
+ * Owner Chrome hosts many extensions; "first SW containing 'background'" can
+ * resolve to Zotero etc. and then the panel URL 404s. Falling back to any
+ * chrome-extension SW only when the manifest does not name one.
+ */
+function expectedServiceWorkerFile() {
+  try {
+    const manifest = JSON.parse(readFileSync(path.join(extensionPath, 'manifest.json'), 'utf8'));
+    return String(manifest?.background?.service_worker || '');
+  } catch {
+    return '';
+  }
+}
+
 async function resolveExtensionId() {
   if (process.env.EXTENSION_ID) return process.env.EXTENSION_ID;
+  const workerFile = expectedServiceWorkerFile();
   const worker = await browser.waitForTarget(
     target =>
       target.type() === 'service_worker' &&
       target.url().startsWith('chrome-extension://') &&
-      target.url().includes('background'),
+      (!workerFile || target.url().endsWith(workerFile)),
     { timeout: 30_000 },
   );
   return new URL(worker.url()).host;
@@ -1380,6 +1419,14 @@ try {
   });
   runtimeExtensionAttestation = await attestRuntimeExtension(identityPanel, extensionPath);
   await identityPanel.close();
+  // Connect mode seeds eval config including firewall-settings (local fixture
+  // origin). The user's own firewall settings must be restored afterwards.
+  if (isConnectMode && !forceReset) {
+    firewallSnapshotBefore = await identityPanel.evaluate(async () => {
+      const all = await chrome.storage.local.get(['firewall-settings']);
+      return all['firewall-settings'] ?? null;
+    });
+  }
 
   for (let run = 0; run < runs; run += 1) {
     currentAttempt = evalAttemptBase + run;
@@ -1485,6 +1532,30 @@ try {
     await browser?.close().catch(() => {});
     await rm(profilePath, { recursive: true, force: true });
   } else {
+    // Restore the owner profile's firewall settings that the eval seed overwrote.
+    if (firewallSnapshotBefore !== null) {
+      try {
+        const restorePanel =
+          lastPanel && !lastPanel.isClosed()
+            ? lastPanel
+            : await browser.newPage().then(page =>
+                page.goto(`chrome-extension://${extensionId}/side-panel/index.html`, {
+                  waitUntil: 'domcontentloaded',
+                }).then(() => page),
+              );
+        await restorePanel.evaluate(async snapshot => {
+          if (snapshot === null) {
+            await chrome.storage.local.remove('firewall-settings');
+          } else {
+            await chrome.storage.local.set({ 'firewall-settings': snapshot });
+          }
+        }, firewallSnapshotBefore);
+        if (restorePanel !== lastPanel) await restorePanel.close();
+        console.log('[e2e] connect mode: restored previous firewall-settings');
+      } catch (restoreError) {
+        console.error('[e2e] firewall-settings restore failed', String(restoreError?.message || restoreError));
+      }
+    }
     browser?.disconnect();
   }
   await new Promise(resolve => server.close(resolve));

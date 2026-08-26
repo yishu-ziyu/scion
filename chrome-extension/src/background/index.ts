@@ -1,6 +1,6 @@
 import 'webextension-polyfill';
-import { llmProviderStore, analyticsSettingsStore } from '@extension/storage';
-import { chatHistoryStore, removeLegacyAgentStepHistories } from '@extension/storage/lib/chat';
+import { llmProviderStore, analyticsSettingsStore, firewallStore } from '@extension/storage';
+import { removeLegacyAgentStepHistories } from '@extension/storage/lib/chat';
 import { t } from '@extension/i18n';
 import { createLogger } from './log';
 import { DEFAULT_AGENT_OPTIONS } from './agent/types';
@@ -21,7 +21,7 @@ import {
   createPageOperatingBarSyncQueue,
 } from './task/page-operating';
 import { browserContext, createExecutorDriver } from './agent/factory';
-import { decideUserTurn, historyTurnsFromMessages } from './intent/user-turn-decision';
+
 import { createDebuggerDetachHandler } from './runtime/debugger-detach';
 import { STRUCTURE_USER_MEMORY_TYPE, structureUserMemoryFromSource } from './agent/structure-user-memory';
 
@@ -65,18 +65,7 @@ const taskManager = new TaskManager({
     if (!tab.id) throw new Error('No tab ID available');
     return tab.id;
   },
-  decideUserTurn: async ({ text, chatSessionId }) => {
-    let history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-    if (chatSessionId) {
-      try {
-        const session = await chatHistoryStore.getSession(chatSessionId);
-        history = historyTurnsFromMessages(session?.messages ?? []);
-      } catch {
-        history = [];
-      }
-    }
-    return decideUserTurn({ latestUserText: text, history });
-  },
+
   probeDownloadState: async () => {
     if (typeof chrome === 'undefined' || !chrome.downloads?.search) return 'none';
     return new Promise(resolve => {
@@ -171,6 +160,21 @@ analyticsSettingsStore.subscribe(() => {
   analytics.updateSettings().catch(error => {
     logger.error('Failed to update analytics settings:', error);
   });
+});
+
+// Keep the browser-context URL firewall in sync with stored settings from
+// boot onward, so tab binding honors the user's firewall before an executor
+// starts (not only after the first executor launch).
+firewallStore.subscribe(() => {
+  void firewallStore
+    .getFirewall()
+    .then(firewall => {
+      browserContext.updateConfig({
+        allowedUrls: firewall.enabled ? firewall.allowList : [],
+        deniedUrls: firewall.enabled ? firewall.denyList : [],
+      });
+    })
+    .catch(error => logger.error('Failed to apply firewall settings', error));
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

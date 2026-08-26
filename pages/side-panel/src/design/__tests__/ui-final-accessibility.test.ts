@@ -10,6 +10,7 @@ const source = (relativePath: string) => readFileSync(resolve(here, relativePath
 const chatInput = source('../../components/ChatInput.tsx');
 const progressOverview = source('../../components/TaskProgressOverview.tsx');
 const workStream = source('../../components/WorkStream.tsx');
+const taskStatusCard = source('../../components/ProcessDisclosure.tsx');
 const messageList = source('../../components/MessageList.tsx');
 const chatHistory = source('../../components/ChatHistoryList.tsx');
 const bookmarkList = source('../../components/BookmarkList.tsx');
@@ -60,7 +61,7 @@ describe('final side-panel accessibility gates', () => {
   });
 
   it('keeps unsent instructions in the composer and explains the failed delivery', () => {
-    expect(chatInput).toContain('sendOptionsFromComposerIntent(composerIntent)');
+    expect(chatInput).not.toContain('sendOptionsFromComposerIntent');
     expect(chatInput).toContain('if (!shouldClearComposerAfterDelivery(result))');
     expect(chatInput).toContain('setDeliveryFeedback(result.feedback');
     expect(chatInput).toContain('data-testid="goal-send-feedback"');
@@ -70,8 +71,9 @@ describe('final side-panel accessibility gates', () => {
 
   it('gives the live stream a thinking fold and a takeover control', () => {
     expect(workStream).toContain('chat_task_thinking_heading');
-    expect(workStream).toContain('chat_task_takeover');
-    expect(workStream).toContain('data-testid="live-stop-generating"');
+    expect(taskStatusCard).toContain('chat_task_takeover');
+    expect(taskStatusCard).toContain('data-testid="live-stop-generating"');
+    expect(workStream).not.toContain('data-testid="live-stop-generating"');
   });
 
   it('keeps visible health time outside a semantic-only live announcer', () => {

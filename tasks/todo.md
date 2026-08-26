@@ -35,4 +35,5 @@
 ## Checkpoint: Complete
 - [x] SPEC Success Criteria 5–8 有对应测试
 - [x] 真 Chrome iframe 场景：`[e2e] run0 iframe-shadow PASS`（子框 card 被填上）
-- [ ] `pnpm e2e:action-agent` 整脚本仍 exit 1：018-O1 `invalid_run` / `evidence_protocol`（表单已提交，侧栏完成收据协议；DEVLOG 已记，不在本 spec 范围）
+- [x] 018-O1 `invalid_run` / `evidence_protocol` 修复 → 交付文档 `docs/specs/2026-08-26-e2e-gap-handoff.md` 任务 A（2026-08-26 完成：`EVAL_TASK_ID=018-O1 RUNS=1 pnpm -F chrome-extension e2e:action-agent` exit 0，`outcome=verified_pass`）
+- [x] SW 重启后行为不变的 e2e 场景 → 同文档任务 B（2026-08-26 完成：`pnpm -F chrome-extension e2e:sw-restart` exit 0，RUNS=3 稳定）

@@ -311,6 +311,7 @@ describe('agent status bar / prompt versioning', () => {
     expect(prompt).toContain('what this page or these videos are about');
     expect(prompt).toContain('Write the result in observation and set done');
     expect(prompt).toContain('find_tab');
+    expect(prompt).toContain('[no_page_snapshot]');
     expect(prompt).toContain('The analysis sentence does not need to appear on the page');
     expect(prompt).toContain('do not bring that tab to the front');
     expect(prompt).toContain('Do not require tab_state active');

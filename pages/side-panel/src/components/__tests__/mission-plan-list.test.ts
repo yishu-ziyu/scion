@@ -74,7 +74,7 @@ describe('TaskProgressOverview mission-plan integration', () => {
     expect(html).not.toContain('思考中');
   });
 
-  it('renders the Now line when currentActivity is present', () => {
+  it('only paints process when the card passes a fold as nowBody', () => {
     const view: TaskProgressView = {
       kind: 'generic',
       mission: { title: '描述当前页面', deliverable: '给出页面摘要' },
@@ -93,13 +93,33 @@ describe('TaskProgressOverview mission-plan integration', () => {
       updatedAt: 1,
     };
 
-    const html = renderToStaticMarkup(createElement(TaskProgressOverview, { view, now: 1 }));
+    const withoutFold = renderToStaticMarkup(createElement(TaskProgressOverview, { view, now: 1 }));
+    expect(withoutFold).not.toContain('data-testid="task-progress-current-activity"');
+    expect(withoutFold).not.toContain('打开 Zotero 官网');
+    expect(withoutFold).not.toContain('服务于「用户研究」');
+
+    const html = renderToStaticMarkup(
+      createElement(TaskProgressOverview, {
+        view,
+        now: 1,
+        nowBody: createElement(
+          'details',
+          { 'data-testid': 'task-process-disclosure', 'data-live': 'true' },
+          createElement(
+            'summary',
+            { 'data-testid': 'task-now-line' },
+            createElement('span', { 'data-testid': 'task-now-summary' }, '打开 Zotero 官网'),
+            createElement('span', { 'data-testid': 'task-now-site' }, ' · zotero.org'),
+          ),
+        ),
+      }),
+    );
 
     expect(html).toContain('data-testid="task-progress-current-activity"');
     expect(html).toContain('data-testid="task-now-summary"');
     expect(html).toContain('打开 Zotero 官网');
-    expect(html).toContain('服务于「用户研究」');
     expect(html).toContain('zotero.org');
+    expect(html).not.toContain('服务于「用户研究」');
     expect(html).toContain('data-testid="task-progress-health"');
     expect(html).toContain('data-quiet="true"');
     expect(html).toContain('描述当前页面');
@@ -206,8 +226,8 @@ describe('TaskProgressOverview mission-plan integration', () => {
 
     expect(html).toContain('data-surface="result"');
     expect(html).toContain('读当前页，一句主题');
-    expect(html).toContain('正在读当前页');
-    expect(html).toContain('推进当前任务');
+    expect(html).not.toContain('正在读当前页');
+    expect(html).not.toContain('推进当前任务');
     expect(html).not.toContain('data-testid="mission-plan"');
     expect(html).not.toContain('完成委托并提供可检查的结果');
     expect(html).not.toContain('已验证任务回执');

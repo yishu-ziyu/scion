@@ -15,7 +15,8 @@
     "lint": "eslint ./ --ext .ts,.js,.tsx,.jsx",
     "lint:fix": "pnpm lint --fix",
     "prettier": "prettier . --write --ignore-path ../.prettierignore",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "e2e:sw-restart": "node scripts/sw-restart-e2e.mjs"
   },
   "dependencies": {
     "@extension/i18n": "workspace:*",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EvidenceRecord, EvidenceSpace, TaskSnapshot } from '@extension/storage';
-import { deriveTaskProgressView } from '../task-progress-view';
+import { deriveTaskProgressView, liveProcessFold } from '../task-progress-view';
 
 function snapshot(status: TaskSnapshot['status'] = 'paused'): TaskSnapshot {
   return {
@@ -205,7 +205,7 @@ describe('deriveTaskProgressView', () => {
       now: 12_000,
     });
     expect(view.health.state).toBe('needs_user');
-    expect(view.health.summary).toBe('写出的结果和页面对不上');
+    expect(view.health.summary).toBe('结果已拿到，页面证据还没对上');
     expect(view.health.summary).not.toContain('登录');
   });
 
@@ -438,5 +438,36 @@ describe('deriveTaskProgressView', () => {
       summary: '打开 Zotero 官网',
       site: 'example.com',
     });
+  });
+});
+
+describe('liveProcessFold', () => {
+  it('collapses noise verbs to 正在读取 and keeps a distinct site', () => {
+    expect(
+      liveProcessFold({
+        summary: '获取页面快照',
+        purpose: '推进当前任务',
+        site: 'zhuanlan.zhihu.com',
+        startedAt: 1,
+      }),
+    ).toEqual({ summary: '正在读取', site: 'zhuanlan.zhihu.com' });
+    expect(
+      liveProcessFold({
+        summary: '正在操作页面',
+        purpose: '推进当前任务',
+        startedAt: 1,
+      }),
+    ).toEqual({ summary: '正在读取' });
+  });
+
+  it('keeps a human action and does not repeat the site inside the summary', () => {
+    expect(
+      liveProcessFold({
+        summary: '打开 etsy.com',
+        purpose: '推进当前任务',
+        site: 'etsy.com',
+        startedAt: 1,
+      }),
+    ).toEqual({ summary: '打开 etsy.com' });
   });
 });

@@ -10,14 +10,17 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - Primary actions are pill buttons
 - Task language is human, not raw enum strings
 
-## Scenario: Live run is a tool log, not a collapsed audit
+## Scenario: Live run is a conversation plus one closed fold
 
 - Given a task snapshot with status `running`
 - When the status card is rendered
 - Then the user's original sentence is a quiet right-aligned bubble (`--chijie-accent-subtle`, not a sand card) with no 目标 label
-- And the stream shows what happened (search board / opened page / click line)
-- And 获取页面快照 may appear as a quiet action chip in the process, not as a page title
-- And a live cursor (three-dot wave) and 接管 are visible on the stream
+- And there is no 后台进行 presence row (header already says 进行中)
+- And process is one closed disclosure: chevron + 正在读取 · site, or the current human action
+- And 获取页面快照 / 思考中 / 搜索网页 are not action chips
+- And there is no pulsing now-line capsule, no matrix dots, no numbered step chips
+- And 接管 is a quiet underline on the fold, not a pill on the stream
+- And opening the fold is the only way to see search boards / pages / clicks
 
 ## Scenario: Already-open search results grow a board, a reading, and the click
 
@@ -33,6 +36,24 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - And google.com.hk is not drawn twice as both host and title
 - And the composer shows 跟随, not a second 接管
 - And the page overlay says 持节正在操作这个页面
+
+## Scenario: Running process is a closed fold, not a now-line dashboard
+
+- Given a task snapshot with status `running` and at least one attempt in flight
+- When the status card is rendered
+- Then a closed fold (`task-process-disclosure` with `data-live`) shows `task-now-summary` (正在读取, or the current human action) and optional `task-now-site`
+- And the work stream is inside that fold, closed by default
+- And the work stream blocks have no step numbers
+
+## Scenario: Waiting for page proof shows the produced answer and a retry
+
+- Given a task snapshot with status `waiting_user` and waitReason `proof_required`
+- And the round has a produced answer and no `user_confirmed` criterion
+- When the status card is rendered
+- Then the produced answer is promoted as `produced-answer`
+- And a `proof-retry` button (再说一次) is offered
+- And the next-step copy says the result is in hand but page evidence did not match
+- And the copy never says 没有写出可检查的结果
 
 ## Scenario: Idle home is a hero plus example rows
 
@@ -51,14 +72,23 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - And clicking an option sends `follow_up` through `handleSendMessage`
 - And there is no Auto Approve countdown, no `resume`, no `wait-continue` / `wait-retry`
 
-## Scenario: execute start uses the composer 仅聊天 / 执行 rail
+## Scenario: one send, one loop
 
 - Given the side panel composer
-- Then the input has 仅聊天 and 执行
-- And choosing 执行 sends `composerIntent: 'execute'` and does not park 要我现在操作这个网页吗？
-- And choosing 仅聊天 does not operate pages
-- And a start without composerIntent still parks `confirm_execute` with 仅聊天 / 执行
+- Then the input has no 仅聊天 / 执行 rail
+- And a send starts the same loop whether the sentence is a question or a page task
+- And the loop may answer without attaching to a page, or attach and operate
 - And there is no Auto Approve countdown
+
+## Scenario: Side panel motion comes from transitions.dev, not a second palette
+
+- Given the side panel
+- Then motion tokens and `t-*` snippets are imported after 持节 tokens
+- And attachment / mention menus use the dropdown open/close
+- And history vs chat uses the side-by-side page slide
+- And the wait-ask options use panel-reveal
+- And every snippet keeps `prefers-reduced-motion`
+- And motion CSS does not set `box-shadow`
 
 ## Scenario: the card is turns, not four labeled slots
 
@@ -67,7 +97,7 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - Then the user's sentence is a bubble (`data-turn="user"`)
 - And the answer and process sit in the agent turn (`data-turn="agent"`)
 - And a follow-up sentence is a later user bubble, not a replacement of the first
-- And after the run, process is a closed fold; opening it shows 获取页面快照 and tab switches
+- And after the run, process is a closed fold; opening it shows tab switches and pages, not 获取页面快照 as a chip
 - And the answer uses foreground ink; the user bubble and process use softer ink
 - And there is no 目标 / 现在 / 结果 / 做过 label
 
@@ -186,3 +216,14 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - Given SidePanel.css
 - Then scrollbar and header icon colors use `--chijie-*` tokens (or paper/accent hex from DESIGN.md)
 - And source does not contain `#0ea5e9` / `#19C2FF` / sky-blue palette
+
+## Scenario: Chat floats as Document Picture-in-Picture from the side panel
+
+- Given the side panel chat
+- When the user clicks 画中画
+- Then the same chat moves into a Document PiP window requested from the side panel document
+- And `chrome.windows.create` is not used for this float
+- And switching content tabs does not close it because the opener is the side panel
+- And closing the side panel closes the PiP
+- And the side panel shows 聊天已浮出 while the chat is floating
+- And there is no second composer or second agent

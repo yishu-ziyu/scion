@@ -11,14 +11,10 @@ import {
   mentionTriggerAt,
   type MentionPage,
 } from '../presentation/composer-mention';
+import { dropdownClassName, useDismissPhase } from '../presentation/motion-open';
 
 export type SendMessageResult = { delivered: true } | { delivered: false; feedback?: string };
-export type ComposerIntent = 'chat' | 'execute';
-export type SendMessageOptions = { execute?: boolean; retry?: boolean };
-
-export function sendOptionsFromComposerIntent(intent: ComposerIntent): { execute: boolean } {
-  return { execute: intent === 'execute' };
-}
+export type SendMessageOptions = { retry?: boolean };
 
 /** Keep ordinary instructions literal; only an explicit @当前页 token adds page context. */
 export function messageContentForChatInput(text: string, currentPage: MentionPage | null): string {
@@ -83,7 +79,6 @@ export default function ChatInput({
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [deliveryFeedback, setDeliveryFeedback] = useState<string | null>(null);
-  const [composerIntent, setComposerIntent] = useState<ComposerIntent>('execute');
   const isSendButtonDisabled = useMemo(
     () => disabled || (text.trim() === '' && attachedFiles.length === 0),
     [disabled, text, attachedFiles],
@@ -92,6 +87,8 @@ export default function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const attachmentTriggerRef = useRef<HTMLButtonElement>(null);
+  const attachmentPhase = useDismissPhase(attachmentMenuOpen);
+  const mentionPhase = useDismissPhase(mentionOpen);
 
   // Handle text changes and resize textarea
   const syncMentionMenu = useCallback((value: string, cursor: number) => {
@@ -152,11 +149,12 @@ export default function ChatInput({
         () => attachmentTriggerRef.current?.focus(),
       );
     };
-    document.addEventListener('pointerdown', closeOnOutsidePointer);
-    document.addEventListener('keydown', closeOnEscape);
+    const doc = attachmentMenuRef.current?.ownerDocument ?? document;
+    doc.addEventListener('pointerdown', closeOnOutsidePointer);
+    doc.addEventListener('keydown', closeOnEscape);
     return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer);
-      document.removeEventListener('keydown', closeOnEscape);
+      doc.removeEventListener('pointerdown', closeOnOutsidePointer);
+      doc.removeEventListener('keydown', closeOnEscape);
     };
   }, [attachmentMenuOpen]);
 
@@ -189,11 +187,7 @@ export default function ChatInput({
           displayContent = trimmedText ? `${trimmedText}\n\n${fileList}` : fileList;
         }
 
-        const result = await onSendMessage(
-          messageContent,
-          displayContent,
-          sendOptionsFromComposerIntent(composerIntent),
-        );
+        const result = await onSendMessage(messageContent, displayContent);
         if (!shouldClearComposerAfterDelivery(result)) {
           setDeliveryFeedback(result.feedback ?? '指令没有发送。输入已保留，请稍后再试。');
           return;
@@ -203,7 +197,7 @@ export default function ChatInput({
         setAttachedFiles([]);
       }
     },
-    [text, attachedFiles, currentPage, onSendMessage, composerIntent],
+    [text, attachedFiles, currentPage, onSendMessage],
   );
 
   const handleKeyDown = useCallback(
@@ -325,8 +319,12 @@ export default function ChatInput({
           aria-label={t('chat_input_editor')}
         />
 
-        {mentionOpen && (
-          <div className="chijie-prompt-menu chijie-mention-menu" role="listbox" data-testid="composer-mention-menu">
+        {mentionPhase.mounted && (
+          <div
+            className={`chijie-prompt-menu chijie-mention-menu ${dropdownClassName(mentionPhase)}`}
+            data-origin="bottom-left"
+            role="listbox"
+            data-testid="composer-mention-menu">
             {currentPage ? (
               <button
                 type="button"
@@ -360,8 +358,11 @@ export default function ChatInput({
                 aria-label={t('chat_input_attach_files')}>
                 <FiPlus aria-hidden />
               </button>
-              {attachmentMenuOpen && (
-                <div className="chijie-prompt-menu" role="menu">
+              {attachmentPhase.mounted && (
+                <div
+                  className={`chijie-prompt-menu ${dropdownClassName(attachmentPhase)}`}
+                  data-origin="bottom-left"
+                  role="menu">
                   <button type="button" role="menuitem" onClick={handleFileSelect}>
                     <FiPaperclip aria-hidden />
                     <span>{t('chat_input_attach_files')}</span>
@@ -417,56 +418,41 @@ export default function ChatInput({
           </div>
 
           <div className="chijie-prompt-actions-right">
-            <div
-              className="chijie-composer-intent"
-              role="radiogroup"
-              aria-label={t('chat_composer_intent')}
-              data-testid="composer-intent">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={composerIntent === 'chat'}
-                data-testid="composer-intent-chat"
-                disabled={disabled}
-                onClick={() => setComposerIntent('chat')}>
-                {t('chat_composer_chat')}
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={composerIntent === 'execute'}
-                data-testid="composer-intent-execute"
-                disabled={disabled}
-                onClick={() => setComposerIntent('execute')}>
-                {t('chat_composer_execute')}
-              </button>
+            <div className="t-icon-swap" data-state={showStopButton ? 'b' : 'a'}>
+              <span className="t-icon" data-icon="a">
+                <button
+                  type="submit"
+                  data-testid="goal-send"
+                  disabled={isSendButtonDisabled || showStopButton}
+                  aria-disabled={isSendButtonDisabled || showStopButton}
+                  className="chijie-prompt-icon-button chijie-prompt-send"
+                  aria-label={t('chat_buttons_send')}>
+                  <FiArrowUp aria-hidden />
+                </button>
+              </span>
+              <span className="t-icon" data-icon="b">
+                <button
+                  type="button"
+                  onClick={onStopTask}
+                  className="chijie-prompt-icon-button chijie-prompt-stop"
+                  aria-label={t('chat_buttons_stop')}
+                  tabIndex={showStopButton ? 0 : -1}>
+                  <FiSquare aria-hidden />
+                </button>
+              </span>
             </div>
-
-            {showStopButton ? (
-              <button
-                type="button"
-                onClick={onStopTask}
-                className="chijie-prompt-icon-button chijie-prompt-stop"
-                aria-label={t('chat_buttons_stop')}>
-                <FiSquare aria-hidden />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                data-testid="goal-send"
-                disabled={isSendButtonDisabled}
-                aria-disabled={isSendButtonDisabled}
-                className="chijie-prompt-icon-button chijie-prompt-send"
-                aria-label={t('chat_buttons_send')}>
-                <FiArrowUp aria-hidden />
-              </button>
-            )}
           </div>
         </div>
         {deliveryFeedback ? (
-          <p role="alert" data-testid="goal-send-feedback" className="chijie-prompt-feedback">
-            {deliveryFeedback}
-          </p>
+          <div className="t-input-wrap is-error" data-testid="goal-send-feedback-wrap">
+            <p
+              key={deliveryFeedback}
+              role="alert"
+              data-testid="goal-send-feedback"
+              className="chijie-prompt-feedback t-toast is-open t-error-msg t-input is-error is-shaking">
+              {deliveryFeedback}
+            </p>
+          </div>
         ) : null}
       </div>
     </form>

@@ -63,12 +63,23 @@ export interface ProgressHealth {
   lastMeaningfulProgressAt?: number;
 }
 
-/** design/008: one semantic Now line — action + purpose, not chain-of-thought. */
+/** Live fold copy while running. Quiet verb + site, not a dashboard capsule. */
 export interface ProgressCurrentActivity {
   summary: string;
   purpose: string;
   site?: string;
   startedAt: number;
+}
+
+const PROCESS_NOISE = /^(搜索网页|获取页面快照|思考中|查看页面|page_state|正在处理|正在操作页面)$/;
+
+/** One line for the running process fold. Noise verbs collapse to 正在读取. */
+export function liveProcessFold(activity: ProgressCurrentActivity): { summary: string; site?: string } {
+  const site = activity.site?.replace(/\s+/g, ' ').trim();
+  const raw = activity.summary.replace(/\s+/g, ' ').trim();
+  const summary = !raw || PROCESS_NOISE.test(raw) ? '正在读取' : raw;
+  if (site && summary.includes(site)) return { summary };
+  return site ? { summary, site } : { summary };
 }
 
 export interface TaskProgressView {
@@ -238,7 +249,7 @@ export function deriveProgressHealth(
         reason === 'login_required'
           ? '需要你处理登录、验证或确认后才能继续'
           : reason === 'proof_required'
-            ? '写出的结果和页面对不上'
+            ? '结果已拿到，页面证据还没对上'
             : '还不能交卷';
       return {
         state: 'needs_user',

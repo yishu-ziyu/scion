@@ -1,5 +1,8 @@
 function isPrivateOrMetadataHost(hostname: string): boolean {
-  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  const host = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
   if (!host) return false;
   if (host === 'localhost' || host === '::1' || host === '0.0.0.0') {
     return true;
@@ -19,6 +22,25 @@ function isPrivateOrMetadataHost(hostname: string): boolean {
   return false;
 }
 
+/** Private-host SSRF guard: denied unless the user explicitly allowlisted this host. */
+function firewallDeniesPrivateTarget(url: string, allowList: string[]): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url.includes('://') ? url : `https://${url}`);
+  } catch {
+    // Invalid URL format is handled by the callers' later checks.
+    return false;
+  }
+  const host = parsed.hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
+  if (host === '169.254.169.254') return true;
+  if (!isPrivateOrMetadataHost(host)) return false;
+  const urlWithoutProtocol = url.toLowerCase().replace(/^https?:\/\//, '');
+  return !allowList.some(entry => urlWithoutProtocol === entry || host === entry || host.endsWith(`.${entry}`));
+}
+
 /**
  * Checks if a URL is allowed based on firewall configuration
  * @param url The URL to check
@@ -26,6 +48,7 @@ function isPrivateOrMetadataHost(hostname: string): boolean {
  * @param denyList The deny list
  * @returns True if the URL is allowed, false otherwise
  */
+
 export function isUrlAllowed(url: string, allowList: string[], denyList: string[]): boolean {
   // Normalize and validate input
   const trimmedUrl = url.trim();
@@ -52,13 +75,11 @@ export function isUrlAllowed(url: string, allowList: string[], denyList: string[
     return false;
   }
 
-  try {
-    const parsedForDeny = new URL(trimmedUrl.includes('://') ? trimmedUrl : `https://${trimmedUrl}`);
-    if (isPrivateOrMetadataHost(parsedForDeny.hostname)) {
-      return false;
-    }
-  } catch {
-    // Invalid URL format is handled below
+  // Private/local targets are denied unless the user explicitly allowlisted
+  // them (local dev servers, local eval fixtures). Cloud metadata stays
+  // blocked unconditionally — no legitimate workflow needs it.
+  if (firewallDeniesPrivateTarget(trimmedUrl, allowList)) {
+    return false;
   }
 
   // If firewall is disabled, allow all other URLs

@@ -1,11 +1,4 @@
-import {
-  deleteTask,
-  getActiveTask,
-  getSkillSaveMeta,
-  getTask,
-  putSkillSaveMeta,
-  saveTask,
-} from '@extension/storage/lib/task';
+import { getActiveTask, getSkillSaveMeta, getTask, putSkillSaveMeta, saveTask } from '@extension/storage/lib/task';
 import favoritesStorage, {
   assertExactSkillInputs,
   compileSkillTemplate,
@@ -83,17 +76,6 @@ import {
   refineMissionPlanFromInstruction,
 } from './mission-plan';
 import { ActionResult } from '../agent/types';
-import { looksLikeMailboxConfirmation } from '../agent/mailbox-open';
-
-function instructionMatchesWaitAsk(waitAsk: TaskRound['waitAsk'] | undefined, instruction: string): boolean {
-  const text = instruction.replace(/\s+/g, ' ').trim();
-  if (!text || !waitAsk?.options?.length) return false;
-  return waitAsk.options.some(option => {
-    const sendText = option.sendText.replace(/\s+/g, ' ').trim();
-    const label = option.label.replace(/\s+/g, ' ').trim();
-    return text === sendText || text === label;
-  });
-}
 import { isUnderstandingOnlyInstruction } from '../browser/sites/understanding-answer';
 import { csvOrMarkdownBlockSpans } from './table-shape';
 import { instructionAsksPageAbout } from '../browser/sites/theme-citation';
@@ -115,14 +97,7 @@ import {
   instructionAffirmsTarget,
 } from '../instruction-language';
 import { isAcknowledgementOnly, isBasicSubstantiveAnswer, isPlaceholderDelivery } from './result-text';
-import type { UserTurnDecision } from '../intent/user-turn-decision';
-import {
-  CONFIRM_EXECUTE_CHAT_REPLY,
-  CONFIRM_EXECUTE_WAIT_ASK,
-  applyComposerIntent,
-  isConfirmExecuteChat,
-  isConfirmExecuteGo,
-} from '../intent/confirm-execute';
+import { CHEAP_STOP_TEXT, isWholeStopInstruction } from '../intent/user-turn-decision';
 import {
   checkVerifiedRecordDeliverable,
   instructionAsksVerifiedQuote,
@@ -180,13 +155,6 @@ interface TaskManagerDeps {
    * Production falls back to BrowserContext.openIndependentTabs.
    */
   openIndependentTabs?: (urls: string[]) => Promise<IndependentTabOpenAttempt[]>;
-  /**
-   * Classify a start/follow_up sentence before a round is created.
-   * Missing in tests: treat as execute. Production wires decideUserTurn
-   * (resolveUserTurnCheap first; model only when that returns null).
-   * Called from dispatch() before this.transition so pause/cancel are not blocked.
-   */
-  decideUserTurn?: (input: { text: string; chatSessionId?: string }) => Promise<UserTurnDecision>;
   /** Open a background about:blank tab when start has no usable content tab. */
   openBlankTaskTab?: () => Promise<number>;
 }
@@ -591,7 +559,6 @@ export class TaskManager {
   private readonly preopenedIndependentTargets = new Map<string, BrowserTargetRef[]>();
   private readonly listeners = new Set<(event: TaskEvent) => void>();
   private transition: Promise<void> = Promise.resolve();
-  private readonly userTurnByCommand = new Map<string, UserTurnDecision>();
   /** `produceResult` artifacts for the current `proof_required` wait; lost on worker restart. */
   private readonly pendingConfirmArtifacts = new Map<string, TaskArtifact[]>();
 
@@ -627,75 +594,9 @@ export class TaskManager {
   }
 
   private async classifyStartOrFollowUp(command: TaskCommand): Promise<CommandAck | null> {
-    if (command.type !== 'start' && command.type !== 'follow_up') return null;
-    if (command.forceExecute) return null;
-
-    if (command.type === 'follow_up') {
-      const parked = await getTask(command.taskId);
-      const parkedRound = parked ? this.currentRound(parked) : null;
-      const confirmWaiting =
-        parked !== null &&
-        parkedRound !== null &&
-        parked.status === 'waiting_user' &&
-        parkedRound.waitReason === 'confirm_execute';
-      if (confirmWaiting && isConfirmExecuteGo(command.instruction)) {
-        this.userTurnByCommand.set(command.commandId, { kind: 'execute', userVisibleText: '' });
-        return null;
-      }
-      if (confirmWaiting && isConfirmExecuteChat(command.instruction)) {
-        this.userTurnByCommand.set(command.commandId, {
-          kind: 'reply',
-          userVisibleText: CONFIRM_EXECUTE_CHAT_REPLY,
-        });
-        return null;
-      }
-    }
-
-    if (!this.deps.decideUserTurn) return null;
-
-    let decision: UserTurnDecision;
-    try {
-      decision = await this.deps.decideUserTurn({
-        text: command.instruction,
-        chatSessionId: command.chatSessionId,
-      });
-    } catch (error) {
-      const text = error instanceof Error ? error.message : '模型返回无法解析，请再说一遍你想做什么。';
-      if (command.type === 'start') {
-        return this.notExecutableAck(command.commandId, command.taskId, 0, text);
-      }
-      decision = { kind: 'clarify', userVisibleText: text };
-    }
-
-    decision = applyComposerIntent(command.composerIntent, decision);
-
-    if (command.type === 'start' && decision.kind !== 'execute') {
-      return this.notExecutableAck(
-        command.commandId,
-        command.taskId,
-        0,
-        decision.userVisibleText ||
-          (decision.kind === 'stop' ? '好的，已停止。' : '我没太理解，请再说一遍你想在页面上做什么。'),
-      );
-    }
-    if (command.type === 'start' && decision.kind === 'execute') {
-      this.userTurnByCommand.set(command.commandId, decision);
-      return null;
-    }
-    if (command.type === 'follow_up') {
-      const task = await getTask(command.taskId);
-      const round = task ? this.currentRound(task) : null;
-      const waitingToChooseTarget =
-        task !== null &&
-        round !== null &&
-        task.status === 'waiting_user' &&
-        (round.waitReason === 'target_ambiguous' || round.waitReason === 'target_missing') &&
-        decision.kind !== 'stop';
-      const answeringAsk =
-        waitingToChooseTarget &&
-        (looksLikeMailboxConfirmation(command.instruction) ||
-          instructionMatchesWaitAsk(round.waitAsk, command.instruction));
-      this.userTurnByCommand.set(command.commandId, answeringAsk ? { kind: 'execute', userVisibleText: '' } : decision);
+    if (command.type !== 'start' || command.forceExecute) return null;
+    if (isWholeStopInstruction(command.instruction)) {
+      return this.notExecutableAck(command.commandId, command.taskId, 0, CHEAP_STOP_TEXT);
     }
     return null;
   }
@@ -831,11 +732,6 @@ export class TaskManager {
         error: 'invalid_input',
       };
     }
-    const classified = this.userTurnByCommand.get(command.commandId);
-    this.userTurnByCommand.delete(command.commandId);
-    if (classified?.kind === 'execute' && !command.forceExecute && command.composerIntent !== 'execute') {
-      return this.parkConfirmExecute(command);
-    }
     let tabId = command.tabId;
     let createdTaskTab = false;
     if (tabId < 0) {
@@ -900,9 +796,9 @@ export class TaskManager {
     };
     // Seed page bind evidence immediately so UI shows the same tab the user intended
     // (Phase 1 S1). Digest stays empty until observe; label is title-only for display.
+    // Do not attach the debugger here — the loop attaches on first observe/act.
     try {
       await this.deps.setFollowForeground?.(false);
-      await this.deps.switchTab(tabId);
       try {
         const groupId = await this.deps.beginTaskTabGroup?.(plan.goal || '任务', undefined, true);
         if (typeof groupId === 'number') task.tabGroupId = groupId;
@@ -944,136 +840,6 @@ export class TaskManager {
       // Keep empty targetRefs; runCurrentRound will attach or fail honestly.
     }
     this.rememberAcceptedTask(task.id, command.instruction);
-    await this.persist(task);
-    void this.runCurrentRound(task.id);
-    return ack;
-  }
-
-  private async parkConfirmExecute(command: Extract<TaskCommand, { type: 'start' }>): Promise<CommandAck> {
-    const now = this.deps.now();
-    const roundId = crypto.randomUUID();
-    const ack: CommandAck = {
-      accepted: true,
-      commandId: command.commandId,
-      taskId: command.taskId,
-      revision: 1,
-    };
-    const plan = refineMissionPlanFromInstruction(command.instruction, now);
-    const round: TaskRound = {
-      id: roundId,
-      instructionMessageId: command.instructionMessageId,
-      instructionSummary: 'User instruction',
-      status: 'waiting_user',
-      commandAcks: { [command.commandId]: ack },
-      criteria: [],
-      attempts: [],
-      evidence: [],
-      waitReason: 'confirm_execute',
-      waitAsk: {
-        prompt: CONFIRM_EXECUTE_WAIT_ASK.prompt,
-        options: CONFIRM_EXECUTE_WAIT_ASK.options.map(option => ({ ...option })),
-      },
-    };
-    const task: TaskSession = {
-      id: command.taskId,
-      goalSummary: plan.goal,
-      chatSessionId: command.chatSessionId,
-      instructionMessageId: command.instructionMessageId,
-      status: 'waiting_user',
-      revision: 1,
-      activeTabId: command.tabId,
-      currentRoundId: roundId,
-      targetRefs: [],
-      rounds: [round],
-      plan,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.instructions.set(task.id, command.instruction);
-    await this.persist(task);
-    return ack;
-  }
-
-  private async beginParkedExecute(
-    task: TaskSession,
-    command: Extract<TaskCommand, { type: 'follow_up' }>,
-  ): Promise<CommandAck> {
-    const original = this.instructions.get(task.id)?.trim();
-    if (!original) {
-      return this.reject(task, command.commandId, 'invalid_input', '找不到刚才那句话，请再说一遍要做什么。');
-    }
-    let tabId = task.activeTabId;
-    let createdTaskTab = false;
-    if (tabId < 0) {
-      if (instructionPointsAtCurrentPage(original)) {
-        return this.reject(
-          task,
-          command.commandId,
-          'invalid_input',
-          '当前标签不是网页，读不了「这个页面」。打开一个网页再派，或改成搜一下。',
-        );
-      }
-      if (!this.deps.openBlankTaskTab) {
-        return this.reject(task, command.commandId, 'invalid_input');
-      }
-      tabId = await this.deps.openBlankTaskTab();
-      createdTaskTab = true;
-      task.activeTabId = tabId;
-    }
-    const round = this.currentRound(task);
-    const now = this.deps.now();
-    task.status = 'running';
-    round.status = 'running';
-    delete round.waitReason;
-    delete round.waitAsk;
-    delete round.pageReading;
-    if (round.attempts.length === 0) {
-      round.attempts.push(createObservePhaseAttempt(round.id, now));
-    }
-    const ack = this.accept(task, command.commandId);
-    try {
-      await this.deps.setFollowForeground?.(false);
-      await this.deps.switchTab(tabId);
-      try {
-        const groupId = await this.deps.beginTaskTabGroup?.(task.plan?.goal || '任务', undefined, true);
-        if (typeof groupId === 'number') task.tabGroupId = groupId;
-        if (createdTaskTab) await this.deps.registerTaskOwnedTab?.(tabId);
-      } catch {
-        // Grouping is visible organization only; the task still runs.
-      }
-      const tab = await chrome.tabs.get(tabId);
-      let urlOrigin = 'null';
-      let normalizedUrl: string | undefined;
-      let queryIdentityDigest: string | undefined;
-      if (tab.url) {
-        try {
-          urlOrigin = new URL(tab.url).origin;
-          const identity = await redactedHttpUrlIdentity(tab.url);
-          normalizedUrl = identity?.normalizedUrl;
-          queryIdentityDigest = identity?.queryIdentityDigest;
-        } catch {
-          urlOrigin = 'null';
-        }
-      }
-      const label = (tab.title ?? '').trim() || undefined;
-      task.targetRefs = [
-        {
-          id: `tab-${tabId}`,
-          kind: 'page',
-          tabId,
-          frameId: 0,
-          urlOrigin,
-          ...(normalizedUrl ? { normalizedUrl } : {}),
-          ...(queryIdentityDigest ? { queryIdentityDigest } : {}),
-          digest: '',
-          label,
-          visitSeq: 1,
-          observedAt: now,
-        },
-      ];
-    } catch {
-      // Keep empty targetRefs; runCurrentRound will attach or fail honestly.
-    }
     await this.persist(task);
     void this.runCurrentRound(task.id);
     return ack;
@@ -1312,29 +1078,8 @@ export class TaskManager {
       return this.reject(task, command.commandId, 'invalid_transition');
     }
 
-    const classified = this.userTurnByCommand.get(command.commandId);
-    this.userTurnByCommand.delete(command.commandId);
-    if (task.status === 'waiting_user' && round.waitReason === 'confirm_execute') {
-      if (isConfirmExecuteChat(command.instruction) || command.composerIntent === 'chat') {
-        return this.dismissParkedConfirmExecute(task, command.commandId);
-      }
-      if (isConfirmExecuteGo(command.instruction) || command.composerIntent === 'execute') {
-        return this.beginParkedExecute(task, command);
-      }
-    }
-    if (classified?.kind === 'stop') {
-      return this.cancel(task, command.commandId, classified.userVisibleText || '好的，已停止。');
-    }
-    if (task.status === 'waiting_user' && round.waitReason === 'confirm_execute') {
-      return this.reject(task, command.commandId, 'not_executable', '请选仅聊天或执行。');
-    }
-    if (classified?.kind === 'reply' || classified?.kind === 'clarify') {
-      return this.reject(
-        task,
-        command.commandId,
-        'not_executable',
-        classified.userVisibleText || '我没太理解，请再说一遍你想在页面上做什么。',
-      );
+    if (!command.forceExecute && isWholeStopInstruction(command.instruction)) {
+      return this.cancel(task, command.commandId, CHEAP_STOP_TEXT);
     }
 
     const inFlightStop = this.runtimeStops.get(task.id);
@@ -1370,15 +1115,6 @@ export class TaskManager {
         void this.runDriver(task.id, driver, roundId);
       }
     }
-    return ack;
-  }
-
-  private async dismissParkedConfirmExecute(task: TaskSession, commandId: string): Promise<CommandAck> {
-    const ack = this.accept(task, commandId, CONFIRM_EXECUTE_CHAT_REPLY);
-    this.instructions.delete(task.id);
-    this.accepted.delete(task.id);
-    this.pendingConfirmArtifacts.delete(task.id);
-    await deleteTask(task.id);
     return ack;
   }
 
@@ -2575,7 +2311,6 @@ export class TaskManager {
       for (const target of task.targetRefs) {
         if (target.kind === 'page' && target.taskOwned) await this.deps.registerTaskOwnedTab?.(target.tabId);
       }
-      await this.deps.switchTab(task.activeTabId);
 
       task = await getTask(taskId);
       if (!task || task.status !== 'running' || this.launches.get(taskId) !== launch) return;

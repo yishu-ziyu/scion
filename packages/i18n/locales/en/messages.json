@@ -34,6 +34,18 @@
   "nav_memory_a11y": {
     "message": "Memory"
   },
+  "nav_pictureInPicture_open_a11y": {
+    "message": "Open picture-in-picture"
+  },
+  "nav_pictureInPicture_close_a11y": {
+    "message": "Return chat from picture-in-picture"
+  },
+  "chat_pip_parked": {
+    "message": "Chat is floating. It stays when you switch tabs; closing the side panel closes it."
+  },
+  "chat_pip_unsupported": {
+    "message": "This Chrome cannot open picture-in-picture"
+  },
   "memory_page_title": {
     "message": "Memory"
   },
@@ -147,15 +159,6 @@
   },
   "chat_task_mode_badge": {
     "message": "Task"
-  },
-  "chat_composer_intent": {
-    "message": "What this send does"
-  },
-  "chat_composer_chat": {
-    "message": "Chat only"
-  },
-  "chat_composer_execute": {
-    "message": "Execute"
   },
   "chat_task_input_placeholder": {
     "message": "What should I do?"
@@ -1443,5 +1446,8 @@
   },
   "chat_task_fail_missing_instruction": {
     "message": "Could not load the task instruction. Start a new task."
+  },
+  "chat_task_hint_proof_unconfirmable": {
+    "message": "The result is in hand, but the page evidence has not matched yet. Try again, or make the request more specific."
   }
 }

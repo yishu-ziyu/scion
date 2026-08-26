@@ -42,10 +42,14 @@ const here = dirname(fileURLToPath(import.meta.url));
 const tokensCss = readFileSync(resolve(here, '../chijie-tokens.css'), 'utf8');
 const componentsCss = readFileSync(resolve(here, '../chijie-components.css'), 'utf8');
 const taskStatusCardSource = readFileSync(resolve(here, '../../components/TaskStatusCard.tsx'), 'utf8');
+const processDisclosureSource = readFileSync(resolve(here, '../../components/ProcessDisclosure.tsx'), 'utf8');
 const taskProgressOverviewSource = readFileSync(resolve(here, '../../components/TaskProgressOverview.tsx'), 'utf8');
 const workStreamSource = readFileSync(resolve(here, '../../components/WorkStream.tsx'), 'utf8');
 const answerProseSource = readFileSync(resolve(here, '../../components/AnswerProse.tsx'), 'utf8');
 const sidePanelSource = readFileSync(resolve(here, '../../SidePanel.tsx'), 'utf8');
+const sidePanelHeaderSource = readFileSync(resolve(here, '../../components/SidePanelHeader.tsx'), 'utf8');
+const pictureInPictureButtonSource = readFileSync(resolve(here, '../../components/PictureInPictureButton.tsx'), 'utf8');
+const documentPipSource = readFileSync(resolve(here, '../../presentation/document-pip.ts'), 'utf8');
 const chatHistorySource = readFileSync(resolve(here, '../../components/ChatHistoryList.tsx'), 'utf8');
 const bookmarkListSource = readFileSync(resolve(here, '../../components/BookmarkList.tsx'), 'utf8');
 const messageListSource = readFileSync(resolve(here, '../../components/MessageList.tsx'), 'utf8');
@@ -186,7 +190,7 @@ describe('Feature: Side panel uses 持节 design system', () => {
     it('does not decide user turns in the side panel; start/follow_up is classified in TaskManager.dispatch', () => {
       expect(sidePanelSource).not.toContain("type: 'user_turn_decision'");
       expect(sidePanelSource).toContain('forceExecute');
-      expect(sidePanelSource).toContain('composerIntent');
+      expect(sidePanelSource).not.toContain('composerIntent');
     });
   });
 
@@ -207,6 +211,7 @@ describe('Feature: Side panel uses 持节 design system', () => {
     it('SidePanel shell imports yishu styles and uses shell class', () => {
       expect(indexCss).toMatch(/chijie-tokens\.css/);
       expect(indexCss).toMatch(/chijie-components\.css/);
+      expect(indexCss).toMatch(/chijie-motion\.css/);
       expect(sidePanelSource).toContain(shellClassName);
     });
   });
@@ -269,8 +274,8 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(memoryPageTsx).toContain('memory_structure');
       expect(memoryPageTsx).toContain('structure_user_memory');
       expect(sourceHasBannedSkyChrome(memoryPageTsx)).toBe(false);
-      expect(sidePanelSource).toContain('memory/index.html');
-      expect(sidePanelSource).toContain('nav_memory_a11y');
+      expect(sidePanelHeaderSource).toContain('memory/index.html');
+      expect(sidePanelHeaderSource).toContain('nav_memory_a11y');
     });
   });
 
@@ -346,8 +351,12 @@ describe('Feature: design/003 task main blocks', () => {
   it('keeps fixed health + Now lines and collapses audit by default (design/008 S1–S2)', () => {
     expect(taskProgressOverviewSource).toContain('task-progress-health');
     expect(taskProgressOverviewSource).toContain('task-progress-current-activity');
-    expect(taskProgressOverviewSource).toContain('task-now-summary');
-    expect(taskProgressOverviewSource).toContain('task-now-purpose');
+    expect(processDisclosureSource).toContain('task-now-summary');
+    expect(processDisclosureSource).toContain('liveProcessFold');
+    expect(processDisclosureSource).toContain('data-live="true"');
+    expect(taskProgressOverviewSource).not.toContain('task-now-purpose');
+    expect(taskStatusCardSource).not.toContain('task-now-purpose');
+    expect(processDisclosureSource).not.toContain('task-now-purpose');
     expect(componentsCss).toContain('.chijie-progress-health');
     expect(componentsCss).toContain('.chijie-progress-now');
     expect(workStreamSource).not.toContain('思考中');
@@ -371,8 +380,8 @@ describe('Feature: design/003 task main blocks', () => {
   });
 
   it('header brand uses scion logo asset', () => {
-    expect(sidePanelSource).toContain('logo-header.png');
-    expect(sidePanelSource).toContain('data-testid="header-logo"');
+    expect(sidePanelHeaderSource).toContain('logo-header.png');
+    expect(sidePanelHeaderSource).toContain('data-testid="header-logo"');
     const firstRun = readFileSync(resolve(here, '../../components/FirstRunSetup.tsx'), 'utf8');
     expect(firstRun).toContain('logo-mark.png');
   });
@@ -429,18 +438,17 @@ describe('Feature: design/003 task main blocks', () => {
     expect(sidePanelSource).toContain('data-testid="composer-stop"');
   });
 
-  it('confirm_execute is a wait-ask reason so 仅聊天 / 执行 can draw', () => {
+  it('composer has no 仅聊天 / 执行 rail; one send starts the loop', () => {
     const waitAskSource = readFileSync(resolve(here, '../../presentation/wait-ask.ts'), 'utf8');
     const chatInput = readFileSync(resolve(here, '../../components/ChatInput.tsx'), 'utf8');
-    expect(waitAskSource).toContain('confirm_execute');
-    expect(taskStatusCardSource).toContain("case 'confirm_execute'");
-    expect(taskStatusCardSource).toContain('waitAskOptionClassName');
-    expect(taskStatusCardSource).toContain('!waitAskBusy');
-    expect(sidePanelSource).toContain('shouldDismissConfirmExecuteChat');
-    expect(chatInput).toContain('data-testid="composer-intent"');
-    expect(chatInput).toContain('chat_composer_chat');
-    expect(chatInput).toContain('chat_composer_execute');
-    expect(componentsCss).toContain('.chijie-composer-intent');
+    expect(waitAskSource).not.toContain('confirm_execute');
+    expect(chatInput).not.toContain('data-testid="composer-intent"');
+    expect(chatInput).not.toContain('chat_composer_chat');
+    expect(chatInput).not.toContain('chat_composer_execute');
+    expect(chatInput).not.toContain('sendOptionsFromComposerIntent');
+    expect(sidePanelSource).not.toContain('composerIntent');
+    expect(sidePanelSource).not.toContain('shouldDismissConfirmExecuteChat');
+    expect(componentsCss).not.toContain('.chijie-composer-intent');
   });
 
   it('card is user/agent turns, result heavier than process, process fold keeps snapshot', () => {
@@ -462,6 +470,7 @@ describe('Feature: design/003 task main blocks', () => {
   it('waiting_user option chips send follow_up text, not Auto Approve or resume', () => {
     expect(taskStatusCardSource).toContain('deriveWaitAsk');
     expect(taskStatusCardSource).toContain('wait-ask-option');
+    expect(taskStatusCardSource).toContain('secondaryButtonClassName');
     expect(taskStatusCardSource).toContain('onFollowUp');
     expect(taskStatusCardSource).not.toMatch(/Auto Approve/);
     expect(componentsCss).toContain('.chijie-wait-ask');
@@ -516,8 +525,8 @@ describe('Feature: design/003 task main blocks', () => {
     expect(sidePanelSource).toContain('const [newChatPending, setNewChatPending] = useState(false);');
     expect(handleNewChat).toContain('setNewChatPending(true);');
     expect(finalizeNewChat).toContain('setNewChatPending(false);');
-    expect(sidePanelSource).toContain('aria-busy={newChatPending}');
-    expect(sidePanelSource).toContain('disabled={newChatPending}');
+    expect(sidePanelHeaderSource).toContain('aria-busy={newChatPending}');
+    expect(sidePanelHeaderSource).toContain('disabled={newChatPending}');
     expect(sidePanelCss).toContain(".header-icon[aria-busy='true']");
     expect(finalizeNewChat).toContain("setInputTextRef.current?.('');");
     expect(finalizeNewChat).toContain('setComposerResetKey(current => current + 1);');
@@ -592,7 +601,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(chatInput).toContain('chijie-prompt-frame');
     expect(chatInput).toContain('chijie-prompt-send');
     expect(chatInput).toContain('FiArrowUp');
-    expect(chatInput).toContain('sendOptionsFromComposerIntent(composerIntent)');
+    expect(chatInput).not.toContain('sendOptionsFromComposerIntent');
     expect(chatInput).toContain('onClick={onMicClick}');
     expect(chatInput).toContain('accept=".txt,.md,.markdown,.json,.csv,.log,.xml,.yaml,.yml"');
     expect(chatInput).toContain('data-testid="composer-mention-menu"');
@@ -608,9 +617,10 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
   });
 
   it('TaskStatusCard has a live tool log while running and no rating form after delivery', () => {
-    expect(workStreamSource).toContain('data-testid="live-tool-log"');
-    expect(workStreamSource).toContain('data-testid="live-stop-generating"');
-    expect(workStreamSource).toContain("t('chat_task_takeover')");
+    expect(processDisclosureSource).toContain('data-testid="live-tool-log"');
+    expect(processDisclosureSource).toContain('data-testid="live-stop-generating"');
+    expect(processDisclosureSource).toContain("t('chat_task_takeover')");
+    expect(workStreamSource).not.toContain('data-testid="live-stop-generating"');
     expect(taskStatusCardSource).toContain('shouldShowVerifiedDone');
     expect(taskStatusCardSource).not.toContain('data-testid="task-outcome-rating"');
     expect(taskStatusCardSource).not.toContain('data-testid={`task-rate-${rating}`}');
@@ -618,7 +628,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
   });
 
   it('TaskStatusCard activity panel uses elapsed, privacy-safe real action summaries', () => {
-    expect(taskStatusCardSource).toContain('data-testid="task-activity-panel"');
+    expect(processDisclosureSource).toContain('data-testid="task-activity-panel"');
     expect(taskStatusCardSource).toContain('deriveWorkStream');
     expect(taskStatusCardSource).toContain('displaySummary');
     expect(workStreamSource).toContain('task-search-board');
@@ -638,7 +648,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toContain('writeText(resultSentence)');
     expect(taskStatusCardSource).toContain("t('chat_task_copy_result')");
     expect(taskStatusCardSource).toContain("t('chat_task_copy_done')");
-    expect(taskStatusCardSource).toContain("t('chat_task_process_disclosure')");
+    expect(processDisclosureSource).toContain("t('chat_task_process_disclosure')");
     expect(taskStatusCardSource).not.toContain('>查看过程<');
     expect(taskStatusCardSource).toContain('FiCopy');
     expect(componentsCss).toContain('.chijie-answer');
@@ -659,8 +669,9 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(workStreamSource).toContain("t('chat_task_thinking_heading')");
     expect(workStreamSource).toContain('chijie-thinking');
     expect(workStreamSource).toContain('splitThinkingSentences');
-    expect(componentsCss).toContain('chijie-live-wave');
-    expect(componentsCss).toContain('.chijie-live-dot::before');
+    expect(componentsCss).toContain('.chijie-process-takeover');
+    expect(componentsCss).toContain(".chijie-process-disclosure[data-live='true']");
+    expect(componentsCss).not.toContain('counter-increment');
   });
 
   it('progress-console hierarchy: status → durable progress → collapsed audit; composer remains usable', () => {
@@ -671,8 +682,8 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toContain('data-primary-organism={primaryOrganism}');
     expect(taskStatusCardSource).toContain('taskPrimaryOrganism');
     expect(taskStatusCardSource).toContain("snapshot.status === 'running'");
-    expect(taskStatusCardSource).toContain('view.blocks.length === 0');
-    expect(taskStatusCardSource).toContain('data-testid="task-process-disclosure"');
+    expect(processDisclosureSource).toContain('view.blocks.length === 0');
+    expect(processDisclosureSource).toContain('data-testid="task-process-disclosure"');
     expect(taskStatusCardSource).toContain('data-testid="task-presence"');
     expect(tree).toContain('nowBody={nowTraceBody}');
     expect(workStreamSource).toContain('task-work-stream');
@@ -702,8 +713,8 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(sidePanelSource).toContain('data-testid="composer-continuous-controls"');
     expect(sidePanelSource).toContain('data-testid="composer-follow"');
     expect(sidePanelSource).not.toContain('data-testid="composer-takeover"');
-    expect(workStreamSource).toContain('data-testid="live-stop-generating"');
-    expect(workStreamSource).toContain("t('chat_task_takeover')");
+    expect(processDisclosureSource).toContain('data-testid="live-stop-generating"');
+    expect(processDisclosureSource).toContain("t('chat_task_takeover')");
     expect(sidePanelSource).toContain('data-testid="composer-pause"');
     expect(sidePanelSource).toContain('data-testid="composer-resume"');
     expect(sidePanelSource).toContain('data-testid="composer-stop"');
@@ -736,7 +747,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
 
   it('keeps terminal state truthful and current-page context on the project color system', () => {
     expect(sidePanelSource).not.toContain("taskSnapshot.status === 'completed' || taskSnapshot.status === 'failed'");
-    expect(sidePanelSource).toContain('data-testid="header-task-status"');
+    expect(sidePanelHeaderSource).toContain('data-testid="header-task-status"');
     expect(sidePanelSource).toContain('<FiGlobe aria-hidden />');
     expect(sidePanelCss).not.toMatch(/#dbeafe|#93c5fd|#1e3a5f|#fee2e2|#fca5a5|#7f1d1d/i);
     expect(sidePanelCss).toContain('var(--chijie-warning)');
@@ -771,5 +782,29 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     const chatInput = readFileSync(resolve(here, '../../components/ChatInput.tsx'), 'utf8');
     expect(chatInput).toContain('Math.min(textarea.scrollHeight, 72)');
     expect(chatInput).toContain('rows={2}');
+  });
+});
+
+describe('Scenario: Chat floats as Document Picture-in-Picture from the side panel', () => {
+  it('opens the same chat from the side panel document, not a second window product', () => {
+    expect(sidePanelSource).toContain('SidePanelHeader');
+    expect(sidePanelHeaderSource).toContain('PictureInPictureButton');
+    expect(pictureInPictureButtonSource).toContain('data-testid="header-picture-in-picture"');
+    expect(pictureInPictureButtonSource).toContain('createChatPipController');
+    expect(pictureInPictureButtonSource).toContain('APP_CONTAINER_ID');
+    expect(pictureInPictureButtonSource).not.toContain('chrome.windows');
+    expect(documentPipSource).toContain('requestWindow');
+    expect(documentPipSource).toContain('documentPictureInPicture');
+    expect(documentPipSource).toContain('pagehide');
+    expect(documentPipSource).not.toContain('chrome.windows');
+    expect(documentPipSource).not.toContain('document.write');
+    expect(sidePanelCss).toContain('.chijie-pip-parked');
+    expect(sidePanelCss).toContain("body[data-chat-pip='open'] .chijie-pip-parked");
+    expect(stylesUseBoxShadow(sidePanelCss.slice(sidePanelCss.indexOf('.chijie-pip-parked')))).toBe(false);
+    expect(t('nav_pictureInPicture_open_a11y')).toBe('打开画中画');
+    expect(t('chat_pip_parked')).toBe('聊天已浮出。换标签也还在；关掉侧栏会一起关掉。');
+    expect(sidePanelSource).toContain('queryChatComposer');
+    expect(sidePanelSource).toContain('<ChatInput');
+    expect(pictureInPictureButtonSource).not.toContain('<ChatInput');
   });
 });

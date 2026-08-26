@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  messageContentForChatInput,
-  sendOptionsFromComposerIntent,
-  shouldClearComposerAfterDelivery,
-} from '../ChatInput';
+import { messageContentForChatInput, shouldClearComposerAfterDelivery } from '../ChatInput';
 
 describe('ChatInput delivery contract', () => {
   const currentPage = {
@@ -20,11 +16,6 @@ describe('ChatInput delivery contract', () => {
     expect(messageContentForChatInput('读取 @当前页 的标题', currentPage)).toBe(
       '读取 @当前页（example.org · Example Domain https://example.org/） 的标题',
     );
-  });
-
-  it('maps composer 仅聊天 / 执行 onto the send execute flag', () => {
-    expect(sendOptionsFromComposerIntent('execute')).toEqual({ execute: true });
-    expect(sendOptionsFromComposerIntent('chat')).toEqual({ execute: false });
   });
 
   it('clears the composer only after a delivered send', () => {

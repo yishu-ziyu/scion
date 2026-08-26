@@ -364,6 +364,15 @@ export function buildEvalStoragePayload(cfg) {
       minWaitPageLoad: 250,
       agentCoreBackend: 'control',
     },
+    // Local fixture servers live on 127.0.0.1; the URL firewall denies private
+    // hosts unless they are explicitly allowlisted. The eval harness
+    // authorizes its own fixture origin here (product rule: explicit
+    // allowlist entry wins; cloud metadata stays blocked).
+    'firewall-settings': {
+      enabled: true,
+      allowList: ['127.0.0.1'],
+      denyList: [],
+    },
   };
 }
 

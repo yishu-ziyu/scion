@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ANSWER_OR_ATTACH,
   JUDGE_PAGE_THEN_WRITE,
   READ_PAGE_BEFORE_RESULT,
   WRITE_RESULT_NOT_ACK,
@@ -8,6 +9,42 @@ import {
 } from '../control-delivery';
 
 describe('resolveControlDelivery', () => {
+  it('answers without attaching when the first decide has no page', () => {
+    expect(
+      resolveControlDelivery({
+        done: true,
+        observation: '你好，需要我帮你在页面上做什么？',
+        hasAction: false,
+        hasPageBody: false,
+        pageAttached: false,
+      }),
+    ).toEqual({ kind: 'complete' });
+  });
+
+  it('does not force a page read when no page is attached and the model has not acted', () => {
+    expect(
+      resolveControlDelivery({
+        done: false,
+        observation: '',
+        hasAction: false,
+        hasPageBody: false,
+        pageAttached: false,
+      }),
+    ).toEqual({ kind: 'retry', feedback: ANSWER_OR_ATTACH });
+  });
+
+  it('lets a first page action through before any attach', () => {
+    expect(
+      resolveControlDelivery({
+        done: false,
+        observation: '打开 YouTube',
+        hasAction: true,
+        hasPageBody: false,
+        pageAttached: false,
+      }),
+    ).toEqual({ kind: 'act' });
+  });
+
   it('reads the page instead of accepting an acknowledgement as done', () => {
     expect(
       resolveControlDelivery({

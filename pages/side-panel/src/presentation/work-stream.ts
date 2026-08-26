@@ -218,6 +218,19 @@ function urlsInBlocks(blocks: WorkStreamBlock[]): Set<string> {
   return urls;
 }
 
+function appendObserveOrSkip(
+  attempt: ActionAttempt,
+  pushAct: (id: string, text: string, live: boolean) => void,
+  liveSummaries: string[],
+) {
+  const summary = attempt.displaySummary?.replace(/\s+/g, ' ').trim() ?? '';
+  const text = summary.length >= 2 ? compact(summary, 80) : '获取页面快照';
+  if (SEARCH_QUERY_NOISE.test(text)) return;
+  const live = isLive(attempt.state);
+  if (live && summary) liveSummaries.push(summary);
+  pushAct(attempt.id, text, live);
+}
+
 export function deriveWorkStream(input: {
   status: TaskStatus | string;
   attempts: ActionAttempt[];
@@ -270,11 +283,7 @@ export function deriveWorkStream(input: {
     }
 
     if (attempt.actionName === 'observe' || attempt.actionName === 'snapshot') {
-      const summary = attempt.displaySummary?.replace(/\s+/g, ' ').trim() ?? '';
-      const text = summary.length >= 2 ? compact(summary, 80) : '获取页面快照';
-      const live = isLive(attempt.state);
-      if (live && summary) liveSummaries.push(summary);
-      pushAct(attempt.id, text, live);
+      appendObserveOrSkip(attempt, pushAct, liveSummaries);
       i += 1;
       continue;
     }

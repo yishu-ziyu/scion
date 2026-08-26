@@ -154,11 +154,29 @@ export default class Page {
     }
 
     logger.info('attaching puppeteer', this._tabId);
-    const browser = await connect({
-      transport: await ExtensionTransport.connectTab(this._tabId),
-      defaultViewport: null,
-      protocol: 'cdp' as ProtocolType,
-    });
+    let browser;
+    try {
+      browser = await connect({
+        transport: await ExtensionTransport.connectTab(this._tabId),
+        defaultViewport: null,
+        protocol: 'cdp' as ProtocolType,
+      });
+    } catch (error) {
+      // Service-worker restart can leave a stale chrome.debugger attachment on
+      // the task tab; the new SW then fails with "Another debugger is already
+      // attached". Detach our own stale session and retry once.
+      if (/Another debugger is already attached/i.test(String((error as Error)?.message || error || ''))) {
+        logger.warning('stale debugger attachment detected; detaching once', this._tabId);
+        await chrome.debugger.detach({ tabId: this._tabId }).catch(() => {});
+        browser = await connect({
+          transport: await ExtensionTransport.connectTab(this._tabId),
+          defaultViewport: null,
+          protocol: 'cdp' as ProtocolType,
+        });
+      } else {
+        throw error;
+      }
+    }
     this._browser = browser;
 
     const [page] = await browser.pages();

@@ -88,6 +88,26 @@ code {
   opacity: 0.5;
 }
 
+.chijie-pip-parked {
+  display: none;
+  box-sizing: border-box;
+  min-height: 100vh;
+  margin: 0;
+  padding: 24px 16px;
+  align-items: center;
+  justify-content: center;
+  background: var(--chijie-background);
+  color: var(--chijie-muted);
+  font-family: var(--chijie-font-body);
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+body[data-chat-pip='open'] .chijie-pip-parked {
+  display: flex;
+}
+
 .send-button {
   color: var(--chijie-foreground);
   cursor: pointer;

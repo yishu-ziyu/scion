@@ -34,6 +34,18 @@
   "nav_memory_a11y": {
     "message": "记忆"
   },
+  "nav_pictureInPicture_open_a11y": {
+    "message": "打开画中画"
+  },
+  "nav_pictureInPicture_close_a11y": {
+    "message": "收回画中画"
+  },
+  "chat_pip_parked": {
+    "message": "聊天已浮出。换标签也还在；关掉侧栏会一起关掉。"
+  },
+  "chat_pip_unsupported": {
+    "message": "当前 Chrome 不支持画中画"
+  },
   "memory_page_title": {
     "message": "记忆"
   },
@@ -147,15 +159,6 @@
   },
   "chat_task_mode_badge": {
     "message": "任务"
-  },
-  "chat_composer_intent": {
-    "message": "这次怎么处理"
-  },
-  "chat_composer_chat": {
-    "message": "仅聊天"
-  },
-  "chat_composer_execute": {
-    "message": "执行"
   },
   "chat_task_input_placeholder": {
     "message": "要做什么"
@@ -1443,5 +1446,8 @@
   },
   "chat_task_fail_missing_instruction": {
     "message": "读不到任务指令。请开新任务再试。"
+  },
+  "chat_task_hint_proof_unconfirmable": {
+    "message": "结果已经拿到，但页面证据还没对上。可以再说一次，或把要求写得更具体。"
   }
 }

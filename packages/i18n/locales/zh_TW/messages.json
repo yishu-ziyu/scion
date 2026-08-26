@@ -34,6 +34,18 @@
   "nav_memory_a11y": {
     "message": "記憶"
   },
+  "nav_pictureInPicture_open_a11y": {
+    "message": "打開畫中畫"
+  },
+  "nav_pictureInPicture_close_a11y": {
+    "message": "收回畫中畫"
+  },
+  "chat_pip_parked": {
+    "message": "聊天已浮出。換分頁也還在；關掉側欄會一起關掉。"
+  },
+  "chat_pip_unsupported": {
+    "message": "目前 Chrome 不支援畫中畫"
+  },
   "memory_page_title": {
     "message": "記憶"
   },
@@ -147,15 +159,6 @@
   },
   "chat_task_mode_badge": {
     "message": "任務"
-  },
-  "chat_composer_intent": {
-    "message": "這次怎麼處理"
-  },
-  "chat_composer_chat": {
-    "message": "僅聊天"
-  },
-  "chat_composer_execute": {
-    "message": "執行"
   },
   "chat_task_input_placeholder": {
     "message": "要做什麼"
@@ -1443,5 +1446,8 @@
   },
   "chat_task_fail_missing_instruction": {
     "message": "讀不到任務指令。請開新任務再試。"
+  },
+  "chat_task_hint_proof_unconfirmable": {
+    "message": "結果已經拿到，但頁面證據還沒對上。可以再說一次，或把要求寫得更具體。"
   }
 }

@@ -5,6 +5,9 @@
 
 export type LoopPhase = 'observe' | 'decide' | 'act' | 'reobserve';
 
+/** First decide before any page attach. The model may answer and finish, or ask to look at a page. */
+export const NO_PAGE_SNAPSHOT = '[no_page_snapshot]';
+
 /** A single decide may execute at most this many actions before another decide. */
 export const MAX_ACTIONS_PER_DECISION = 5;
 
@@ -102,6 +105,11 @@ export interface ObserveActLoopOptions {
    * Return `continue` to reset the no-progress streak and keep deciding.
    */
   onStuck?: () => Promise<'continue' | 'stop'>;
+  /**
+   * First decide sees NO_PAGE_SNAPSHOT and no debugger attach.
+   * A spoken `done` ends the loop. An action runs; act/observe attach the page.
+   */
+  skipInitialObserve?: boolean;
 }
 
 /**
@@ -109,6 +117,10 @@ export interface ObserveActLoopOptions {
  * Recoverable decide/observe/act failures increment failure budget; success resets it.
  * Unchanged observations after successful acts count toward no_progress (L1 seal).
  */
+function seedFirstDecideState(skipInitialObserve: boolean | undefined): string | undefined {
+  return skipInitialObserve === true ? NO_PAGE_SNAPSHOT : undefined;
+}
+
 export async function runObserveActLoop(options: ObserveActLoopOptions): Promise<LoopOutcome> {
   const { maxSteps, maxFailures, isStopped, waitIfPaused, observe, decide, act, reobserve, onPhase } = options;
   const maxNoProgress = options.maxNoProgress === undefined ? 3 : options.maxNoProgress;
@@ -124,7 +136,8 @@ export async function runObserveActLoop(options: ObserveActLoopOptions): Promise
   let failures = 0;
   const budget = Math.max(1, maxFailures);
   // Successful reobserve feeds the next decide; avoids a redundant observe.
-  let carriedState: string | undefined;
+  // skipInitialObserve seeds this so the first decide does not attach.
+  let carriedState = seedFirstDecideState(options.skipInitialObserve);
   let noProgressStreak = 0;
   let stuckReplanUsed = false;
   const seenProgressKeys = new Set<string>();

@@ -54,6 +54,28 @@ describe('resolveMailboxOpen', () => {
     expect(result).toEqual({ kind: 'open', url: 'https://mail.google.com/' });
   });
 
+  it('treats 请打开我的邮箱 as opening mail, and asks only when no usual host is stored', () => {
+    expect(
+      resolveMailboxOpen({
+        instruction: '请打开我的邮箱',
+        currentUrl: 'https://example.com/',
+        confirmedHost: null,
+        openWebmailHosts: [],
+      }),
+    ).toEqual({
+      kind: 'ask',
+      userVisibleText: '要打开的是哪家网页邮箱？谷歌还是微软？',
+    });
+    expect(
+      resolveMailboxOpen({
+        instruction: '请打开我的邮箱',
+        currentUrl: 'https://example.com/',
+        confirmedHost: 'mail.google.com',
+        openWebmailHosts: [],
+      }),
+    ).toEqual({ kind: 'open', url: 'https://mail.google.com/' });
+  });
+
   it('does nothing when the current tab is already webmail or the instruction already has a URL', () => {
     expect(
       resolveMailboxOpen({

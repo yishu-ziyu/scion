@@ -21,7 +21,7 @@ const attempt = (partial: Partial<ActionAttempt> & Pick<ActionAttempt, 'id' | 'a
   }) as ActionAttempt;
 
 describe('deriveWorkStream', () => {
-  it('discloses snapshot as an action chip then shows the opened page', () => {
+  it('skips noise snapshots and shows the opened page', () => {
     const view = deriveWorkStream({
       status: 'running',
       currentSummary: '获取页面快照',
@@ -36,9 +36,8 @@ describe('deriveWorkStream', () => {
         }),
       ],
     });
-    expect(view.blocks.map(block => block.type)).toEqual(['act', 'page']);
-    expect(view.blocks[0]).toMatchObject({ type: 'act', text: '获取页面快照' });
-    expect(view.blocks[1]).toMatchObject({
+    expect(view.blocks.map(block => block.type)).toEqual(['page']);
+    expect(view.blocks[0]).toMatchObject({
       type: 'page',
       page: { title: 'etsy.com', host: 'etsy.com', url: 'https://etsy.com', live: true },
     });
@@ -87,7 +86,7 @@ describe('deriveWorkStream', () => {
       currentSummary: '思考中',
       attempts: [attempt({ id: 'a1', actionName: 'observe', displaySummary: '获取页面快照' })],
     });
-    expect(deciding.blocks).toEqual([expect.objectContaining({ type: 'act', id: 'a1', text: '获取页面快照' })]);
+    expect(deciding.blocks).toEqual([]);
     expect(deciding.blocks.some(block => block.type === 'thinking')).toBe(false);
 
     const afterPage = deriveWorkStream({
@@ -141,7 +140,7 @@ describe('deriveWorkStream', () => {
       currentSummary: '没做成',
       attempts: [attempt({ id: 'a1', actionName: 'observe' })],
     });
-    expect(failed.blocks).toEqual([expect.objectContaining({ type: 'act', id: 'a1', text: '获取页面快照' })]);
+    expect(failed.blocks).toEqual([]);
     expect(failed.blocks.some(block => block.type === 'thinking')).toBe(false);
   });
 
@@ -219,15 +218,14 @@ describe('deriveWorkStream', () => {
       pageLabel: 'google.com.hk',
       attempts: [attempt({ id: 'o1', actionName: 'observe', displaySummary: '获取页面快照' })],
     });
-    expect(view.blocks.map(block => block.type)).toEqual(['search', 'act']);
+    expect(view.blocks.map(block => block.type)).toEqual(['search']);
     expect(view.blocks[0]).toMatchObject({
       type: 'search',
       queries: [{ query: '全部', results: [] }],
     });
-    expect(view.blocks[1]).toMatchObject({ type: 'act', text: '获取页面快照' });
   });
 
-  it('discloses snapshot and tab switch, and does not repeat the same snapshot chip', () => {
+  it('skips snapshot chips and keeps the tab switch as a page', () => {
     const view = deriveWorkStream({
       status: 'running',
       attempts: [
@@ -242,9 +240,8 @@ describe('deriveWorkStream', () => {
         }),
       ],
     });
-    expect(view.blocks.map(block => block.type)).toEqual(['act', 'page']);
-    expect(view.blocks[0]).toMatchObject({ type: 'act', text: '获取页面快照' });
-    expect(view.blocks[1]).toMatchObject({
+    expect(view.blocks.map(block => block.type)).toEqual(['page']);
+    expect(view.blocks[0]).toMatchObject({
       type: 'page',
       page: { title: 'youtube.com', host: 'youtube.com', url: 'https://youtube.com' },
     });
@@ -331,7 +328,7 @@ describe('deriveWorkStream', () => {
       currentSummary: '获取页面快照',
       attempts: [attempt({ id: 'o1', actionName: 'observe', displaySummary: '获取页面快照' })],
     });
-    expect(snapshot.blocks).toEqual([expect.objectContaining({ type: 'act', id: 'o1', text: '获取页面快照' })]);
+    expect(snapshot.blocks).toEqual([]);
     expect(snapshot.blocks.some(block => block.type === 'thinking')).toBe(false);
 
     const thinking = deriveWorkStream({
