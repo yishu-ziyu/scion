@@ -90,9 +90,7 @@ export function produceResult(input: ProduceResultInput): TaskResult | null {
   const fromArtifacts = resultFromArtifacts(asked, input.artifacts ?? []);
 
   if (asked.askedKind === 'table') {
-    const tableFromSummary = tableResultFromText(input.summary);
-    if (tableFromSummary && resultIsPresentAndMatches(asked, tableFromSummary)) return tableFromSummary;
-    return fromArtifacts ?? null;
+    return tableResultPreferringCompleteSummary(asked, input.summary, fromArtifacts);
   }
 
   if (fromArtifacts && resultIsPresentAndMatches(asked, fromArtifacts)) return fromArtifacts;
@@ -368,6 +366,23 @@ function tableResultFromText(summary: string | undefined): TaskResult | null {
   const body = preserveWrittenNewlines(summary);
   if (!looksLikeTable(body)) return null;
   return { kind: 'table', body };
+}
+
+/** Use the summary when it is at least as many data rows as the artifact table. */
+function tableResultPreferringCompleteSummary(
+  asked: AcceptedTask,
+  summary: string | undefined,
+  fromArtifacts: TaskResult | null,
+): TaskResult | null {
+  const fromSummary = tableResultFromText(summary);
+  if (
+    fromSummary &&
+    resultIsPresentAndMatches(asked, fromSummary) &&
+    tableDataRowCount(fromSummary.body) >= tableDataRowCount(fromArtifacts?.body ?? '')
+  ) {
+    return fromSummary;
+  }
+  return fromArtifacts;
 }
 
 /** Keep paragraph breaks in report/draft/summary bodies. Collapse only status chrome. */
