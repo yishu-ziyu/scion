@@ -9,6 +9,14 @@ import {
   instructionAffirmedTargetValue,
   instructionAffirmsTarget,
 } from '../../instruction-language';
+import {
+  nameFromAnchorTitle,
+  nameFromItemprop,
+  priceFromItemprop,
+  priceFromPriceColorClass,
+  ratingFromDataRating,
+  ratingFromStarRatingClass,
+} from '../product-card-fields';
 
 export type ProductRow = {
   name: string;
@@ -124,40 +132,46 @@ function firstGroup(html: string, re: RegExp): string {
 
 function wrapperCardName(slice: string): string {
   return (
-    firstGroup(slice, /<a\b[^>]*\btitle\s*=\s*["']([^"']+)["'][^>]*\bitemprop\s*=\s*["']name["']/i) ||
-    firstGroup(slice, /<a\b[^>]*\bitemprop\s*=\s*["']name["'][^>]*\btitle\s*=\s*["']([^"']+)/i) ||
-    firstGroup(slice, /<a\b[^>]*\bclass\s*=\s*["'][^"']*\btitle\b[^"']*["'][^>]*\btitle\s*=\s*["']([^"']+)/i) ||
-    firstGroup(slice, /itemprop\s*=\s*["']name["'][^>]*>([\s\S]*?)<\//i)
+    nameFromItemprop(
+      { itemprop: 'name', title: firstGroup(slice, /<a\b[^>]*\btitle\s*=\s*["']([^"']+)["'][^>]*\bitemprop\s*=\s*["']name["']/i) },
+      '',
+    ) ||
+    nameFromItemprop(
+      { itemprop: 'name', title: firstGroup(slice, /<a\b[^>]*\bitemprop\s*=\s*["']name["'][^>]*\btitle\s*=\s*["']([^"']+)/i) },
+      '',
+    ) ||
+    nameFromItemprop(
+      {
+        itemprop: 'name',
+        title: firstGroup(slice, /<a\b[^>]*\bclass\s*=\s*["'][^"']*\btitle\b[^"']*["'][^>]*\btitle\s*=\s*["']([^"']+)/i),
+      },
+      '',
+    ) ||
+    nameFromItemprop({ itemprop: 'name' }, firstGroup(slice, /itemprop\s*=\s*["']name["'][^>]*>([\s\S]*?)<\//i))
   );
 }
 
 function wrapperCardPrice(slice: string): string {
-  return firstGroup(slice, /itemprop\s*=\s*["']price["'][^>]*>([\s\S]*?)<\//i);
+  return priceFromItemprop({ itemprop: 'price' }, firstGroup(slice, /itemprop\s*=\s*["']price["'][^>]*>([\s\S]*?)<\//i));
 }
 
 function wrapperCardRating(slice: string): string {
-  return firstGroup(slice, /\bdata-rating\s*=\s*["']([^"']*)["']/i);
+  return ratingFromDataRating({ 'data-rating': firstGroup(slice, /\bdata-rating\s*=\s*["']([^"']*)["']/i) });
 }
 
-const STAR_RATING_WORDS: Record<string, string> = {
-  one: '1',
-  two: '2',
-  three: '3',
-  four: '4',
-  five: '5',
-};
-
 function podCardName(slice: string): string {
-  return firstGroup(slice, /<a\b[^>]*\btitle\s*=\s*["']([^"']+)["']/i);
+  return nameFromAnchorTitle(firstGroup(slice, /<a\b[^>]*\btitle\s*=\s*["']([^"']+)["']/i));
 }
 
 function podCardPrice(slice: string): string {
-  return firstGroup(slice, /class\s*=\s*["'][^"']*\bprice_color\b[^"']*["'][^>]*>([\s\S]*?)<\//i);
+  return priceFromPriceColorClass(
+    'price_color',
+    firstGroup(slice, /class\s*=\s*["'][^"']*\bprice_color\b[^"']*["'][^>]*>([\s\S]*?)<\//i),
+  );
 }
 
 function podCardRating(slice: string): string {
-  const word = firstGroup(slice, /\bstar-rating\s+(One|Two|Three|Four|Five)\b/i);
-  return STAR_RATING_WORDS[word.toLowerCase()] ?? '';
+  return ratingFromStarRatingClass(firstGroup(slice, /class\s*=\s*["']([^"']*\bstar-rating\b[^"']*)["']/i));
 }
 
 function collectProductPodCards(

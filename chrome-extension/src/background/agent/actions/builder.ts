@@ -657,6 +657,9 @@ export class ActionBuilder {
           return typeof response.content === 'string' ? response.content : JSON.stringify(response.content ?? '');
         },
         advancePage: () => advanceExtractPage(page, this.context.options.useVision),
+        priorEmptyExtract: (this.context.actionResults ?? []).some(
+          result => result.error === 'empty_extract_snapshot' || result.error === 'no_structured_records',
+        ),
       });
       const rows = result.artifact ? tableRowCount(result.artifact) : 0;
       this.context.emitEvent(
