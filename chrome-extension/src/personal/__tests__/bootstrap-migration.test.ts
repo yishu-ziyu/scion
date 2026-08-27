@@ -16,12 +16,14 @@ const localData: Record<string, unknown> = {};
   },
 };
 
-let storage: typeof import('@extension/storage');
-let migratePlaintextApiKeys: (typeof import('../bootstrap'))['migratePlaintextApiKeys'];
+const loadStorage = () => import('@extension/storage');
+const loadBootstrap = () => import('../bootstrap');
+let storage: Awaited<ReturnType<typeof loadStorage>>;
+let migratePlaintextApiKeys: Awaited<ReturnType<typeof loadBootstrap>>['migratePlaintextApiKeys'];
 
 beforeAll(async () => {
-  storage = await import('@extension/storage');
-  ({ migratePlaintextApiKeys } = await import('../bootstrap'));
+  storage = await loadStorage();
+  ({ migratePlaintextApiKeys } = await loadBootstrap());
 });
 
 beforeEach(() => {

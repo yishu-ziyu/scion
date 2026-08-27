@@ -5,16 +5,16 @@ const { clickCdpElement } = vi.hoisted(() => {
     configurable: true,
     value: { runtime: { id: 'test-extension' } },
   });
-  return { clickCdpElement: vi.fn(async (..._args: unknown[]) => undefined as void) };
+  return { clickCdpElement: vi.fn(async () => undefined as void) };
 });
 
 import { DOMElementNode } from '../dom/views';
 
-vi.mock('../cdp/click', async () => {
-  const actual = await vi.importActual<typeof import('../cdp/click')>('../cdp/click');
+vi.mock('../cdp/click', async importOriginal => {
+  const actual = await importOriginal();
   return {
-    ...actual,
-    clickCdpElement: (...args: unknown[]) => clickCdpElement(...args),
+    ...(actual as object),
+    clickCdpElement,
   };
 });
 

@@ -72,7 +72,7 @@ export interface ProgressCurrentActivity {
 }
 
 const PROCESS_NOISE = /^(搜索网页|获取页面快照|思考中|查看页面|page_state|正在处理|正在操作页面)$/;
-const LOOK_AT_HOST = /^(查看|打开|切换到)\s+(.+)$/u;
+const LOOK_AT_HOST = /^(查看|打开|切换到)\s+(.+)$/;
 
 /** Drop Chrome unread counts like `(25)` from a tab title. */
 export function stripTabCountPrefix(value: string): string {
