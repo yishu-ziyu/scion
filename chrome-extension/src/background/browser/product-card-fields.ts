@@ -46,21 +46,27 @@ export function ratingFromDataRating(attrs: Record<string, string>): string {
   return (attrs['data-rating'] || '').trim();
 }
 
-export function applyProductCardSemanticFields(
-  node: ProductCardNode,
-  row: Record<string, string>,
-  text: string,
-): void {
-  if (!row.name) {
-    const name = nameFromAnchorTitle(node.tag === 'a' ? node.attrs.title || '' : '') || nameFromItemprop(node.attrs, text);
-    if (name) row.name = name;
-  }
-  if (!row.price) {
-    const price = priceFromPriceColorClass(node.attrs.class || '', text) || priceFromItemprop(node.attrs, text);
-    if (price) row.price = price;
-  }
-  if (!row.rating) {
-    const rating = ratingFromStarRatingClass(node.attrs.class || '') || ratingFromDataRating(node.attrs);
-    if (rating) row.rating = rating;
-  }
+function fillProductCardName(node: ProductCardNode, row: Record<string, string>, text: string): void {
+  if (row.name) return;
+  const title = node.tag === 'a' ? node.attrs.title || '' : '';
+  const name = nameFromAnchorTitle(title) || nameFromItemprop(node.attrs, text);
+  if (name) row.name = name;
+}
+
+function fillProductCardPrice(node: ProductCardNode, row: Record<string, string>, text: string): void {
+  if (row.price) return;
+  const price = priceFromPriceColorClass(node.attrs.class || '', text) || priceFromItemprop(node.attrs, text);
+  if (price) row.price = price;
+}
+
+function fillProductCardRating(node: ProductCardNode, row: Record<string, string>): void {
+  if (row.rating) return;
+  const rating = ratingFromStarRatingClass(node.attrs.class || '') || ratingFromDataRating(node.attrs);
+  if (rating) row.rating = rating;
+}
+
+export function applyProductCardSemanticFields(node: ProductCardNode, row: Record<string, string>, text: string): void {
+  fillProductCardName(node, row, text);
+  fillProductCardPrice(node, row, text);
+  fillProductCardRating(node, row);
 }

@@ -67,9 +67,7 @@ export function extractStructuredRecords(html: string, schema?: string[]): Extra
 }
 
 export async function readPageHtml(page: ExtractContentPage): Promise<string> {
-  return (
-    (await htmlFromGetContent(page)) || (await htmlFromEvaluate(page)) || (await htmlFromReadability(page)) || ''
-  );
+  return (await htmlFromGetContent(page)) || (await htmlFromEvaluate(page)) || (await htmlFromReadability(page)) || '';
 }
 
 async function htmlFromGetContent(page: ExtractContentPage): Promise<string> {

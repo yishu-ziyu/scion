@@ -133,17 +133,26 @@ function firstGroup(html: string, re: RegExp): string {
 function wrapperCardName(slice: string): string {
   return (
     nameFromItemprop(
-      { itemprop: 'name', title: firstGroup(slice, /<a\b[^>]*\btitle\s*=\s*["']([^"']+)["'][^>]*\bitemprop\s*=\s*["']name["']/i) },
-      '',
-    ) ||
-    nameFromItemprop(
-      { itemprop: 'name', title: firstGroup(slice, /<a\b[^>]*\bitemprop\s*=\s*["']name["'][^>]*\btitle\s*=\s*["']([^"']+)/i) },
+      {
+        itemprop: 'name',
+        title: firstGroup(slice, /<a\b[^>]*\btitle\s*=\s*["']([^"']+)["'][^>]*\bitemprop\s*=\s*["']name["']/i),
+      },
       '',
     ) ||
     nameFromItemprop(
       {
         itemprop: 'name',
-        title: firstGroup(slice, /<a\b[^>]*\bclass\s*=\s*["'][^"']*\btitle\b[^"']*["'][^>]*\btitle\s*=\s*["']([^"']+)/i),
+        title: firstGroup(slice, /<a\b[^>]*\bitemprop\s*=\s*["']name["'][^>]*\btitle\s*=\s*["']([^"']+)/i),
+      },
+      '',
+    ) ||
+    nameFromItemprop(
+      {
+        itemprop: 'name',
+        title: firstGroup(
+          slice,
+          /<a\b[^>]*\bclass\s*=\s*["'][^"']*\btitle\b[^"']*["'][^>]*\btitle\s*=\s*["']([^"']+)/i,
+        ),
       },
       '',
     ) ||
@@ -152,7 +161,10 @@ function wrapperCardName(slice: string): string {
 }
 
 function wrapperCardPrice(slice: string): string {
-  return priceFromItemprop({ itemprop: 'price' }, firstGroup(slice, /itemprop\s*=\s*["']price["'][^>]*>([\s\S]*?)<\//i));
+  return priceFromItemprop(
+    { itemprop: 'price' },
+    firstGroup(slice, /itemprop\s*=\s*["']price["'][^>]*>([\s\S]*?)<\//i),
+  );
 }
 
 function wrapperCardRating(slice: string): string {

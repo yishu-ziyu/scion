@@ -249,11 +249,11 @@ describe('extract_content action', () => {
     expect(extractWithModel).not.toHaveBeenCalled();
     expect(result.error).toBeNull();
     expect(result.hasMorePages).toBe(true);
-    expect(tableDataRows(result.artifact!).map(row => String(row.name ?? '')).slice(0, 3)).toEqual([
-      'A Light in the Attic',
-      'Tipping the Velvet',
-      'Soumission',
-    ]);
+    expect(
+      tableDataRows(result.artifact!)
+        .map(row => String(row.name ?? ''))
+        .slice(0, 3),
+    ).toEqual(['A Light in the Attic', 'Tipping the Velvet', 'Soumission']);
   });
 
   it('reads document HTML from evaluate when getContent returns visible text without markup', async () => {
@@ -264,11 +264,11 @@ describe('extract_content action', () => {
         evaluate: async () => booksHomeHtml,
       },
     );
-    expect(tableDataRows(result.artifact!).map(row => String(row.name ?? '')).slice(0, 3)).toEqual([
-      'A Light in the Attic',
-      'Tipping the Velvet',
-      'Soumission',
-    ]);
+    expect(
+      tableDataRows(result.artifact!)
+        .map(row => String(row.name ?? ''))
+        .slice(0, 3),
+    ).toEqual(['A Light in the Attic', 'Tipping the Velvet', 'Soumission']);
   });
 
   it('does not crawl Next on books.toscrape product_pod pages once a name/price/rating table is on the page', async () => {
