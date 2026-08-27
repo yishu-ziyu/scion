@@ -5,7 +5,9 @@
  * stream (background `chat_stream` over agent-core), not by starting a task.
  * Doubt always falls to the task loop: only messages that clearly do not
  * touch the page take the chat path.
+ * Extract/table asks are `acceptTask` table work on the current tab — never chat.
  */
+import { instructionAsksForTable } from '@extension/shared';
 import type { Message } from '@extension/storage';
 import { instructionPointsAtCurrentPage } from './active-tab-bind';
 
@@ -23,7 +25,7 @@ export type ChatTurnRoute = 'page_summary' | 'chat' | 'task';
 /** Only a self-contained request to summarize the associated page takes the context recipe. */
 export function classifyChatTurn(text: string): ChatTurnRoute {
   const trimmed = text.trim();
-  if (!trimmed || OPERATION_INTENT.test(trimmed)) return 'task';
+  if (!trimmed || OPERATION_INTENT.test(trimmed) || instructionAsksForTable(trimmed)) return 'task';
   if (CURRENT_PAGE_REFERENCE.test(trimmed) && PAGE_SUMMARY_INTENT.test(trimmed)) return 'page_summary';
   return isChatOnlyMessage(trimmed) ? 'chat' : 'task';
 }
@@ -34,6 +36,7 @@ export function isChatOnlyMessage(text: string): boolean {
   if (!trimmed) return false;
   if (instructionPointsAtCurrentPage(trimmed)) return false;
   if (OPERATION_INTENT.test(trimmed)) return false;
+  if (instructionAsksForTable(trimmed)) return false;
   return true;
 }
 

@@ -162,3 +162,10 @@ export function firstCsvOrMarkdownHeaderLine(body: string): string | undefined {
   if (!span) return undefined;
   return lineOffsetSpans(body.slice(span.start, span.end))[0]?.line || undefined;
 }
+
+/** Same gate `acceptTask` uses for `askedKind === 'table'`. Not chat. */
+export function instructionAsksForTable(instruction: string): boolean {
+  const text = instruction.replace(/\s+/g, ' ').trim();
+  if (!text) return false;
+  return (/\bcsv\b/i.test(text) || /表格|\btable\b/i.test(text)) && /提取|导出|抽取|extract|export|列出/i.test(text);
+}

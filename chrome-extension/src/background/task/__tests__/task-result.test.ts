@@ -28,6 +28,7 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     const asked = acceptTask('Extract products to a CSV table with name, price, rating');
     expect(asked.askedKind).toBe('table');
     expect(asked.askedTableFields).toEqual(['name', 'price', 'rating']);
+    expect(acceptTask('extract products to a CSV table with name, price, rating').askedKind).toBe('table');
   });
 
   it('accepts a form task with the named success sentence', () => {

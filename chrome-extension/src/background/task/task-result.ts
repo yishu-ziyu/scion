@@ -11,6 +11,7 @@ import {
   csvOrMarkdownBlockSpans,
   csvOrMarkdownDataRowCount,
   firstCsvOrMarkdownHeaderLine,
+  instructionAsksForTable,
   structuredTableCells,
 } from '@extension/shared';
 
@@ -45,7 +46,7 @@ export function acceptTask(instruction: string): AcceptedTask {
   const text = instruction.replace(/\s+/g, ' ').trim();
   const tableGoal = parseProductTableInstruction(text);
   const askedText = namedSuccessText(text);
-  if (tableGoal || asksForTable(text)) {
+  if (tableGoal || instructionAsksForTable(text)) {
     return {
       instruction: text,
       askedKind: 'table',
@@ -187,13 +188,6 @@ export function matchingStoredResult(
     return null;
   }
   return stored;
-}
-
-function asksForTable(instruction: string): boolean {
-  return (
-    (/\bcsv\b/i.test(instruction) || /表格|\btable\b/i.test(instruction)) &&
-    /提取|导出|抽取|extract|export|列出/i.test(instruction)
-  );
 }
 
 function asksForFile(instruction: string): boolean {

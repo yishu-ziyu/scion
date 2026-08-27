@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { Actors, type Message } from '@extension/storage';
+import { isUsableContentTabUrl } from '../active-tab-bind';
 import { applyChatStreamDelta, classifyChatTurn, isChatOnlyMessage } from '../chat-turn';
+
+const EXTRACT_TABLE = 'extract products to a CSV table with name, price, rating';
+const PRODUCT_TABS = ['https://webscraper.io/test-sites/e-commerce/allinone', 'https://books.toscrape.com/'];
 
 describe('isChatOnlyMessage', () => {
   it('treats plain conversation as chat-only', () => {
@@ -53,6 +57,19 @@ describe('classifyChatTurn', () => {
   it('keeps plain chat and direct page operations off the page-summary route', () => {
     expect(classifyChatTurn('你好')).toBe('chat');
     expect(classifyChatTurn('点击登录按钮')).toBe('task');
+  });
+
+  it('starts a task for extract-table on a current product tab, not a chat source-URL ask', () => {
+    expect(PRODUCT_TABS.every(url => isUsableContentTabUrl(url))).toBe(true);
+    expect(isChatOnlyMessage(EXTRACT_TABLE)).toBe(false);
+    expect(classifyChatTurn(EXTRACT_TABLE)).toBe('task');
+    expect(classifyChatTurn('把商品导出为 CSV 表，含名称、价格、评分')).toBe('task');
+    expect(classifyChatTurn(EXTRACT_TABLE)).not.toBe('chat');
+  });
+
+  it('still chats when there is no extract or table ask', () => {
+    expect(classifyChatTurn('what is a CSV file?')).toBe('chat');
+    expect(classifyChatTurn('解释一下什么是 Transformer')).toBe('chat');
   });
 });
 
