@@ -139,6 +139,40 @@ function wrapperCardRating(slice: string): string {
   return firstGroup(slice, /\bdata-rating\s*=\s*["']([^"']*)["']/i);
 }
 
+const STAR_RATING_WORDS: Record<string, string> = {
+  one: '1',
+  two: '2',
+  three: '3',
+  four: '4',
+  five: '5',
+};
+
+function podCardName(slice: string): string {
+  return firstGroup(slice, /<a\b[^>]*\btitle\s*=\s*["']([^"']+)["']/i);
+}
+
+function podCardPrice(slice: string): string {
+  return firstGroup(slice, /class\s*=\s*["'][^"']*\bprice_color\b[^"']*["'][^>]*>([\s\S]*?)<\//i);
+}
+
+function podCardRating(slice: string): string {
+  const word = firstGroup(slice, /\bstar-rating\s+(One|Two|Three|Four|Five)\b/i);
+  return STAR_RATING_WORDS[word.toLowerCase()] ?? '';
+}
+
+function collectProductPodCards(
+  html: string,
+  push: (name: string, price: string, rating: string) => void,
+  atLimit: () => boolean,
+): void {
+  for (const match of html.matchAll(/<article\b[^>]*\bproduct_pod\b[^>]*>/gi)) {
+    if (atLimit()) return;
+    const start = match.index ?? 0;
+    const slice = html.slice(start, start + 4000);
+    push(podCardName(slice), podCardPrice(slice), podCardRating(slice));
+  }
+}
+
 function collectProductWrapperCards(
   html: string,
   push: (name: string, price: string, rating: string) => void,
@@ -158,7 +192,8 @@ function collectProductWrapperCards(
  * 1. `<li|article|div class="product" data-name data-price data-rating>`
  * 2. Nested `.product-name` / `.product-price` / `.product-rating` spans
  * 3. `.product-wrapper` cards with `a.title` / `itemprop=price` / `data-rating`
- * 4. Simple `<tr>` rows with 3+ `<td>` (name, price, rating)
+ * 4. `article.product_pod` cards with `a[title]` / `.price_color` / `.star-rating`
+ * 5. Simple `<tr>` rows with 3+ `<td>` (name, price, rating)
  */
 export function extractProductsFromHtml(html: string, max = 50): ProductRow[] {
   if (!html) return [];
@@ -177,6 +212,7 @@ export function extractProductsFromHtml(html: string, max = 50): ProductRow[] {
   };
 
   collectProductWrapperCards(html, push, () => found.length >= max);
+  collectProductPodCards(html, push, () => found.length >= max);
 
   // Card / list items with data-* (fixture + Amazon-like cards)
   const cardRe =

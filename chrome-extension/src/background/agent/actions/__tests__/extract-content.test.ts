@@ -18,6 +18,7 @@ import type { ActionResult, AgentContext } from '../../types';
 const here = dirname(fileURLToPath(import.meta.url));
 const productsHtml = readFileSync(join(here, '../../../../../test/fixtures/products.html'), 'utf8');
 const allinoneHtml = readFileSync(join(here, '../../../../../test/fixtures/allinone-product-cards.html'), 'utf8');
+const booksHtml = readFileSync(join(here, '../../../../../test/fixtures/books-product-pods.html'), 'utf8');
 
 function fieldedRows(rows: Array<Record<string, string>>): Array<Record<string, string>> {
   return rows.filter(row => Object.keys(row).length >= 2 && Object.values(row).some(value => value.trim()));
@@ -107,6 +108,17 @@ describe('extractStructuredRecords', () => {
     const blob = JSON.stringify(rows);
     expect(blob).not.toMatch(/Products|Company|Resources|Contact|Web Scraper Cloud|About us/);
   });
+
+  it('reads product_pod cards instead of sidebar categories for name,price,rating', () => {
+    const rows = extractStructuredRecords(booksHtml, ['name', 'price', 'rating']);
+    expect(rows).toEqual([
+      { name: 'A Light in the Attic', price: '£51.77', rating: '3' },
+      { name: 'Tipping the Velvet', price: '£53.74', rating: '1' },
+      { name: 'Sharp Objects', price: '£47.82', rating: '4' },
+    ]);
+    const blob = JSON.stringify(rows);
+    expect(blob).not.toMatch(/Travel|Mystery|Historical Fiction|Sequential Art/);
+  });
 });
 
 describe('extract_content action', () => {
@@ -181,6 +193,24 @@ describe('extract_content action', () => {
       { name: 'MSI GL62M 7REX2', price: '$1199', rating: '2' },
     ]);
     expect(result.extractedContent).not.toMatch(/Web Scraper Cloud|About us/);
+  });
+
+  it('stores a name/price/rating table from product_pod cards, not sidebar categories', async () => {
+    const result = await runExtractContent(
+      { goal: 'Extract products to a CSV table with name, price, rating', schema: 'name,price,rating' },
+      {
+        getContent: async () => booksHtml,
+        url: () => 'https://books.toscrape.com/',
+        title: async () => 'All products | Books to Scrape',
+      },
+    );
+    expect(result.artifact?.type).toBe('table');
+    expect(tableDataRows(result.artifact!)).toEqual([
+      { name: 'A Light in the Attic', price: '£51.77', rating: '3' },
+      { name: 'Tipping the Velvet', price: '£53.74', rating: '1' },
+      { name: 'Sharp Objects', price: '£47.82', rating: '4' },
+    ]);
+    expect(result.extractedContent).not.toMatch(/Travel|Mystery/);
   });
 
   it('returns empty JSON without an artifact and without completing when nothing structured is found', async () => {

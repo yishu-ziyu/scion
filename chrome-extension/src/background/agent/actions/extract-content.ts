@@ -514,6 +514,9 @@ function recordFromBlock(node: SimpleNode): ExtractedRecord {
 function collectSemanticFields(node: SimpleNode, row: ExtractedRecord): void {
   assignDataAttrs(node, row);
   assignItempropField(node, row);
+  assignAnchorTitleName(node, row);
+  assignPriceColor(node, row);
+  assignStarRatingClass(node, row);
   for (const child of node.children) collectSemanticFields(child, row);
 }
 
@@ -531,6 +534,35 @@ function assignItempropField(node: SimpleNode, row: ExtractedRecord): void {
   if (!key || row[key]) return;
   const value = (node.attrs.content || node.attrs.title || innerText(node)).trim();
   if (value) row[key] = value;
+}
+
+const STAR_RATING_WORDS: Record<string, string> = {
+  one: '1',
+  two: '2',
+  three: '3',
+  four: '4',
+  five: '5',
+};
+
+function assignAnchorTitleName(node: SimpleNode, row: ExtractedRecord): void {
+  if (row.name || node.tag !== 'a') return;
+  const title = (node.attrs.title || '').trim();
+  if (title) row.name = title;
+}
+
+function assignPriceColor(node: SimpleNode, row: ExtractedRecord): void {
+  if (row.price) return;
+  if (!/\bprice_color\b/i.test(node.attrs.class || '')) return;
+  const value = innerText(node);
+  if (value) row.price = value;
+}
+
+function assignStarRatingClass(node: SimpleNode, row: ExtractedRecord): void {
+  if (row.rating) return;
+  const tokens = (node.attrs.class || '').trim().split(/\s+/);
+  if (!tokens.some(token => /^star-rating$/i.test(token))) return;
+  const word = tokens.find(token => STAR_RATING_WORDS[token.toLowerCase()]);
+  if (word) row.rating = STAR_RATING_WORDS[word.toLowerCase()];
 }
 
 function fieldFromAttr(name: string, value: string): string | undefined {

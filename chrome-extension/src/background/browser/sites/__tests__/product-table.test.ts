@@ -23,6 +23,7 @@ const allinoneHtml = readFileSync(
   path.resolve(__dirname, '../../../../../test/fixtures/allinone-product-cards.html'),
   'utf8',
 );
+const booksHtml = readFileSync(path.resolve(__dirname, '../../../../../test/fixtures/books-product-pods.html'), 'utf8');
 
 describe('product-table R1 tracer', () => {
   it('binds evidence to the complete row instead of a bag of cells', () => {
@@ -185,6 +186,16 @@ describe('product-table R1 tracer', () => {
       { name: 'MSI GL62M 7REX2', price: '$1199', rating: '2' },
     ]);
     expect(rows.map(row => row.name)).not.toEqual(expect.arrayContaining(['Products', 'Company']));
+  });
+
+  it('extracts product_pod cards instead of sidebar categories', () => {
+    const rows = extractProductsFromHtml(booksHtml);
+    expect(rows).toEqual([
+      { name: 'A Light in the Attic', price: '£51.77', rating: '3' },
+      { name: 'Tipping the Velvet', price: '£53.74', rating: '1' },
+      { name: 'Sharp Objects', price: '£47.82', rating: '4' },
+    ]);
+    expect(rows.map(row => row.name)).not.toEqual(expect.arrayContaining(['Travel', 'Mystery']));
   });
 
   it('extracts from simple HTML table rows', () => {
