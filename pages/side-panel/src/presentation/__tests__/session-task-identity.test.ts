@@ -228,7 +228,7 @@ describe('side-panel session/task identity contract', () => {
     ['failed', false],
     ['completed', false],
     ['cancelled', false],
-  ] as const)('starts a clean task after %s without letting the old session retake the UI', (status, _mustCancel) => {
+  ] as const)('starts a clean task after %s without letting the old session retake the UI', status => {
     const oldTask = { taskId: 'A', status };
     expect(newChatCancellationTarget({ authoritativeTask: oldTask })).toBeNull();
 

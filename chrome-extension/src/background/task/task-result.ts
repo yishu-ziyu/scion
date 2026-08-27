@@ -88,13 +88,17 @@ export function recordStep(steps: ActionAttempt[], step: ActionAttempt): ActionA
 export function produceResult(input: ProduceResultInput): TaskResult | null {
   const asked = input.asked;
   const fromArtifacts = resultFromArtifacts(asked, input.artifacts ?? []);
-  if (fromArtifacts && resultIsPresentAndMatches(asked, fromArtifacts)) return fromArtifacts;
 
   if (asked.askedKind === 'table') {
+    // A matching table-shaped summary is the user-visible result (prefix + CSV +
+    // any derived line). Artifacts still prove the table for independent verify.
     const tableFromSummary = tableResultFromText(input.summary);
     if (tableFromSummary && resultIsPresentAndMatches(asked, tableFromSummary)) return tableFromSummary;
+    if (fromArtifacts && resultIsPresentAndMatches(asked, fromArtifacts)) return fromArtifacts;
     return fromArtifacts ?? null;
   }
+
+  if (fromArtifacts && resultIsPresentAndMatches(asked, fromArtifacts)) return fromArtifacts;
 
   const seenSuccess = visibleBody(input.pageSuccessText);
   if (seenSuccess) {

@@ -1,7 +1,7 @@
 import type { FeatureBinding, FeatureRequirement, ModelDescriptor, ProviderProfile } from '@extension/contracts';
 import { describe, expect, it } from 'vitest';
 import { selectRuntime } from './router';
-import type { AgentRuntime, ChatTurn, TurnStreamEvent } from './types';
+import type { AgentRuntime, TurnStreamEvent } from './types';
 
 const provider: ProviderProfile = {
   id: 'local',
@@ -23,7 +23,7 @@ const bindings: FeatureBinding[] = [{ featureId: 'sidepanel_chat', primaryModel:
 const requirements: FeatureRequirement[] = [{ featureId: 'sidepanel_chat', requiredCapabilities: ['chat'] }];
 
 const stubRuntime: AgentRuntime = {
-  async *streamTurn(_messages: ChatTurn[]): AsyncGenerator<TurnStreamEvent> {
+  async *streamTurn(): AsyncGenerator<TurnStreamEvent> {
     yield { type: 'done' };
   },
 };

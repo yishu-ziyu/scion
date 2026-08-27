@@ -6,11 +6,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CompletionCriterion, TaskEvent } from '@extension/storage/lib/task';
 import { TaskManager } from '../manager';
 import { createControlLoopDriver, fixtureProductTableControlSteps } from '../../agent/backends/control-loop';
+import { createTableArtifact } from '../artifact';
 import {
   extractProductsFromHtml,
   formatMostExpensiveProductConclusion,
   formatProductTableDeliverable,
   parseProductTableInstruction,
+  type ProductRow,
 } from '../../browser/sites/product-table';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -109,6 +111,15 @@ vi.mock('../../agent/factory', () => ({
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixtureHtml = readFileSync(path.resolve(__dirname, '../../../../test/fixtures/products.html'), 'utf8');
 
+function productTableArtifact(rows: ProductRow[]) {
+  return createTableArtifact({
+    title: 'products',
+    columns: ['name', 'price', 'rating'],
+    rows,
+    sources: [{ url: 'http://127.0.0.1/products' }],
+  });
+}
+
 function waitForVerifiedCompletion(manager: TaskManager, taskId: string): Promise<VerifiedCompletionEvent> {
   return new Promise((resolve, reject) => {
     let unsubscribe: () => void = () => undefined;
@@ -171,7 +182,10 @@ describe('R1 product-table journey (auto_proxy)', () => {
     const manager = new TaskManager({
       createExecutor: async (input, hooks) =>
         createControlLoopDriver(input, hooks, {
-          steps: fixtureProductTableControlSteps({ csvSummary }),
+          steps: fixtureProductTableControlSteps({
+            csvSummary,
+            artifacts: [productTableArtifact(rows)],
+          }),
         }),
       switchTab: vi.fn(),
       observeCriteria,
@@ -230,7 +244,10 @@ describe('R1 product-table journey (auto_proxy)', () => {
     const manager = new TaskManager({
       createExecutor: async (input, hooks) =>
         createControlLoopDriver(input, hooks, {
-          steps: fixtureProductTableControlSteps({ csvSummary }),
+          steps: fixtureProductTableControlSteps({
+            csvSummary,
+            artifacts: [productTableArtifact(rows)],
+          }),
         }),
       switchTab: vi.fn(),
       observeCriteria,
@@ -279,7 +296,10 @@ describe('R1 product-table journey (auto_proxy)', () => {
     const manager = new TaskManager({
       createExecutor: async (input, hooks) =>
         createControlLoopDriver(input, hooks, {
-          steps: fixtureProductTableControlSteps({ csvSummary }),
+          steps: fixtureProductTableControlSteps({
+            csvSummary,
+            artifacts: [productTableArtifact(rows)],
+          }),
         }),
       switchTab: vi.fn(),
       observeCriteria,

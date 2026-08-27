@@ -19,7 +19,7 @@ const ESTABLISH_MICROSOFT =
 const BARE_GOOGLE = /^(?:谷歌|gmail)$/i;
 const BARE_MICROSOFT = /^(?:微软|outlook|microsoft)$/i;
 const REPLY_OR_OPEN_MAIL =
-  /回(?:这封)?邮件|回复邮件|写邮件|打开邮箱|打开邮件|open (?:my )?e-?mail|reply to (?:this )?e-?mail/i;
+  /回(?:这封)?邮件|回复邮件|写邮件|打开(?:我的)?邮箱|打开(?:我的)?邮件|open (?:my )?e-?mail|reply to (?:this )?e-?mail/i;
 const HTTP_URL = /https?:\/\/[^\s]+/i;
 
 const WEBMAIL_HOSTS = new Set([GOOGLE_HOST, MICROSOFT_HOST, 'outlook.office.com', 'outlook.office365.com']);

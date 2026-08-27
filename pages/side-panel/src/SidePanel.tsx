@@ -148,7 +148,7 @@ const SidePanel = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [chatSessions, setChatSessions] = useState<Array<{ id: string; title: string; createdAt: number }>>([]);
-  const [isFollowUpMode, setIsFollowUpMode] = useState(false);
+  const [, setIsFollowUpMode] = useState(false);
   const [isHistoricalSession, setIsHistoricalSession] = useState(false);
   const [favoritePrompts, setFavoritePrompts] = useState<FavoriteItem[]>([]);
   const [hasConfiguredModels, setHasConfiguredModels] = useState<boolean | null>(null); // null = loading, false = no models, true = has models
@@ -721,7 +721,9 @@ const SidePanel = () => {
         requestNewChatCancellationRef.current(pending.taskId, ack.revision);
         try {
           portRef.current?.postMessage({ type: 'get_task', taskId: pending.taskId });
-        } catch {}
+        } catch {
+          void 0;
+        }
       }
       return false;
     },
@@ -1280,7 +1282,9 @@ const SidePanel = () => {
         if (!dispatched)
           try {
             portRef.current?.postMessage({ type: 'get_task', taskId });
-          } catch {}
+          } catch {
+            void 0;
+          }
       } catch (error) {
         pendingNewChatCancellationRef.current = { taskId, commandId: null };
         setInputEnabled(false);
@@ -1291,7 +1295,9 @@ const SidePanel = () => {
         });
         try {
           portRef.current?.postMessage({ type: 'get_task', taskId });
-        } catch {}
+        } catch {
+          void 0;
+        }
       }
     },
     [appendMessage, sendTaskCommand],
@@ -1637,7 +1643,9 @@ const SidePanel = () => {
       else
         try {
           portRef.current?.postMessage({ type: 'get_task', taskId: cancellationTaskId });
-        } catch {}
+        } catch {
+          void 0;
+        }
       scheduleNewChatTimeout(cancellationTaskId);
     },
     [taskSnapshot],
