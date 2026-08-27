@@ -24,6 +24,13 @@ function fieldedRows(rows: Array<Record<string, string>>): Array<Record<string, 
   return rows.filter(row => Object.keys(row).length >= 2 && Object.values(row).some(value => value.trim()));
 }
 
+function booksHtmlWithNextPager(): string {
+  return booksHtml.replace(
+    '</body>',
+    '<ul class="pager"><li class="next"><a href="catalogue/page-2.html">next</a></li></ul></body>',
+  );
+}
+
 function pagedTableHtml(
   rows: Array<[string, string]>,
   next: 'rel' | 'text' | 'aria' | 'cn' | 'more' | 'none' = 'none',
@@ -211,6 +218,42 @@ describe('extract_content action', () => {
       { name: 'Sharp Objects', price: '£47.82', rating: '4' },
     ]);
     expect(result.extractedContent).not.toMatch(/Travel|Mystery/);
+  });
+
+  it('does not crawl Next on books.toscrape product_pod pages once a name/price/rating table is on the page', async () => {
+    const html = booksHtmlWithNextPager();
+    expect(htmlHasNextPage(html)).toBe(true);
+    const advancePage = vi.fn(async () => true);
+    const result = await runExtractContent(
+      { goal: 'extract products to a CSV table with name, price, rating', schema: 'name,price,rating' },
+      { getContent: async () => html, url: () => 'https://books.toscrape.com/' },
+      { advancePage },
+    );
+    expect(advancePage).not.toHaveBeenCalled();
+    expect(result.hasMorePages).toBe(true);
+    expect(result.isDone).toBe(false);
+    expect(tableDataRows(result.artifact!)).toEqual([
+      { name: 'A Light in the Attic', price: '£51.77', rating: '3' },
+      { name: 'Tipping the Velvet', price: '£53.74', rating: '1' },
+      { name: 'Sharp Objects', price: '£47.82', rating: '4' },
+    ]);
+  });
+
+  it('does not crawl Next when schema is name,price,rating even if the goal omits the word table', async () => {
+    const html = booksHtmlWithNextPager();
+    const advancePage = vi.fn(async () => true);
+    const result = await runExtractContent(
+      { goal: 'product name, price, rating', schema: 'name,price,rating' },
+      { getContent: async () => html },
+      { advancePage },
+    );
+    expect(advancePage).not.toHaveBeenCalled();
+    expect(result.hasMorePages).toBe(true);
+    expect(tableDataRows(result.artifact!).map(row => row.name)).toEqual([
+      'A Light in the Attic',
+      'Tipping the Velvet',
+      'Sharp Objects',
+    ]);
   });
 
   it('returns empty JSON without an artifact and without completing when nothing structured is found', async () => {
@@ -477,6 +520,53 @@ describe('extract_content action', () => {
     expect(rowNames(result)).toEqual(['A', 'B', 'C', 'D']);
     expect(result.hasMorePages).toBe(false);
     expect(result.isDone).toBe(false);
+  });
+
+  it('does not click Next through ActionBuilder when product_pod rows already match name/price/rating', async () => {
+    const html = booksHtmlWithNextPager();
+    const nextNode = {
+      tagName: 'a',
+      attributes: { href: 'catalogue/page-2.html' },
+      getAllTextTillNextClickableElement: (): string => 'next',
+    };
+    const state = {
+      tabId: 1,
+      url: 'https://books.toscrape.com/',
+      title: 'All products | Books to Scrape',
+      selectorMap: new Map<number, typeof nextNode>([[9, nextNode]]),
+    };
+    const clickElementNode = vi.fn(async () => undefined);
+    const waitForPageAndFramesLoad = vi.fn(async () => undefined);
+    const context = {
+      emitEvent: vi.fn(),
+      options: { useVision: false },
+      browserContext: {
+        getCurrentPage: async () => ({
+          getContent: async () => html,
+          url: () => 'https://books.toscrape.com/',
+          title: async () => 'All products | Books to Scrape',
+          getState: async () => state,
+          getDomElementByIndex: (index: number) => state.selectorMap.get(index),
+          clickElementNode,
+          waitForPageAndFramesLoad,
+          isFileUploader: () => false,
+        }),
+      },
+    } as unknown as AgentContext;
+    const actions = new ActionBuilder(context, {} as BaseChatModel).buildDefaultActions();
+    const extract = actions.find(action => action.name() === 'extract_content');
+    const result = await extract!.call({
+      goal: 'extract products to a CSV table with name, price, rating',
+      schema: 'name,price,rating',
+    });
+    expect(clickElementNode).not.toHaveBeenCalled();
+    expect(waitForPageAndFramesLoad).not.toHaveBeenCalled();
+    expect(result.hasMorePages).toBe(true);
+    expect(tableDataRows(result.artifact!)).toEqual([
+      { name: 'A Light in the Attic', price: '£51.77', rating: '3' },
+      { name: 'Tipping the Velvet', price: '£53.74', rating: '1' },
+      { name: 'Sharp Objects', price: '£47.82', rating: '4' },
+    ]);
   });
 
   it('does not import or call the product-list skill/parser', () => {

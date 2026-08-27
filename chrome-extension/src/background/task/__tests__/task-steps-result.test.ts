@@ -346,7 +346,7 @@ describe('task / steps / result chain', () => {
     expect((await manager.snapshot('task-extract-act'))?.rounds[0]?.result?.body).toContain('Alpha,$1,5');
   });
 
-  it('does not complete extract_content from a matching table when more pages remain', async () => {
+  it('completes extract_content from a matching table even when more catalog pages remain', async () => {
     let hooks!: ExecutorHooks;
     const pending = driver({ kind: 'candidate_complete', summary: 'still going' });
     pending.run = vi.fn(() => new Promise<ExecutorOutcome>(() => {}));
@@ -366,8 +366,12 @@ describe('task / steps / result chain', () => {
     const artifact = createTableArtifact({
       title: 'products',
       columns: ['name', 'price', 'rating'],
-      rows: [{ name: 'Alpha', price: '$1', rating: '5' }],
-      sources: [{ url: 'https://fixture.local/products' }],
+      rows: [
+        { name: 'A Light in the Attic', price: '£51.77', rating: '3' },
+        { name: 'Tipping the Velvet', price: '£53.74', rating: '1' },
+        { name: 'Soumission', price: '£50.10', rating: '1' },
+      ],
+      sources: [{ url: 'https://books.toscrape.com/' }],
     });
     const dispatched = await hooks.dispatchAction(
       roundId,
@@ -377,12 +381,14 @@ describe('task / steps / result chain', () => {
       ),
       { goal: 'name,price,rating', intent: 'extract' },
     );
-    expect(dispatched.actionResult.isDone).toBe(false);
-    const snap = await manager.snapshot('task-extract-more-pages');
-    expect(snap?.status).not.toBe('completed');
-    expect(['failed', 'running']).toContain(snap?.status);
-    expect(snap?.rounds[0]?.result).toBeUndefined();
-    expect(snap?.rounds[0]?.receipt).toBeUndefined();
+    expect(dispatched.actionResult.isDone).toBe(true);
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-extract-more-pages'))?.status).toBe('completed');
+    });
+    const body = (await manager.snapshot('task-extract-more-pages'))?.rounds[0]?.result?.body ?? '';
+    expect(body).toContain('A Light in the Attic,£51.77,3');
+    expect(body).toContain('Tipping the Velvet,£53.74,1');
+    expect(body).toContain('Soumission,£50.10,1');
   });
 
   const dualSourceExtractInstruction =

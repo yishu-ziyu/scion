@@ -1458,7 +1458,6 @@ export class TaskManager {
           if (artifact) {
             const completed = await this.tryCompleteFromProducedResult(taskId, roundId, {
               artifacts: [artifact],
-              hasMorePages: result.actionResult.hasMorePages,
             });
             if (completed) {
               result.actionResult.isDone = true;
@@ -4157,9 +4156,8 @@ export class TaskManager {
   private async tryCompleteFromProducedResult(
     taskId: string,
     roundId: string,
-    input: { artifacts?: TaskArtifact[]; summary?: string; hasMorePages?: boolean },
+    input: { artifacts?: TaskArtifact[]; summary?: string },
   ): Promise<boolean> {
-    if (input.hasMorePages) return false;
     const task = await getTask(taskId);
     if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return false;
     const asked = this.acceptedTaskFor(taskId);

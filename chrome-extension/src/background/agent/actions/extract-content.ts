@@ -2,6 +2,7 @@
  * Generic table / list / repeating-block extraction for extract_content.
  * Does not use site-specific product parsers.
  */
+import { instructionAsksForTable } from '@extension/shared';
 import { safePageUrl } from '@extension/context-engine';
 import { ActionResult } from '@src/background/agent/types';
 import { createTableArtifact, type ArtifactSource, type TaskArtifact } from '../../task/artifact';
@@ -202,7 +203,17 @@ async function extractOnePage(
   }
   const source = await sourceFromPage(page);
   const advance = options?.advancePage;
-  if (!advance || !shouldAdvancePage(hasMorePages, options, pageIndex)) {
+  if (
+    !advance ||
+    !shouldAdvancePage({
+      hasMorePages,
+      options,
+      pageIndex,
+      goal,
+      schema,
+      rowCount: novel.length,
+    })
+  ) {
     return { novel, hasMorePages, source, continuePaging: false };
   }
   return { novel, hasMorePages, source, continuePaging: await advance() };
@@ -219,13 +230,29 @@ function takeNovelRows(pageRows: ExtractedRecord[], seen: Set<string>): Extracte
   return novel;
 }
 
-function shouldAdvancePage(
-  hasMorePages: boolean,
-  options: ExtractContentOptions | undefined,
-  pageIndex: number,
-): boolean {
-  if (!hasMorePages || !options?.advancePage) return false;
-  return pageIndex < EXTRACT_PAGE_CAP - 1;
+function shouldAdvancePage(params: {
+  hasMorePages: boolean;
+  options: ExtractContentOptions | undefined;
+  pageIndex: number;
+  goal: string;
+  schema: string[] | undefined;
+  rowCount: number;
+}): boolean {
+  if (!params.hasMorePages || !params.options?.advancePage) return false;
+  if (params.pageIndex >= EXTRACT_PAGE_CAP - 1) return false;
+  if (stopPagingAfterFirstMatchingTable(params)) return false;
+  return true;
+}
+
+function stopPagingAfterFirstMatchingTable(params: {
+  goal: string;
+  schema: string[] | undefined;
+  rowCount: number;
+}): boolean {
+  if (params.rowCount <= 0) return false;
+  if (instructionAsksForTable(params.goal)) return true;
+  const keys = new Set((params.schema ?? []).map(field => field.trim().toLowerCase()));
+  return keys.has('name') && keys.has('price') && keys.has('rating');
 }
 
 async function rowsFromHtml(
