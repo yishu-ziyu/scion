@@ -114,8 +114,22 @@ describe('answer-format', () => {
       spans: [{ text: '已提取 6 件商品（CSV）：' }],
     });
     expect(blocks[1]).toEqual({ type: 'pre', text: NEWLINE_PRODUCT_CSV });
-    const visible = markupTextContent(renderToStaticMarkup(createElement(AnswerProse, { text })));
-    expect(visible).toBe(text);
+    const html = renderToStaticMarkup(createElement(AnswerProse, { text }));
+    expect(html).toContain('</p><pre class="chijie-answer-table">');
+    expect(html).toContain(`<pre class="chijie-answer-table">${NEWLINE_PRODUCT_CSV}</pre>`);
+    expect(markupTextContent(html)).toContain(NEWLINE_PRODUCT_CSV);
+  });
+
+  it('keeps CSV rows that look like numbered-list or dash-list markers', () => {
+    const csv = ['name,price,rating', 'Widget 1. Edition,$10.00,4.5', 'Alpha,ready: - yes,4.0'].join('\n');
+    expect(parseAnswerBlocks(csv)).toEqual([{ type: 'pre', text: csv }]);
+    const html = renderToStaticMarkup(createElement(AnswerProse, { text: csv }));
+    expect(markupTextContent(html)).toBe(csv);
+    expect(markupTextContent(html).split('\n')).toEqual([
+      'name,price,rating',
+      'Widget 1. Edition,$10.00,4.5',
+      'Alpha,ready: - yes,4.0',
+    ]);
   });
 
   it('keeps a markdown table as header, separator, and data rows', () => {

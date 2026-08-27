@@ -665,6 +665,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(componentsCss).toMatch(/\.chijie-answer \.chijie-answer-sources li \{[\s\S]{0,180}--chijie-text-sm/);
     expect(answerProseSource).toContain('chijie-answer-section');
     expect(answerProseSource).toContain('chijie-answer-table');
+    expect(answerProseSource).not.toContain("index > 0 ? '\\n'");
     expect(answerProseSource).not.toContain('chijie-thinking-sentence-in');
   });
 

@@ -1,4 +1,3 @@
-import { Fragment } from 'react';
 import { attachSourceHrefs, parseAnswerBlocks, type AnswerBlock, type AnswerSpan } from '../presentation/answer-format';
 import { openFoundSource, openFoundUrl } from '../presentation/open-found-url';
 import type { StreamSource } from '../presentation/work-stream';
@@ -82,10 +81,7 @@ export function AnswerProse({
   return (
     <div className="chijie-answer" data-testid={testId}>
       {blocks.map((block, index) => (
-        <Fragment key={index}>
-          {index > 0 ? '\n' : null}
-          <AnswerBlockView block={block} onOpenUrl={onOpenUrl} />
-        </Fragment>
+        <AnswerBlockView key={index} block={block} onOpenUrl={onOpenUrl} />
       ))}
       {sources.length > 0 ? (
         <div className="chijie-answer-sources" data-testid="answer-sources">

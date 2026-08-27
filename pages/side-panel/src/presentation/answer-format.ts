@@ -38,12 +38,12 @@ export function stripAnswerMarkup(raw: string): string {
 }
 
 export function parseAnswerBlocks(raw: string): AnswerBlock[] {
-  const text = normalizeAnswerSource(raw);
+  const text = newlineNormalizedSource(raw);
   if (!text) return [];
   const blocks: AnswerBlock[] = [];
   let cursor = 0;
   for (const span of csvOrMarkdownBlockSpans(text)) {
-    appendProseBlocks(blocks, text.slice(cursor, span.start));
+    appendProseBlocks(blocks, rewriteProseSource(text.slice(cursor, span.start)));
     const table = text
       .slice(span.start, span.end)
       .split('\n')
@@ -53,7 +53,7 @@ export function parseAnswerBlocks(raw: string): AnswerBlock[] {
     cursor = span.end;
     if (text[cursor] === '\n') cursor += 1;
   }
-  appendProseBlocks(blocks, text.slice(cursor));
+  appendProseBlocks(blocks, rewriteProseSource(text.slice(cursor)));
   return blocks;
 }
 
@@ -153,17 +153,24 @@ function flushNumbers(blocks: AnswerBlock[], state: ProseState): void {
   state.numbers = [];
 }
 
-function normalizeAnswerSource(raw: string): string {
-  return (raw ?? '')
-    .replace(/\r\n?/g, '\n')
+function newlineNormalizedSource(raw: string): string {
+  return (raw ?? '').replace(/\r\n?/g, '\n').trim();
+}
+
+/** List/heading rewrites for prose only. Do not run these on a stored table body. */
+function rewriteProseSource(raw: string): string {
+  return raw
     .replace(/([。！？!?])\s*(#{1,6}\s+)/g, '$1\n$2')
     .replace(/：\s*-\s+/g, '：\n- ')
     .replace(/:\s*-\s+/g, ':\n- ')
     .replace(/([。；;])\s*-\s+/g, '$1\n- ')
     .replace(/\s+(\d+[.、])\s+/g, '\n$1 ')
     .replace(/\*\*\s+/g, '**')
-    .replace(/([^\s.。])[ \t]+\*\*/g, '$1**')
-    .trim();
+    .replace(/([^\s.。])[ \t]+\*\*/g, '$1**');
+}
+
+function normalizeAnswerSource(raw: string): string {
+  return rewriteProseSource(newlineNormalizedSource(raw));
 }
 
 function parseSpans(line: string): AnswerSpan[] {
