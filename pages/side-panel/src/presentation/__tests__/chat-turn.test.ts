@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { Actors, type Message } from '@extension/storage';
-import { applyChatStreamDelta, classifyChatTurn, isChatOnlyMessage } from '../chat-turn';
+import {
+  applyChatStreamDelta,
+  classifyChatTurn,
+  isChatOnlyMessage,
+  isCurrentPageSummaryInstruction,
+  shouldFollowUpOwnedTask,
+} from '../chat-turn';
 
 describe('isChatOnlyMessage', () => {
   it('treats plain conversation as chat-only', () => {
@@ -54,6 +60,32 @@ describe('classifyChatTurn', () => {
   it('keeps plain chat and direct page operations off the page-summary route', () => {
     expect(classifyChatTurn('你好')).toBe('chat');
     expect(classifyChatTurn('点击登录按钮')).toBe('task');
+  });
+});
+
+describe('current-page summary follow-up bind', () => {
+  it.each([
+    '总结当前页面',
+    '请概括一下这个网页',
+    'Write a short summary of the first three books on this page.',
+  ])('treats a pure current-page summary as not a follow-up: %s', message => {
+    expect(isCurrentPageSummaryInstruction(message)).toBe(true);
+    expect(shouldFollowUpOwnedTask(true, message)).toBe(false);
+  });
+
+  it.each([
+    '总结当前页面，然后点击下一页',
+    'summarize this page, then click Next',
+    '再试一次',
+    '你好',
+  ])('lets a non-summary or mixed instruction follow up the owned task: %s', message => {
+    expect(isCurrentPageSummaryInstruction(message)).toBe(false);
+    expect(shouldFollowUpOwnedTask(true, message)).toBe(true);
+  });
+
+  it('does not follow up when the session does not own a live task', () => {
+    expect(shouldFollowUpOwnedTask(false, '总结当前页面')).toBe(false);
+    expect(shouldFollowUpOwnedTask(false, '再试一次')).toBe(false);
   });
 });
 

@@ -432,6 +432,16 @@ describe('side-panel session/task identity contract', () => {
         pendingStartTaskId: 'A',
       }),
     ).toEqual({ followingUp: true, sessionId: 'A', startingFreshSession: false });
+    const completed = { id: 'A', chatSessionId: 'A', status: 'completed' } as TaskSnapshot;
+    expect(
+      planComposerSend({
+        liveTask: completed,
+        sessionId: 'A',
+        pendingAsyncLaunch: false,
+        pendingStartTaskId: null,
+        instruction: '总结当前页面',
+      }),
+    ).toEqual({ followingUp: false, sessionId: 'A', startingFreshSession: true });
   });
 
   it('recognizes rejected start/run_skill by exact tracked ownership so UI can recover', () => {

@@ -375,11 +375,16 @@ describe('collectPageContextFromTab', () => {
       readFrameHtml: async () => ({
         title: 'Huge catalogue',
         url: 'https://books.toscrape.com/',
-        html: `<html><body><main><h1>Books</h1><p>${'x'.repeat(80_000)}</p></main></body></html>`,
+        html: `<html><body><main><h1>Books</h1><p>${'x'.repeat(PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT)}</p></main></body></html>`.slice(
+          0,
+          PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT,
+        ),
+        truncated: true,
       }),
     });
 
     expect(collected).not.toBeNull();
+    expect(collected?.truncated).toBe(true);
     expect(JSON.stringify(collected).length).toBeLessThanOrEqual(PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT);
   });
 

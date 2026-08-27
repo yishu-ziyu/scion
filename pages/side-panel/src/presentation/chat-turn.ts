@@ -13,7 +13,21 @@ import { instructionPointsAtCurrentPage } from './active-tab-bind';
 const OPERATION_INTENT =
   /(?:打开|访问|进入|跳转|点击|点一下|填写|填入|提交|登录|登陆|注册|下单|购买|翻页|滚动|截屏|截图|下载|刷新|搜索|查找|发送|保存|复制|上传|关闭标签|新建标签)|\b(?:open|visit|go to|click|fill|submit|log ?in|sign ?(?:in|up)|scroll|screenshot|download|refresh|search|find|send|save|copy|upload|close|new tab)\b/i;
 
+const PAGE_SUMMARY_INTENT = /总结|摘要|概括|概要|\bsummari[sz]e\b|\bsummary\b/i;
+
 export type ChatTurnRoute = 'chat' | 'task';
+
+/** Pure current-page summary: bind the visible tab; do not continue the prior task. */
+export function isCurrentPageSummaryInstruction(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || OPERATION_INTENT.test(trimmed) || !instructionPointsAtCurrentPage(trimmed)) return false;
+  return PAGE_SUMMARY_INTENT.test(trimmed);
+}
+
+/** Follow-up keeps the prior task tab. Current-page summary must start against the visible tab. */
+export function shouldFollowUpOwnedTask(canFollowUp: boolean, instruction: string): boolean {
+  return canFollowUp && !isCurrentPageSummaryInstruction(instruction);
+}
 
 /** Page-summary instructions start a task so steps and 已完成 can appear. */
 export function classifyChatTurn(text: string): ChatTurnRoute {

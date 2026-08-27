@@ -34,7 +34,7 @@ import type {
   ObservedPageSnapshot,
   VerifiedPageRecord,
 } from '../../task/contracts';
-import { formatVerifiedPagesForPrompt } from '../../task/verified-step-records';
+import { filterPageSummaryActions, formatVerifiedPagesForPrompt } from '../../task/verified-step-records';
 import {
   applyInaccessibleIframeGate,
   applyLoginWallGate,
@@ -1022,7 +1022,7 @@ export async function createLlmControlDriver(
             return settleProposedDone(decision.observation || 'Control loop candidate complete', stateText);
           }
 
-          const queued = decision.actions;
+          const queued = filterPageSummaryActions(instruction, decision.actions);
           const first = queued[0];
           if (!first) {
             if (pageBodyRead) {

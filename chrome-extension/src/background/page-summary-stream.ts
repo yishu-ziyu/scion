@@ -86,7 +86,7 @@ export interface PageContextTabApi {
   readFrameHtml?: (
     tabId: number,
     frameId: number,
-  ) => Promise<{ title?: string; url?: string; html?: string } | null>;
+  ) => Promise<{ title?: string; url?: string; html?: string; truncated?: boolean } | null>;
 }
 
 export function parsePageSummaryStreamRequest(message: unknown): PageSummaryStreamRequest | null {
@@ -397,24 +397,29 @@ const chromePageContextApi: PageContextTabApi = {
 async function readFrameHtmlViaScripting(
   tabId: number,
   frameId: number,
-): Promise<{ title: string; url: string; html: string } | null> {
+): Promise<{ title: string; url: string; html: string; truncated: boolean } | null> {
   const results = await chrome.scripting.executeScript({
     target: { tabId, frameIds: [frameId] },
-    func: (maxChars: number) => ({
-      title: document.title || '',
-      url: document.URL || '',
-      html: (document.documentElement?.outerHTML || '').slice(0, maxChars),
-    }),
+    func: (maxChars: number) => {
+      const full = document.documentElement?.outerHTML || '';
+      return {
+        title: document.title || '',
+        url: document.URL || '',
+        html: full.slice(0, maxChars),
+        truncated: full.length > maxChars,
+      };
+    },
     args: [PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT],
   });
   const result = results[0]?.result;
   if (!result || typeof result !== 'object') return null;
-  const record = result as { title?: unknown; url?: unknown; html?: unknown };
+  const record = result as { title?: unknown; url?: unknown; html?: unknown; truncated?: unknown };
   if (typeof record.html !== 'string') return null;
   return {
     title: typeof record.title === 'string' ? record.title : '',
     url: typeof record.url === 'string' ? record.url : '',
     html: record.html.slice(0, PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT),
+    truncated: record.truncated === true,
   };
 }
 
@@ -431,9 +436,15 @@ type PageContextFrameOutcome =
   | { frame: PageContextFrame; context: CollectedPageContext }
   | { frame: PageContextFrame; error: string };
 
-function collectedFromHtml(html: string, title: string, url: string): CollectedPageContext {
-  const truncated = html.length > PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT;
-  const bounded = truncated ? html.slice(0, PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT) : html;
+function collectedFromHtml(
+  html: string,
+  title: string,
+  url: string,
+  alreadyTruncated = false,
+): CollectedPageContext {
+  const overLimit = html.length > PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT;
+  const truncated = alreadyTruncated || overLimit;
+  const bounded = overLimit ? html.slice(0, PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT) : html;
   const bundle = extractWebpageContext(bounded, { title, url: safePageUrl(url) });
   return {
     bundle: { ...bundle, url: safePageUrl(bundle.url || url), anchors: [] },
@@ -451,7 +462,7 @@ async function contextFromHtmlFallback(
   try {
     const raw = await api.readFrameHtml(tabId, frame.frameId);
     if (!raw || typeof raw.html !== 'string' || !raw.html.trim()) return null;
-    return collectedFromHtml(raw.html, raw.title ?? '', raw.url ?? frame.url ?? '');
+    return collectedFromHtml(raw.html, raw.title ?? '', raw.url ?? frame.url ?? '', raw.truncated === true);
   } catch {
     return null;
   }

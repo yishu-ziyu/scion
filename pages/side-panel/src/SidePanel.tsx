@@ -39,7 +39,12 @@ import {
   type BoundContentTab,
 } from './presentation/active-tab-bind';
 import { resolveActiveContentTab } from './presentation/active-tab-runtime';
-import { applyChatStreamDelta, classifyChatTurn, type ChatStreamState } from './presentation/chat-turn';
+import {
+  applyChatStreamDelta,
+  classifyChatTurn,
+  shouldFollowUpOwnedTask,
+  type ChatStreamState,
+} from './presentation/chat-turn';
 import { canBootstrapReconnectSnapshot, reconnectTaskSnapshotRequest } from './presentation/task-reconnect';
 import {
   isActiveTaskStatus,
@@ -1371,6 +1376,7 @@ const SidePanel = () => {
       sessionId: sessionIdRef.current,
       pendingAsyncLaunch: pendingAsyncLaunchRef.current !== null,
       pendingStartTaskId: pendingStartCommandRef.current?.taskId ?? null,
+      instruction: trimmedText,
     });
     if (sendPlan.blockFeedback) {
       return { delivered: false, feedback: sendPlan.blockFeedback };
@@ -1453,7 +1459,7 @@ const SidePanel = () => {
 
       const currentTask = taskSnapshotRef.current;
       const canFollowUp = canFollowUpInOwnedSession(currentTask, turnSessionId);
-      if (canFollowUp && currentTask) {
+      if (shouldFollowUpOwnedTask(canFollowUp, text) && currentTask) {
         commandDispatched = sendTaskCommand({
           type: 'follow_up',
           commandId: crypto.randomUUID(),

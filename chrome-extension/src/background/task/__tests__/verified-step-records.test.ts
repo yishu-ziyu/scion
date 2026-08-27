@@ -3,6 +3,7 @@ import { isAtomicSkillInstruction } from '../../agent/skills/instruction-scope';
 import { bareWikipediaUrlsFromInstruction } from '../manager';
 import {
   checkVerifiedRecordDeliverable,
+  filterPageSummaryActions,
   formatVerifiedPagesForPrompt,
   instructionPointsAtCurrentPage,
   pageMatchesInstruction,
@@ -155,5 +156,24 @@ describe('verified step records', () => {
       passed: true,
       reasons: [],
     });
+  });
+
+  it('rewrites click/fill/navigate to a page read for a pure current-page summary', () => {
+    const click = { name: 'click_element', args: { index: 3 } };
+    const fill = { name: 'input_text', args: { index: 1, text: 'Ada' } };
+    const go = { name: 'go_to_url', args: { url: 'https://example.test/' } };
+    const read = { name: 'read_page_text', args: { max_chars: 8_000 } };
+    expect(filterPageSummaryActions('总结当前页面', [click, fill, go, read])).toEqual([
+      { name: 'read_page_text', args: { max_chars: 20_000 } },
+      { name: 'read_page_text', args: { max_chars: 20_000 } },
+      { name: 'read_page_text', args: { max_chars: 20_000 } },
+      read,
+    ]);
+  });
+
+  it('leaves queued acts unchanged when the user asked to operate the page', () => {
+    const click = { name: 'click_element', args: { index: 3 } };
+    expect(filterPageSummaryActions('总结当前页面，然后点击下一页', [click])).toEqual([click]);
+    expect(filterPageSummaryActions('打开淘宝首页', [click])).toEqual([click]);
   });
 });

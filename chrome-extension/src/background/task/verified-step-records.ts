@@ -5,6 +5,7 @@
 import type { BrowserTargetRef } from '@extension/storage/lib/task';
 import { analyzeInstructionLanguage, instructionAffirmsTarget } from '../instruction-language';
 import { pageLooksUnavailable } from '../browser/page-availability';
+import { PAGE_CHANGING_ACTIONS } from '../browser/kernel/types';
 import { normalizeVisiblePageText } from '../browser/kernel/visible-text';
 import { numberedStepSegments } from './mission-plan';
 import { isAtomicSkillInstruction } from '../agent/skills/instruction-scope';
@@ -84,6 +85,32 @@ export function instructionPointsAtCurrentPage(instruction: string): boolean {
   return (
     /(?:当前|这个|本)(?:的)?(?:页面|网页|网站|页)|(?:页面|网页)(?:上|中|展示|内容)/.test(instruction) ||
     /\b(?:this|the|current)\s+(?:page|webpage|site)\b/i.test(instruction)
+  );
+}
+
+const PAGE_SUMMARY_INTENT = /总结|摘要|概括|概要|\bsummari[sz]e\b|\bsummary\b/i;
+
+const PAGE_OPERATION_INTENT =
+  /(?:打开|访问|进入|跳转|点击|点一下|填写|填入|提交|登录|登陆|注册|下单|购买|翻页|滚动|截屏|截图|下载|刷新|搜索|查找|发送|保存|复制|上传|关闭标签|新建标签)|\b(?:open|visit|go to|click|fill|submit|log ?in|sign ?(?:in|up)|scroll|screenshot|download|refresh|search|find|send|save|copy|upload|close|new tab)\b/i;
+
+const READ_PAGE_TEXT_ACTION = { name: 'read_page_text', args: { max_chars: 20_000 } };
+
+function instructionIsPureCurrentPageSummary(instruction: string): boolean {
+  const text = instruction.replace(/\s+/g, ' ').trim();
+  if (!text || PAGE_OPERATION_INTENT.test(text) || !instructionPointsAtCurrentPage(text)) return false;
+  return PAGE_SUMMARY_INTENT.test(text);
+}
+
+/** Pure current-page summary may observe/read. Rewrite click/fill/navigate to a page read. */
+export function filterPageSummaryActions<T extends { name: string; args: Record<string, unknown> }>(
+  instruction: string,
+  actions: readonly T[],
+): T[] {
+  if (!instructionIsPureCurrentPageSummary(instruction)) return [...actions];
+  return actions.map(action =>
+    PAGE_CHANGING_ACTIONS.has(action.name) || action.name === 'input_text'
+      ? ({ ...action, ...READ_PAGE_TEXT_ACTION } as T)
+      : action,
   );
 }
 

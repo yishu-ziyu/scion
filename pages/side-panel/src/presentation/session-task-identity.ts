@@ -1,4 +1,5 @@
 import { Actors, type Message, type TaskCommand, type TaskSnapshot, type TaskStatus } from '@extension/storage';
+import { shouldFollowUpOwnedTask } from './chat-turn';
 import { displayCurrentPageMention } from './composer-mention';
 
 const LIVE_TASK_STATUSES = new Set<TaskStatus>(['running', 'paused', 'waiting_user', 'inputs_required', 'interrupted']);
@@ -349,13 +350,17 @@ export function planComposerSend(input: {
   sessionId: string | null;
   pendingAsyncLaunch: boolean;
   pendingStartTaskId: string | null;
+  instruction?: string;
 }): {
   followingUp: boolean;
   sessionId: string | null;
   startingFreshSession: boolean;
   blockFeedback?: string;
 } {
-  const followingUp = canFollowUpInOwnedSession(input.liveTask, input.sessionId);
+  const followingUp = shouldFollowUpOwnedTask(
+    canFollowUpInOwnedSession(input.liveTask, input.sessionId),
+    input.instruction ?? '',
+  );
   const sessionId = followingUp
     ? (input.sessionId ?? input.liveTask?.chatSessionId ?? input.liveTask?.id ?? null)
     : input.sessionId;
