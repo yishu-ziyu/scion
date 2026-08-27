@@ -14,7 +14,7 @@ vi.mock('../cdp/click', async importOriginal => {
   const actual = await importOriginal();
   return {
     ...(actual as object),
-    clickCdpElement: (...args: unknown[]) => clickCdpElement(...args),
+    clickCdpElement,
   };
 });
 

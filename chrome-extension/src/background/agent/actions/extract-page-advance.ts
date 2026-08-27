@@ -1,18 +1,18 @@
 import { nodeLooksLikeNextPage } from './extract-next';
 
 export type NextControlNode = {
-  tagName?: string;
+  tagName?: string | null;
   attributes?: Record<string, string>;
   getAllTextTillNextClickableElement?: (maxDepth?: number) => string;
 };
 
-export type ExtractAdvancePage = {
-  getState?: (useVision?: boolean) => Promise<{ selectorMap?: Map<number, NextControlNode> }>;
-  getDomElementByIndex?: (index: number) => NextControlNode | undefined | null;
-  clickElementNode?: (useVision: boolean, node: NextControlNode) => Promise<void>;
-  waitForPageAndFramesLoad?: () => Promise<void>;
-  isFileUploader?: (node: NextControlNode) => boolean;
-};
+export interface ExtractAdvancePage {
+  getState?(useVision?: boolean): Promise<{ selectorMap?: ReadonlyMap<number, NextControlNode> }>;
+  getDomElementByIndex?(index: number): NextControlNode | undefined | null;
+  clickElementNode?(useVision: boolean, node: NextControlNode): Promise<void>;
+  waitForPageAndFramesLoad?(): Promise<void>;
+  isFileUploader?(node: NextControlNode): boolean;
+}
 
 function nodeTag(node: NextControlNode): string {
   return (node.tagName || '').toLowerCase();
@@ -22,7 +22,7 @@ function nodeText(node: NextControlNode): string {
   return node.getAllTextTillNextClickableElement?.(2) || '';
 }
 
-export function findNextPageControlIndex(selectorMap: Map<number, NextControlNode>): number | undefined {
+export function findNextPageControlIndex(selectorMap: ReadonlyMap<number, NextControlNode>): number | undefined {
   const entries = [...selectorMap.entries()].sort(([left], [right]) => left - right);
   for (const [index, node] of entries) {
     if (nodeLooksLikeNextPage(nodeTag(node), node.attributes || {}, nodeText(node))) return index;
