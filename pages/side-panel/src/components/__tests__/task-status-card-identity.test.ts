@@ -828,6 +828,41 @@ describe('TaskStatusCard identity markers', () => {
     expect(source).not.toContain('writeText(deliverableAnswer)');
   });
 
+  it('shows a CSV result with header and rows on their own lines', () => {
+    const csv = [
+      'name,price,rating',
+      'Alpha Wireless Headphones,$49.99,4.5',
+      'Beta Mechanical Keyboard,$89.00,4.8',
+    ].join('\n');
+    const currentRound = completedRound('round-table', 'receipt-table');
+    currentRound.result = { kind: 'table', body: csv };
+    const snapshot = {
+      id: 'task-current',
+      goalSummary: 'Extract products to a CSV table with name, price, rating',
+      status: 'completed',
+      revision: 3,
+      activeTabId: 7,
+      currentRoundId: currentRound.id,
+      targetRefs: [],
+      rounds: [currentRound],
+      createdAt: 1,
+      updatedAt: 2,
+    } satisfies TaskSnapshot;
+
+    const html = renderToStaticMarkup(
+      createElement(TaskStatusCard, {
+        snapshot,
+        send: vi.fn(),
+        defaultInstruction: 'Extract products to a CSV table with name, price, rating',
+        readOnly: true,
+      }),
+    );
+
+    expect(html).toContain('data-testid="completion-result"');
+    expect(html).toContain('chijie-answer-table');
+    expect(html).toContain(`<pre class="chijie-answer-table">${csv}</pre>`);
+  });
+
   it('already-open Google results show the fourth title and the click, not a page-reading sentence', () => {
     const snapshot = {
       id: 'task-serp',

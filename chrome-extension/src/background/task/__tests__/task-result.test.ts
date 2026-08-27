@@ -89,8 +89,7 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
       summary: 'Extracted 2 records. Task is not complete.',
     });
     expect(result?.kind).toBe('table');
-    expect(result?.body).toContain('name,price,rating');
-    expect(result?.body).toContain('Alpha,$49.99,4.5');
+    expect(result?.body).toBe(['name,price,rating', 'Alpha,$49.99,4.5', 'Beta,$9,4'].join('\n'));
     expect(resultIsPresentAndMatches(asked, result)).toBe(true);
     expect(
       resultIsPresentAndMatches(asked, produceResult({ asked, summary: 'Extracted 2 records. Task is not complete.' })),
@@ -141,9 +140,18 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     ].join('\n');
     const result = produceResult({ asked, summary });
     expect(result?.kind).toBe('table');
-    expect(result?.body).toContain('name,price,rating');
-    expect(result?.body).toContain('Alpha Wireless Headphones');
+    expect(result?.body).toBe(summary);
+    expect(result?.body).toContain('\n');
     expect(resultIsPresentAndMatches(asked, result)).toBe(true);
+  });
+
+  it('does not treat a flattened product CSV sentence as a table result', () => {
+    const asked = acceptTask('Extract products to a CSV table with name, price, rating');
+    const flattened =
+      'name,price,rating Alpha Wireless Headphones,$49.99,4.5 Beta Mechanical Keyboard,$89.00,4.8 Gamma USB-C Hub,$34.50,4.2 Delta Desk Lamp,$27.99,4.0 Epsilon Notebook Stand,$19.95,4.6 Zeta Webcam Cover,$8.49,3.9';
+    expect(flattened).not.toContain('\n');
+    expect(resultIsPresentAndMatches(asked, { kind: 'table', body: flattened })).toBe(false);
+    expect(produceResult({ asked, summary: flattened })).toBeNull();
   });
 
   it('keeps a matching table summary when artifacts are also present', () => {

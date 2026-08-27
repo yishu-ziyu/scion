@@ -213,13 +213,15 @@ describe('R1 product-table journey (auto_proxy)', () => {
     if (!snap) throw new Error('missing task');
     const round = snap.rounds.find(r => r.id === snap.currentRoundId) ?? snap.rounds[0];
     expect(round?.status).toBe('completed');
-    // Deliverable lands in instructionSummary for side-panel completion-deliverable.
-    const answer = round?.instructionSummary ?? '';
+    // Deliverable lands in result.body; instructionSummary is the same take-away for the sidebar.
+    const answer = round?.result?.body ?? '';
+    expect(answer).toContain('\n');
     expect(answer).toContain('name,price,rating');
     expect(answer).toContain('Alpha Wireless Headphones');
     expect(answer).toContain('$49.99');
     const productLines = answer.split('\n').filter(l => /\$\d/.test(l));
     expect(productLines.length).toBeGreaterThanOrEqual(5);
+    expect(round?.instructionSummary).toBe(answer);
   });
 
   it('completes the exact LH-03 task with the table and derived highest-price result', async () => {

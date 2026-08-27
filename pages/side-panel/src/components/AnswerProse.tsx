@@ -1,4 +1,4 @@
-import { attachSourceHrefs, parseAnswerBlocks, type AnswerSpan } from '../presentation/answer-format';
+import { attachSourceHrefs, parseAnswerBlocks, type AnswerBlock, type AnswerSpan } from '../presentation/answer-format';
 import { openFoundSource, openFoundUrl } from '../presentation/open-found-url';
 import type { StreamSource } from '../presentation/work-stream';
 import { t } from '@extension/i18n';
@@ -25,6 +25,46 @@ function Spans({ spans, onOpenUrl }: { spans: AnswerSpan[]; onOpenUrl?: (url: st
   );
 }
 
+function AnswerBlockView({ block, onOpenUrl }: { block: AnswerBlock; onOpenUrl?: (url: string) => void }) {
+  if (block.type === 'section') {
+    return (
+      <p className="chijie-answer-section">
+        <Spans spans={block.spans} onOpenUrl={onOpenUrl} />
+      </p>
+    );
+  }
+  if (block.type === 'ul') {
+    return (
+      <ul>
+        {block.items.map((item, itemIndex) => (
+          <li key={itemIndex}>
+            <Spans spans={item} onOpenUrl={onOpenUrl} />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (block.type === 'ol') {
+    return (
+      <ol>
+        {block.items.map((item, itemIndex) => (
+          <li key={itemIndex}>
+            <Spans spans={item} onOpenUrl={onOpenUrl} />
+          </li>
+        ))}
+      </ol>
+    );
+  }
+  if (block.type === 'pre') {
+    return <pre className="chijie-answer-table">{block.text}</pre>;
+  }
+  return (
+    <p>
+      <Spans spans={block.spans} onOpenUrl={onOpenUrl} />
+    </p>
+  );
+}
+
 export function AnswerProse({
   text,
   sources = [],
@@ -40,43 +80,9 @@ export function AnswerProse({
   const blocks = attachSourceHrefs(parseAnswerBlocks(text), clickableSources);
   return (
     <div className="chijie-answer" data-testid={testId}>
-      {blocks.map((block, index) => {
-        if (block.type === 'section') {
-          return (
-            <p key={index} className="chijie-answer-section">
-              <Spans spans={block.spans} onOpenUrl={onOpenUrl} />
-            </p>
-          );
-        }
-
-        if (block.type === 'ul') {
-          return (
-            <ul key={index}>
-              {block.items.map((item, itemIndex) => (
-                <li key={itemIndex}>
-                  <Spans spans={item} onOpenUrl={onOpenUrl} />
-                </li>
-              ))}
-            </ul>
-          );
-        }
-        if (block.type === 'ol') {
-          return (
-            <ol key={index}>
-              {block.items.map((item, itemIndex) => (
-                <li key={itemIndex}>
-                  <Spans spans={item} onOpenUrl={onOpenUrl} />
-                </li>
-              ))}
-            </ol>
-          );
-        }
-        return (
-          <p key={index}>
-            <Spans spans={block.spans} onOpenUrl={onOpenUrl} />
-          </p>
-        );
-      })}
+      {blocks.map((block, index) => (
+        <AnswerBlockView key={index} block={block} onOpenUrl={onOpenUrl} />
+      ))}
       {sources.length > 0 ? (
         <div className="chijie-answer-sources" data-testid="answer-sources">
           <p className="chijie-stream-caption">对核这些页</p>
