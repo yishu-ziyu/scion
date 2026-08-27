@@ -165,7 +165,6 @@ const SEMANTIC_PROGRESS_ACTIONS = new Set([
   'read_page_text',
   'inspect_open_tabs',
   'find_tab',
-  'evaluate',
   'snapshot',
   'record_research_decision',
   'record_research_delivery',
@@ -179,7 +178,6 @@ const CONTENT_RESULT_ACTIONS = new Set([
   'read_page_text',
   'inspect_open_tabs',
   'find_tab',
-  'evaluate',
   'snapshot',
   'inspect_evidence_space',
   'inspect_github_repository',
@@ -566,6 +564,7 @@ export async function createLlmControlDriver(
           url: currentFrame?.tab.url,
           title: currentFrame?.tab.title,
           visibleText: currentFrame?.visibleText,
+          formFieldsText: currentFrame?.formFieldsText,
           fallback: stateText,
         });
         await agentContext.emitEvent(Actors.VALIDATOR, ExecutionState.STEP_START, '正在核对页面上的结果');

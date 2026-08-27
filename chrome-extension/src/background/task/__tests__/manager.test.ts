@@ -25,6 +25,7 @@ import {
 import { ActionResult } from '../../agent/types';
 import { sha256 } from '../digest';
 import { createTextArtifact } from '../artifact';
+import { downloadStateFromItems } from '../download-state';
 import type { BrowserTargetRef } from '@extension/storage/lib/task';
 
 const store = vi.hoisted(() => ({
@@ -1644,10 +1645,13 @@ describe('TaskManager lifecycle', () => {
     expect(second?.status).toBe('running');
   });
 
-  it('recovers stored running work as interrupted', async () => {
+  it('recovers stored running work by continuing the loop', async () => {
+    const instruction = 'open form';
     store.sessions.set('task-1', {
       id: 'task-1',
       goalSummary: 'open form',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
       status: 'running',
       revision: 1,
       activeTabId: 7,
@@ -1658,6 +1662,7 @@ describe('TaskManager lifecycle', () => {
       rounds: [
         {
           id: 'round-1',
+          instructionMessageId: 'message-1',
           instructionSummary: 'open form',
           status: 'running',
           commandAcks: {},
@@ -1667,21 +1672,144 @@ describe('TaskManager lifecycle', () => {
         },
       ],
     });
+    store.chatSessions.set('chat-1', {
+      messages: [{ id: 'message-1', content: instruction }],
+    });
+    const createExecutor = vi.fn(async () => fakeDriver());
     const manager = new TaskManager({
-      createExecutor: async () => fakeDriver(),
+      createExecutor,
       switchTab: vi.fn(),
       observeCriteria: vi.fn(async () => []),
       now: () => 100,
       ...noPostCommitBackoff,
     });
     await manager.recover();
-    await expect(manager.snapshot('task-1')).resolves.toMatchObject({ status: 'interrupted' });
+    await expect(manager.snapshot('task-1')).resolves.toMatchObject({ status: 'running' });
+    await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
+    expect(createExecutor).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'task-1', instruction }),
+      expect.anything(),
+    );
   });
 
-  it('restores persisted task-owned tabs before resuming after a worker restart', async () => {
+  it('does not create a second executor when recover runs twice for the same running task', async () => {
+    store.sessions.set('task-double-recover', {
+      id: 'task-double-recover',
+      goalSummary: 'open form',
+      chatSessionId: 'chat-double-recover',
+      instructionMessageId: 'message-double-recover',
+      status: 'running',
+      revision: 1,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionMessageId: 'message-double-recover',
+          instructionSummary: 'open form',
+          status: 'running',
+          commandAcks: {},
+          criteria: [],
+          attempts: [],
+          evidence: [],
+        },
+      ],
+    });
+    store.chatSessions.set('chat-double-recover', {
+      messages: [{ id: 'message-double-recover', content: 'open form' }],
+    });
+    const createExecutor = vi.fn(async () => fakeDriver());
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    await manager.recover();
+    await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
+    await manager.recover();
+    await new Promise(resolve => setTimeout(resolve, 40));
+    expect(createExecutor).toHaveBeenCalledTimes(1);
+    await expect(manager.snapshot('task-double-recover')).resolves.toMatchObject({ status: 'running' });
+  });
+
+  it('schedules a keep-alive alarm while recovered work is running and clears it when paused', async () => {
+    const create = vi.fn<(name: string, info: { periodInMinutes?: number }) => Promise<void>>(async () => undefined);
+    const clear = vi.fn<(name: string) => Promise<boolean>>(async () => true);
+    const get = vi.fn<(name: string) => Promise<{ name: string } | undefined>>(async () => undefined);
+    vi.stubGlobal('chrome', {
+      alarms: { create, clear, get, onAlarm: { addListener: vi.fn() } },
+    });
+    store.sessions.set('task-keep-alive', {
+      id: 'task-keep-alive',
+      goalSummary: 'open form',
+      chatSessionId: 'chat-keep-alive',
+      instructionMessageId: 'message-keep-alive',
+      status: 'running',
+      revision: 1,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      createdAt: 1,
+      updatedAt: 1,
+      rounds: [
+        {
+          id: 'round-1',
+          instructionMessageId: 'message-keep-alive',
+          instructionSummary: 'open form',
+          status: 'running',
+          commandAcks: {},
+          criteria: [],
+          attempts: [],
+          evidence: [],
+        },
+      ],
+    });
+    store.chatSessions.set('chat-keep-alive', {
+      messages: [{ id: 'message-keep-alive', content: 'open form' }],
+    });
+    const createExecutor = vi.fn(async () => fakeDriver());
+    const manager = new TaskManager({
+      createExecutor,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+      ...noPostCommitBackoff,
+    });
+    try {
+      await manager.recover();
+      await vi.waitFor(() => expect(create).toHaveBeenCalled());
+      expect(create).toHaveBeenCalledWith(
+        'chijie-task-keep-alive',
+        expect.objectContaining({ periodInMinutes: expect.any(Number) }),
+      );
+      const period = create.mock.calls[0]?.[1]?.periodInMinutes as number;
+      expect(period).toBeGreaterThanOrEqual(20 / 60);
+      expect(period).toBeLessThanOrEqual(25 / 60);
+      await vi.waitFor(() => expect(createExecutor).toHaveBeenCalledTimes(1));
+      const running = await manager.snapshot('task-keep-alive');
+      await manager.dispatch({
+        type: 'pause',
+        commandId: 'pause-keep-alive',
+        taskId: 'task-keep-alive',
+        expectedRevision: running?.revision ?? 0,
+      });
+      await vi.waitFor(() => expect(clear).toHaveBeenCalledWith('chijie-task-keep-alive'));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('restores persisted task-owned tabs when auto-continuing after a worker restart', async () => {
     store.sessions.set('task-owned-recover', {
       id: 'task-owned-recover',
       goalSummary: 'open pages',
+      chatSessionId: 'chat-owned-recover',
+      instructionMessageId: 'message-owned-recover',
       status: 'running',
       revision: 1,
       activeTabId: 21,
@@ -1711,6 +1839,7 @@ describe('TaskManager lifecycle', () => {
       rounds: [
         {
           id: 'round-owned',
+          instructionMessageId: 'message-owned-recover',
           instructionSummary: 'open pages',
           status: 'running',
           commandAcks: {},
@@ -1719,6 +1848,9 @@ describe('TaskManager lifecycle', () => {
           evidence: [],
         },
       ],
+    });
+    store.chatSessions.set('chat-owned-recover', {
+      messages: [{ id: 'message-owned-recover', content: 'open pages' }],
     });
     const registerTaskOwnedTab = vi.fn(async () => undefined);
     const manager = new TaskManager({
@@ -1732,16 +1864,9 @@ describe('TaskManager lifecycle', () => {
     });
 
     await manager.recover();
-    const interrupted = await manager.snapshot('task-owned-recover');
-    await manager.dispatch({
-      type: 'resume',
-      commandId: 'resume-owned',
-      taskId: 'task-owned-recover',
-      expectedRevision: interrupted?.revision ?? 0,
-    });
-
     await vi.waitFor(() => expect(registerTaskOwnedTab).toHaveBeenCalledWith(21));
     expect(registerTaskOwnedTab).not.toHaveBeenCalledWith(7);
+    await expect(manager.snapshot('task-owned-recover')).resolves.toMatchObject({ status: 'running' });
   });
 
   it('keeps an explicitly paused quota research task paused after extension reload', async () => {
@@ -2757,9 +2882,96 @@ describe('TaskManager lifecycle', () => {
         expected: 'finished',
         targetRefId: 'download:session',
         baseline: 'none',
+        notBefore: 100,
+        frozenAt: 100,
       }),
     ]);
-    expect(probeDownloadState).toHaveBeenCalled();
+    expect(probeDownloadState).toHaveBeenCalledWith({ notBefore: 100 });
+  });
+
+  it('does not complete a download task from leftover complete items started before notBefore', async () => {
+    const frozenAt = Date.UTC(2026, 0, 1, 12, 0, 0);
+    const leftover = { startTime: new Date(frozenAt - 120_000).toISOString(), state: 'complete' as const };
+    const items = [leftover];
+    const probeDownloadState = vi.fn(async (query?: { notBefore?: number }) => {
+      if (query?.notBefore == null) return 'finished';
+      return downloadStateFromItems(items, query.notBefore);
+    });
+    const driver = fakeDriver();
+    driver.run = vi.fn().mockResolvedValue({ kind: 'candidate_complete', summary: 'done' });
+    const manager = new TaskManager({
+      createExecutor: async () => driver,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      probeDownloadState,
+      now: () => frozenAt,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-download-leftover',
+      taskId: 'task-download-leftover',
+      instruction: 'download this file',
+      chatSessionId: 'chat-download-leftover',
+      instructionMessageId: 'message-download-leftover',
+      tabId: 7,
+    });
+    await vi.waitFor(async () => {
+      const status = (await manager.snapshot('task-download-leftover'))?.status;
+      expect(status === 'failed' || status === 'waiting_user' || status === 'completed').toBe(true);
+    });
+    const snap = await manager.snapshot('task-download-leftover');
+    const criterion = snap?.rounds[0]?.criteria.find(item => item.kind === 'download_state');
+    expect(criterion).toMatchObject({ notBefore: frozenAt, frozenAt });
+    expect(probeDownloadState).toHaveBeenCalledWith({ notBefore: frozenAt });
+    expect(snap?.status).not.toBe('completed');
+    expect(snap?.rounds[0]?.result?.body).not.toBe('下载已完成');
+  });
+
+  it('completes a download only after a post-freeze finished item', async () => {
+    const frozenAt = Date.UTC(2026, 0, 1, 12, 0, 0);
+    const leftover = { startTime: new Date(frozenAt - 120_000).toISOString(), state: 'complete' as const };
+    const fresh = { startTime: new Date(frozenAt + 1_000).toISOString(), state: 'complete' as const };
+    const items = [leftover];
+    const probeDownloadState = vi.fn(async (query?: { notBefore?: number }) => {
+      if (query?.notBefore == null) return 'finished';
+      return downloadStateFromItems(items, query.notBefore);
+    });
+    let finish!: (outcome: ExecutorOutcome) => void;
+    const driver = fakeDriver();
+    driver.run = vi.fn(() => new Promise<ExecutorOutcome>(resolve => (finish = resolve)));
+    let hooks!: ExecutorHooks;
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return driver;
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      probeDownloadState,
+      now: () => frozenAt,
+      ...noPostCommitBackoff,
+    });
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-download-fresh',
+      taskId: 'task-download-fresh',
+      instruction: 'download this file',
+      chatSessionId: 'chat-download-fresh',
+      instructionMessageId: 'message-download-fresh',
+      tabId: 7,
+    });
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    expect(probeDownloadState).toHaveBeenCalledWith({ notBefore: frozenAt });
+    expect(downloadStateFromItems(items, frozenAt)).toBe('none');
+    items.push(fresh);
+    finish({ kind: 'candidate_complete', summary: 'done' });
+    await vi.waitFor(async () => {
+      expect(await manager.snapshot('task-download-fresh')).toMatchObject({
+        status: 'completed',
+        rounds: [{ result: { kind: 'file', body: '下载已完成' } }],
+      });
+    });
   });
 
   it('freezes media_state paused for pause goals', async () => {

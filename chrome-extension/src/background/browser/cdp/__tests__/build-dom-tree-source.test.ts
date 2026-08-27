@@ -18,4 +18,12 @@ describe('buildDomTree.js shadow and marker', () => {
     expect(src).toContain('node.shadowRoot');
     expect(src).toContain('node.shadowRoot.childNodes');
   });
+
+  it('classifies api keys, tokens, and PINs as sensitive without copying contenteditable inner text', () => {
+    expect(src).toContain('api\\s*key');
+    expect(src).toContain('access\\s*token');
+    expect(src).toContain('|pin|');
+    expect(src).toContain('if (sensitive) delete nodeData.attributes.value');
+    expect(src).toContain('if (text) nodeData.attributes.value = text.slice(0, 240)');
+  });
 });

@@ -9,10 +9,12 @@ export const CRUISE_TARGETS = [
   'packages/dev-utils',
   'packages/hmr/lib',
   'packages/i18n',
+  'packages/media-context',
   'packages/schema-utils/lib',
   'packages/shared/lib',
   'packages/storage/lib',
   'packages/ui/lib',
+  'packages/wisebase-core',
   'packages/zipper',
 ];
 

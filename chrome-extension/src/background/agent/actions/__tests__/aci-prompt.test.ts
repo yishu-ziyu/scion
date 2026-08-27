@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderActionSchemaPrompt } from '../action-prompt';
-import { Action } from '../builder';
-import { ActionResult } from '../../types';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { Action, ActionBuilder } from '../builder';
+import { MODEL_ACTION_NAMES } from '../model-action-safety';
+import { ActionResult, type AgentContext } from '../../types';
 import {
   ALL_ACTION_SCHEMAS,
   clickElementActionSchema,
@@ -61,6 +63,48 @@ describe('action ACI prompt', () => {
       expect(schema.costHint, `${schema.name}.costHint`).toBeTruthy();
       expect(renderActionSchemaPrompt(schema), `${schema.name} type labels`).not.toContain("'type': 'undefined'");
     }
+  });
+
+  it('does not expose evaluate or a code argument in model-facing schemas', () => {
+    const prompts = ALL_ACTION_SCHEMAS.map(renderActionSchemaPrompt).join('\n');
+    expect(ALL_ACTION_SCHEMAS.map(schema => schema.name)).not.toContain('evaluate');
+    expect(prompts).not.toContain('{evaluate');
+    expect(prompts).not.toContain("'code'");
+  });
+
+  it('does not register evaluate in the default action builder', () => {
+    const getCurrentPage = vi.fn();
+    const context = {
+      emitEvent: vi.fn(),
+      options: { useVision: false },
+      browserContext: { getCurrentPage },
+    } as unknown as AgentContext;
+    const actions = new ActionBuilder(context, {} as BaseChatModel).buildDefaultActions();
+    const names = actions.map(action => action.name()).sort();
+    expect(names).not.toContain('evaluate');
+    expect(names).toEqual(ALL_ACTION_SCHEMAS.map(schema => schema.name).sort());
+    expect(names).toEqual([...MODEL_ACTION_NAMES].sort());
+    expect(getCurrentPage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { index: 1, code: 'document.body.remove()' },
+    { index: 1, metadata: { nested: { code: 'document.body.remove()' } } },
+  ])('rejects a code field before an Action handler can run', async rawArgs => {
+    const handler = vi.fn(async () => new ActionResult({ success: true }));
+    const action = new Action(handler, clickElementActionSchema, true);
+
+    await expect(action.call(rawArgs)).rejects.toThrow('dynamic_code_not_allowed');
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('does not parse code-looking input text as a control field', async () => {
+    const handler = vi.fn(async () => new ActionResult({ success: true }));
+    const action = new Action(handler, inputTextActionSchema, true);
+    const text = '{code: plain data}';
+
+    await expect(action.call({ index: 1, text })).resolves.toMatchObject({ success: true });
+    expect(handler).toHaveBeenCalledWith({ index: 1, text, intent: '' });
   });
 
   it('normalizes single-record model variants before strict evidence validation', () => {

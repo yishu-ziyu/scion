@@ -1,4 +1,5 @@
 import type { Action } from '../agent/actions/builder';
+import { modelActionRejection, type ModelActionRejection } from '../agent/actions/model-action-safety';
 import { ActionResult } from '../agent/types';
 import type { ActionAttempt, AttemptFinding, BrowserTargetRef, CompletionEvidence } from '@extension/storage/lib/task';
 import type { ActOutcome, DispatchResult } from './contracts';
@@ -72,6 +73,10 @@ function didNotActOnTarget(error: string): boolean {
 const COMMIT_SIGNAL =
   /(submit|send|buy|purchase|delete|remove|confirm|pay|publish|post|save|book|reserve|checkout|transfer|approve|accept|create|update|grant|revoke|enable|disable|cancel|unsubscribe|authorize|connect|disconnect|join|leave|follow|unfollow|提交|发送|购买|删除|确认|支付|发布|保存|预订|转账|批准|接受|创建|更新|授权|撤销|启用|禁用|取消|退订|连接|断开|加入|离开|关注|取关)/i;
 
+function isExternalCommitDecision(decision: EffectDecision): decision is { kind: 'allow'; effect: 'external_commit' } {
+  return decision.kind === 'allow' && decision.effect === 'external_commit';
+}
+
 export function decideEffect(input: {
   actionName: string;
   target: EffectTarget | Record<string, unknown>;
@@ -124,7 +129,6 @@ export function decideEffect(input: {
       'read_page_text',
       'inspect_open_tabs',
       'find_tab',
-      'evaluate',
       'snapshot',
       'observe',
       'extract_content',
@@ -157,6 +161,25 @@ export interface ActionDispatcherDeps {
   now(): number;
   observe(request: DispatchRequest, parsedArgs: unknown, phase: 'before' | 'after'): Promise<TargetObservation>;
   persistAttempt(attempt: ActionAttempt): Promise<void>;
+  priorAttempts?(taskId: string, roundId: string): Promise<ActionAttempt[]>;
+}
+
+function isDispatchResult(value: DispatchResult | ActionAttempt | null): value is DispatchResult {
+  return value != null && 'actionResult' in value;
+}
+
+function isDuplicateExternalCommit(prior: ActionAttempt[], current: ActionAttempt): boolean {
+  if (current.effect !== 'external_commit') return false;
+  return prior.some(
+    item =>
+      item.id !== current.id &&
+      item.effect === 'external_commit' &&
+      (item.state === 'executing' || item.state === 'uncertain' || item.state === 'observed') &&
+      item.roundId === current.roundId &&
+      item.actionName === current.actionName &&
+      item.argsDigest === current.argsDigest &&
+      (item.targetDigest ?? '') === (current.targetDigest ?? ''),
+  );
 }
 
 export function recoverAttempt(attempt: ActionAttempt): ActionAttempt {
@@ -174,6 +197,9 @@ export class ActionDispatcher {
 
   async dispatch(request: DispatchRequest): Promise<DispatchResult> {
     this.interrupted = false;
+    const rejection = modelActionRejection(request.action.name(), request.rawArgs);
+    if (rejection) return await this.rejectModelAction(request, rejection);
+
     // Claimed state lives on raw args (model may send pageRevision outside zod schema).
     const claimed = readClaimedState(request.rawArgs);
     const parsedArgs = request.action.parse(request.rawArgs);
@@ -241,52 +267,9 @@ export class ActionDispatcher {
       });
     }
 
-    if (decision.kind === 'allow' && decision.effect === 'external_commit') {
-      attempt = { ...attempt, state: 'authorized', authorizedAt: this.deps.now() };
-      await this.deps.persistAttempt(attempt);
-      let rechecked: TargetObservation;
-      try {
-        rechecked = this.withPageRevision(await this.deps.observe(request, parsedArgs, 'before'));
-      } catch {
-        attempt = { ...attempt, state: 'blocked' };
-        await this.deps.persistAttempt(attempt);
-        return this.result(new ActionResult({ error: 'Authorized target could not be revalidated' }), attempt, before, {
-          actOutcome: 'unknown',
-        });
-      }
-      if (!before.target || !rechecked.target || before.target.digest !== rechecked.target.digest) {
-        attempt = { ...attempt, state: 'blocked' };
-        await this.deps.persistAttempt(attempt);
-        return this.result(
-          new ActionResult({ error: 'Authorized target changed; replan required' }),
-          attempt,
-          rechecked,
-          { actOutcome: 'didnt' },
-        );
-      }
-      // Target digest is the commit binding; full-page revision may drift while the control stays.
-    } else if (this.requiresIndexTargetBinding(parsedArgs, before)) {
-      let rechecked: TargetObservation;
-      try {
-        rechecked = this.withPageRevision(await this.deps.observe(request, parsedArgs, 'before'));
-      } catch {
-        attempt = { ...attempt, state: 'blocked' };
-        await this.deps.persistAttempt(attempt);
-        return this.result(
-          new ActionResult({ error: 'Action target could not be revalidated; replan required' }),
-          attempt,
-          before,
-          { actOutcome: 'didnt' },
-        );
-      }
-      if (!rechecked.target || before.target?.digest !== rechecked.target.digest) {
-        attempt = { ...attempt, state: 'blocked' };
-        await this.deps.persistAttempt(attempt);
-        return this.result(new ActionResult({ error: 'Action target changed; replan required' }), attempt, rechecked, {
-          actOutcome: 'didnt',
-        });
-      }
-    }
+    const prepared = await this.revalidateBeforeExecute(request, attempt, parsedArgs, before, decision);
+    if (isDispatchResult(prepared)) return prepared;
+    if (prepared) attempt = prepared;
 
     attempt = { ...attempt, state: 'executing', executingAt: this.deps.now() };
     await this.deps.persistAttempt(attempt);
@@ -358,6 +341,121 @@ export class ActionDispatcher {
         }),
       });
     }
+  }
+
+  private async rejectModelAction(request: DispatchRequest, rejection: ModelActionRejection): Promise<DispatchResult> {
+    const argsDigest = await sha256(JSON.stringify(request.rawArgs) ?? 'undefined');
+    let attempt: ActionAttempt = {
+      id: crypto.randomUUID(),
+      roundId: request.roundId,
+      actionName: request.action.name(),
+      effect: 'reversible',
+      argsDigest,
+      displaySummary: rejection === 'dynamic_code_not_allowed' ? '拒绝执行模型提供的代码' : '拒绝未知页面操作',
+      state: 'proposed',
+      proposedAt: this.deps.now(),
+    };
+    await this.deps.persistAttempt(attempt);
+    attempt = { ...attempt, state: 'blocked' };
+    await this.deps.persistAttempt(attempt);
+    return this.result(
+      new ActionResult({ error: rejection, success: false, includeInMemory: true }),
+      attempt,
+      { effectTarget: {}, evidence: [] },
+      { actOutcome: 'didnt' },
+    );
+  }
+
+  private async revalidateBeforeExecute(
+    request: DispatchRequest,
+    attempt: ActionAttempt,
+    parsedArgs: unknown,
+    before: TargetObservation,
+    decision: EffectDecision,
+  ): Promise<DispatchResult | ActionAttempt | null> {
+    if (isExternalCommitDecision(decision)) {
+      return this.authorizeExternalCommit(request, attempt, parsedArgs, before);
+    }
+    if (this.requiresIndexTargetBinding(parsedArgs, before)) {
+      return this.revalidateIndexTarget(request, attempt, parsedArgs, before);
+    }
+    return null;
+  }
+
+  private async authorizeExternalCommit(
+    request: DispatchRequest,
+    attempt: ActionAttempt,
+    parsedArgs: unknown,
+    before: TargetObservation,
+  ): Promise<DispatchResult | ActionAttempt> {
+    const authorized = { ...attempt, state: 'authorized' as const, authorizedAt: this.deps.now() };
+    await this.deps.persistAttempt(authorized);
+    let rechecked: TargetObservation;
+    try {
+      rechecked = this.withPageRevision(await this.deps.observe(request, parsedArgs, 'before'));
+    } catch {
+      const blocked = { ...authorized, state: 'blocked' as const };
+      await this.deps.persistAttempt(blocked);
+      return this.result(new ActionResult({ error: 'Authorized target could not be revalidated' }), blocked, before, {
+        actOutcome: 'unknown',
+      });
+    }
+    if (!before.target || !rechecked.target || before.target.digest !== rechecked.target.digest) {
+      const blocked = { ...authorized, state: 'blocked' as const };
+      await this.deps.persistAttempt(blocked);
+      return this.result(
+        new ActionResult({ error: 'Authorized target changed; replan required' }),
+        blocked,
+        rechecked,
+        { actOutcome: 'didnt' },
+      );
+    }
+    const duplicate = await this.skipDuplicateCommit(request, authorized, before);
+    return duplicate ?? authorized;
+  }
+
+  private async revalidateIndexTarget(
+    request: DispatchRequest,
+    attempt: ActionAttempt,
+    parsedArgs: unknown,
+    before: TargetObservation,
+  ): Promise<DispatchResult | null> {
+    let rechecked: TargetObservation;
+    try {
+      rechecked = this.withPageRevision(await this.deps.observe(request, parsedArgs, 'before'));
+    } catch {
+      const blocked = { ...attempt, state: 'blocked' as const };
+      await this.deps.persistAttempt(blocked);
+      return this.result(
+        new ActionResult({ error: 'Action target could not be revalidated; replan required' }),
+        blocked,
+        before,
+        { actOutcome: 'didnt' },
+      );
+    }
+    if (!rechecked.target || before.target?.digest !== rechecked.target.digest) {
+      const blocked = { ...attempt, state: 'blocked' as const };
+      await this.deps.persistAttempt(blocked);
+      return this.result(new ActionResult({ error: 'Action target changed; replan required' }), blocked, rechecked, {
+        actOutcome: 'didnt',
+      });
+    }
+    return null;
+  }
+
+  private async skipDuplicateCommit(
+    request: DispatchRequest,
+    attempt: ActionAttempt,
+    before: TargetObservation,
+  ): Promise<DispatchResult | null> {
+    if (!this.deps.priorAttempts) return null;
+    const prior = await this.deps.priorAttempts(request.taskId, request.roundId);
+    if (!isDuplicateExternalCommit(prior, attempt)) return null;
+    const next = { ...attempt, state: 'uncertain' as const };
+    await this.deps.persistAttempt(next);
+    return this.result(new ActionResult({ error: 'Previous commit already executed' }), next, before, {
+      actOutcome: 'unknown',
+    });
   }
 
   private withPageRevision(observation: TargetObservation): TargetObservation {

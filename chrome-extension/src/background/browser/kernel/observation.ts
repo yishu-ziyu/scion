@@ -2,6 +2,8 @@
  * ObservationFrame builder (product/022).
  */
 import type { PageState } from '../views';
+import { isSensitiveFormControl, observableFormValue, type FormControlDescriptor } from '../form-value';
+import { capTextLength } from '../util';
 import { wrapUntrustedContent } from '../../agent/messages/utils';
 import { compactStateText } from '../../agent/context';
 import { captureActionFrame } from '../../task/action-frame';
@@ -37,17 +39,52 @@ export function nextFrameId(): string {
   return `frame-${Date.now().toString(36)}-${frameSeq}`;
 }
 
+type ObservedNode = PageState['selectorMap'] extends Map<number, infer Node> ? Node : never;
+
+function formDescriptor(node: ObservedNode): FormControlDescriptor {
+  const attrs = node.attributes || {};
+  return {
+    tagName: node.tagName,
+    type: attrs.type,
+    name: attrs.name,
+    id: attrs.id,
+    role: attrs.role,
+    autocomplete: attrs.autocomplete,
+    placeholder: attrs.placeholder,
+    label: attrs.accname || attrs['aria-label'] || attrs.placeholder,
+  };
+}
+
+function secretWording(node: ObservedNode): string {
+  const fromValue = node.attributes?.value?.trim() ?? '';
+  const fromText = (node.getAllTextTillNextClickableElement?.() || '').replace(/\s+/g, ' ').trim();
+  return fromValue || fromText;
+}
+
+function redactSensitiveVisibleText(visibleText: string, state: PageState): string {
+  let next = visibleText;
+  for (const node of state.selectorMap.values()) {
+    if (!isSensitiveFormControl(formDescriptor(node))) continue;
+    const secret = secretWording(node);
+    if (secret) next = next.split(secret).join('');
+  }
+  return next.replace(/\s+/g, ' ').trim();
+}
+
 export function digestInteractiveElements(state: PageState, limit = 80): InteractiveElementDigest[] {
   const out: InteractiveElementDigest[] = [];
   const entries = [...state.selectorMap.entries()].sort(([a], [b]) => a - b);
   for (const [index, node] of entries) {
     if (out.length >= limit) break;
     const attrs = node.attributes || {};
-    const text = (node.getAllTextTillNextClickableElement?.() || attrs['aria-label'] || attrs.accname || '')
+    const contentEditable = attrs.contenteditable === 'true' || attrs.contenteditable === '';
+    const label = attrs.accname || attrs['aria-label'] || attrs.placeholder;
+    const observedValue = observableFormValue(formDescriptor(node), attrs.value);
+    const rawText = (node.getAllTextTillNextClickableElement?.() || attrs['aria-label'] || attrs.accname || '')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 80);
-    const contentEditable = attrs.contenteditable === 'true' || attrs.contenteditable === '';
+    const text = observedValue.valueRedacted ? (label || '').slice(0, 80) : rawText;
     out.push({
       index,
       tagName: node.tagName || undefined,
@@ -56,9 +93,11 @@ export function digestInteractiveElements(state: PageState, limit = 80): Interac
       name: attrs.name,
       id: attrs.id,
       role: attrs.role,
-      value: attrs.value,
+      value: observedValue.value,
+      valueRedacted: observedValue.valueRedacted,
+      autocomplete: attrs.autocomplete,
       placeholder: attrs.placeholder,
-      label: attrs.accname || attrs['aria-label'] || attrs.placeholder,
+      label,
       contentEditable: contentEditable || undefined,
       checked: attrs.checked,
       tabId: typeof node.tabId === 'number' ? node.tabId : state.tabId,
@@ -70,27 +109,45 @@ export function digestInteractiveElements(state: PageState, limit = 80): Interac
   return out;
 }
 
+function stripSerializedControlValues(elementsText: string, state: PageState): string {
+  let safe = elementsText;
+  for (const node of state.selectorMap.values()) {
+    const raw = node.attributes?.value?.trim();
+    if (raw) {
+      safe = safe
+        .replaceAll(`value=${raw}`, 'value=[shown in Form fields]')
+        .replaceAll(`value=${capTextLength(raw, 15)}`, 'value=[shown in Form fields]');
+    }
+    if (!isSensitiveFormControl(formDescriptor(node))) continue;
+    const secret = secretWording(node);
+    if (secret) safe = safe.split(secret).join('[redacted]');
+  }
+  return safe;
+}
+
+function describeMedia(media: MediaObservation): string {
+  if (media.kind === 'bound') return `media: bound digest=${media.targetDigest ?? ''} state=${media.state ?? ''}`;
+  if (media.kind === 'ambiguous') return `media: ambiguous count=${media.candidateCount ?? 0}`;
+  return 'media: none';
+}
+
 export async function buildObservationFrame(input: ObservationBuildInput): Promise<ObservationFrame> {
   const frame = await captureActionFrame(input.browserState);
   const media = input.media ?? { kind: 'none' as const };
-  let mediaLine = 'media: none';
-  if (media.kind === 'bound') {
-    mediaLine = `media: bound digest=${media.targetDigest ?? ''} state=${media.state ?? ''}`;
-  } else if (media.kind === 'ambiguous') {
-    mediaLine = `media: ambiguous count=${media.candidateCount ?? 0}`;
-  }
+  const mediaLine = describeMedia(media);
 
   const query = input.query?.trim() ?? '';
   const digested = digestInteractiveElements(input.browserState, query ? 2000 : 80);
   const interactiveElements = filterInteractiveElements(digested, query);
   const formDigest = digestInteractiveElements(input.browserState, 2000);
   const formFieldsBlock = renderFormFieldsBlock(query ? filterInteractiveElements(formDigest, query) : formDigest);
-  const visibleText = input.visibleText?.trim() ?? '';
+  const visibleText = redactSensitiveVisibleText(input.visibleText?.trim() ?? '', input.browserState);
   const visibleBlock = visibleText
     ? `Visible page text:\n${wrapUntrustedContent(visibleText)}`
     : 'Visible page text:\n[empty]';
   const keptIndexes = new Set(interactiveElements.map(element => element.index));
-  const elementsText = query ? filterElementsTextByIndexes(input.elementsText, keptIndexes) : input.elementsText;
+  const valueSafeElementsText = stripSerializedControlValues(input.elementsText, input.browserState);
+  const elementsText = query ? filterElementsTextByIndexes(valueSafeElementsText, keptIndexes) : valueSafeElementsText;
   const elementsLabel = query
     ? `Interactive elements (query="${query}", ${interactiveElements.length} matches):`
     : 'Interactive elements:';

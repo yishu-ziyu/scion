@@ -12,6 +12,9 @@ export interface InteractiveElementDigest {
   name?: string;
   id?: string;
   value?: string;
+  /** True when field metadata is sensitive; the value is deliberately absent. */
+  valueRedacted?: boolean;
+  autocomplete?: string;
   placeholder?: string;
   label?: string;
   contentEditable?: boolean;
@@ -140,6 +143,24 @@ export type WaitCondition =
   | { kind: 'title_includes'; value: string }
   | { kind: 'text_includes'; value: string }
   | { kind: 'revision_changed'; fromRevision: string };
+
+/**
+ * Clicks and navigations replace the snapshot remaining indexes were bound to.
+ * Shared with `actionInvalidatesElementSnapshot` in observe-act-loop.ts.
+ */
+export const PAGE_CHANGING_ACTIONS = new Set([
+  'click_element',
+  'go_to_url',
+  'open_tab',
+  'close_tab',
+  'go_back',
+  'previous_page',
+  'next_page',
+  'search_google',
+  'select_dropdown_option',
+  'send_keys',
+  'switch_tab',
+]);
 
 export interface BrowserKernel {
   observe(options?: ObserveOptions): Promise<ObservationFrame>;

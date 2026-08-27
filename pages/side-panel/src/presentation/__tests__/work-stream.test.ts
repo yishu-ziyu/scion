@@ -21,7 +21,7 @@ const attempt = (partial: Partial<ActionAttempt> & Pick<ActionAttempt, 'id' | 'a
   }) as ActionAttempt;
 
 describe('deriveWorkStream', () => {
-  it('skips noise snapshots and shows the opened page', () => {
+  it('skips noise snapshots and host-only navigations while running', () => {
     const view = deriveWorkStream({
       status: 'running',
       currentSummary: '获取页面快照',
@@ -36,10 +36,27 @@ describe('deriveWorkStream', () => {
         }),
       ],
     });
+    expect(view.blocks).toEqual([]);
+  });
+
+  it('keeps a named page title when the navigate verb only had a host', () => {
+    const view = deriveWorkStream({
+      status: 'running',
+      pageTitle: 'Etsy handmade goods',
+      attempts: [
+        attempt({
+          id: 'a2',
+          actionName: 'go_to_url',
+          displaySummary: '打开 etsy.com',
+          targetLabel: 'etsy.com',
+          state: 'executing',
+        }),
+      ],
+    });
     expect(view.blocks.map(block => block.type)).toEqual(['page']);
     expect(view.blocks[0]).toMatchObject({
       type: 'page',
-      page: { title: 'etsy.com', host: 'etsy.com', url: 'https://etsy.com', live: true },
+      page: { title: 'Etsy handmade goods', live: true },
     });
   });
 
@@ -80,7 +97,7 @@ describe('deriveWorkStream', () => {
     });
   });
 
-  it('writes a real why after what already happened, and invents nothing', () => {
+  it('lists real attempts only, and does not paint pageReading as a thinking sentence', () => {
     const deciding = deriveWorkStream({
       status: 'running',
       currentSummary: '思考中',
@@ -92,6 +109,7 @@ describe('deriveWorkStream', () => {
     const afterPage = deriveWorkStream({
       status: 'running',
       currentSummary: '要比对报名入口',
+      pageTitle: 'Etsy handmade goods',
       attempts: [
         attempt({
           id: 'a2',
@@ -102,8 +120,9 @@ describe('deriveWorkStream', () => {
         }),
       ],
     });
-    expect(afterPage.blocks.map(block => block.type)).toEqual(['page', 'thinking']);
-    expect(afterPage.blocks[1]).toMatchObject({ type: 'thinking', text: '要比对报名入口', open: true });
+    expect(afterPage.blocks.map(block => block.type)).toEqual(['page']);
+    expect(afterPage.blocks.some(block => block.type === 'thinking')).toBe(false);
+    expect(JSON.stringify(afterPage.blocks)).not.toContain('要比对报名入口');
 
     const completed = deriveWorkStream({
       status: 'completed',
@@ -118,7 +137,8 @@ describe('deriveWorkStream', () => {
         }),
       ],
     });
-    expect(completed.blocks[1]).toMatchObject({ type: 'thinking', text: '要比对报名入口', open: false });
+    expect(completed.blocks.some(block => block.type === 'thinking')).toBe(false);
+    expect(JSON.stringify(completed.blocks)).not.toContain('要比对报名入口');
 
     const livePage = deriveWorkStream({
       status: 'running',
@@ -133,7 +153,7 @@ describe('deriveWorkStream', () => {
         }),
       ],
     });
-    expect(livePage.blocks.map(block => block.type)).toEqual(['page']);
+    expect(livePage.blocks).toEqual([]);
 
     const failed = deriveWorkStream({
       status: 'failed',
@@ -225,7 +245,7 @@ describe('deriveWorkStream', () => {
     });
   });
 
-  it('skips snapshot chips and keeps the tab switch as a page', () => {
+  it('skips snapshot chips and keeps a named tab, not the bare host', () => {
     const view = deriveWorkStream({
       status: 'running',
       attempts: [
@@ -243,8 +263,33 @@ describe('deriveWorkStream', () => {
     expect(view.blocks.map(block => block.type)).toEqual(['page']);
     expect(view.blocks[0]).toMatchObject({
       type: 'page',
-      page: { title: 'youtube.com', host: 'youtube.com', url: 'https://youtube.com' },
+      page: { title: 'YouTube', url: 'https://youtube.com' },
     });
+  });
+
+  it('does not dump 查看 youtube.com as an act, or English page extracts as thinking', () => {
+    const view = deriveWorkStream({
+      status: 'running',
+      currentSummary:
+        'GitHub is where people build software. More than 100 million people use GitHub to discover, fork, and contribute.',
+      attempts: [
+        attempt({
+          id: 'c1',
+          actionName: 'click_element',
+          displaySummary: '查看 youtube.com',
+          state: 'observed',
+        }),
+        attempt({
+          id: 'g1',
+          actionName: 'go_to_url',
+          displaySummary: '打开 github.com',
+          targetLabel: 'github.com',
+          targetUrl: 'https://github.com',
+        }),
+      ],
+    });
+    expect(view.blocks).toEqual([]);
+    expect(view.blocks.some(block => block.type === 'thinking')).toBe(false);
   });
 
   it('does not put 获取页面快照 on the search board when observe already has result titles', () => {
@@ -308,7 +353,7 @@ describe('deriveWorkStream', () => {
         }),
       ],
     });
-    expect(view.blocks.map(block => block.type)).toEqual(['search', 'thinking', 'act']);
+    expect(view.blocks.map(block => block.type)).toEqual(['search', 'act']);
     expect(view.blocks[0]).toMatchObject({
       type: 'search',
       queries: [
@@ -318,8 +363,8 @@ describe('deriveWorkStream', () => {
         },
       ],
     });
-    expect(view.blocks[1]).toMatchObject({ type: 'thinking', text: '当前是搜索结果页，第四条是某某教程', open: true });
-    expect(view.blocks[2]).toMatchObject({ type: 'act', text: '点击第四个：某某教程', live: true });
+    expect(view.blocks[1]).toMatchObject({ type: 'act', text: '点击第四个：某某教程', live: true });
+    expect(JSON.stringify(view.blocks)).not.toContain('当前是搜索结果页');
   });
 
   it('drops 获取页面快照 and 思考中 as page readings', () => {

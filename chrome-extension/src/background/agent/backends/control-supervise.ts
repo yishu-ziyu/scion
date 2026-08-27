@@ -12,8 +12,8 @@ export interface SuperviseVerdict {
 }
 
 export const SUPERVISE_SYSTEM_PROMPT = `You supervise a browser agent. You do not click or navigate.
-The worker claims the user's request is already done. You are shown the current page.
-Accept only if the visible page supports that the user's request is done.
+The worker claims the user's request is already done. You are shown current page evidence.
+Accept only if visible wording or a non-redacted Form fields value supports that the user's request is done.
 Reject if the page does not show that, or you cannot tell.
 Do not invent extra requirements the user did not ask for.
 Do not accept a promise, a plan, or an acknowledgement as done.
@@ -71,14 +71,17 @@ export function pageTextForSupervisor(input: {
   url?: string;
   title?: string;
   visibleText?: string;
+  /** Sensitivity-aware current values from ObservationFrame. */
+  formFieldsText?: string;
   fallback: string;
   maxChars?: number;
 }): string {
   const maxChars = input.maxChars ?? 20_000;
+  const observed = [input.formFieldsText, input.visibleText].filter(Boolean);
   const text = [
     input.url ? `URL: ${input.url}` : '',
     input.title ? `Title: ${input.title}` : '',
-    input.visibleText || input.fallback,
+    ...(observed.length > 0 ? observed : [input.fallback]),
   ]
     .filter(Boolean)
     .join('\n');

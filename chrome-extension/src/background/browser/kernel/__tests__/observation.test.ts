@@ -90,6 +90,121 @@ describe('buildObservationFrame', () => {
     expect(frame.text.indexOf('Form fields:')).toBeLessThan(frame.text.indexOf('Interactive elements:'));
   });
 
+  it('re-observes an ordinary text value exactly, including code-like data', async () => {
+    const value = 'eval(1); document.body.remove()';
+    const state = {
+      tabId: 3,
+      url: 'https://example.test/form',
+      title: 'Form',
+      elementTree: { clickableElementsToString: () => `[1]<input type=text name=Name value=${value} />` } as never,
+      selectorMap: new Map([[1, node('input', { type: 'text', name: 'Name', accname: 'Name', value }, '')]]),
+    } as unknown as PageState;
+
+    const frame = await buildObservationFrame({
+      browserState: state,
+      elementsText: `[1]<input type=text name=Name value=${value} />`,
+      visibleText: 'Name Submit',
+    });
+
+    expect(frame.interactiveElements[0]).toMatchObject({ index: 1, value });
+    expect(frame.formFieldsText).toContain(`[1] text "Name" value=${value}`);
+    expect(frame.text).toContain(value);
+  });
+
+  it('never exposes password, OTP, or card values in an ObservationFrame', async () => {
+    const password = 'PASSWORD_SENTINEL_9471';
+    const otp = 'OTP_SENTINEL_583920';
+    const card = '4111111111111111';
+    const state = {
+      tabId: 3,
+      url: 'https://example.test/form',
+      title: 'Sensitive form',
+      elementTree: {
+        clickableElementsToString: () =>
+          `[1]<input type=password value=${password} />
+` +
+          `[2]<input type=text autocomplete=one-time-code value=${otp} />
+` +
+          `[3]<input type=tel name=card_number value=${card} />`,
+      } as never,
+      selectorMap: new Map([
+        [1, node('input', { type: 'password', accname: 'Password', value: password }, '')],
+        [2, node('input', { type: 'text', autocomplete: 'one-time-code', accname: 'OTP', value: otp }, '')],
+        [3, node('input', { type: 'tel', name: 'card_number', accname: 'Card number', value: card }, '')],
+      ]),
+    } as unknown as PageState;
+
+    const frame = await buildObservationFrame({
+      browserState: state,
+      elementsText:
+        `[1]<input type=password value=${password} />
+` +
+        `[2]<input type=text autocomplete=one-time-code value=${otp} />
+` +
+        `[3]<input type=tel name=card_number value=${card} />`,
+      visibleText: 'Password OTP Card number',
+    });
+    const serialized = JSON.stringify(frame);
+
+    expect(serialized).not.toContain(password);
+    expect(serialized).not.toContain(otp);
+    expect(serialized).not.toContain(card);
+    expect(frame.interactiveElements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ index: 1, valueRedacted: true }),
+        expect.objectContaining({ index: 2, valueRedacted: true }),
+        expect.objectContaining({ index: 3, valueRedacted: true }),
+      ]),
+    );
+    expect(frame.formFieldsText?.match(/value=\(redacted\)/g)).toHaveLength(3);
+  });
+
+  it('never exposes api keys, tokens, PINs, or sensitive contenteditable text', async () => {
+    const apiKey = 'sk-live-NOT-A-REAL-KEY';
+    const accessToken = 'ACCESS_TOKEN_SENTINEL';
+    const pin = '8472';
+    const password = 'hunter2';
+    const state = {
+      tabId: 3,
+      url: 'https://example.test/settings',
+      title: 'Settings',
+      elementTree: { clickableElementsToString: () => '[1] input [2] input [3] input [4] div' } as never,
+      selectorMap: new Map([
+        [1, node('input', { type: 'text', name: 'api_key', accname: 'API key', value: apiKey }, '')],
+        [2, node('input', { type: 'text', name: 'access_token', accname: 'Access token', value: accessToken }, '')],
+        [3, node('input', { type: 'text', name: 'PIN', accname: 'PIN', value: pin }, '')],
+        [
+          4,
+          node(
+            'div',
+            { role: 'textbox', contenteditable: 'true', 'aria-label': 'Password', accname: 'Password' },
+            password,
+          ),
+        ],
+      ]),
+    } as unknown as PageState;
+
+    const frame = await buildObservationFrame({
+      browserState: state,
+      elementsText: `[1] value=${apiKey} [2] value=${accessToken} [3] value=${pin} [4] ${password}`,
+      visibleText: `API key ${apiKey} Access token ${accessToken} PIN ${pin} Password ${password}`,
+    });
+    const serialized = JSON.stringify(frame);
+
+    expect(serialized).not.toContain(apiKey);
+    expect(serialized).not.toContain(accessToken);
+    expect(serialized).not.toContain(pin);
+    expect(serialized).not.toContain(password);
+    expect(frame.interactiveElements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ index: 1, valueRedacted: true }),
+        expect.objectContaining({ index: 2, valueRedacted: true }),
+        expect.objectContaining({ index: 3, valueRedacted: true }),
+        expect.objectContaining({ index: 4, valueRedacted: true, contentEditable: true }),
+      ]),
+    );
+  });
+
   it('filters clickable controls when query is 提交 and keeps the full list when query is empty', async () => {
     const state = {
       tabId: 3,

@@ -28,6 +28,16 @@ describe('fitToContext', () => {
     expect(fitted).toContainEqual({ type: 'paragraph', text: '[…]', omitted: true });
   });
 
+  it('uses the remaining budget for part of an oversized body block', () => {
+    const oversized: ContextBlock[] = [
+      { type: 'heading', level: 1, text: 'Title' },
+      { type: 'paragraph', text: `BODY-${'x'.repeat(200)}` },
+    ];
+    const fitted = fitToContext(oversized, 40);
+    expect(length(fitted)).toBeLessThanOrEqual(40);
+    expect(fitted.some(block => block.type === 'paragraph' && block.text.startsWith('BODY-'))).toBe(true);
+  });
+
   it('obeys zero and very small budgets', () => {
     expect(fitToContext(blocks, 0)).toEqual([]);
     expect(length(fitToContext(blocks, 5))).toBeLessThanOrEqual(5);

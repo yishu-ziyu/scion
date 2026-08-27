@@ -20,6 +20,35 @@ describe('normalizeSearchFindings', () => {
     ).toEqual([{ title: 'MoonStone2026 AI黑客松', url: 'https://news.example.com/a', host: 'news.example.com' }]);
   });
 
+  it('drops findings whose URL cannot be opened as HTTP(S)', () => {
+    const unsafeUrls = [
+      'javascript:alert(1)',
+      'java\tscript:alert(1)',
+      'java\nscript:alert(1)',
+      'java\rscript:alert(1)',
+      'data:text/html,unsafe',
+      'da\tta:text/html,unsafe',
+      'da\nta:text/html,unsafe',
+      'da\rta:text/html,unsafe',
+      'file:///etc/passwd',
+      'fi\tle:///etc/passwd',
+      'fi\nle:///etc/passwd',
+      'fi\rle:///etc/passwd',
+    ];
+    const unsafeFindings = unsafeUrls.map((url, index) => ({
+      title: `Unsafe result ${index}`,
+      url,
+      host: 'unsafe.example',
+    }));
+
+    expect(
+      normalizeSearchFindings([
+        ...unsafeFindings,
+        { title: 'Safe result', url: 'https://safe.example/path', host: 'safe.example' },
+      ]),
+    ).toEqual([{ title: 'Safe result', url: 'https://safe.example/path', host: 'safe.example' }]);
+  });
+
   it('returns empty for junk', () => {
     expect(normalizeSearchFindings(null)).toEqual([]);
     expect(normalizeSearchFindings('nope')).toEqual([]);

@@ -4,13 +4,7 @@
  */
 
 import type { ActionAttempt, AttemptFinding, TaskStatus } from '@extension/storage';
-import {
-  compactPageReading,
-  isHumanPageReading,
-  isSearchResultsUrl,
-  searchQueryFromPageTitle,
-  searchQueryFromResultsUrl,
-} from '@extension/storage';
+import { isSearchResultsUrl, searchQueryFromPageTitle, searchQueryFromResultsUrl } from '@extension/storage';
 import { stripAnswerMarkup } from './answer-format';
 
 const HIDDEN_ACTIONS = new Set([
@@ -164,6 +158,10 @@ function isCommitAttempt(attempt: Pick<ActionAttempt, 'effect' | 'actionName'>):
 
 const ACTION_TITLE = /^(打开|切换到|查看|关闭|抽取[:：]|抽取)\s*/;
 
+function isBareHostTitle(title: string): boolean {
+  return /^[a-z0-9][a-z0-9.-]+\.[a-z]{2,}$/i.test(title.replace(/^www\./i, '').trim());
+}
+
 function pageTitleFromAttempt(
   attempt: Pick<ActionAttempt, 'displaySummary' | 'targetLabel' | 'actionName' | 'findings' | 'targetUrl'>,
   searchHits: AttemptFinding[] = [],
@@ -176,7 +174,7 @@ function pageTitleFromAttempt(
     : undefined;
   if (fromSearch) return compact(fromSearch, 80);
   const label = attempt.targetLabel?.trim();
-  if (label && !ACTION_TITLE.test(label)) return compact(label, 48);
+  if (label && !ACTION_TITLE.test(label) && !isBareHostTitle(label)) return compact(label, 48);
   const summary = attempt.displaySummary?.replace(/\s+/g, ' ').trim() ?? '';
   if (summary && ACTION_TITLE.test(summary)) {
     const rest = summary.replace(ACTION_TITLE, '').trim();
@@ -187,20 +185,6 @@ function pageTitleFromAttempt(
   }
   if (attempt.actionName === 'extract_content') return '抽出的内容';
   return '打开的页';
-}
-
-function thinkingText(input: {
-  status: TaskStatus | string;
-  currentSummary?: string;
-  liveSummaries: string[];
-  lastPublicText?: string;
-}): string {
-  if (input.status === 'failed' || input.status === 'cancelled') return '';
-  const current = input.currentSummary?.replace(/\s+/g, ' ').trim() ?? '';
-  if (!isHumanPageReading(current)) return '';
-  if (input.lastPublicText && current === input.lastPublicText) return '';
-  if (input.liveSummaries.includes(current)) return '';
-  return compactPageReading(current, 160);
 }
 
 function urlsInBlocks(blocks: WorkStreamBlock[]): Set<string> {
@@ -218,17 +202,120 @@ function urlsInBlocks(blocks: WorkStreamBlock[]): Set<string> {
   return urls;
 }
 
-function appendObserveOrSkip(
+function isOpenedPageAction(name: string): boolean {
+  return name === 'go_to_url' || name === 'open_tab' || name === 'switch_tab' || name === 'focus_tab';
+}
+
+function toOpenedPageBlock(
   attempt: ActionAttempt,
-  pushAct: (id: string, text: string, live: boolean) => void,
-  liveSummaries: string[],
-) {
-  const summary = attempt.displaySummary?.replace(/\s+/g, ' ').trim() ?? '';
-  const text = summary.length >= 2 ? compact(summary, 80) : '获取页面快照';
-  if (SEARCH_QUERY_NOISE.test(text)) return;
+  searchHits: AttemptFinding[],
+  pageTitle: string | undefined,
+  running: boolean,
+): Extract<WorkStreamBlock, { type: 'page' }> | undefined {
   const live = isLive(attempt.state);
-  if (live && summary) liveSummaries.push(summary);
-  pushAct(attempt.id, text, live);
+  const rawTitle = pageTitleFromAttempt(attempt, searchHits);
+  const title = pageTitle && isBareHostTitle(rawTitle) ? compact(pageTitle, 80) : rawTitle;
+  if (running && isBareHostTitle(title)) return undefined;
+  return {
+    type: 'page',
+    id: attempt.id,
+    page: {
+      id: attempt.id,
+      title,
+      host: attempt.targetLabel?.trim() || undefined,
+      url: pageUrlFromAttempt(attempt),
+      live,
+    },
+  };
+}
+
+function appendBoundSearch(input: {
+  running: boolean;
+  pageUrl: string;
+  pageTitle?: string;
+  searchHits: AttemptFinding[];
+  blocks: WorkStreamBlock[];
+}) {
+  const query = searchQueryFromResultsUrl(input.pageUrl) ?? searchQueryFromPageTitle(input.pageTitle) ?? '搜索网页';
+  input.blocks.unshift({
+    type: 'search',
+    id: 'bound-search',
+    queries: [
+      { id: 'bound-search', query: compact(query, 48), results: input.searchHits.slice(0, 6), live: input.running },
+    ],
+  });
+}
+
+function appendBoundPage(input: {
+  running: boolean;
+  pageUrl?: string;
+  pageTitle?: string;
+  pageLabel?: string;
+  blocks: WorkStreamBlock[];
+}) {
+  if (input.blocks.length === 0 && input.pageLabel?.trim()) {
+    const title = compact(input.pageTitle?.trim() || input.pageLabel, 80);
+    if (input.running && isBareHostTitle(title)) return;
+    const host = input.pageLabel.replace(/\s+·\s+.*$/, '').trim();
+    input.blocks.push({
+      type: 'page',
+      id: 'bound-page',
+      page: {
+        id: 'bound-page',
+        title,
+        host: host && host !== title ? host : undefined,
+        url: input.pageUrl,
+        live: input.running,
+      },
+    });
+    return;
+  }
+  const pageUrl = input.pageUrl;
+  if (!pageUrl || isSearchResultsUrl(pageUrl) || !/^https?:\/\//i.test(pageUrl)) return;
+  if (input.running && input.pageTitle && isBareHostTitle(input.pageTitle)) return;
+  const seen = urlsInBlocks(input.blocks);
+  const already = [...seen].some(url => url === pageUrl || pageUrl.startsWith(url) || url.startsWith(pageUrl));
+  if (already || !input.pageTitle?.trim()) return;
+  input.blocks.push({
+    type: 'page',
+    id: 'bound-page',
+    page: {
+      id: 'bound-page',
+      title: compact(input.pageTitle, 80),
+      host: undefined,
+      url: pageUrl,
+      live: input.running,
+    },
+  });
+}
+
+function appendBoundContext(input: {
+  running: boolean;
+  hasSearch: boolean;
+  pageUrl?: string;
+  pageTitle?: string;
+  pageLabel?: string;
+  searchHits: AttemptFinding[];
+  blocks: WorkStreamBlock[];
+}) {
+  const pageUrl = input.pageUrl?.trim();
+  if (!input.hasSearch && pageUrl && isSearchResultsUrl(pageUrl)) {
+    appendBoundSearch({
+      running: input.running,
+      pageUrl,
+      pageTitle: input.pageTitle,
+      searchHits: input.searchHits,
+      blocks: input.blocks,
+    });
+    return;
+  }
+  appendBoundPage({
+    running: input.running,
+    pageUrl,
+    pageTitle: input.pageTitle,
+    pageLabel: input.pageLabel,
+    blocks: input.blocks,
+  });
 }
 
 export function deriveWorkStream(input: {
@@ -242,7 +329,6 @@ export function deriveWorkStream(input: {
   const blocks: WorkStreamBlock[] = [];
   const running = input.status === 'running';
   const searchHits: AttemptFinding[] = [];
-  const liveSummaries: string[] = [];
   let i = 0;
   let lastPage: Extract<WorkStreamBlock, { type: 'page' }> | undefined;
   let hasSearch = false;
@@ -263,7 +349,6 @@ export function deriveWorkStream(input: {
       while (i < input.attempts.length && input.attempts[i] && isSearchAttempt(input.attempts[i]!)) {
         const row = input.attempts[i]!;
         const live = isLive(row.state);
-        if (live && row.displaySummary) liveSummaries.push(row.displaySummary.replace(/\s+/g, ' ').trim());
         const results = row.findings ?? [];
         searchHits.push(...results);
         queries.push({
@@ -283,7 +368,6 @@ export function deriveWorkStream(input: {
     }
 
     if (attempt.actionName === 'observe' || attempt.actionName === 'snapshot') {
-      appendObserveOrSkip(attempt, pushAct, liveSummaries);
       i += 1;
       continue;
     }
@@ -293,24 +377,12 @@ export function deriveWorkStream(input: {
       continue;
     }
 
-    if (
-      attempt.actionName === 'go_to_url' ||
-      attempt.actionName === 'open_tab' ||
-      attempt.actionName === 'switch_tab' ||
-      attempt.actionName === 'focus_tab'
-    ) {
-      const live = isLive(attempt.state);
-      if (live && attempt.displaySummary) liveSummaries.push(attempt.displaySummary.replace(/\s+/g, ' ').trim());
-      const page: StreamPage = {
-        id: attempt.id,
-        title: pageTitleFromAttempt(attempt, searchHits),
-        host: attempt.targetLabel?.trim() || undefined,
-        url: pageUrlFromAttempt(attempt),
-        live,
-      };
-      const block: WorkStreamBlock = { type: 'page', id: attempt.id, page };
-      blocks.push(block);
-      lastPage = block;
+    if (isOpenedPageAction(attempt.actionName)) {
+      const block = toOpenedPageBlock(attempt, searchHits, input.pageTitle, running);
+      if (block) {
+        blocks.push(block);
+        lastPage = block;
+      }
       i += 1;
       continue;
     }
@@ -322,7 +394,6 @@ export function deriveWorkStream(input: {
         lastPage.page.url = lastPage.page.url ?? pageUrlFromAttempt(attempt);
       } else {
         const live = isLive(attempt.state);
-        if (live && attempt.displaySummary) liveSummaries.push(attempt.displaySummary.replace(/\s+/g, ' ').trim());
         const block: WorkStreamBlock = {
           type: 'page',
           id: attempt.id,
@@ -359,7 +430,10 @@ export function deriveWorkStream(input: {
       const summary = attempt.displaySummary?.replace(/\s+/g, ' ').trim();
       const title = summary && summary.length >= 2 ? compact(summary, 80) : pageTitleFromAttempt(attempt, searchHits);
       const live = isLive(attempt.state);
-      if (live && summary) liveSummaries.push(summary);
+      if (/^(查看|打开|切换到)\s+\S+$/u.test(title)) {
+        i += 1;
+        continue;
+      }
       if (isCommitAttempt(attempt)) {
         blocks.push({
           type: 'commit',
@@ -378,74 +452,15 @@ export function deriveWorkStream(input: {
     i += 1;
   }
 
-  const pageUrl = input.pageUrl?.trim();
-  if (!hasSearch && pageUrl && isSearchResultsUrl(pageUrl)) {
-    const query = searchQueryFromResultsUrl(pageUrl) ?? searchQueryFromPageTitle(input.pageTitle) ?? '搜索网页';
-    blocks.unshift({
-      type: 'search',
-      id: 'bound-search',
-      queries: [{ id: 'bound-search', query: compact(query, 48), results: searchHits.slice(0, 6), live: running }],
-    });
-    hasSearch = true;
-  } else if (blocks.length === 0 && input.pageLabel?.trim()) {
-    const title = compact(input.pageTitle?.trim() || input.pageLabel, 80);
-    const host = input.pageLabel.replace(/\s+·\s+.*$/, '').trim();
-    blocks.push({
-      type: 'page',
-      id: 'bound-page',
-      page: {
-        id: 'bound-page',
-        title,
-        host: host && host !== title ? host : undefined,
-        url: pageUrl,
-        live: running,
-      },
-    });
-    lastPage = blocks[0] as Extract<WorkStreamBlock, { type: 'page' }>;
-  } else if (pageUrl && !isSearchResultsUrl(pageUrl) && /^https?:\/\//i.test(pageUrl)) {
-    const seen = urlsInBlocks(blocks);
-    const already = [...seen].some(url => url === pageUrl || pageUrl.startsWith(url) || url.startsWith(pageUrl));
-    if (!already && input.pageTitle?.trim()) {
-      blocks.push({
-        type: 'page',
-        id: 'bound-page',
-        page: {
-          id: 'bound-page',
-          title: compact(input.pageTitle, 80),
-          host: undefined,
-          url: pageUrl,
-          live: running,
-        },
-      });
-    }
-  }
-
-  const lastPublic = [...blocks].reverse().find(block => block.type !== 'thinking');
-  const lastPublicText =
-    lastPublic?.type === 'page'
-      ? lastPublic.page.title
-      : lastPublic?.type === 'search'
-        ? lastPublic.queries[lastPublic.queries.length - 1]?.query
-        : lastPublic?.type === 'commit'
-          ? lastPublic.commit.text
-          : lastPublic?.type === 'act'
-            ? lastPublic.text
-            : undefined;
-  const thinking = thinkingText({
-    status: input.status,
-    currentSummary: input.currentSummary,
-    liveSummaries,
-    lastPublicText,
+  appendBoundContext({
+    running,
+    hasSearch,
+    pageUrl: input.pageUrl,
+    pageTitle: input.pageTitle,
+    pageLabel: input.pageLabel,
+    searchHits,
+    blocks,
   });
-  if (thinking) {
-    const reading = { type: 'thinking' as const, id: 'thinking', text: thinking, open: running };
-    const lastSeen = [...blocks]
-      .map((block, index) => ({ block, index }))
-      .reverse()
-      .find(item => item.block.type === 'search' || item.block.type === 'page');
-    if (lastSeen) blocks.splice(lastSeen.index + 1, 0, reading);
-    else blocks.push(reading);
-  }
 
   return { blocks };
 }

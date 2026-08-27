@@ -133,11 +133,11 @@ export function WorkStream({ view, running, onOpenUrl }: WorkStreamProps) {
 
 function ThinkingFold({ text, open, running }: { text: string; open: boolean; running: boolean }) {
   const [expanded, setExpanded] = useState(open);
+  const userToggled = useRef(false);
   useEffect(() => {
-    setExpanded(open);
+    if (!userToggled.current) setExpanded(open);
   }, [open]);
   const sentences = splitThinkingSentences(text);
-  const canToggle = !running;
   const [reduceMotion] = useState(
     () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true,
   );
@@ -187,12 +187,12 @@ function ThinkingFold({ text, open, running }: { text: string; open: boolean; ru
         type="button"
         className="chijie-thinking-head t-acc-head"
         aria-expanded={expanded}
-        disabled={!canToggle}
         onClick={() => {
-          if (canToggle) setExpanded(next => !next);
+          userToggled.current = true;
+          setExpanded(next => !next);
         }}>
         <span className="chijie-thinking-label">{t('chat_task_thinking_heading')}</span>
-        {canToggle ? <FiChevronDown className="chijie-thinking-chevron" aria-hidden /> : null}
+        <FiChevronDown className="chijie-thinking-chevron" aria-hidden />
       </button>
       <div
         className={`chijie-thinking-collapsible t-acc-panel${expanded ? '' : ' is-collapsed'}`}

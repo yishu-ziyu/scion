@@ -19,7 +19,7 @@ import { assessGoalCoverage, resolveDeliverableAnswer } from '../presentation/go
 import { productFailureLabel, toProductFailureCode } from '../presentation/failure-taxonomy';
 import { waitUserAction } from '../presentation/wait-affordance';
 import { deriveWaitAsk } from '../presentation/wait-ask';
-import { deriveTaskProgressView } from '../presentation/task-progress-view';
+import { deriveTaskProgressView, stripTabCountPrefix } from '../presentation/task-progress-view';
 import { collectStreamSources, deriveWorkStream, type StreamSource } from '../presentation/work-stream';
 import { isFollowingForeground } from '../presentation/run-presence';
 import { processNowBody, workStreamBody } from './ProcessDisclosure';
@@ -35,6 +35,8 @@ export interface TaskStatusCardProps {
   missionInstruction?: string;
   /** Chat text for each round, keyed by round id. */
   roundUtterances?: Readonly<Record<string, string>>;
+  /** User sentences already sent that do not yet have a round. */
+  pendingFollowUps?: readonly string[];
   evidenceSpace?: EvidenceSpace | null;
   /** Focus the continuous-control composer without changing the stable mission. */
   onAdjustDirection?: () => void;
@@ -244,7 +246,7 @@ function siteHostLabel(snapshot: TaskSnapshot): string {
       host = page.urlOrigin;
     }
   }
-  const title = page?.label?.trim();
+  const title = stripTabCountPrefix(page?.label?.trim() ?? '');
   if (host && title && title !== host) {
     const short = title.length > 28 ? `${title.slice(0, 26)}…` : title;
     return `${host} · ${short}`;
@@ -373,13 +375,18 @@ function followUpTurns(
   snapshot: TaskSnapshot,
   goalText: string,
   roundUtterances?: Readonly<Record<string, string>>,
+  pendingFollowUps: readonly string[] = [],
 ): ProgressTurn[] | undefined {
   const rows = snapshot.rounds
     .map((round, index) => ({ round, user: roundUserText(round, index, goalText, roundUtterances) }))
     .filter(row => row.user.length > 0);
-  if (rows.length <= 1) return undefined;
-  return rows.map(row => {
-    if (row.round.id === snapshot.currentRoundId) return { user: row.user };
+  const pending = pendingFollowUps
+    .map(user => user.replace(/\s+/g, ' ').trim())
+    .filter(user => user && !rows.some(row => row.user === user))
+    .map(user => ({ user }));
+  if (rows.length + pending.length <= 1) return undefined;
+  const painted = rows.map(row => {
+    if (row.round.id === snapshot.currentRoundId && pending.length === 0) return { user: row.user };
     const priorBody = row.round.result?.body?.replace(/\r\n?/g, '\n').trim() ?? '';
     return {
       user: row.user,
@@ -394,6 +401,7 @@ function followUpTurns(
       ),
     };
   });
+  return [...painted, ...pending.map(row => ({ user: row.user }))];
 }
 
 function RunPresence({ snapshot, showPartialComplete }: { snapshot: TaskSnapshot; showPartialComplete: boolean }) {
@@ -445,6 +453,7 @@ export function TaskStatusCard({
   defaultInstruction = '',
   missionInstruction = '',
   roundUtterances,
+  pendingFollowUps = [],
   evidenceSpace = null,
   onAdjustDirection,
   onContinueInComposer,
@@ -585,7 +594,7 @@ export function TaskStatusCard({
     progressView.currentActivity,
     readOnly,
   );
-  const turns = followUpTurns(snapshot, goalText, roundUtterances);
+  const turns = followUpTurns(snapshot, goalText, roundUtterances, pendingFollowUps);
 
   const completionBlock =
     showDelivered || (showVerifiedDone && round?.receipt) ? (

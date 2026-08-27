@@ -9,6 +9,7 @@ import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
 import { ensurePersonalDefaults } from '../personal/bootstrap';
 import { TaskManager } from './task/manager';
+import { downloadStateFromItems } from './task/download-state';
 import { PortRegistry } from './task/port-registry';
 import {
   chromeTabsSendMessage,
@@ -22,8 +23,10 @@ import {
 } from './task/page-operating';
 import { browserContext, createExecutorDriver } from './agent/factory';
 import { handleChatStreamRequest } from './chat-stream';
+import { handlePageSummaryStreamRequest } from './page-summary-stream';
 
 import { createDebuggerDetachHandler } from './runtime/debugger-detach';
+import { installTaskKeepAliveListener } from './runtime/task-keep-alive';
 import { STRUCTURE_USER_MEMORY_TYPE, structureUserMemoryFromSource } from './agent/structure-user-memory';
 
 const logger = createLogger('background');
@@ -67,7 +70,7 @@ const taskManager = new TaskManager({
     return tab.id;
   },
 
-  probeDownloadState: async () => {
+  probeDownloadState: async ({ notBefore }) => {
     if (typeof chrome === 'undefined' || !chrome.downloads?.search) return 'none';
     return new Promise(resolve => {
       try {
@@ -76,19 +79,11 @@ const taskManager = new TaskManager({
             resolve('none');
             return;
           }
-          const recent = items.filter(item => {
-            const started = Date.parse(item.startTime || '');
-            return Number.isFinite(started) && Date.now() - started < 120_000;
-          });
-          if (recent.some(item => item.state === 'complete')) {
-            resolve('finished');
-            return;
-          }
-          if (recent.some(item => item.state === 'in_progress')) {
-            resolve('started');
-            return;
-          }
-          resolve('none');
+          resolve(
+            downloadStateFromItems(items, notBefore, {
+              extensionId: chrome.runtime?.id,
+            }),
+          );
         });
       } catch {
         resolve('none');
@@ -112,6 +107,7 @@ taskManager.subscribe(event => {
 // Personal fork: seed MiniMax-M3 into chrome.storage on every SW boot (no GUI).
 void ensurePersonalDefaults().catch(error => logger.error('Personal bootstrap failed', error));
 void removeLegacyAgentStepHistories().catch(error => logger.error('Legacy replay cleanup failed', error));
+installTaskKeepAliveListener();
 void taskManager.recover().catch(error => logger.error('Task recovery failed', error));
 chrome.runtime.onInstalled.addListener(() => {
   void ensurePersonalDefaults().catch(error => logger.error('Personal bootstrap onInstalled failed', error));
@@ -248,6 +244,9 @@ chrome.runtime.onConnect.addListener(port => {
 
           case 'chat_stream':
             return handleChatStreamRequest(message, port);
+
+          case 'page_summary_stream':
+            return handlePageSummaryStreamRequest(message, port);
 
           case 'task_command':
             return port.postMessage({ type: 'command_ack', ack: await taskManager.dispatch(message.command) });

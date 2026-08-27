@@ -1,0 +1,32 @@
+{
+  "name": "@extension/wisebase-core",
+  "version": "0.1.0",
+  "description": "Pure local source ingestion, chunking, and BM25 retrieval for Wisebase",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist/**"
+  ],
+  "types": "index.ts",
+  "main": "./dist/index.js",
+  "scripts": {
+    "clean:bundle": "rimraf dist",
+    "clean:node_modules": "pnpx rimraf node_modules",
+    "clean:turbo": "rimraf .turbo",
+    "clean": "pnpm clean:bundle && pnpm clean:node_modules && pnpm clean:turbo",
+    "ready": "node build.mjs",
+    "test": "vitest run",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "pnpm lint --fix",
+    "prettier": "prettier . --write --ignore-path ../../.prettierignore",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@extension/context-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@extension/tsconfig": "workspace:*",
+    "vitest": "2.1.9"
+  }
+}

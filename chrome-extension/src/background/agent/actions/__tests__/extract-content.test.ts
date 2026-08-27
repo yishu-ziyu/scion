@@ -7,18 +7,44 @@ import { ActionBuilder } from '../builder';
 import { extractContentActionSchema } from '../schemas';
 import {
   extractStructuredRecords,
+  htmlHasNextPage,
   parseExtractedRecords,
   parseModelExtractedRecords,
   runExtractContent,
 } from '../extract-content';
-import { tableRowCount } from '../../../task/artifact';
-import type { AgentContext } from '../../types';
+import { tableDataRows, tableRowCount } from '../../../task/artifact';
+import type { ActionResult, AgentContext } from '../../types';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const productsHtml = readFileSync(join(here, '../../../../../test/fixtures/products.html'), 'utf8');
 
 function fieldedRows(rows: Array<Record<string, string>>): Array<Record<string, string>> {
   return rows.filter(row => Object.keys(row).length >= 2 && Object.values(row).some(value => value.trim()));
+}
+
+function pagedTableHtml(
+  rows: Array<[string, string]>,
+  next: 'rel' | 'text' | 'aria' | 'cn' | 'more' | 'none' = 'none',
+): string {
+  const body = rows.map(([name, qty]) => `<tr><td>${name}</td><td>${qty}</td></tr>`).join('');
+  const pager =
+    next === 'rel'
+      ? '<a rel="next" href="/p2">Next</a>'
+      : next === 'text'
+        ? '<a href="/p2">Next</a>'
+        : next === 'aria'
+          ? '<button type="button" aria-label="Next page">→</button>'
+          : next === 'cn'
+            ? '<a href="/p2">下一页</a>'
+            : next === 'more'
+              ? '<button type="button">Load more</button>'
+              : '';
+  return `<table><tr><th>Name</th><th>Qty</th></tr>${body}</table>${pager}`;
+}
+
+function rowNames(result: ActionResult): string[] {
+  if (!result.artifact) return [];
+  return tableDataRows(result.artifact).map(row => String(row.name ?? ''));
 }
 
 describe('extractStructuredRecords', () => {
@@ -94,6 +120,22 @@ describe('extract_content action', () => {
     expect(fieldedRows(rows).length).toBeGreaterThanOrEqual(5);
     expect(result.extractedContent).toContain(result.artifact?.id ?? 'missing-artifact');
     expect(result.extractedContent).toMatch(/Task is not complete/);
+    expect(result.hasMorePages).toBe(false);
+    expect(result.artifact?.sources).toEqual([
+      expect.objectContaining({ url: 'https://example.test/products', title: 'Product List Fixture' }),
+    ]);
+  });
+
+  it('stores origin and path only on the extract source, not query or fragment', async () => {
+    const result = await runExtractContent(
+      { goal: 'name, price, rating', schema: 'name,price,rating' },
+      {
+        getContent: async () => productsHtml,
+        url: () => 'https://example.test/products?utm=1#list',
+        title: async () => 'Product List Fixture',
+      },
+    );
+    expect(result.artifact?.sources).toEqual([expect.objectContaining({ url: 'https://example.test/products' })]);
   });
 
   it('falls back to getReadabilityContent when getContent is empty', async () => {
@@ -218,6 +260,160 @@ describe('extract_content action', () => {
     expect(parseModelExtractedRecords('Here:\n[{"name":"A","price":"1"}]\n', ['name', 'price'])).toEqual([
       { name: 'A', price: '1' },
     ]);
+  });
+
+  it('merges the next results page into one table when advancePage succeeds', async () => {
+    let html = pagedTableHtml(
+      [
+        ['A', '1'],
+        ['B', '2'],
+      ],
+      'rel',
+    );
+    const advancePage = vi.fn(async () => {
+      html = pagedTableHtml(
+        [
+          ['C', '3'],
+          ['D', '4'],
+        ],
+        'none',
+      );
+      return true;
+    });
+    const result = await runExtractContent(
+      { goal: 'name, qty' },
+      { getContent: async () => html, url: () => 'https://example.test/list', title: async () => 'List' },
+      { advancePage },
+    );
+    expect(advancePage).toHaveBeenCalledTimes(1);
+    expect(result.isDone).toBe(false);
+    expect(result.hasMorePages).toBe(false);
+    expect(result.extractedContent).toMatch(/Task is not complete/);
+    expect(rowNames(result)).toEqual(['A', 'B', 'C', 'D']);
+    expect(tableRowCount(result.artifact!)).toBe(4);
+  });
+
+  it('returns the first page and hasMorePages when Next exists but advancePage is omitted', async () => {
+    const result = await runExtractContent(
+      { goal: 'name, qty' },
+      {
+        getContent: async () =>
+          pagedTableHtml(
+            [
+              ['A', '1'],
+              ['B', '2'],
+            ],
+            'rel',
+          ),
+      },
+    );
+    expect(result.isDone).toBe(false);
+    expect(result.hasMorePages).toBe(true);
+    expect(rowNames(result)).toEqual(['A', 'B']);
+    expect(result.extractedContent).toMatch(/Task is not complete/);
+  });
+
+  it('stops advancing when the next page adds no new rows', async () => {
+    const page1 = pagedTableHtml(
+      [
+        ['A', '1'],
+        ['B', '2'],
+      ],
+      'rel',
+    );
+    let html = page1;
+    const advancePage = vi.fn(async () => {
+      html = page1;
+      return true;
+    });
+    const result = await runExtractContent({ goal: 'name, qty' }, { getContent: async () => html }, { advancePage });
+    expect(advancePage).toHaveBeenCalledTimes(1);
+    expect(rowNames(result)).toEqual(['A', 'B']);
+    expect(result.hasMorePages).toBe(false);
+  });
+
+  it('caps extra pages at 8 and leaves hasMorePages when Next remains', async () => {
+    let pageNo = 1;
+    const htmlFor = (n: number) => pagedTableHtml([[`R${n}`, String(n)]], 'rel');
+    let html = htmlFor(1);
+    const advancePage = vi.fn(async () => {
+      pageNo += 1;
+      html = htmlFor(pageNo);
+      return true;
+    });
+    const result = await runExtractContent({ goal: 'name, qty' }, { getContent: async () => html }, { advancePage });
+    expect(advancePage).toHaveBeenCalledTimes(7);
+    expect(rowNames(result)).toEqual(['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8']);
+    expect(result.hasMorePages).toBe(true);
+    expect(result.isDone).toBe(false);
+  });
+
+  it('detects Next, rel=next, 下一页, aria-label next, and load more from HTML only', () => {
+    expect(htmlHasNextPage(pagedTableHtml([['A', '1']], 'rel'))).toBe(true);
+    expect(htmlHasNextPage(pagedTableHtml([['A', '1']], 'text'))).toBe(true);
+    expect(htmlHasNextPage(pagedTableHtml([['A', '1']], 'cn'))).toBe(true);
+    expect(htmlHasNextPage(pagedTableHtml([['A', '1']], 'aria'))).toBe(true);
+    expect(htmlHasNextPage(pagedTableHtml([['A', '1']], 'more'))).toBe(true);
+    expect(htmlHasNextPage(pagedTableHtml([['A', '1']], 'none'))).toBe(false);
+    expect(
+      htmlHasNextPage(
+        '<p>Next we compare the two rows.</p><table><tr><th>Name</th><th>Qty</th></tr><tr><td>A</td><td>1</td></tr></table>',
+      ),
+    ).toBe(false);
+  });
+
+  it('clicks a live Next control when extract_content is wired through ActionBuilder', async () => {
+    let html = pagedTableHtml(
+      [
+        ['A', '1'],
+        ['B', '2'],
+      ],
+      'rel',
+    );
+    const nextNode = {
+      tagName: 'a',
+      attributes: { rel: 'next', href: '/p2' },
+      getAllTextTillNextClickableElement: (): string => 'Next',
+    };
+    const state = {
+      tabId: 1,
+      url: 'https://example.test/list',
+      title: 'List',
+      selectorMap: new Map<number, typeof nextNode>([[4, nextNode]]),
+    };
+    const clickElementNode = vi.fn(async () => {
+      html = pagedTableHtml(
+        [
+          ['C', '3'],
+          ['D', '4'],
+        ],
+        'none',
+      );
+      state.selectorMap = new Map();
+    });
+    const context = {
+      emitEvent: vi.fn(),
+      options: { useVision: false },
+      browserContext: {
+        getCurrentPage: async () => ({
+          getContent: async () => html,
+          url: () => 'https://example.test/list',
+          title: async () => 'List',
+          getState: async () => state,
+          getDomElementByIndex: (index: number) => state.selectorMap.get(index),
+          clickElementNode,
+          waitForPageAndFramesLoad: async () => undefined,
+          isFileUploader: () => false,
+        }),
+      },
+    } as unknown as AgentContext;
+    const actions = new ActionBuilder(context, {} as BaseChatModel).buildDefaultActions();
+    const extract = actions.find(action => action.name() === 'extract_content');
+    const result = await extract!.call({ goal: 'name, qty' });
+    expect(clickElementNode).toHaveBeenCalledTimes(1);
+    expect(rowNames(result)).toEqual(['A', 'B', 'C', 'D']);
+    expect(result.hasMorePages).toBe(false);
+    expect(result.isDone).toBe(false);
   });
 
   it('does not import or call the product-list skill/parser', () => {

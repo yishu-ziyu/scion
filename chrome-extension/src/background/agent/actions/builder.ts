@@ -24,7 +24,6 @@ import {
   readPageTextActionSchema,
   inspectOpenTabsActionSchema,
   findTabActionSchema,
-  evaluateActionSchema,
   selectDropdownOptionActionSchema,
   getDropdownOptionsActionSchema,
   closeTabActionSchema,
@@ -37,6 +36,7 @@ import {
   controlMediaActionSchema,
   saveScreenshotActionSchema,
 } from './schemas';
+import { modelActionRejection } from './model-action-safety';
 import {
   addEvidenceRecords,
   evidenceSpaceProgress,
@@ -65,6 +65,7 @@ import {
   type NamedWaitAsk,
 } from '../../browser/kernel/resolve-intent';
 import { runExtractContent } from './extract-content';
+import { advanceExtractPage } from './extract-page-advance';
 import { preferBoundTabForActiveFind, tabUrlMatchesQuery } from '../../browser/kernel/find-tab';
 import { tableRowCount } from '../../task/artifact';
 import { collectSearchFindings, isSearchResultsUrl } from '../../browser/search-results';
@@ -253,6 +254,9 @@ export class Action {
   ) {}
 
   parse(input: unknown): unknown {
+    const rejection = modelActionRejection(this.name(), input);
+    if (rejection) throw new InvalidInputError(rejection);
+
     const schema = this.schema.schema;
     const normalizedInput = this.schema.normalizeInput ? this.schema.normalizeInput(input) : input;
 
@@ -362,16 +366,16 @@ export class ActionBuilder {
         return { ok: true, index: resolved.index };
       }
       if (resolved.kind === 'ambiguous') {
-        const waitAsk = waitAskFromAmbiguousBind(query, resolved.candidates);
-        if (waitAsk) {
-          return { ok: false, error: 'target_ambiguous', waitAsk };
-        }
         if (
           input.index !== undefined &&
           Number.isFinite(input.index) &&
           resolved.candidates.some(candidate => candidate.index === input.index)
         ) {
           return { ok: true, index: input.index };
+        }
+        const waitAsk = waitAskFromAmbiguousBind(query, resolved.candidates);
+        if (waitAsk) {
+          return { ok: false, error: 'target_ambiguous', waitAsk };
         }
       }
       return { ok: false, error: formatResolveIntentError(resolved, query) };
@@ -507,13 +511,15 @@ export class ActionBuilder {
           throw new Error(t('act_errors_elementNotExist', [resolved.index.toString()]));
         }
 
-        // Check if element is a file uploader
         if (page.isFileUploader(elementNode)) {
           const msg = t('act_click_fileUploader', [resolved.index.toString()]);
           logger.info(msg);
+          this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
           return new ActionResult({
-            extractedContent: msg,
+            error: msg,
             includeInMemory: true,
+            success: false,
+            isDone: false,
           });
         }
 
@@ -650,6 +656,7 @@ export class ActionBuilder {
           ]);
           return typeof response.content === 'string' ? response.content : JSON.stringify(response.content ?? '');
         },
+        advancePage: () => advanceExtractPage(page, this.context.options.useVision),
       });
       const rows = result.artifact ? tableRowCount(result.artifact) : 0;
       this.context.emitEvent(
@@ -947,24 +954,6 @@ export class ActionBuilder {
       return new ActionResult({ extractedContent: summary, includeInMemory: true, success: true });
     }, findTabActionSchema);
     actions.push(findTab);
-
-    const evaluate = new Action(async (input: z.infer<typeof evaluateActionSchema.schema>) => {
-      const intent = input.intent || 'evaluate';
-      this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
-      const page = await this.context.browserContext.getCurrentPage();
-      try {
-        const value = await page.evaluate(input.code);
-        const text = JSON.stringify(value);
-        const clipped = text.length > 20_000 ? `${text.slice(0, 20_000)}…` : text;
-        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_OK, `evaluate ${clipped.length} chars`);
-        return new ActionResult({ extractedContent: clipped, includeInMemory: true, success: true });
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, msg);
-        return new ActionResult({ error: msg, includeInMemory: true, success: false });
-      }
-    }, evaluateActionSchema);
-    actions.push(evaluate);
 
     // Scroll to percent
     const scrollToPercent = new Action(async (input: z.infer<typeof scrollToPercentActionSchema.schema>) => {

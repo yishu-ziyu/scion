@@ -4,7 +4,15 @@
  * Verifier does not read Executor reasoning.
  */
 import { checkCompletion, type CompletionCheckInput, type CompletionCheckResult } from './completion';
-import { artifactContains, artifactSourceCount, tableColumns, tableRowCount, type TaskArtifact } from './artifact';
+import {
+  artifactContains,
+  tableArtifacts,
+  tableColumns,
+  tableDataRows,
+  tableRowCount,
+  uniqueArtifactSources,
+  type TaskArtifact,
+} from './artifact';
 
 export type ArtifactCriterion =
   | { kind: 'artifact_exists'; required?: boolean }
@@ -47,74 +55,107 @@ function cmp(op: '>=' | '==', left: number, right: number): boolean {
   return op === '>=' ? left >= right : left === right;
 }
 
+function checkExists(artifacts: TaskArtifact[]): ArtifactCheckEvidence {
+  const passed = artifacts.length > 0;
+  return {
+    kind: 'artifact_exists',
+    passed,
+    reason: passed ? undefined : 'no_artifact',
+    observed: artifacts.length,
+  };
+}
+
+function checkContains(artifacts: TaskArtifact[], expected: string): ArtifactCheckEvidence {
+  if (artifacts.length === 0) return { kind: 'artifact_contains', passed: false, reason: 'no_artifact' };
+  const passed = artifacts.some(artifact => artifactContains(artifact, expected));
+  return {
+    kind: 'artifact_contains',
+    passed,
+    reason: passed ? undefined : 'missing_content',
+    observed: passed,
+  };
+}
+
+function isBlankRequiredCell(value: unknown): boolean {
+  if (typeof value === 'number' || typeof value === 'boolean') return false;
+  if (typeof value === 'string') return value.trim() === '';
+  return true;
+}
+
+function missingSchemaColumns(artifact: TaskArtifact, expected: string[]): string[] {
+  const columns = tableColumns(artifact);
+  const rows = tableDataRows(artifact);
+  return expected.filter(name => {
+    const key = columns.find(column => column.toLowerCase() === name.toLowerCase());
+    if (!key) return true;
+    if (rows.length === 0) return true;
+    return rows.some(row => isBlankRequiredCell(row[key]));
+  });
+}
+
+function checkSchema(artifacts: TaskArtifact[], expected: string[]): ArtifactCheckEvidence {
+  const tables = tableArtifacts(artifacts);
+  if (tables.length === 0) return { kind: 'artifact_schema', passed: false, reason: 'no_artifact' };
+  const missing = [...new Set(tables.flatMap(table => missingSchemaColumns(table, expected)))];
+  const passed = missing.length === 0;
+  return {
+    kind: 'artifact_schema',
+    passed,
+    reason: passed ? undefined : `missing_columns:${missing.join(',')}`,
+    observed: tables.map(table => tableColumns(table).join(',')).join('|'),
+  };
+}
+
+function checkRowCount(artifacts: TaskArtifact[], operator: '>=' | '==', expected: number): ArtifactCheckEvidence {
+  const tables = tableArtifacts(artifacts);
+  if (tables.length === 0) return { kind: 'artifact_row_count', passed: false, reason: 'no_artifact' };
+  const n = tables.reduce((sum, table) => sum + tableRowCount(table), 0);
+  if (tables.length > 1 && tables.some(table => tableRowCount(table) < 1)) {
+    return { kind: 'artifact_row_count', passed: false, reason: 'empty_source_artifact', observed: n };
+  }
+  const passed = cmp(operator, n, expected);
+  return {
+    kind: 'artifact_row_count',
+    passed,
+    reason: passed ? undefined : 'row_count_mismatch',
+    observed: n,
+  };
+}
+
+function sourceCountArtifacts(artifacts: TaskArtifact[]): TaskArtifact[] {
+  const tables = tableArtifacts(artifacts);
+  if (tables.length === 0) return artifacts;
+  return tables.filter(table => tableRowCount(table) >= 1);
+}
+
+function checkSourceCount(artifacts: TaskArtifact[], operator: '>=' | '==', expected: number): ArtifactCheckEvidence {
+  if (artifacts.length === 0) return { kind: 'artifact_source_count', passed: false, reason: 'no_artifact' };
+  const n = uniqueArtifactSources(sourceCountArtifacts(artifacts)).length;
+  const passed = cmp(operator, n, expected);
+  return {
+    kind: 'artifact_source_count',
+    passed,
+    reason: passed ? undefined : 'source_count_mismatch',
+    observed: n,
+  };
+}
+
 export function checkArtifactCriteria(
   artifacts: TaskArtifact[],
   criteria: ArtifactCriterion[],
 ): ArtifactCheckEvidence[] {
   return criteria.map(criterion => {
-    const primary = artifacts[0];
     switch (criterion.kind) {
-      case 'artifact_exists': {
-        const passed = artifacts.length > 0;
-        return {
-          kind: criterion.kind,
-          passed,
-          reason: passed ? undefined : 'no_artifact',
-          observed: artifacts.length,
-        };
-      }
-      case 'artifact_contains': {
-        if (!primary) {
-          return { kind: criterion.kind, passed: false, reason: 'no_artifact' };
-        }
-        const passed = artifactContains(primary, criterion.expected);
-        return {
-          kind: criterion.kind,
-          passed,
-          reason: passed ? undefined : 'missing_content',
-          observed: passed,
-        };
-      }
-      case 'artifact_schema': {
-        if (!primary) {
-          return { kind: criterion.kind, passed: false, reason: 'no_artifact' };
-        }
-        const cols = tableColumns(primary).map(c => c.toLowerCase());
-        const missing = criterion.expected.filter(c => !cols.includes(c.toLowerCase()));
-        const passed = missing.length === 0;
-        return {
-          kind: criterion.kind,
-          passed,
-          reason: passed ? undefined : `missing_columns:${missing.join(',')}`,
-          observed: cols.join(','),
-        };
-      }
-      case 'artifact_row_count': {
-        if (!primary) {
-          return { kind: criterion.kind, passed: false, reason: 'no_artifact' };
-        }
-        const n = tableRowCount(primary);
-        const passed = cmp(criterion.operator, n, criterion.expected);
-        return {
-          kind: criterion.kind,
-          passed,
-          reason: passed ? undefined : 'row_count_mismatch',
-          observed: n,
-        };
-      }
-      case 'artifact_source_count': {
-        if (!primary) {
-          return { kind: criterion.kind, passed: false, reason: 'no_artifact' };
-        }
-        const n = artifactSourceCount(primary);
-        const passed = cmp(criterion.operator, n, criterion.expected);
-        return {
-          kind: criterion.kind,
-          passed,
-          reason: passed ? undefined : 'source_count_mismatch',
-          observed: n,
-        };
-      }
+      case 'artifact_exists':
+        return checkExists(artifacts);
+      case 'artifact_contains':
+        return checkContains(artifacts, criterion.expected);
+      case 'artifact_schema':
+        return checkSchema(artifacts, criterion.expected);
+      case 'artifact_row_count':
+        return checkRowCount(artifacts, criterion.operator, criterion.expected);
+      case 'artifact_source_count':
+        return checkSourceCount(artifacts, criterion.operator, criterion.expected);
       default:
         return { kind: 'artifact_exists', passed: false, reason: 'unknown_criterion' };
     }

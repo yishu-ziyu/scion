@@ -5,6 +5,7 @@ import {
   doneActionSchema,
   goToUrlActionSchema,
   waitActionSchema,
+  type ActionSchema,
 } from '../../agent/actions/schemas';
 import { ActionResult } from '../../agent/types';
 import { ActionDispatcher, decideEffect } from '../action-dispatcher';
@@ -48,7 +49,6 @@ describe('EffectPolicy', () => {
     ['read_page_text', {}, 'allow'],
     ['inspect_open_tabs', {}, 'allow'],
     ['find_tab', {}, 'allow'],
-    ['evaluate', {}, 'allow'],
     ['snapshot', {}, 'allow'],
     ['observe', {}, 'allow'],
     ['extract_content', {}, 'allow'],
@@ -83,6 +83,72 @@ describe('EffectPolicy', () => {
 });
 
 describe('ActionDispatcher', () => {
+  const rejectedCases: Array<{
+    label: string;
+    schema: ActionSchema;
+    rawArgs: Record<string, unknown>;
+    error: 'dynamic_code_not_allowed' | 'unknown_action';
+  }> = [
+    {
+      label: 'evaluate',
+      schema: { ...waitActionSchema, name: 'evaluate' },
+      rawArgs: { seconds: 1 },
+      error: 'dynamic_code_not_allowed',
+    },
+    {
+      label: 'a code field on an allowed action',
+      schema: clickElementActionSchema,
+      rawArgs: { index: 1, code: 'document.body.remove()' },
+      error: 'dynamic_code_not_allowed',
+    },
+    {
+      label: 'a deeply nested code field',
+      schema: clickElementActionSchema,
+      rawArgs: { index: 1, metadata: { nested: { code: 'document.body.remove()' } } },
+      error: 'dynamic_code_not_allowed',
+    },
+    {
+      label: 'an unknown action',
+      schema: { ...waitActionSchema, name: 'run_javascript' },
+      rawArgs: { seconds: 1 },
+      error: 'unknown_action',
+    },
+  ];
+
+  it.each(rejectedCases)('blocks $label before page access and records the rejection', async testCase => {
+    const execute = vi.fn(async () => new ActionResult({ success: true }));
+    const observe = vi.fn();
+    const persisted: Array<{ actionName: string; state: string }> = [];
+    const persistedPayloads: string[] = [];
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      observe,
+      persistAttempt: vi.fn(async attempt => {
+        persisted.push({ actionName: attempt.actionName, state: attempt.state });
+        persistedPayloads.push(JSON.stringify(attempt));
+      }),
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action: new Action(execute, testCase.schema, true),
+      rawArgs: testCase.rawArgs,
+    });
+
+    expect(result).toMatchObject({
+      actionResult: { error: testCase.error, success: false },
+      attempt: { actionName: testCase.schema.name, state: 'blocked' },
+      actOutcome: 'didnt',
+    });
+    expect(persisted).toEqual([
+      { actionName: testCase.schema.name, state: 'proposed' },
+      { actionName: testCase.schema.name, state: 'blocked' },
+    ]);
+    expect(persistedPayloads.join('\n')).not.toContain('document.body.remove');
+    expect(observe).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
   it('executes an external commit exactly once without interrupting for approval', async () => {
     const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
     const action = new Action(executeExternalCommit, clickElementActionSchema, true);
@@ -115,6 +181,51 @@ describe('ActionDispatcher', () => {
     expect(result.actionResult.success).toBe(true);
     expect(executeExternalCommit).toHaveBeenCalledTimes(1);
     expect(persistedStates).toEqual(['proposed', 'authorized', 'executing', 'observed']);
+  });
+
+  it('does not execute a second external commit with the same identity after the first reached executing', async () => {
+    const executeExternalCommit = vi.fn(async () => new ActionResult({ success: true }));
+    const action = new Action(executeExternalCommit, clickElementActionSchema, true);
+    const prior = {
+      id: 'attempt-1',
+      roundId: 'round-1',
+      actionName: 'click_element',
+      effect: 'external_commit' as const,
+      targetDigest: 'button-1',
+      argsDigest: '',
+      state: 'uncertain' as const,
+      proposedAt: 1,
+    };
+    const dispatcher = new ActionDispatcher({
+      now: () => 100,
+      persistAttempt: vi.fn(async attempt => {
+        if (!prior.argsDigest && attempt.argsDigest) prior.argsDigest = attempt.argsDigest;
+      }),
+      priorAttempts: async () => [prior],
+      observe: vi.fn(async () => ({
+        target: {
+          id: 'target-1',
+          kind: 'element' as const,
+          tabId: 7,
+          frameId: 0 as const,
+          urlOrigin: 'https://example.test',
+          digest: 'button-1',
+        },
+        effectTarget: { tag: 'button', type: 'submit', inForm: true },
+        evidence: [],
+      })),
+    });
+
+    const result = await dispatcher.dispatch({
+      taskId: 'task-1',
+      roundId: 'round-1',
+      action,
+      rawArgs: { intent: 'submit form', index: 4 },
+    });
+
+    expect(executeExternalCommit).not.toHaveBeenCalled();
+    expect(result.attempt.state).toBe('uncertain');
+    expect(result.actOutcome).toBe('unknown');
   });
 
   it('invalidates approval when the target fingerprint changes', async () => {

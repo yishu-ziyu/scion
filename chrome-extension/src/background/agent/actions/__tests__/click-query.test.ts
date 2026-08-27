@@ -97,7 +97,7 @@ describe('click_element query', () => {
     expect(result.isDone).toBe(false);
   });
 
-  it('does not click when several named controls match, and returns those names as waitAsk', async () => {
+  it('clicks the supplied index when several named controls match the query', async () => {
     const clickElementNode = vi.fn(async () => undefined);
     const state = {
       tabId: 1,
@@ -124,10 +124,76 @@ describe('click_element query', () => {
     const actions = new ActionBuilder(context, {} as BaseChatModel).buildDefaultActions();
     const click = actions.find(action => action.name() === 'click_element');
     const result = await click!.call({ query: 'Submit', index: 3, intent: 'submit form' });
+    expect(result.error).toBeFalsy();
+    expect(result.waitAsk).toBeNull();
+    expect(clickElementNode).toHaveBeenCalledTimes(1);
+    expect(clickElementNode).toHaveBeenCalledWith(expect.anything(), state.selectorMap.get(3));
+  });
+
+  it('does not click when several named controls match and no index is given, and returns those names as waitAsk', async () => {
+    const clickElementNode = vi.fn(async () => undefined);
+    const state = {
+      tabId: 1,
+      url: 'https://example.test/form',
+      title: 'Form',
+      selectorMap: new Map([
+        [3, node('button', { type: 'submit' }, 'Submit')],
+        [5, node('button', { type: 'submit' }, 'Submit')],
+      ]),
+    };
+    const context = {
+      emitEvent: vi.fn(),
+      options: { useVision: false },
+      browserContext: {
+        getState: async () => state,
+        getCurrentPage: async () => ({
+          getDomElementByIndex: (index: number) => state.selectorMap.get(index),
+          isFileUploader: () => false,
+          clickElementNode,
+        }),
+        getAllTabIds: async () => new Set([1]),
+      },
+    } as unknown as AgentContext;
+    const actions = new ActionBuilder(context, {} as BaseChatModel).buildDefaultActions();
+    const click = actions.find(action => action.name() === 'click_element');
+    const result = await click!.call({ query: 'Submit', intent: 'submit form' });
     expect(clickElementNode).not.toHaveBeenCalled();
     expect(result.error).toBe('target_ambiguous');
     expect(result.waitAsk?.prompt).toContain('Submit');
     expect(result.waitAsk?.prompt).not.toMatch(/点哪里|点击位置/);
+    expect(result.waitAsk?.options.map(option => option.sendText)).toEqual(['第1个Submit', '第2个Submit']);
+  });
+
+  it('does not click an index that is not among the matching named controls', async () => {
+    const clickElementNode = vi.fn(async () => undefined);
+    const state = {
+      tabId: 1,
+      url: 'https://example.test/form',
+      title: 'Form',
+      selectorMap: new Map([
+        [3, node('button', { type: 'submit' }, 'Submit')],
+        [5, node('button', { type: 'submit' }, 'Submit')],
+        [8, node('button', {}, 'Cancel')],
+      ]),
+    };
+    const context = {
+      emitEvent: vi.fn(),
+      options: { useVision: false },
+      browserContext: {
+        getState: async () => state,
+        getCurrentPage: async () => ({
+          getDomElementByIndex: (index: number) => state.selectorMap.get(index),
+          isFileUploader: () => false,
+          clickElementNode,
+        }),
+        getAllTabIds: async () => new Set([1]),
+      },
+    } as unknown as AgentContext;
+    const actions = new ActionBuilder(context, {} as BaseChatModel).buildDefaultActions();
+    const click = actions.find(action => action.name() === 'click_element');
+    const result = await click!.call({ query: 'Submit', index: 8, intent: 'submit form' });
+    expect(clickElementNode).not.toHaveBeenCalled();
+    expect(result.error).toBe('target_ambiguous');
     expect(result.waitAsk?.options.map(option => option.sendText)).toEqual(['第1个Submit', '第2个Submit']);
   });
 

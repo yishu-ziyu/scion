@@ -2,9 +2,11 @@
  * Generic table / list / repeating-block extraction for extract_content.
  * Does not use site-specific product parsers.
  */
+import { safePageUrl } from '@extension/context-engine';
 import { ActionResult } from '@src/background/agent/types';
-import { createTableArtifact, type TaskArtifact } from '../../task/artifact';
+import { createTableArtifact, type ArtifactSource, type TaskArtifact } from '../../task/artifact';
 import { wrapUntrustedContent } from '../messages/utils';
+import { nodeLooksLikeNextPage } from './extract-next';
 
 export type ExtractedRecord = Record<string, string>;
 
@@ -86,51 +88,53 @@ export async function readPageHtml(page: ExtractContentPage): Promise<string> {
   return '';
 }
 
+const EXTRACT_PAGE_CAP = 8;
+
+export type ExtractContentOptions = {
+  extractWithModel?: (html: string, goal: string, schema?: string[]) => Promise<string>;
+  advancePage?: () => Promise<boolean>;
+};
+
+export function htmlHasNextPage(html: string): boolean {
+  if (!html?.trim()) return false;
+  return treeHasNextPage(parseHtml(html));
+}
+
 export async function runExtractContent(
   input: { goal: string; schema?: string; intent?: string },
   page: ExtractContentPage,
-  options?: { extractWithModel?: (html: string, goal: string, schema?: string[]) => Promise<string> },
+  options?: ExtractContentOptions,
 ): Promise<ActionResult> {
-  const html = await readPageHtml(page);
   const schema = parseSchemaHint(input.schema, input.goal);
-  let rows = extractStructuredRecords(html, schema);
-  if (!rows.length && options?.extractWithModel && html.trim()) {
-    try {
-      const raw = await options.extractWithModel(html, input.goal, schema);
-      rows = parseModelExtractedRecords(raw, schema);
-    } catch {
-      rows = [];
-    }
-  }
-  if (!rows.length) {
+  const collected = await collectPagedExtract(page, input.goal, schema, options);
+  if (!collected.rows.length) {
     return new ActionResult({
       extractedContent: 'Extracted 0 records. Task is not complete.',
       includeInMemory: true,
       success: true,
       isDone: false,
+      hasMorePages: collected.hasMorePages,
     });
   }
-  const columns = columnsFor(rows, schema);
-  const url = typeof page.url === 'function' ? page.url() : '';
-  let title = '';
-  if (typeof page.title === 'function') {
-    const raw = await page.title();
-    title = typeof raw === 'string' ? raw : '';
-  }
+  const columns = columnsFor(collected.rows, schema);
   const artifact = createTableArtifact({
     title: (input.goal || 'extracted records').slice(0, 80),
     columns,
-    rows: rows.map(row => {
+    rows: collected.rows.map(row => {
       const projected: Record<string, string> = {};
       for (const column of columns) projected[column] = row[column] ?? '';
       return projected;
     }),
-    sources: url || title ? [{ url: url || undefined, title: title || undefined, retrievedAt: Date.now() }] : [],
+    sources: collected.sources,
   });
-  return extractContentActionResult(artifact, rows);
+  return extractContentActionResult(artifact, collected.rows, collected.hasMorePages);
 }
 
-export function extractContentActionResult(artifact: TaskArtifact, rows: ExtractedRecord[]): ActionResult {
+export function extractContentActionResult(
+  artifact: TaskArtifact,
+  rows: ExtractedRecord[],
+  hasMorePages = false,
+): ActionResult {
   const summary = wrapUntrustedContent(
     [
       `Extracted ${rows.length} records into artifact ${artifact.id}. Task is not complete.`,
@@ -145,7 +149,127 @@ export function extractContentActionResult(artifact: TaskArtifact, rows: Extract
     success: true,
     isDone: false,
     artifact,
+    hasMorePages,
   });
+}
+
+async function collectPagedExtract(
+  page: ExtractContentPage,
+  goal: string,
+  schema: string[] | undefined,
+  options?: ExtractContentOptions,
+): Promise<{ rows: ExtractedRecord[]; hasMorePages: boolean; sources: ArtifactSource[] }> {
+  const seen = new Set<string>();
+  const rows: ExtractedRecord[] = [];
+  const sources: ArtifactSource[] = [];
+  let hasMorePages = false;
+  for (let pageIndex = 0; pageIndex < EXTRACT_PAGE_CAP; pageIndex += 1) {
+    const step = await extractOnePage(page, goal, schema, options, seen, pageIndex);
+    hasMorePages = step.hasMorePages;
+    rows.push(...step.novel);
+    if (step.source) sources.push(step.source);
+    if (!step.continuePaging) break;
+  }
+  return { rows, hasMorePages, sources: uniqueSources(sources) };
+}
+
+async function extractOnePage(
+  page: ExtractContentPage,
+  goal: string,
+  schema: string[] | undefined,
+  options: ExtractContentOptions | undefined,
+  seen: Set<string>,
+  pageIndex: number,
+): Promise<{
+  novel: ExtractedRecord[];
+  hasMorePages: boolean;
+  source: ArtifactSource | null;
+  continuePaging: boolean;
+}> {
+  const html = await readPageHtml(page);
+  const pageRows = await rowsFromHtml(html, goal, schema, options?.extractWithModel);
+  const hasMorePages = htmlHasNextPage(html);
+  const novel = takeNovelRows(pageRows, seen);
+  if (pageIndex > 0 && novel.length === 0) {
+    return { novel: [], hasMorePages: false, source: null, continuePaging: false };
+  }
+  const source = await sourceFromPage(page);
+  const advance = options?.advancePage;
+  if (!advance || !shouldAdvancePage(hasMorePages, options, pageIndex)) {
+    return { novel, hasMorePages, source, continuePaging: false };
+  }
+  return { novel, hasMorePages, source, continuePaging: await advance() };
+}
+
+function takeNovelRows(pageRows: ExtractedRecord[], seen: Set<string>): ExtractedRecord[] {
+  const novel: ExtractedRecord[] = [];
+  for (const row of pageRows) {
+    const key = recordKey(row);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    novel.push(row);
+  }
+  return novel;
+}
+
+function shouldAdvancePage(
+  hasMorePages: boolean,
+  options: ExtractContentOptions | undefined,
+  pageIndex: number,
+): boolean {
+  if (!hasMorePages || !options?.advancePage) return false;
+  return pageIndex < EXTRACT_PAGE_CAP - 1;
+}
+
+async function rowsFromHtml(
+  html: string,
+  goal: string,
+  schema: string[] | undefined,
+  extractWithModel?: (html: string, goal: string, schema?: string[]) => Promise<string>,
+): Promise<ExtractedRecord[]> {
+  const rows = extractStructuredRecords(html, schema);
+  if (rows.length || !extractWithModel || !html.trim()) return rows;
+  try {
+    return parseModelExtractedRecords(await extractWithModel(html, goal, schema), schema);
+  } catch {
+    return [];
+  }
+}
+
+async function sourceFromPage(page: ExtractContentPage): Promise<ArtifactSource | null> {
+  const url = safePageUrl(typeof page.url === 'function' ? page.url() : '');
+  let title = '';
+  if (typeof page.title === 'function') {
+    const raw = await page.title();
+    if (typeof raw === 'string') title = raw;
+  }
+  if (!url && !title) return null;
+  return { url: url || undefined, title: title || undefined, retrievedAt: Date.now() };
+}
+
+function recordKey(row: ExtractedRecord): string {
+  return JSON.stringify(
+    Object.keys(row)
+      .sort()
+      .map(key => [key, row[key]]),
+  );
+}
+
+function uniqueSources(sources: ArtifactSource[]): ArtifactSource[] {
+  const seen = new Set<string>();
+  const out: ArtifactSource[] = [];
+  for (const source of sources) {
+    const key = (source.url || source.title || '').trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(source);
+  }
+  return out;
+}
+
+function treeHasNextPage(node: SimpleNode): boolean {
+  if (nodeLooksLikeNextPage(node.tag, node.attrs, innerText(node))) return true;
+  return node.children.some(treeHasNextPage);
 }
 
 export function parseModelExtractedRecords(raw: string, schema?: string[]): ExtractedRecord[] {

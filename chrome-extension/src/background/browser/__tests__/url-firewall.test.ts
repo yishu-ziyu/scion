@@ -1,6 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { isUrlAllowed } from '../util';
 
+const firewallConfigurations: Array<{ name: string; allowList: string[]; denyList: string[] }> = [
+  { name: 'empty', allowList: [], denyList: [] },
+  { name: 'non-empty', allowList: ['example.com'], denyList: ['blocked.example'] },
+];
+
+const normalizedProtocolCases = [
+  { label: 'javascript with LF', url: 'java\nscript:alert(1)', allowed: false },
+  { label: 'javascript with TAB', url: 'java\tscript:alert(1)', allowed: false },
+  { label: 'javascript with CR', url: 'java\rscript:alert(1)', allowed: false },
+  { label: 'javascript after a leading NUL', url: '\u0000javascript:alert(1)', allowed: false },
+  { label: 'data with TAB', url: 'da\tta:text/html,unsafe', allowed: false },
+  { label: 'file with TAB', url: 'file\t:///etc/passwd', allowed: false },
+  { label: 'vbscript with LF', url: 'vb\nscript:msgbox(1)', allowed: false },
+  { label: 'public HTTPS', url: 'https://example.com/path', allowed: true },
+  { label: 'exact about:blank', url: 'about:blank', allowed: true },
+] as const;
+
+describe.each(firewallConfigurations)('isUrlAllowed with $name firewall lists', ({ allowList, denyList }) => {
+  it.each(normalizedProtocolCases)('$label => $allowed', ({ url, allowed }) => {
+    expect(isUrlAllowed(url, allowList, denyList)).toBe(allowed);
+  });
+});
+
 describe('isUrlAllowed private-host SSRF guard', () => {
   const none: string[] = [];
 

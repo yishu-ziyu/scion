@@ -4,6 +4,7 @@
  */
 import type { BrowserKernel, WaitCondition } from '../../../browser/kernel';
 import type { CompletionCriterionDraft } from '../../../task/contracts';
+import { modelActionRejection } from '../../actions/model-action-safety';
 import type { SkillExpr, SkillPlan, SkillStep } from '../types';
 
 export interface SkillPlanRunContext {
@@ -35,6 +36,26 @@ function resolveArgs(args: Record<string, SkillExpr>, vars: Record<string, unkno
   return out;
 }
 
+const SKILL_PLAN_OPS = new Set(['observe', 'act', 'extract', 'wait_for', 'assert']);
+
+function validateSkillStep(step: unknown): string | null {
+  if (!step || typeof step !== 'object' || !('op' in step)) return 'invalid_step';
+  const typed = step as SkillStep;
+  if (!SKILL_PLAN_OPS.has(typed.op)) return `forbidden_op:${typed.op}`;
+  if (typed.op !== 'act') return null;
+  return modelActionRejection(typed.action, typed.args);
+}
+
+async function runSkillAction(
+  step: Extract<SkillStep, { op: 'act' }>,
+  ctx: SkillPlanRunContext,
+  vars: Record<string, unknown>,
+) {
+  const args = resolveArgs(step.args, vars);
+  const rejection = modelActionRejection(step.action, args);
+  return rejection ? { error: rejection } : await ctx.kernel.act(ctx.roundId, step.action, args);
+}
+
 function toWaitCondition(step: Extract<SkillStep, { op: 'wait_for' }>): WaitCondition {
   const kind = step.condition.kind;
   if (kind === 'url_includes') return { kind: 'url_includes', value: String(step.condition.value ?? '') };
@@ -53,17 +74,8 @@ export function validateSkillPlan(plan: SkillPlan): { ok: true } | { ok: false; 
   if (!Array.isArray(plan.steps) || plan.steps.length === 0) return { ok: false, error: 'empty_steps' };
   if (plan.steps.length > 40) return { ok: false, error: 'too_many_steps' };
   for (const step of plan.steps) {
-    if (!step || typeof step !== 'object' || !('op' in step)) {
-      return { ok: false, error: 'invalid_step' };
-    }
-    const op = (step as SkillStep).op;
-    if (!['observe', 'act', 'extract', 'wait_for', 'assert'].includes(op)) {
-      return { ok: false, error: `forbidden_op:${op}` };
-    }
-  }
-  const blob = JSON.stringify(plan);
-  if (/\beval\s*\(|new\s+Function\b|Function\s*\(/.test(blob)) {
-    return { ok: false, error: 'forbidden_dynamic_code' };
+    const error = validateSkillStep(step);
+    if (error) return { ok: false, error };
   }
   return { ok: true };
 }
@@ -93,8 +105,7 @@ export async function runSkillPlan(plan: SkillPlan, ctx: SkillPlanRunContext): P
         break;
       }
       case 'act': {
-        const args = resolveArgs(step.args, vars);
-        const result = await ctx.kernel.act(ctx.roundId, step.action, args);
+        const result = await runSkillAction(step, ctx, vars);
         vars.lastAct = result;
         if (result.error) {
           return { ok: false, vars, error: result.error, stepsExecuted };

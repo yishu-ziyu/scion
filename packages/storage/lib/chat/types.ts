@@ -6,10 +6,17 @@ export enum Actors {
   VALIDATOR = 'validator',
 }
 
+export interface MessageSource {
+  title: string;
+  url: string;
+  tabId?: number;
+}
+
 export interface Message {
   actor: Actors;
   content: string;
   timestamp: number; // Unix timestamp in milliseconds
+  source?: MessageSource;
 }
 
 export interface ChatMessage extends Message {

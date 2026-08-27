@@ -53,6 +53,19 @@ describe('action frame', () => {
     expect(relabeled.pageRevision).not.toBe(baseline.pageRevision);
   });
 
+  it('changes revision when a live input value changes without putting that value in the revision', async () => {
+    const before = await captureActionFrame(
+      state('/html/body/input[1]', { type: 'text', name: 'Name', value: '' }, ''),
+    );
+    const rawValue = 'eval(1); document.body.remove()';
+    const after = await captureActionFrame(
+      state('/html/body/input[1]', { type: 'text', name: 'Name', value: rawValue }, ''),
+    );
+
+    expect(after.pageRevision).not.toBe(before.pageRevision);
+    expect(after.pageRevision).not.toContain(rawValue);
+  });
+
   it('automatically binds only index-based actions to the current frame', () => {
     expect(bindIndexedActionToFrame({ index: 4, intent: 'save' }, 'frame-current')).toEqual({
       index: 4,

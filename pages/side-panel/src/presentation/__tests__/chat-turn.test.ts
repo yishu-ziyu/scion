@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Actors, type Message } from '@extension/storage';
-import { applyChatStreamDelta, isChatOnlyMessage } from '../chat-turn';
+import { applyChatStreamDelta, classifyChatTurn, isChatOnlyMessage } from '../chat-turn';
 
 describe('isChatOnlyMessage', () => {
   it('treats plain conversation as chat-only', () => {
@@ -22,6 +22,37 @@ describe('isChatOnlyMessage', () => {
 
   it('rejects empty input', () => {
     expect(isChatOnlyMessage('   ')).toBe(false);
+  });
+});
+
+describe('classifyChatTurn', () => {
+  it.each([
+    '总结当前页面',
+    '请概括一下这个网页',
+    '帮我总结当前页面的主要内容',
+    '用三点总结本页',
+    'summarize this page',
+    'summarize this page in three bullets',
+  ])('routes a standalone current-page summary with output preferences to page_summary: %s', message => {
+    expect(classifyChatTurn(message)).toBe('page_summary');
+  });
+
+  it.each([
+    '总结当前页面，然后点击下一页',
+    '总结本页后提交表单',
+    '概括这个网页，然后打开详情',
+    'summarize this page, then click Next',
+    'summarize the current page and submit the form',
+    'summarize this webpage, then open the details',
+    '总结当前页，然后搜索相关资料',
+    'summarize this page, then search for related sources',
+  ])('keeps mixed summary and browser actions on the task loop: %s', message => {
+    expect(classifyChatTurn(message)).toBe('task');
+  });
+
+  it('keeps plain chat and direct page operations off the page-summary route', () => {
+    expect(classifyChatTurn('你好')).toBe('chat');
+    expect(classifyChatTurn('点击登录按钮')).toBe('task');
   });
 });
 

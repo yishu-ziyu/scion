@@ -127,6 +127,9 @@ importers:
       '@extension/agent-core':
         specifier: workspace:*
         version: link:../packages/agent-core
+      '@extension/context-engine':
+        specifier: workspace:*
+        version: link:../packages/context-engine
       '@extension/contracts':
         specifier: workspace:*
         version: link:../packages/contracts
@@ -139,6 +142,9 @@ importers:
       '@extension/storage':
         specifier: workspace:*
         version: link:../packages/storage
+      '@extension/wisebase-core':
+        specifier: workspace:*
+        version: link:../packages/wisebase-core
       '@langchain/anthropic':
         specifier: 0.3.33
         version: 0.3.33(@langchain/core@0.3.79(openai@5.12.2(ws@8.18.3)(zod@3.25.76)))(zod@3.25.76)
@@ -299,6 +305,19 @@ importers:
         specifier: workspace:*
         version: link:../tsconfig
 
+  packages/media-context:
+    dependencies:
+      '@extension/context-engine':
+        specifier: workspace:*
+        version: link:../context-engine
+    devDependencies:
+      '@extension/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      vitest:
+        specifier: 2.1.9
+        version: 2.1.9(@types/node@22.19.1)(terser@5.44.1)
+
   packages/schema-utils:
     devDependencies:
       '@extension/tsconfig':
@@ -316,6 +335,9 @@ importers:
 
   packages/storage:
     dependencies:
+      '@extension/wisebase-core':
+        specifier: workspace:*
+        version: link:../wisebase-core
       dexie:
         specifier: ^4.4.5
         version: 4.4.5
@@ -368,6 +390,19 @@ importers:
         specifier: ^4.3.1
         version: 4.3.1
 
+  packages/wisebase-core:
+    dependencies:
+      '@extension/context-engine':
+        specifier: workspace:*
+        version: link:../context-engine
+    devDependencies:
+      '@extension/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      vitest:
+        specifier: 2.1.9
+        version: 2.1.9(@types/node@22.19.1)(terser@5.44.1)
+
   packages/zipper:
     devDependencies:
       '@extension/tsconfig':
@@ -385,6 +420,9 @@ importers:
 
   pages/content:
     dependencies:
+      '@extension/context-engine':
+        specifier: workspace:*
+        version: link:../../packages/context-engine
       '@extension/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -404,6 +442,9 @@ importers:
       cross-env:
         specifier: ^7.0.3
         version: 7.0.3
+      vitest:
+        specifier: 2.1.9
+        version: 2.1.9(@types/node@22.19.1)(terser@5.44.1)
 
   pages/memory:
     dependencies:

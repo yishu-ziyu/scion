@@ -146,6 +146,30 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     expect(resultIsPresentAndMatches(asked, result)).toBe(true);
   });
 
+  it('merges tables from later sources into one CSV instead of returning only the first', () => {
+    const asked = acceptTask('Extract products to a CSV table with name, price, rating');
+    const first = createTableArtifact({
+      title: 'shop-a',
+      columns: ['name', 'price', 'rating'],
+      rows: [{ name: 'Alpha', price: '$1', rating: '5' }],
+      sources: [{ url: 'https://a.test/products' }],
+    });
+    const later = createTableArtifact({
+      title: 'shop-b',
+      columns: ['name', 'price', 'rating'],
+      rows: [{ name: 'Beta', price: '$2', rating: '4' }],
+      sources: [{ url: 'https://b.test/products' }],
+    });
+    const result = produceResult({ asked, artifacts: [first, later] });
+    expect(result?.kind).toBe('table');
+    expect(result?.body.match(/name,price,rating/g)?.length).toBe(1);
+    expect(result?.body).toContain('Alpha,$1,5');
+    expect(result?.body).toContain('Beta,$2,4');
+    expect(result?.body).toContain('https://a.test/products');
+    expect(result?.body).toContain('https://b.test/products');
+    expect(resultIsPresentAndMatches(asked, result)).toBe(true);
+  });
+
   it('does not treat a text artifact as a table result', () => {
     const asked = acceptTask('Extract products to a CSV table with name, price, rating');
     const result = produceResult({

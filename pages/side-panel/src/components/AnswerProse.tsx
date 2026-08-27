@@ -94,6 +94,7 @@ export function AnswerProse({
                     type="button"
                     className="chijie-answer-source"
                     data-url={source.url}
+                    title={source.url}
                     onClick={() => openFoundSource(source, onOpenUrl)}>
                     <span className="chijie-search-host">{source.host ?? '网页'}</span>
                     <span>{source.title}</span>

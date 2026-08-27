@@ -1,3 +1,5 @@
+import { collectPageContext, PAGE_CONTEXT_COLLECT } from './page-context';
+
 /**
  * Content script: page-operating affordance (design/005 P3).
  * Background sends CHIJIE_PAGE_OPERATING { active, text?, follow? }.
@@ -150,6 +152,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse?.({ ok: true });
   } catch {
     sendResponse?.({ ok: false });
+  }
+  return false;
+});
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (!message || message.type !== PAGE_CONTEXT_COLLECT) return false;
+  try {
+    const maxPayloadChars = typeof message.maxPayloadChars === 'number' ? message.maxPayloadChars : undefined;
+    sendResponse(collectPageContext(document, maxPayloadChars));
+  } catch {
+    sendResponse(null);
   }
   return false;
 });

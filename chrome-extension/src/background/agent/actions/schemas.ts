@@ -143,7 +143,7 @@ export const inputTextActionSchema: ActionSchema = {
     'input_text { index: 4, text: "hello in the editor", intent: "fill contenteditable" }',
   ],
   returns: 'Filled value/contenteditable; re-observe Form fields to confirm the value stuck.',
-  costHint: 'One evaluate call; page frameworks see input/change events.',
+  costHint: 'One page fill operation; page frameworks see input/change events.',
   schema: z
     .object({
       intent: z.string().default('').describe('purpose of this action'),
@@ -673,22 +673,6 @@ export const findTabActionSchema: ActionSchema = {
   }),
 };
 
-export const evaluateActionSchema: ActionSchema = {
-  name: 'evaluate',
-  description: 'Run JavaScript in the current page and return the JSON result',
-  whenToUse: 'When you need titles, attributes, or computed page data that Visible page text does not list cleanly.',
-  whenNotToUse: 'Do not use for clicking or filling. Prefer observe / extract_content for ordinary reading.',
-  examples: [
-    'evaluate { code: "(() => [...document.querySelectorAll(\'a\')].slice(0,10).map(a => a.textContent))()" }',
-  ],
-  returns: 'JSON value from the page script, truncated.',
-  costHint: 'One in-page script. Keep the return small.',
-  schema: z.object({
-    code: z.string().min(1).describe('JS expression or IIFE; return JSON-serializable data'),
-    intent: z.string().default(''),
-  }),
-};
-
 export const inspectOpenTabsActionSchema: ActionSchema = {
   name: 'inspect_open_tabs',
   description: 'List currently open allowed browser tabs by id, title and URL',
@@ -961,10 +945,11 @@ export const ALL_ACTION_SCHEMAS: ActionSchema[] = [
   cacheContentActionSchema,
   recordEvidenceActionSchema,
   inspectEvidenceSpaceActionSchema,
+  recordResearchDecisionActionSchema,
+  recordResearchDeliveryActionSchema,
   readPageTextActionSchema,
   inspectOpenTabsActionSchema,
   findTabActionSchema,
-  evaluateActionSchema,
   scrollToPercentActionSchema,
   scrollToTopActionSchema,
   scrollToBottomActionSchema,

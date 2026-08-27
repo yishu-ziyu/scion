@@ -118,12 +118,41 @@ const currentTabBecomesMixed = {
   id: contentTab.id,
 } as chrome.tabs.Tab;
 
+const normalizedDangerousUrls = [
+  { label: 'javascript with LF', url: 'java\nscript:alert(1)' },
+  { label: 'javascript with TAB', url: 'java\tscript:alert(1)' },
+  { label: 'javascript with CR', url: 'java\rscript:alert(1)' },
+  { label: 'javascript after a leading NUL', url: '\u0000javascript:alert(1)' },
+  { label: 'data with TAB', url: 'da\tta:text/html,unsafe' },
+  { label: 'file with TAB', url: 'file\t:///etc/passwd' },
+  { label: 'vbscript with LF', url: 'vb\nscript:msgbox(1)' },
+] as const;
+
+const browserUrlGuardCases = (['navigateTo', 'openTab'] as const).flatMap(operation =>
+  normalizedDangerousUrls.map(({ label, url }) => ({ operation, label, url })),
+);
+
 describe('BrowserContext tab selection', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
     tabsApi.resetListeners();
   });
+
+  it.each(browserUrlGuardCases)(
+    '$operation rejects $label before reading or changing browser state',
+    async ({ operation, url }) => {
+      const context = new BrowserContext({});
+      const getCurrentPage = vi.spyOn(context, 'getCurrentPage');
+      const navigatePage = vi.spyOn(Page.prototype, 'navigateTo').mockResolvedValue();
+
+      await expect(context[operation](url)).rejects.toBeInstanceOf(URLNotAllowedError);
+
+      expect(getCurrentPage).toHaveBeenCalledTimes(0);
+      expect(tabsApi.create).toHaveBeenCalledTimes(0);
+      expect(navigatePage).toHaveBeenCalledTimes(0);
+    },
+  );
 
   it('selects an allowed content tab when the active tab is an extension page', async () => {
     tabsApi.query.mockImplementation(async query => (query.active ? [extensionTab] : [extensionTab, contentTab]));

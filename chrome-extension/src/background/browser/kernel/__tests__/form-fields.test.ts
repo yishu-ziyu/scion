@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { isSensitiveFormControl } from '../../form-value';
 import { describeFormControl, isFillableControl, renderFormFieldsBlock } from '../form-fields';
 import type { InteractiveElementDigest } from '../types';
 
@@ -43,5 +44,31 @@ describe('form field view', () => {
     expect(
       describeFormControl(field({ index: 5, tagName: 'input', type: 'text', placeholder: 'Company', name: 'co' })),
     ).toBe('[5] text "Company" value=(empty)');
+  });
+
+  it.each([
+    { type: 'password' },
+    { type: 'text', autocomplete: 'one-time-code' },
+    { type: 'tel', name: 'card_number' },
+    { type: 'text', autocomplete: 'cc-number' },
+    { type: 'text', label: '验证码' },
+    { type: 'text', name: 'api_key' },
+    { type: 'text', name: 'access_token' },
+    { type: 'text', label: 'PIN' },
+  ])('classifies sensitive controls without looking at their values: $type $autocomplete $name $label', control => {
+    expect(isSensitiveFormControl(control)).toBe(true);
+  });
+
+  it('does not treat ordinary text or code-like data as sensitive', () => {
+    expect(isSensitiveFormControl({ type: 'text', name: 'name', label: 'Name' })).toBe(false);
+    expect(isSensitiveFormControl({ type: 'text', name: 'code_sample', label: 'Code sample' })).toBe(false);
+  });
+
+  it('marks a sensitive value as redacted instead of empty', () => {
+    expect(
+      describeFormControl(
+        field({ index: 6, tagName: 'input', type: 'password', label: 'Password', valueRedacted: true }),
+      ),
+    ).toBe('[6] password "Password" value=(redacted)');
   });
 });
