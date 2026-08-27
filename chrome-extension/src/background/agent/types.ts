@@ -122,6 +122,8 @@ export class ActionResult {
   findings: Array<{ title: string; url?: string; host?: string }>;
   /** Observed named choices when bind was ambiguous. Never selectors or page HTML. */
   waitAsk: { prompt: string; options: Array<{ label: string; sendText: string }> } | null;
+  /** True when the current page still has another results page (Next / 下一页). */
+  hasMorePages: boolean;
 
   constructor(params: Partial<ActionResult> = {}) {
     this.isDone = params.isDone ?? false;
@@ -133,6 +135,7 @@ export class ActionResult {
     this.artifact = params.artifact ?? null;
     this.findings = params.findings ?? [];
     this.waitAsk = params.waitAsk ?? null;
+    this.hasMorePages = params.hasMorePages ?? false;
   }
 }
 

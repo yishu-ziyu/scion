@@ -29,7 +29,7 @@ export const EVALUATE_FOCUSABLE_JS = `(() => {
     const r = el.getBoundingClientRect();
     return {
       tag: (el.tagName || '').toLowerCase(),
-      text: ((el.innerText || el.getAttribute('aria-label') || el.value || '') + '').replace(/\\s+/g, ' ').trim().slice(0, 80),
+      text: ((el.innerText || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '') + '').replace(/\\s+/g, ' ').trim().slice(0, 80),
       type: el.getAttribute('type') || undefined,
       role: el.getAttribute('role') || undefined,
       name: el.getAttribute('name') || undefined,
@@ -109,7 +109,7 @@ export function walkInteractiveNodes(
       typeof current.backendNodeId === 'number' &&
       current.backendNodeId > 0
     ) {
-      const text = collectText(current) || attrs['aria-label'] || attrs.value || undefined;
+      const text = collectText(current) || attrs['aria-label'] || attrs.placeholder || undefined;
       out.push({
         handle: {
           tabId: state.tabId,

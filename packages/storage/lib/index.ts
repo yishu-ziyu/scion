@@ -6,6 +6,7 @@ export * from './prompt/favorites';
 export * from './task';
 export * from './memory';
 export * from './api-key-vault';
+export * from './dexie/wisebase';
 
 // Re-export the favorites instance for direct use
 export { default as favoritesStorage } from './prompt/favorites';

@@ -47,6 +47,7 @@ const taskProgressOverviewSource = readFileSync(resolve(here, '../../components/
 const workStreamSource = readFileSync(resolve(here, '../../components/WorkStream.tsx'), 'utf8');
 const answerProseSource = readFileSync(resolve(here, '../../components/AnswerProse.tsx'), 'utf8');
 const sidePanelSource = readFileSync(resolve(here, '../../SidePanel.tsx'), 'utf8');
+const activeTabRuntimeSource = readFileSync(resolve(here, '../../presentation/active-tab-runtime.ts'), 'utf8');
 const sidePanelHeaderSource = readFileSync(resolve(here, '../../components/SidePanelHeader.tsx'), 'utf8');
 const pictureInPictureButtonSource = readFileSync(resolve(here, '../../components/PictureInPictureButton.tsx'), 'utf8');
 const documentPipSource = readFileSync(resolve(here, '../../presentation/document-pip.ts'), 'utf8');
@@ -361,6 +362,7 @@ describe('Feature: design/003 task main blocks', () => {
     expect(componentsCss).toContain('.chijie-progress-now');
     expect(workStreamSource).not.toContain('思考中');
     expect(componentsCss).toContain(".chijie-thinking[data-running='true'] .chijie-thinking-label");
+    expect(componentsCss).toContain(".chijie-process-disclosure[data-live='true'] [data-testid='task-now-summary']");
     expect(componentsCss).toContain('chijie-label-shine');
   });
 
@@ -463,8 +465,11 @@ describe('Feature: design/003 task main blocks', () => {
     expect(workStreamSource).toContain('chijie-act-chip');
     const streamLogic = readFileSync(resolve(here, '../../presentation/work-stream.ts'), 'utf8');
     expect(streamLogic).toContain("actionName === 'snapshot'");
-    expect(streamLogic).toContain("actionName === 'switch_tab'");
+    expect(streamLogic).toContain("name === 'switch_tab'");
     expect(streamLogic).not.toContain("'snapshot',");
+    expect(streamLogic).not.toContain('thinkingText');
+    expect(streamLogic).not.toContain('open: running');
+    expect(sidePanelSource).toContain('mergeRestoredSessionMessages');
   });
 
   it('waiting_user option chips send follow_up text, not Auto Approve or resume', () => {
@@ -579,9 +584,9 @@ describe('Feature: design/003 task main blocks', () => {
 
   it('binds the next task to the current window content tab before last-focused', () => {
     expect(sidePanelSource).toContain('resolveActiveContentTab({ allowLastFocused: false })');
-    expect(sidePanelSource).toContain('bindTabForTask');
-    expect(sidePanelSource.indexOf('{ currentWindow: true }')).toBeLessThan(
-      sidePanelSource.indexOf('{ lastFocusedWindow: true }'),
+    expect(activeTabRuntimeSource).toContain('bindTabForTask');
+    expect(activeTabRuntimeSource.indexOf('{ currentWindow: true }')).toBeLessThan(
+      activeTabRuntimeSource.indexOf('{ lastFocusedWindow: true }'),
     );
   });
 
@@ -688,6 +693,8 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(tree).toContain('nowBody={nowTraceBody}');
     expect(workStreamSource).toContain('task-work-stream');
     expect(workStreamSource).toContain('task-thinking-process');
+    expect(workStreamSource).not.toContain('const canToggle = !running');
+    expect(workStreamSource).not.toContain('disabled={!canToggle}');
     expect(workStreamSource).toContain('task-search-board');
     expect(workStreamSource).toContain('task-commit-note');
     expect(answerProseSource).toContain('answer-sources');
@@ -730,6 +737,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(sidePanelSource).toMatch(/onAdjustDirection=[\s\S]{0,500}setIsHistoricalSession\(false\)/);
     expect(sidePanelSource).toContain("setInputTextRef.current?.(t('chat_task_adjust_prompt'))");
     expect(sidePanelSource).toContain("changeType: isDirectionChange ? 'direction_change' : 'follow_up'");
+    expect(sidePanelSource).toContain('planComposerSend');
     expect(taskProgressOverviewSource).toContain('data-testid="task-direction-change"');
     expect(t('chat_task_adjust_prompt')).toBe('我想调整：');
     expect(t('chat_task_bind_kicker')).toBe('当前页面');

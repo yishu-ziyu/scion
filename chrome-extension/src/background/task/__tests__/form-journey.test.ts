@@ -6,6 +6,12 @@ import { sha256 } from '../digest';
 
 const store = vi.hoisted(() => ({
   sessions: new Map<string, unknown>(),
+  browserState: null as null | {
+    tabId: number;
+    url: string;
+    title: string;
+    selectorMap: Map<number, unknown>;
+  },
 }));
 
 vi.mock('@extension/storage/lib/task', () => {
@@ -32,8 +38,18 @@ vi.mock('@extension/storage/lib/task', () => {
   };
 });
 
+vi.mock('../../agent/factory', () => ({
+  browserContext: {
+    getCurrentPage: async () => ({ tabId: 7, url: () => 'https://example.test/form' }),
+    getState: async () => store.browserState,
+  },
+}));
+
 describe('verified form journey', () => {
-  beforeEach(() => store.sessions.clear());
+  beforeEach(() => {
+    store.sessions.clear();
+    store.browserState = null;
+  });
 
   it('creates a receipt only from fresh current-round evidence', async () => {
     const driver: ExecutorDriver = {
@@ -357,8 +373,8 @@ describe('verified form journey', () => {
     const criterion = snapshot?.rounds[0]?.criteria[0];
 
     expect(observeCriteria).toHaveBeenCalledOnce();
-    // runCurrentRound switches once; freeze baselining switches again onto the task tab.
-    expect(switchTab.mock.calls.filter(call => call[0] === 7).length).toBeGreaterThanOrEqual(2);
+    // Freeze baselines on the task tab, not whichever page happens to be focused.
+    expect(switchTab.mock.calls.filter(call => call[0] === 7).length).toBeGreaterThanOrEqual(1);
     const freezeObserveOrder = observeCriteria.mock.invocationCallOrder[0];
     expect(switchTab.mock.invocationCallOrder.some(order => order < freezeObserveOrder)).toBe(true);
     expect(criterion).toMatchObject({
@@ -571,6 +587,73 @@ describe('verified form journey', () => {
       status: 'completed',
       rounds: [{ receipt: expect.any(Object), result: { kind: 'summary', body: 'Saved' } }],
     });
+  });
+
+  it('completes fill-only from a fresh digest-only form observation', async () => {
+    const attributes = { type: 'text', name: 'Name', accname: 'Name', value: '' };
+    store.browserState = {
+      tabId: 7,
+      url: 'https://example.test/form',
+      title: 'Form',
+      selectorMap: new Map([
+        [
+          1,
+          {
+            tagName: 'input',
+            xpath: '/html/body/form/input[1]',
+            attributes,
+            getAllTextTillNextClickableElement: () => '',
+            hash: async () => ({ branchPathHash: 'b', attributesHash: 'a', xpathHash: 'x' }),
+          },
+        ],
+      ]),
+    };
+    const driver: ExecutorDriver = {
+      run: vi.fn(async () => {
+        attributes.value = 'Ada';
+        return {
+          kind: 'candidate_complete' as const,
+          summary: 'Filled the Name field with Ada without submitting.',
+        };
+      }),
+      addFollowUp: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+    };
+    const observeCriteria = vi.fn(async () => []);
+    const manager = new TaskManager({
+      createExecutor: async () => driver,
+      switchTab: vi.fn(),
+      observeCriteria,
+      now: () => 220,
+    });
+
+    await manager.dispatch({
+      type: 'start',
+      commandId: 'start-fill-only',
+      taskId: 'task-fill-only',
+      tabId: 7,
+      instruction: 'Fill the Name field with this exact plain text: "Ada". Do not submit the form.',
+      chatSessionId: 'chat-fill-only',
+      instructionMessageId: 'message-fill-only',
+    });
+    await vi.waitFor(async () => expect((await manager.snapshot('task-fill-only'))?.status).toBe('completed'));
+
+    const snapshot = await manager.snapshot('task-fill-only');
+    const criterion = snapshot?.rounds[0]?.criteria[0];
+    const evidence = snapshot?.rounds[0]?.evidence.find(item => item.criterionId === criterion?.id && item.passed);
+    expect(criterion).toMatchObject({
+      kind: 'page_text',
+      observationSource: 'form_value',
+      expectedDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      formFieldDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      baseline: false,
+    });
+    expect(criterion?.targetRefId).toMatch(/^form:[a-f0-9]{64}$/);
+    expect(evidence).toMatchObject({ source: 'page', value: true, passed: true, targetRefId: criterion?.targetRefId });
+    expect(JSON.stringify({ criterion, evidence })).not.toContain('Ada');
+    expect(observeCriteria).toHaveBeenCalledWith([]);
   });
 
   it('persists each dedicated confirmation before completing the set', async () => {

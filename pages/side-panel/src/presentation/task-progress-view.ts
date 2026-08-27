@@ -72,11 +72,31 @@ export interface ProgressCurrentActivity {
 }
 
 const PROCESS_NOISE = /^(搜索网页|获取页面快照|思考中|查看页面|page_state|正在处理|正在操作页面)$/;
+const LOOK_AT_HOST = /^(查看|打开|切换到)\s+(.+)$/u;
+
+/** Drop Chrome unread counts like `(25)` from a tab title. */
+export function stripTabCountPrefix(value: string): string {
+  return value
+    .split(/\s+·\s+/)
+    .map(part =>
+      part
+        .replace(/^\(\d+\)\s+/, '')
+        .replace(/\s+\(\d+\)$/, '')
+        .trim(),
+    )
+    .filter(Boolean)
+    .join(' · ');
+}
 
 /** One line for the running process fold. Noise verbs collapse to 正在读取. */
 export function liveProcessFold(activity: ProgressCurrentActivity): { summary: string; site?: string } {
-  const site = activity.site?.replace(/\s+/g, ' ').trim();
-  const raw = activity.summary.replace(/\s+/g, ' ').trim();
+  const site = stripTabCountPrefix(activity.site?.replace(/\s+/g, ' ').trim() ?? '') || undefined;
+  const raw = stripTabCountPrefix(activity.summary.replace(/\s+/g, ' ').trim());
+  const look = LOOK_AT_HOST.exec(raw);
+  if (look) {
+    if (site) return { summary: '正在看', site };
+    return { summary: `正在看 ${look[2]!.replace(/^https?:\/\//i, '').replace(/^www\./, '')}` };
+  }
   const summary = !raw || PROCESS_NOISE.test(raw) ? '正在读取' : raw;
   if (site && summary.includes(site)) return { summary };
   return site ? { summary, site } : { summary };
@@ -166,7 +186,7 @@ function activitySiteLabel(snapshot: TaskSnapshot): string | undefined {
   const page =
     [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page' && ref.tabId === snapshot.activeTabId) ??
     [...snapshot.targetRefs].reverse().find(ref => ref.kind === 'page');
-  const raw = page?.label?.trim() || page?.urlOrigin?.trim();
+  const raw = stripTabCountPrefix(page?.label?.trim() || page?.urlOrigin?.trim() || '');
   if (!raw) return undefined;
   try {
     if (raw.includes('://')) {

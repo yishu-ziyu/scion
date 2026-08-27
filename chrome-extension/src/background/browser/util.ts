@@ -23,21 +23,14 @@ function isPrivateOrMetadataHost(hostname: string): boolean {
 }
 
 /** Private-host SSRF guard: denied unless the user explicitly allowlisted this host. */
-function firewallDeniesPrivateTarget(url: string, allowList: string[]): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(url.includes('://') ? url : `https://${url}`);
-  } catch {
-    // Invalid URL format is handled by the callers' later checks.
-    return false;
-  }
-  const host = parsed.hostname
+function firewallDeniesPrivateTarget(parsedUrl: URL, rawUrl: string, allowList: string[]): boolean {
+  const host = parsedUrl.hostname
     .trim()
     .toLowerCase()
     .replace(/^\[|\]$/g, '');
   if (host === '169.254.169.254') return true;
   if (!isPrivateOrMetadataHost(host)) return false;
-  const urlWithoutProtocol = url.toLowerCase().replace(/^https?:\/\//, '');
+  const urlWithoutProtocol = rawUrl.toLowerCase().replace(/^https?:\/\//, '');
   return !allowList.some(entry => urlWithoutProtocol === entry || host === entry || host.endsWith(`.${entry}`));
 }
 
@@ -50,13 +43,31 @@ function firewallDeniesPrivateTarget(url: string, allowList: string[]): boolean 
  */
 
 export function isUrlAllowed(url: string, allowList: string[], denyList: string[]): boolean {
-  // Normalize and validate input
   const trimmedUrl = url.trim();
   if (trimmedUrl.length === 0) {
     return false;
   }
 
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(trimmedUrl);
+  } catch {
+    return false;
+  }
+
+  // about:blank is the sole non-HTTP bootstrap URL.
+  if (trimmedUrl === 'about:blank') {
+    return true;
+  }
+
+  // URL parsing strips TAB/LF/CR from schemes. Check the parsed protocol so
+  // obfuscated javascript:, data:, file:, and similar URLs cannot bypass this guard.
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    return false;
+  }
+
   const lowerCaseUrl = trimmedUrl.toLowerCase();
+  const normalizedLowerCaseUrl = parsedUrl.href.toLowerCase();
 
   // ALWAYS block dangerous/forbidden URLs, even if firewall is disabled
   const DANGEROUS_PREFIXES = [
@@ -71,76 +82,64 @@ export function isUrlAllowed(url: string, allowList: string[], denyList: string[
     'wss:',
   ];
 
-  if (DANGEROUS_PREFIXES.some(prefix => lowerCaseUrl.startsWith(prefix))) {
+  if (DANGEROUS_PREFIXES.some(prefix => normalizedLowerCaseUrl.startsWith(prefix))) {
     return false;
   }
 
   // Private/local targets are denied unless the user explicitly allowlisted
   // them (local dev servers, local eval fixtures). Cloud metadata stays
   // blocked unconditionally — no legitimate workflow needs it.
-  if (firewallDeniesPrivateTarget(trimmedUrl, allowList)) {
+  if (firewallDeniesPrivateTarget(parsedUrl, trimmedUrl, allowList)) {
     return false;
   }
 
-  // If firewall is disabled, allow all other URLs
+  // If firewall is disabled, allow all other HTTP(S) URLs.
   if (allowList.length === 0 && denyList.length === 0) {
     return true;
   }
 
-  // Special case: Allow 'about:blank' explicitly
-  if (trimmedUrl === 'about:blank') {
-    return true;
+  // 1. Remove protocol prefix for further comparisons
+  const urlWithoutProtocol = lowerCaseUrl.replace(/^https?:\/\//, '');
+
+  // 2. First check full URL against deny list
+  for (const deniedEntry of denyList) {
+    if (urlWithoutProtocol === deniedEntry) {
+      return false;
+    }
   }
 
-  try {
-    const parsedUrl = new URL(trimmedUrl);
-
-    // 1. Remove protocol prefix for further comparisons
-    const urlWithoutProtocol = lowerCaseUrl.replace(/^https?:\/\//, '');
-
-    // 2. First check full URL against deny list
-    for (const deniedEntry of denyList) {
-      if (urlWithoutProtocol === deniedEntry) {
-        return false;
-      }
+  // 3. Check full URL against allow list
+  for (const allowedEntry of allowList) {
+    if (urlWithoutProtocol === allowedEntry) {
+      return true;
     }
-
-    // 3. Check full URL against allow list
-    for (const allowedEntry of allowList) {
-      if (urlWithoutProtocol === allowedEntry) {
-        return true;
-      }
-    }
-
-    // 4. Extract domain for domain-based checks
-    let domain = parsedUrl.hostname.toLowerCase();
-
-    // Remove port number if present
-    const portIndex = domain.indexOf(':');
-    if (portIndex > -1) {
-      domain = domain.substring(0, portIndex);
-    }
-
-    // 5. Check domain against deny list
-    for (const deniedEntry of denyList) {
-      if (domain === deniedEntry || domain.endsWith(`.${deniedEntry}`)) {
-        return false;
-      }
-    }
-
-    // 6. Check domain against allow list
-    for (const allowedEntry of allowList) {
-      if (domain === allowedEntry || domain.endsWith(`.${allowedEntry}`)) {
-        return true;
-      }
-    }
-
-    // Default policy
-    return allowList.length === 0;
-  } catch (error) {
-    // Invalid URL format - deny by default
-    return false;
   }
+
+  // 4. Extract domain for domain-based checks
+  let domain = parsedUrl.hostname.toLowerCase();
+
+  // Remove port number if present
+  const portIndex = domain.indexOf(':');
+  if (portIndex > -1) {
+    domain = domain.substring(0, portIndex);
+  }
+
+  // 5. Check domain against deny list
+  for (const deniedEntry of denyList) {
+    if (domain === deniedEntry || domain.endsWith(`.${deniedEntry}`)) {
+      return false;
+    }
+  }
+
+  // 6. Check domain against allow list
+  for (const allowedEntry of allowList) {
+    if (domain === allowedEntry || domain.endsWith(`.${allowedEntry}`)) {
+      return true;
+    }
+  }
+
+  // Default policy
+  return allowList.length === 0;
 }
 
 // Check if a URL is a new tab page (about:blank or chrome://new-tab-page).

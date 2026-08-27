@@ -1,6 +1,7 @@
-import type { Message } from '@extension/storage';
+import type { Message, MessageSource } from '@extension/storage';
 import { memo } from 'react';
 import { humanizeStoredMessage, type DisplayMessage } from '../presentation/humanize-message';
+import { AnswerProse } from './AnswerProse';
 
 interface MessageListProps {
   messages: Message[];
@@ -32,6 +33,7 @@ export default memo(function MessageList({ messages, isDarkMode = false, onRetry
           <MessageBlock
             key={`${message.actor}-${message.timestamp}-${index}`}
             display={display}
+            source={message.source}
             isSameGroup={isSameGroup}
             onRetry={onRetry}
             onRephrase={onRephrase}
@@ -45,15 +47,27 @@ export default memo(function MessageList({ messages, isDarkMode = false, onRetry
 
 interface MessageBlockProps {
   display: DisplayMessage;
+  source?: MessageSource;
   isSameGroup: boolean;
   showActions?: boolean;
   onRetry?: () => void;
   onRephrase?: () => void;
 }
 
-function MessageBlock({ display, isSameGroup, showActions, onRetry, onRephrase }: MessageBlockProps) {
+function MessageBlock({ display, source, isSameGroup, showActions, onRetry, onRephrase }: MessageBlockProps) {
   const isProgress = display.kind === 'progress';
   const isFailure = display.kind === 'failure';
+  const summarySource = source
+    ? [
+        {
+          id: `page-${source.tabId ?? source.url}`,
+          title: source.title,
+          host: source.url,
+          url: source.url,
+          tabId: source.tabId,
+        },
+      ]
+    : [];
 
   return (
     <div
@@ -77,14 +91,7 @@ function MessageBlock({ display, isSameGroup, showActions, onRetry, onRephrase }
 
         <div className="space-y-0.5">
           <div className="whitespace-pre-wrap break-words text-sm text-[var(--chijie-foreground)]">
-            {isProgress ? (
-              <div className="chijie-current-activity" role="status" aria-live="polite">
-                <span className="chijie-activity-dot" aria-hidden />
-                <div className="text-[var(--chijie-accent-signal)]">{display.body}</div>
-              </div>
-            ) : (
-              display.body
-            )}
+            <MessageBody display={display} source={source} summarySource={summarySource} />
           </div>
 
           {isFailure && display.detail ? (
@@ -125,6 +132,23 @@ function MessageBlock({ display, isSameGroup, showActions, onRetry, onRephrase }
       </div>
     </div>
   );
+}
+
+function MessageBody({
+  display,
+  source,
+  summarySource,
+}: Pick<MessageBlockProps, 'display' | 'source'> & { summarySource: Parameters<typeof AnswerProse>[0]['sources'] }) {
+  if (display.kind === 'progress') {
+    return (
+      <div className="chijie-current-activity" role="status" aria-live="polite">
+        <span className="chijie-activity-dot" aria-hidden />
+        <div className="text-[var(--chijie-accent-signal)]">{display.body}</div>
+      </div>
+    );
+  }
+  if (source) return <AnswerProse text={display.body} sources={summarySource} testId="page-summary-result" />;
+  return <>{display.body}</>;
 }
 
 function formatTimestamp(timestamp: number): string {

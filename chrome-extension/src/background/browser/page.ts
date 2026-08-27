@@ -1381,10 +1381,14 @@ export default class Page {
     return selectorMap.get(index) || null;
   }
 
-  /** Controlled page evaluate for deterministic Harness shortcuts. */
-  async evaluate(fn: string | ((...args: unknown[]) => unknown), ...args: unknown[]): Promise<unknown> {
+  /** Controlled page evaluate for deterministic host functions only. */
+  async evaluate<Args extends unknown[], Result>(
+    fn: (...args: Args) => Result | Promise<Result>,
+    ...args: Args
+  ): Promise<Awaited<Result>> {
+    if (typeof fn !== 'function') throw new Error('dynamic_code_not_allowed');
     if (!this._puppeteerPage) throw new Error('Page is not attached');
-    return this._puppeteerPage.evaluate(fn as never, ...(args as never[]));
+    return (await this._puppeteerPage.evaluate(fn as never, ...(args as unknown as never[]))) as Awaited<Result>;
   }
 
   async observeActionTarget(

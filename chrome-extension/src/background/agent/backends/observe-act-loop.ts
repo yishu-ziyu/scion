@@ -2,6 +2,7 @@
  * Observe → decide → act → re-observe agent loop (browser-use architecture, TS).
  * Ticket 02 / seam S3: pure engine used by LLM control and unit-tested with mocks.
  */
+import { PAGE_CHANGING_ACTIONS } from '../../browser/kernel/types';
 
 export type LoopPhase = 'observe' | 'decide' | 'act' | 'reobserve';
 
@@ -10,20 +11,6 @@ export const NO_PAGE_SNAPSHOT = '[no_page_snapshot]';
 
 /** A single decide may execute at most this many actions before another decide. */
 export const MAX_ACTIONS_PER_DECISION = 5;
-
-const ELEMENT_INDEX_INVALIDATING_ACTIONS = new Set([
-  'click_element',
-  'go_to_url',
-  'open_tab',
-  'close_tab',
-  'go_back',
-  'previous_page',
-  'next_page',
-  'search_google',
-  'select_dropdown_option',
-  'send_keys',
-  'switch_tab',
-]);
 
 export type LoopFailureCategory =
   | 'observe_failed'
@@ -407,7 +394,7 @@ export function actionUsesElementIndex(action: { args: Record<string, unknown> }
 
 /** Clicks and navigations replace the snapshot that remaining indexes were bound to. */
 export function actionInvalidatesElementSnapshot(name: string): boolean {
-  return ELEMENT_INDEX_INVALIDATING_ACTIONS.has(name);
+  return PAGE_CHANGING_ACTIONS.has(name);
 }
 
 /** Content targets must not be chrome-extension:// pages (side panel). */

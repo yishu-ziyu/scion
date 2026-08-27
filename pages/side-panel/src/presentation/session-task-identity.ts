@@ -258,14 +258,122 @@ export function shouldSuppressExecutionForSessionRecovery(
   return recoveringAuthoritativeTask || Boolean(owner && owner.sessionId !== currentSessionId);
 }
 
-export function canFollowUpInOwnedSession(task: TaskSnapshot | null | undefined, sessionId: string | null): boolean {
-  return Boolean(
-    task &&
-      sessionId &&
-      task.id === sessionId &&
-      task.chatSessionId === sessionId &&
-      (isLiveTaskIdentity({ taskId: task.id, status: task.status }) || task.status === 'completed'),
+export function userTextByRoundId(
+  rounds: Array<{ id: string; instructionMessageId?: string }>,
+  messages: Array<{ actor: string; content?: string; id?: string }>,
+): Record<string, string> {
+  const users = messages.filter(
+    message => message.actor === Actors.USER && typeof message.content === 'string' && message.content.trim(),
   );
+  const claimed = new Set<number>();
+  const out: Record<string, string> = {};
+  for (const round of rounds) {
+    const byId = users.findIndex(
+      (message, index) => !claimed.has(index) && message.id !== undefined && message.id === round.instructionMessageId,
+    );
+    const index = byId >= 0 ? byId : users.findIndex((_message, i) => !claimed.has(i));
+    if (index < 0) continue;
+    claimed.add(index);
+    out[round.id] = users[index]!.content!.replace(/\s+/g, ' ').trim();
+  }
+  return out;
+}
+
+/** Keep local user turns the stored snapshot has not caught up to yet. */
+export function mergeRestoredSessionMessages<T extends { actor: string; content?: string; id?: string }>(
+  stored: T[],
+  current: readonly { actor: string; content?: string; id?: string }[],
+): T[] {
+  if (current.length === 0) return stored;
+  if (stored.length === 0) return current as T[];
+  const storedIds = new Set(stored.map(message => message.id).filter((id): id is string => Boolean(id)));
+  const storedUserTexts = new Set(
+    stored
+      .filter(message => message.actor === Actors.USER)
+      .map(message => (message.content ?? '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean),
+  );
+  const extras = current.filter(message => {
+    if (message.id && storedIds.has(message.id)) return false;
+    if (message.actor !== Actors.USER) return false;
+    const text = (message.content ?? '').replace(/\s+/g, ' ').trim();
+    return Boolean(text) && !storedUserTexts.has(text);
+  });
+  return extras.length === 0 ? stored : [...stored, ...(extras as T[])];
+}
+
+export function pendingFollowUpTexts(
+  messages: Array<{ actor: string; content?: string }>,
+  roundUtterances: Readonly<Record<string, string>>,
+  originalInstruction: string,
+): string[] {
+  const assigned = new Set(
+    [...Object.values(roundUtterances), originalInstruction]
+      .map(value => value.replace(/\s+/g, ' ').trim())
+      .filter(Boolean),
+  );
+  const pending: string[] = [];
+  for (const message of messages) {
+    if (message.actor !== Actors.USER) continue;
+    const text = (message.content ?? '').replace(/\s+/g, ' ').trim();
+    if (!text || assigned.has(text) || pending.includes(text)) continue;
+    pending.push(text);
+  }
+  return pending;
+}
+
+export function canFollowUpInOwnedSession(task: TaskSnapshot | null | undefined, sessionId: string | null): boolean {
+  if (!task) return false;
+  const live = isLiveTaskIdentity({ taskId: task.id, status: task.status }) || task.status === 'completed';
+  if (!live) return false;
+  if (!sessionId) return Boolean(task.chatSessionId || task.id);
+  return task.chatSessionId === sessionId || task.id === sessionId;
+}
+
+/** A live follow-up must not wait for the original start command to clear. */
+export function composerSendBlockedByExclusiveLaunch(input: {
+  followingUp: boolean;
+  pendingAsyncLaunch: boolean;
+  pendingStartTaskId: string | null;
+}): boolean {
+  if (input.followingUp) return false;
+  return !canBeginExclusiveTaskLaunch({
+    pendingAsyncLaunch: input.pendingAsyncLaunch,
+    pendingStartTaskId: input.pendingStartTaskId,
+  });
+}
+
+export function planComposerSend(input: {
+  liveTask: TaskSnapshot | null | undefined;
+  sessionId: string | null;
+  pendingAsyncLaunch: boolean;
+  pendingStartTaskId: string | null;
+}): {
+  followingUp: boolean;
+  sessionId: string | null;
+  startingFreshSession: boolean;
+  blockFeedback?: string;
+} {
+  const followingUp = canFollowUpInOwnedSession(input.liveTask, input.sessionId);
+  const sessionId = followingUp
+    ? (input.sessionId ?? input.liveTask?.chatSessionId ?? input.liveTask?.id ?? null)
+    : input.sessionId;
+  const startingFreshSession = !followingUp || !sessionId;
+  if (
+    composerSendBlockedByExclusiveLaunch({
+      followingUp,
+      pendingAsyncLaunch: input.pendingAsyncLaunch,
+      pendingStartTaskId: input.pendingStartTaskId,
+    })
+  ) {
+    return {
+      followingUp,
+      sessionId,
+      startingFreshSession,
+      blockFeedback: '上一个任务还在启动。输入已保留，请稍后再试。',
+    };
+  }
+  return { followingUp, sessionId, startingFreshSession };
 }
 
 export function isRejectedTaskLaunchAck(

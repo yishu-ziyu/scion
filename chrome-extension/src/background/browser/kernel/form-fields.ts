@@ -59,7 +59,8 @@ export function describeFormControl(el: InteractiveElementDigest): string {
   const name = controlLabel(el);
   const namePart = name ? ` "${name}"` : '';
   const checked = el.checked !== undefined && el.checked !== '' ? ` checked=${el.checked}` : '';
-  return `[${el.index}] ${controlKind(el)}${namePart} value=${formatControlValue(el.value)}${checked}`;
+  const value = el.valueRedacted ? '(redacted)' : formatControlValue(el.value);
+  return `[${el.index}] ${controlKind(el)}${namePart} value=${value}${checked}`;
 }
 
 export function renderFormFieldsBlock(elements: InteractiveElementDigest[]): string {

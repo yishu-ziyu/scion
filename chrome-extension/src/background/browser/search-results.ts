@@ -5,6 +5,24 @@ import type { AttemptFinding } from '@extension/storage';
 const MAX_FINDINGS = 6;
 const TITLE_MAX = 80;
 
+function normalizeNavigableUrl(value: string): string | undefined {
+  const candidate = value.trim().slice(0, 500);
+  if (!candidate) return undefined;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+function hasNavigableFindingUrl(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return true;
+  const url = (value as { url?: unknown }).url;
+  return typeof url !== 'string' || normalizeNavigableUrl(url) !== undefined;
+}
+
 export function isSearchResultsUrl(value: string | undefined): boolean {
   if (!value) return false;
   try {
@@ -78,14 +96,14 @@ export function normalizeSearchFindings(raw: unknown): AttemptFinding[] {
   if (!Array.isArray(raw)) return [];
   const out: AttemptFinding[] = [];
   const seen = new Set<string>();
-  for (const item of raw) {
+  for (const item of raw.filter(hasNavigableFindingUrl)) {
     if (!item || typeof item !== 'object') continue;
     const record = item as { title?: unknown; url?: unknown; host?: unknown };
     const title = String(record.title ?? '')
       .replace(/\s+/g, ' ')
       .trim();
     if (title.length < 2) continue;
-    const url = typeof record.url === 'string' ? record.url.trim().slice(0, 500) : undefined;
+    const url = typeof record.url === 'string' ? normalizeNavigableUrl(record.url) : undefined;
     let host = typeof record.host === 'string' ? record.host.replace(/^www\./, '').trim() : undefined;
     if (!host && url) {
       try {

@@ -14,6 +14,7 @@ import {
   EVERYDAY_CONTROL_ACTION_NAMES,
 } from '../control-policy';
 import type { ObservationFrame } from '../../../browser/kernel';
+import { extractJsonFromModelOutput } from '../../messages/utils';
 
 function frame(overrides: Partial<ObservationFrame> = {}): ObservationFrame {
   return {
@@ -40,7 +41,7 @@ describe('parseControlPolicyDecision', () => {
     expect(d.action).toEqual({ name: 'observe', args: { query: '提交' } });
   });
 
-  it('parses find_tab and evaluate', () => {
+  it('parses find_tab', () => {
     expect(
       parseControlPolicyDecision({
         observation: 'use this page',
@@ -49,14 +50,99 @@ describe('parseControlPolicyDecision', () => {
         action_args: { active: true },
       }).action,
     ).toEqual({ name: 'find_tab', args: { active: true } });
-    expect(
-      parseControlPolicyDecision({
-        observation: 'titles',
-        done: false,
-        action_name: 'evaluate',
-        action_args: { code: '1+1' },
-      }).action,
-    ).toEqual({ name: 'evaluate', args: { code: '1+1' } });
+  });
+
+  it.each([
+    {
+      label: 'evaluate',
+      raw: { action_name: 'evaluate', action_args: { code: 'document.body.remove()' } },
+    },
+    {
+      label: 'evaluate even without a code argument',
+      raw: { action_name: 'evaluate', action_args: {} },
+    },
+    {
+      label: 'an unknown action even when done is true',
+      raw: { done: true, action_name: 'run_javascript', action_args: {} },
+    },
+    {
+      label: 'a string action name',
+      raw: { action: 'evaluate' },
+    },
+    {
+      label: 'code on an otherwise allowed action',
+      raw: { action_name: 'click_element', action_args: { index: 1, code: 'document.body.remove()' } },
+    },
+    {
+      label: 'nested code',
+      raw: { action: { name: 'input_text', args: { index: 1, text: 'Ada', extra: { code: 'alert(1)' } } } },
+    },
+    {
+      label: 'unknown action',
+      raw: { action_name: 'run_javascript', action_args: { source: 'document.body.remove()' } },
+    },
+  ])('rejects $label before it becomes an action', ({ raw }) => {
+    const decision = parseControlPolicyDecision({ observation: 'unsafe', done: false, ...raw });
+    expect(decision).toMatchObject({ done: false, action: null, actions: [] });
+  });
+
+  it.each([
+    { label: 'action_name', raw: { action_name: 'evaluate', action_args: {} } },
+    { label: 'action.name', raw: { action: { name: 'evaluate', args: {} } } },
+    { label: 'keyed action', raw: { evaluate: {} } },
+    { label: 'flat name', raw: { name: 'evaluate' } },
+    {
+      label: 'conflicting action object',
+      raw: { action_name: 'observe', action_args: {}, action: { name: 'evaluate', args: {} } },
+    },
+  ])('rejects evaluate in the $label shape', ({ raw }) => {
+    expect(parseControlPolicyDecision({ observation: 'unsafe', done: false, ...raw })).toMatchObject({
+      done: false,
+      action: null,
+      actions: [],
+    });
+  });
+
+  it('validates every queued item, including items after the execution cap', () => {
+    const action = [
+      ...Array.from({ length: CONTROL_MAX_ACTIONS_PER_TURN }, (_, index) => ({
+        input_text: { index: index + 1, text: `v${index}` },
+      })),
+      { evaluate: {} },
+    ];
+    expect(parseControlPolicyDecision({ observation: 'unsafe tail', done: false, action })).toMatchObject({
+      done: false,
+      action: null,
+      actions: [],
+    });
+  });
+
+  it('normalizes safe aliases in actions plural but rejects an unsafe plural batch atomically', () => {
+    const safe = parseControlPolicyDecision({
+      observation: 'aliases',
+      done: false,
+      actions: [{ snapshot: {} }, { focus_tab: { tab_id: 7 } }],
+    });
+    expect(safe.actions).toEqual([
+      { name: 'observe', args: {} },
+      { name: 'switch_tab', args: { tab_id: 7 } },
+    ]);
+
+    const unsafe = parseControlPolicyDecision({
+      observation: 'unsafe plural',
+      done: false,
+      actions: [{ snapshot: {} }, { evaluate: {} }, { focus_tab: { tab_id: 7 } }],
+    });
+    expect(unsafe).toMatchObject({ done: false, action: null, actions: [] });
+  });
+
+  it('rejects the whole same-snapshot queue when any item is unknown', () => {
+    const decision = parseControlPolicyDecision({
+      observation: 'must not partly execute',
+      done: false,
+      action: [{ input_text: { index: 1, text: 'Ada' } }, { run_javascript: { source: 'document.body.remove()' } }],
+    });
+    expect(decision).toMatchObject({ done: false, action: null, actions: [] });
   });
 
   it('parses action_name shape', () => {
@@ -73,6 +159,16 @@ describe('parseControlPolicyDecision', () => {
       name: 'input_text',
       args: { index: 1, text: 'BakeoffName', intent: 'fill' },
     });
+  });
+
+  it('keeps structured flat args on an allowed named action', () => {
+    const decision = parseControlPolicyDecision({
+      observation: 'record visible evidence',
+      done: false,
+      name: 'record_evidence',
+      records: [],
+    });
+    expect(decision.action).toEqual({ name: 'record_evidence', args: { records: [] } });
   });
 
   it('parses navigator-style action array', () => {
@@ -241,6 +337,42 @@ describe('parseControlPolicyDecision', () => {
       action_args: { max_chars: 20000 },
     });
     expect(read.action).toEqual({ name: 'read_page_text', args: { max_chars: 20000 } });
+  });
+
+  it('parses normalized camelCase actions and current_state from raw model JSON', () => {
+    const parsed = extractJsonFromModelOutput(
+      JSON.stringify({
+        observation: 'fill both controls',
+        done: false,
+        currentState: { evaluationPreviousGoal: 'ready', memory: '', nextGoal: 'fill' },
+        actions: [{ inputText: { index: '1', text: 'Ada' } }, { clickElement: { index: '2', intent: 'submit' } }],
+      }),
+    );
+
+    expect(parseControlPolicyDecision(parsed).actions).toEqual([
+      { name: 'input_text', args: { index: 1, text: 'Ada', intent: '' } },
+      { name: 'click_element', args: { index: 2, intent: 'submit' } },
+    ]);
+  });
+
+  it.each([
+    {
+      label: 'evaluate',
+      actions: [{ inputText: { index: 1, text: 'Ada' } }, { evaluate: {} }],
+    },
+    {
+      label: 'code',
+      actions: [{ inputText: { index: 1, text: 'Ada', metadata: { code: 'document.body.remove()' } } }],
+    },
+    {
+      label: 'unknown action',
+      actions: [{ inputText: { index: 1, text: 'Ada' } }, { runJavascript: {} }],
+    },
+  ])('rejects a normalized raw-model batch containing $label', ({ actions }) => {
+    const parsed = extractJsonFromModelOutput(
+      JSON.stringify({ observation: 'unsafe', done: false, currentState: {}, actions }),
+    );
+    expect(parseControlPolicyDecision(parsed)).toMatchObject({ done: false, action: null, actions: [] });
   });
 
   it('allows observe with query and extract_content', () => {

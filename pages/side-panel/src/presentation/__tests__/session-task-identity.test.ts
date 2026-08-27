@@ -7,6 +7,11 @@ import {
   canBeginExclusiveTaskLaunch,
   canExposeMessageRecoveryActions,
   canFollowUpInOwnedSession,
+  composerSendBlockedByExclusiveLaunch,
+  pendingFollowUpTexts,
+  planComposerSend,
+  mergeRestoredSessionMessages,
+  userTextByRoundId,
   canDispatchTaskCommand,
   confirmsNewChatCancellation,
   historicalProjectionAfterHistoryBack,
@@ -375,6 +380,61 @@ describe('side-panel session/task identity contract', () => {
     expect(canFollowUpInOwnedSession(live, 'B')).toBe(false);
     expect(canFollowUpInOwnedSession({ ...live, status: 'failed' }, 'A')).toBe(false);
     expect(canFollowUpInOwnedSession({ ...live, status: 'completed' }, 'A')).toBe(true);
+    expect(
+      canFollowUpInOwnedSession({ id: 'task-1', chatSessionId: 'A', status: 'running' } as TaskSnapshot, 'A'),
+    ).toBe(true);
+    expect(canFollowUpInOwnedSession(live, null)).toBe(true);
+  });
+
+  it('keeps a local follow-up when the restored session snapshot is still one turn behind', () => {
+    const stored = [{ actor: Actors.USER, content: '打开bijanbowen的YouTube主页', id: 'm1', timestamp: 1 }];
+    const current = [
+      { actor: Actors.USER, content: '打开bijanbowen的YouTube主页', id: 'm1', timestamp: 1 },
+      { actor: Actors.USER, content: '他有测试GLM 5.3 Flash吗？', timestamp: 2 },
+    ];
+    expect(mergeRestoredSessionMessages(stored, current).map(message => message.content)).toEqual([
+      '打开bijanbowen的YouTube主页',
+      '他有测试GLM 5.3 Flash吗？',
+    ]);
+  });
+
+  it('maps follow-up chat text onto rounds even before message ids land', () => {
+    const messages = [
+      { actor: Actors.USER, content: '打开bijanbowen的YouTube主页' },
+      { actor: Actors.USER, content: '他有测试GLM 5.3 Flash吗？' },
+    ];
+    const rounds = [{ id: 'round-1', instructionMessageId: 'missing' }];
+    const utterances = userTextByRoundId(rounds, messages);
+    expect(utterances).toEqual({ 'round-1': '打开bijanbowen的YouTube主页' });
+    expect(pendingFollowUpTexts(messages, utterances, '打开bijanbowen的YouTube主页')).toEqual([
+      '他有测试GLM 5.3 Flash吗？',
+    ]);
+  });
+
+  it('lets a running follow-up send while the original start is still tracked', () => {
+    expect(
+      composerSendBlockedByExclusiveLaunch({
+        followingUp: true,
+        pendingAsyncLaunch: true,
+        pendingStartTaskId: 'A',
+      }),
+    ).toBe(false);
+    expect(
+      composerSendBlockedByExclusiveLaunch({
+        followingUp: false,
+        pendingAsyncLaunch: true,
+        pendingStartTaskId: null,
+      }),
+    ).toBe(true);
+    const live = { id: 'A', chatSessionId: 'A', status: 'running' } as TaskSnapshot;
+    expect(
+      planComposerSend({
+        liveTask: live,
+        sessionId: 'A',
+        pendingAsyncLaunch: true,
+        pendingStartTaskId: 'A',
+      }),
+    ).toEqual({ followingUp: true, sessionId: 'A', startingFreshSession: false });
   });
 
   it('recognizes rejected start/run_skill by exact tracked ownership so UI can recover', () => {

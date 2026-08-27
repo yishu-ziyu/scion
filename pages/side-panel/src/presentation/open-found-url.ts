@@ -1,11 +1,23 @@
+function normalizeHttpUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
 export function openFoundUrl(url: string, onOpenUrl?: (url: string) => void) {
+  const normalizedUrl = normalizeHttpUrl(url);
+  if (!normalizedUrl) return;
   if (onOpenUrl) {
-    onOpenUrl(url);
+    onOpenUrl(normalizedUrl);
     return;
   }
   try {
     if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
-      void chrome.tabs.create({ url, active: false });
+      void chrome.tabs.create({ url: normalizedUrl, active: false });
     }
   } catch {
     /* tests / no chrome */
@@ -13,31 +25,33 @@ export function openFoundUrl(url: string, onOpenUrl?: (url: string) => void) {
 }
 
 export function openFoundSource(source: { url: string; tabId?: number }, onOpenUrl?: (url: string) => void) {
+  const normalizedUrl = normalizeHttpUrl(source.url);
+  if (!normalizedUrl) return;
   if (onOpenUrl) {
-    onOpenUrl(source.url);
+    onOpenUrl(normalizedUrl);
     return;
   }
   if (source.tabId === undefined) {
-    openFoundUrl(source.url);
+    openFoundUrl(normalizedUrl);
     return;
   }
   try {
     if (typeof chrome === 'undefined' || !chrome.tabs?.get || !chrome.tabs?.update) {
-      openFoundUrl(source.url);
+      openFoundUrl(normalizedUrl);
       return;
     }
     void chrome.tabs
       .get(source.tabId)
       .then(tab => {
-        if (tab.id === undefined || !tab.url || !sourceMatchesTab(tab.url, source.url)) {
-          openFoundUrl(source.url);
+        if (tab.id === undefined || !tab.url || !sourceMatchesTab(tab.url, normalizedUrl)) {
+          openFoundUrl(normalizedUrl);
           return;
         }
         return chrome.tabs.update(tab.id, { active: true });
       })
-      .catch(() => openFoundUrl(source.url));
+      .catch(() => openFoundUrl(normalizedUrl));
   } catch {
-    openFoundUrl(source.url);
+    openFoundUrl(normalizedUrl);
   }
 }
 

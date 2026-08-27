@@ -22,16 +22,15 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - And 接管 is a quiet underline on the fold, not a pill on the stream
 - And opening the fold is the only way to see search boards / pages / clicks
 
-## Scenario: Already-open search results grow a board, a reading, and the click
+## Scenario: Already-open search results grow a board and the click
 
 - Given a running task already on a Google `/search` page
 - And the observe attempt stored the query plus result titles
-- And the control decide stored a human `pageReading`
 - And the next act is `click_element` on the fourth result
 - When the work stream is derived
 - Then the user sees the query and the fourth title
-- And the page reading follows those hits
 - And the click is its own line with the result title
+- And pageReading is not a thinking sentence
 - And the search board does not treat 获取页面快照 as a query
 - And google.com.hk is not drawn twice as both host and title
 - And the composer shows 跟随, not a second 接管
@@ -146,20 +145,22 @@ Source of truth: `~/Documents/design-notes/DESIGN.md`
 - And the answer block fades in once (180ms opacity), with no typewriter and no thinking sentence-in
 - And a whole-line `**节名**：` is a section, while `**标签**：值` inside a list item stays a list item
 
-## Scenario: Thinking follows what already happened
+## Scenario: Opened process lists real attempts
 
 - Given a running task that has already opened a page
 - When the work stream is derived
-- Then 思考过程 comes after the page card, not above it
+- Then the fold lists the page and later clicks from attempts
+- And pageReading is not painted as a thinking sentence
+- And there is no hardcoded 先打开博主主页
 
-## Scenario: Thinking folds after the run, and the user can open it
+## Scenario: Live process stays closed, and the user can open it
 
-- Given a running task with a human page reading
-- When the work stream is derived
-- Then 思考过程 is open and splits the reading into sentences (no hardcoded SENTENCES / DELAYS)
-- And when status is `completed`, 思考过程 is collapsed
-- And the heading copy stays 思考过程; elapsed time stays in Health
-- And the thinking label carries a soft shine sweep only while the run is live, and returns to plain muted text when done
+- Given a running task
+- When the status card is rendered
+- Then the live process fold is closed by default
+- And the user can open it while the run is live
+- And the live label carries a soft shine sweep only while the run is live, and returns to plain muted text when done
+- And English page extracts / 查看 youtube.com / bare hosts / tab unread counts do not appear as the live process
 
 ## Scenario: High-risk click is previewed
 

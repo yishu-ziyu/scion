@@ -12,7 +12,7 @@ import { defaultSkills } from '../index';
 import { isAtomicSkillInstruction } from '../instruction-scope';
 import { validateSkillPlan, canPromoteSkill, runSkillPlan } from '../learned/plan';
 import type { BrowserKernel, ObservationFrame } from '../../../browser/kernel';
-import type { BrowserSkill } from '../types';
+import type { BrowserSkill, SkillPlan } from '../types';
 
 function mockKernel(overrides: Partial<BrowserKernel> = {}): BrowserKernel {
   const base: BrowserKernel = {
@@ -373,7 +373,7 @@ describe('Skill discovery + runtime', () => {
 });
 
 describe('Learned SkillPlan', () => {
-  it('rejects dynamic code and empty plans', () => {
+  it('rejects invalid structure without scanning description text as code', () => {
     expect(validateSkillPlan({ id: '', version: '1', description: '', capabilities: [], steps: [] }).ok).toBe(false);
     expect(
       validateSkillPlan({
@@ -392,7 +392,97 @@ describe('Learned SkillPlan', () => {
         capabilities: [],
         steps: [{ op: 'observe' }],
       }).ok,
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  it.each([
+    { label: 'evaluate', step: { op: 'act', action: 'evaluate', args: {} } },
+    { label: 'run_javascript', step: { op: 'act', action: 'run_javascript', args: {} } },
+    {
+      label: 'top-level code',
+      step: { op: 'act', action: 'input_text', args: { index: 1, text: 'Ada', code: 'document.body.remove()' } },
+    },
+    {
+      label: 'deep code',
+      step: {
+        op: 'act',
+        action: 'input_text',
+        args: { index: 1, text: 'Ada', metadata: { nested: { code: 'document.body.remove()' } } },
+      },
+    },
+  ])('rejects $label before a learned plan reaches kernel.act', async ({ step }) => {
+    const plan = {
+      id: 'unsafe',
+      version: '1',
+      description: 'unsafe action plan',
+      capabilities: [],
+      steps: [step],
+    } as never;
+    const kernel = mockKernel();
+
+    expect(validateSkillPlan(plan).ok).toBe(false);
+    await expect(runSkillPlan(plan, { kernel, roundId: 'r1' })).resolves.toMatchObject({
+      ok: false,
+      stepsExecuted: 0,
+    });
+    expect(kernel.act).not.toHaveBeenCalled();
+  });
+
+  it('rejects a legal-then-evaluate learned plan atomically', async () => {
+    const plan = {
+      id: 'atomic-reject',
+      version: '1',
+      description: 'must reject before the first step',
+      capabilities: [],
+      steps: [{ op: 'observe' }, { op: 'act', action: 'evaluate', args: {} }],
+    } as never;
+    const extract = vi.fn(async () => ({ ok: true, data: '' })) as BrowserKernel['extract'];
+    const kernel = mockKernel({ extract });
+
+    expect(validateSkillPlan(plan).ok).toBe(false);
+    await expect(runSkillPlan(plan, { kernel, roundId: 'r1' })).resolves.toMatchObject({
+      ok: false,
+      stepsExecuted: 0,
+    });
+    expect(kernel.observe).not.toHaveBeenCalled();
+    expect(kernel.act).not.toHaveBeenCalled();
+    expect(extract).not.toHaveBeenCalled();
+  });
+
+  it('rechecks resolved learned-plan args before kernel.act', async () => {
+    const plan = {
+      id: 'resolved-unsafe',
+      version: '1',
+      description: 'resolved args',
+      capabilities: [],
+      steps: [{ op: 'act', action: 'input_text', args: { index: 1, text: { ref: 'payload' } } }],
+    } as never;
+    const kernel = mockKernel();
+
+    expect(validateSkillPlan(plan).ok).toBe(true);
+    const result = await runSkillPlan(plan, {
+      kernel,
+      roundId: 'r1',
+      vars: { payload: { nested: { code: 'document.body.remove()' } } },
+    });
+    expect(result).toMatchObject({ ok: false, error: 'dynamic_code_not_allowed' });
+    expect(kernel.act).not.toHaveBeenCalled();
+  });
+
+  it('treats code-looking input_text text as data', async () => {
+    const text = 'eval(1); document.body.remove(); {code: plain data}';
+    const plan: SkillPlan = {
+      id: 'safe-text',
+      version: '1',
+      description: 'type eval() and new Function() as literal text',
+      capabilities: [],
+      steps: [{ op: 'act', action: 'input_text', args: { index: 1, text } }],
+    };
+    const kernel = mockKernel();
+
+    expect(validateSkillPlan(plan)).toEqual({ ok: true });
+    await expect(runSkillPlan(plan, { kernel, roundId: 'r1' })).resolves.toMatchObject({ ok: true });
+    expect(kernel.act).toHaveBeenCalledWith('r1', 'input_text', { index: 1, text });
   });
 
   it('runs declarative plan through kernel only', async () => {

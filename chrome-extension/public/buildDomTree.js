@@ -572,13 +572,51 @@ window.buildDomTree = (
     return '';
   }
 
+  function isSensitiveFormControl(node) {
+    const normalize = value =>
+      String(value || '')
+        .normalize('NFKC')
+        .toLowerCase()
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const type = normalize(node?.type || node?.getAttribute?.('type'));
+    if (type === 'password') return true;
+    const autocomplete = normalize(node?.getAttribute?.('autocomplete'));
+    if (
+      autocomplete === 'current password' ||
+      autocomplete === 'new password' ||
+      autocomplete === 'one time code' ||
+      autocomplete.startsWith('cc ')
+    ) {
+      return true;
+    }
+    const identity = normalize(
+      [
+        type,
+        node?.getAttribute?.('role'),
+        node?.getAttribute?.('name'),
+        node?.id,
+        node?.getAttribute?.('aria-label'),
+        node?.getAttribute?.('placeholder'),
+      ]
+        .filter(Boolean)
+        .join(' '),
+    );
+    return /(?:^|\W)(?:password|passwd|passcode|pwd|otp|totp|2fa|mfa|cvv|cvc|csc|token|pin|secret|bearer|authorization)(?:$|\W)|api\s*key|access\s*token|client\s*secret|one\s*time\s*(?:code|password)|verification\s*code|security\s*code|(?:credit|debit|bank|payment)\s*card|card\s*(?:number|no\b|#|cvv|cvc|csc|expiry|expiration)|密码|口令|验证码|校验码|动态码|银行卡|卡号|私钥|密钥/i.test(
+      identity,
+    );
+  }
+
   function enrichFormControlAttributes(node, nodeData) {
     if (!node || !nodeData || !nodeData.attributes) return;
     const tag = (node.tagName || '').toLowerCase();
     const editable = !!(node.isContentEditable || node.getAttribute?.('contenteditable') === 'true');
+    const sensitive = isSensitiveFormControl(node);
     try {
       if (tag === 'input' || tag === 'textarea' || tag === 'select') {
-        if ('value' in node) nodeData.attributes.value = String(node.value ?? '');
+        if (sensitive) delete nodeData.attributes.value;
+        else if ('value' in node) nodeData.attributes.value = String(node.value ?? '');
         if (node.type) nodeData.attributes.type = String(node.type);
         if (typeof node.checked === 'boolean') {
           nodeData.attributes.checked = node.checked ? 'true' : 'false';
@@ -586,8 +624,11 @@ window.buildDomTree = (
       }
       if (editable) {
         nodeData.attributes.contenteditable = 'true';
-        const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
-        if (text) nodeData.attributes.value = text.slice(0, 240);
+        if (sensitive) delete nodeData.attributes.value;
+        else {
+          const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+          if (text) nodeData.attributes.value = text.slice(0, 240);
+        }
       }
     } catch {
       // live value is optional

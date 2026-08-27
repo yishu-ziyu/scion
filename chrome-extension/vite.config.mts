@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => {
         '@root': rootDir,
         '@src': srcDir,
         '@assets': resolve(srcDir, 'assets'),
+        '@extension/wisebase-core': resolve(rootDir, '..', 'packages/wisebase-core/index.ts'),
       },
       conditions: ['browser', 'module', 'import', 'default'],
       mainFields: ['browser', 'module', 'main'],

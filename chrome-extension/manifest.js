@@ -71,6 +71,7 @@ const manifest = withOperaSidebar(
       'unlimitedStorage',
       'webNavigation',
       'downloads',
+      'alarms',
     ],
     options_page: 'options/index.html',
     background: {

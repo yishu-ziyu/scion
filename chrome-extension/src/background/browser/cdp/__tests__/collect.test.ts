@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collectInteractive, collectInteractiveDetailed, walkInteractiveNodes } from '../collect';
+import {
+  EVALUATE_FOCUSABLE_JS,
+  collectInteractive,
+  collectInteractiveDetailed,
+  walkInteractiveNodes,
+} from '../collect';
 import { iframeShadowFrameDocument, iframeShadowMainDocument } from './iframe-shadow-fixture';
 
 function mockDebugger() {
@@ -22,6 +27,26 @@ describe('walkInteractiveNodes', () => {
     });
     expect(nodes.some(node => node.text === '取消')).toBe(true);
     expect(nodes.some(node => node.text === '提交')).toBe(false);
+  });
+
+  it('never turns an input value into CDP fallback text', () => {
+    const secret = 'PASSWORD_SENTINEL_9471';
+    const nodes = walkInteractiveNodes(
+      {
+        nodeId: 1,
+        backendNodeId: 11,
+        nodeType: 1,
+        nodeName: 'INPUT',
+        localName: 'input',
+        attributes: ['type', 'password', 'value', secret],
+        children: [],
+      },
+      { tabId: 7, frameId: 'main' },
+    );
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]?.text).toBeUndefined();
+    expect(JSON.stringify(nodes)).not.toContain(secret);
+    expect(EVALUATE_FOCUSABLE_JS).not.toContain('el.value');
   });
 
   it('finds the iframe 提交 button on the iframe document', () => {
@@ -85,11 +110,11 @@ describe('collectInteractive', () => {
       'DOM.getDocument',
       expect.objectContaining({ pierce: true }),
     );
-    expect(api.sendCommand).toHaveBeenCalledWith(
-      { tabId: 7 },
-      'Runtime.evaluate',
-      expect.objectContaining({ returnByValue: true }),
-    );
+    const evaluateCalls = (api.sendCommand.mock.calls as unknown[][]).filter(call => call[1] === 'Runtime.evaluate');
+    expect(evaluateCalls).toHaveLength(2);
+    for (const call of evaluateCalls) {
+      expect(call[2]).toEqual({ expression: EVALUATE_FOCUSABLE_JS, returnByValue: true });
+    }
 
     expect(nodes.find(node => node.text === '结算')?.handle.backendNodeId).toBe(13);
     expect(nodes.find(node => node.text === '提交')?.handle).toMatchObject({

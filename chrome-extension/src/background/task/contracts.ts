@@ -13,6 +13,7 @@ import type { TaskArtifact } from './artifact';
 export type CompletionCriterionDraft =
   | { kind: 'url'; operator: 'equals' | 'starts_with'; expected: string; required: boolean }
   | { kind: 'page_text'; operator: 'present' | 'absent'; expected: string; required: boolean }
+  | { kind: 'form_value'; operator: 'equals'; field: string; expected: string; required: boolean }
   | {
       kind: 'element_state';
       operator: 'equals';

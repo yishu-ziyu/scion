@@ -4,6 +4,7 @@
  */
 import { renderActionSchemaPrompt } from '../actions/action-prompt';
 import { ALL_ACTION_SCHEMAS } from '../actions/schemas';
+import { containsModelSuppliedCode, MODEL_ACTION_NAMES } from '../actions/model-action-safety';
 import type { CompletionCriterionDraft } from '../../task/contracts';
 import type { ObservationFrame } from '../../browser/kernel';
 import { MAX_ACTIONS_PER_DECISION } from './observe-act-loop';
@@ -216,42 +217,7 @@ export function renderControlSystemPrompt(options: ControlSystemPromptOptions = 
   return `${CONTROL_SYSTEM_PROMPT_BODY}\n\n${renderEverydayActionCatalog()}${researchBlock}\n\nPrompt version: ${CONTROL_PROMPT_VERSION}.${statusBlock}`;
 }
 
-const ALLOWED_ACTIONS = new Set([
-  'done',
-  'input_text',
-  'click_element',
-  'control_media',
-  'save_screenshot',
-  'go_to_url',
-  'go_back',
-  'observe',
-  'extract_content',
-  'send_keys',
-  'wait',
-  'scroll_to_text',
-  'scroll_to_percent',
-  'scroll_to_top',
-  'scroll_to_bottom',
-  'open_tab',
-  'switch_tab',
-  'focus_tab',
-  'close_tab',
-  'get_dropdown_options',
-  'select_dropdown_option',
-  'cache_content',
-  'record_evidence',
-  'inspect_evidence_space',
-  'record_research_decision',
-  'record_research_delivery',
-  'read_page_text',
-  'inspect_open_tabs',
-  'find_tab',
-  'evaluate',
-  'snapshot',
-  'search_google',
-  'previous_page',
-  'next_page',
-]);
+const ALLOWED_ACTIONS = new Set([...MODEL_ACTION_NAMES, 'focus_tab', 'snapshot']);
 
 /** Alias model-facing names onto registered action handlers. */
 function normalizeActionName(name: string): string {
@@ -390,16 +356,33 @@ function parseAction(raw: Record<string, unknown>): ControlActionSpec | null {
 
 function parseActionItem(item: unknown): ControlActionSpec | null {
   const rec = asRecord(item);
-  return rec ? parseAction(rec) : null;
+  if (!rec) return null;
+  const usesNamedShape =
+    typeof rec.action_name === 'string' ||
+    typeof asRecord(rec.action)?.name === 'string' ||
+    typeof rec.name === 'string';
+  if (usesNamedShape) return parseAction(rec);
+  if (Object.keys(rec).length !== 1) return null;
+  return parseAction(rec);
+}
+
+function parseActionItems(items: unknown[]): ControlActionSpec[] | null {
+  const parsed: ControlActionSpec[] = [];
+  for (const item of items) {
+    const action = parseActionItem(item);
+    if (!action) return null;
+    parsed.push(action);
+  }
+  return parsed;
 }
 
 function takeActionQueue(items: unknown[]): ControlActionSpec[] {
+  const parsed = parseActionItems(items);
+  if (!parsed) return [];
   const out: ControlActionSpec[] = [];
-  for (const item of items) {
-    const parsed = parseActionItem(item);
-    if (!parsed) continue;
-    if (parsed.name === 'done') break;
-    out.push(parsed);
+  for (const action of parsed) {
+    if (action.name === 'done') break;
+    out.push(action);
     if (out.length >= CONTROL_MAX_ACTIONS_PER_TURN) break;
   }
   return out;
@@ -407,6 +390,7 @@ function takeActionQueue(items: unknown[]): ControlActionSpec[] {
 
 /** Same-observation action list from model JSON. Empty when none parsed. */
 export function parseControlActionQueue(raw: Record<string, unknown>): ControlActionSpec[] {
+  if (containsModelSuppliedCode(raw)) return [];
   if (Array.isArray(raw.action) && raw.action.length > 0) {
     return takeActionQueue(raw.action);
   }
@@ -421,11 +405,65 @@ export function parseControlActionQueue(raw: Record<string, unknown>): ControlAc
 function firstParsedArrayAction(raw: Record<string, unknown>): ControlActionSpec | null {
   const items = Array.isArray(raw.action) ? raw.action : Array.isArray(raw.actions) ? raw.actions : null;
   if (!items) return null;
-  for (const item of items) {
-    const parsed = parseActionItem(item);
-    if (parsed) return parsed;
-  }
-  return null;
+  return parseActionItems(items)?.[0] ?? null;
+}
+
+const CONTROL_RESPONSE_KEYS = new Set([
+  'observation',
+  'done',
+  'waiting_user',
+  'completion_criteria',
+  'criteria',
+  'action_name',
+  'action_args',
+  'args',
+  'action',
+  'actions',
+  'name',
+  'current_state',
+]);
+
+function hasRejectedNamedAction(raw: Record<string, unknown>): boolean {
+  return (['action_name', 'name'] as const).some(key => {
+    const value = raw[key];
+    return value !== undefined && (typeof value !== 'string' || !ALLOWED_ACTIONS.has(value));
+  });
+}
+
+function hasRejectedActionContainer(raw: Record<string, unknown>, key: 'action' | 'actions'): boolean {
+  const value = raw[key];
+  if (value === undefined) return false;
+  if (Array.isArray(value)) return !parseActionItems(value);
+  return key !== 'action' || !asRecord(value) || !parseAction({ action: value });
+}
+
+function hasUnknownObjectAction(raw: Record<string, unknown>): boolean {
+  if (['action_name', 'name', 'action', 'actions'].some(key => raw[key] !== undefined)) return false;
+  return Object.entries(raw).some(
+    ([key, value]) =>
+      !CONTROL_RESPONSE_KEYS.has(key) && !ALLOWED_ACTIONS.has(key) && Boolean(value && typeof value === 'object'),
+  );
+}
+
+const FORBIDDEN_ACTION_KEYS = ['evaluate', 'run_javascript'] as const;
+
+function hasRejectedModelAction(raw: Record<string, unknown>): boolean {
+  return (
+    containsModelSuppliedCode(raw) ||
+    hasRejectedNamedAction(raw) ||
+    hasRejectedActionContainer(raw, 'action') ||
+    hasRejectedActionContainer(raw, 'actions') ||
+    FORBIDDEN_ACTION_KEYS.some(key => Object.prototype.hasOwnProperty.call(raw, key)) ||
+    hasUnknownObjectAction(raw)
+  );
+}
+
+const WAITING_USER_REASONS = new Set(['login_required', 'captcha_required', 'target_missing']);
+
+function explicitWaitingUserReason(value: unknown): ControlPolicyDecision['waitingUser'] {
+  return typeof value === 'string' && WAITING_USER_REASONS.has(value)
+    ? (value as NonNullable<ControlPolicyDecision['waitingUser']>)
+    : null;
 }
 
 export function parseControlPolicyDecision(raw: Record<string, unknown>): ControlPolicyDecision {
@@ -433,18 +471,15 @@ export function parseControlPolicyDecision(raw: Record<string, unknown>): Contro
   const done = raw.done === true || raw.done === 'true';
   const criteria = parseCriteria(raw.completion_criteria ?? raw.criteria);
 
-  let waitingUser: ControlPolicyDecision['waitingUser'] = null;
-  const reason = typeof raw.waiting_user === 'string' ? raw.waiting_user : '';
-  if (reason === 'login_required' || reason === 'captcha_required' || reason === 'target_missing') {
-    waitingUser = reason;
-  } else if (/login required|需要登录|请先登录/i.test(observation) && !done) {
-    // Only soft-flag; TaskManager / product may ignore false positives.
-    // Do not force waiting_user from observation alone (planner false-positive history).
-  }
+  const waitingUser = explicitWaitingUserReason(raw.waiting_user);
 
   // Task-scoped autonomy (decisions/004): drop model-proposed user_confirmed criteria.
   // Human confirmation is for proof UI only when code cannot verify, not a default planner tool.
   const autonomousCriteria = criteria.filter(item => item.kind !== 'user_confirmed');
+
+  if (hasRejectedModelAction(raw)) {
+    return { observation, criteria: autonomousCriteria, done: false, action: null, actions: [], waitingUser: null };
+  }
 
   if (waitingUser) {
     return { observation, criteria: autonomousCriteria, done: false, action: null, actions: [], waitingUser };

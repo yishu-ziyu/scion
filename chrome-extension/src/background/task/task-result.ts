@@ -5,7 +5,7 @@
 import type { ActionAttempt, TaskResult, TaskResultKind } from '@extension/storage/lib/task';
 import { parseFormFillSubmitInstruction } from '../browser/sites/form-fill';
 import { parseProductTableInstruction } from '../browser/sites/product-table';
-import { artifactToResultText, type TaskArtifact } from './artifact';
+import { artifactToResultText, mergeTableArtifacts, type TaskArtifact } from './artifact';
 import { isAcknowledgementOnly, isBasicSubstantiveAnswer, isPlaceholderDelivery } from './result-text';
 import {
   csvOrMarkdownBlockSpans,
@@ -339,19 +339,25 @@ function tableFieldsFromInstruction(instruction: string): string[] | undefined {
   return fields.length > 0 ? fields : undefined;
 }
 
+function artifactsForResult(asked: AcceptedTask, artifacts: TaskArtifact[]): TaskArtifact[] {
+  if (asked.askedKind !== 'table') return artifacts;
+  const merged = mergeTableArtifacts(artifacts);
+  if (!merged || merged === artifacts[0]) return artifacts;
+  return [merged, ...artifacts];
+}
+
+function resultKindFromArtifact(asked: AcceptedTask, artifact: TaskArtifact): TaskResultKind {
+  if (artifact.type === 'table' || artifact.type === 'recordset') return 'table';
+  if (artifact.type === 'file') return 'file';
+  if (asked.askedKind === 'report' || asked.askedKind === 'draft') return asked.askedKind;
+  return 'summary';
+}
+
 function resultFromArtifacts(asked: AcceptedTask, artifacts: TaskArtifact[]): TaskResult | null {
-  for (const artifact of artifacts) {
+  for (const artifact of artifactsForResult(asked, artifacts)) {
     const body = artifactToResultText(artifact);
     if (!body) continue;
-    const kind: TaskResultKind =
-      artifact.type === 'table' || artifact.type === 'recordset'
-        ? 'table'
-        : artifact.type === 'file'
-          ? 'file'
-          : asked.askedKind === 'report' || asked.askedKind === 'draft'
-            ? asked.askedKind
-            : 'summary';
-    const result: TaskResult = { kind, body };
+    const result: TaskResult = { kind: resultKindFromArtifact(asked, artifact), body };
     if (resultIsPresentAndMatches(asked, result)) return result;
   }
   return null;

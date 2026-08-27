@@ -27,6 +27,7 @@
     "vitest": "2.1.9"
   },
   "dependencies": {
+    "@extension/wisebase-core": "workspace:*",
     "dexie": "^4.4.5"
   }
 }

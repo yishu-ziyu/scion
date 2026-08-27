@@ -34,7 +34,7 @@ import {
   type VerifiedPageRecord,
 } from './contracts';
 import { buildAttemptDisplaySummary, buildAttemptTargetLabel } from './attempt-display';
-import { ActionDispatcher, recoverAttempt } from './action-dispatcher';
+import { ActionDispatcher, recoverAttempt, type DispatchRequest, type TargetObservation } from './action-dispatcher';
 import {
   attemptsAfterLoopPhase,
   completeObservePhaseAttempt,
@@ -49,6 +49,14 @@ import {
   type CompletionCheckInput,
 } from './completion';
 import { artifactToResultText, type TaskArtifact } from './artifact';
+import {
+  deriveFillOnlyFormCriteria,
+  digestFormField,
+  digestFormValue,
+  isFormValueCriterion,
+  observeCurrentFormValueCriteria,
+  splitFormValueCriteria,
+} from './form-value-evidence';
 import { verifyCandidateComplete, type ArtifactCriterion } from './verification-engine';
 import {
   acceptTask,
@@ -120,13 +128,14 @@ import {
   type IndependentTabOpenAttempt,
 } from './independent-urls';
 import { classifyCreateExecutorError } from './executor-start-error';
+import type { DownloadStateProbe } from './download-state';
+import { syncTaskKeepAlive } from '../runtime/task-keep-alive';
 
 export type { ExecutorDriver } from './contracts';
+export type { DownloadStateProbe };
 
 /** Observed tab presence for tab_state completion criteria. */
 export type TabStateProbe = 'closed' | 'active' | 'inactive';
-/** Observed download progress for download_state criteria (stub-safe). */
-export type DownloadStateProbe = 'none' | 'started' | 'finished';
 
 interface TaskManagerDeps {
   createExecutor: (input: ExecutorInput, hooks: ExecutorHooks) => Promise<ExecutorDriver>;
@@ -148,8 +157,8 @@ interface TaskManagerDeps {
   postCommitVerifyDelaysMs?: number[];
   /** Probe tab existence/focus without requiring page attach (closed tabs). */
   probeTabState?: (tabId: number) => Promise<TabStateProbe>;
-  /** Probe recent downloads API state; default 'none' never false-completes. */
-  probeDownloadState?: () => Promise<DownloadStateProbe>;
+  /** Probe downloads started at/after notBefore; default 'none' never false-completes. */
+  probeDownloadState?: (query: { notBefore: number }) => Promise<DownloadStateProbe>;
   /**
    * Open several independent http(s) tabs together. Tests inject this.
    * Production falls back to BrowserContext.openIndependentTabs.
@@ -558,6 +567,7 @@ export class TaskManager {
   /** Only tabs pre-opened for the current round may be substituted for a later open action. */
   private readonly preopenedIndependentTargets = new Map<string, BrowserTargetRef[]>();
   private readonly listeners = new Set<(event: TaskEvent) => void>();
+  private readonly runningTaskIds = new Set<string>();
   private transition: Promise<void> = Promise.resolve();
   /** `produceResult` artifacts for the current `proof_required` wait; lost on worker restart. */
   private readonly pendingConfirmArtifacts = new Map<string, TaskArtifact[]>();
@@ -627,50 +637,53 @@ export class TaskManager {
   }
 
   async recover(): Promise<void> {
-    await this.queueTransition(async () => {
-      const task = await getActiveTask();
-      if (task && (task.status as string) === 'waiting_approval') {
-        task.status = 'interrupted';
-        this.currentRound(task).status = 'interrupted';
-        task.revision += 1;
-        await this.persist(task);
-        return;
-      }
-      // A user pause is authoritative across service-worker or extension reloads.
-      if (task?.status === 'paused') return;
-      const round = task ? this.currentRound(task) : null;
-      const legacyUncertainWait = task?.status === 'waiting_user' && round?.waitReason === 'commit_outcome_uncertain';
-      if (!task || !round || (task.status !== 'running' && !legacyUncertainWait)) {
-        return;
-      }
-      let hasUncertainCommit = false;
-      for (const taskRound of task.rounds) {
-        taskRound.attempts = taskRound.attempts.map(attempt => {
-          if (
-            attempt.effect === 'external_commit' &&
-            (attempt.state === 'executing' || attempt.state === 'uncertain')
-          ) {
-            hasUncertainCommit = true;
-          }
-          const recovered = recoverAttempt(attempt);
-          return recovered;
-        });
-      }
-      if (hasUncertainCommit) {
-        task.status = 'waiting_user';
-        round.status = 'waiting_user';
-        round.waitReason = 'commit_outcome_uncertain';
-      } else if (task.sourceSkillId !== undefined) {
-        task.status = 'inputs_required';
-        round.status = 'inputs_required';
-        round.waitReason = 'skill_inputs_required';
-      } else {
-        task.status = 'interrupted';
-        round.status = 'interrupted';
-      }
+    const continueTaskId = await this.enqueueTransition(() => this.recoverActiveTask());
+    if (!continueTaskId || this.drivers.has(continueTaskId) || this.launches.has(continueTaskId)) return;
+    void this.runCurrentRound(continueTaskId);
+  }
+
+  private async recoverActiveTask(): Promise<string | undefined> {
+    const task = await getActiveTask();
+    if (task && (task.status as string) === 'waiting_approval') {
+      task.status = 'interrupted';
+      this.currentRound(task).status = 'interrupted';
       task.revision += 1;
       await this.persist(task);
-    });
+      return undefined;
+    }
+    // A user pause is authoritative across service-worker or extension reloads.
+    if (task?.status === 'paused') return undefined;
+    const round = task ? this.currentRound(task) : null;
+    const legacyUncertainWait = task?.status === 'waiting_user' && round?.waitReason === 'commit_outcome_uncertain';
+    if (!task || !round || (task.status !== 'running' && !legacyUncertainWait)) {
+      return undefined;
+    }
+    const hasUncertainCommit = this.remapRecoveredAttempts(task);
+    if (hasUncertainCommit) {
+      task.status = 'waiting_user';
+      round.status = 'waiting_user';
+      round.waitReason = 'commit_outcome_uncertain';
+    } else if (task.sourceSkillId !== undefined) {
+      task.status = 'inputs_required';
+      round.status = 'inputs_required';
+      round.waitReason = 'skill_inputs_required';
+    }
+    task.revision += 1;
+    await this.persist(task);
+    return task.status === 'running' ? task.id : undefined;
+  }
+
+  private remapRecoveredAttempts(task: TaskSession): boolean {
+    let hasUncertainCommit = false;
+    for (const taskRound of task.rounds) {
+      taskRound.attempts = taskRound.attempts.map(attempt => {
+        if (attempt.effect === 'external_commit' && (attempt.state === 'executing' || attempt.state === 'uncertain')) {
+          hasUncertainCommit = true;
+        }
+        return recoverAttempt(attempt);
+      });
+    }
+    return hasUncertainCommit;
   }
 
   private async dispatchNow(command: TaskCommand): Promise<CommandAck> {
@@ -1174,102 +1187,147 @@ export class TaskManager {
     return round;
   }
 
+  private async observeDispatchTarget(
+    request: DispatchRequest,
+    parsedArgs: unknown,
+    phase: 'before' | 'after',
+  ): Promise<TargetObservation> {
+    const { browserContext } = await import('../agent/factory');
+    const page = await browserContext.getCurrentPage();
+    if (request.action.name() === 'control_media') {
+      return this.observeMediaDispatch(page, request, parsedArgs, phase);
+    }
+    if (request.action.name() === 'close_tab' || request.action.name() === 'switch_tab') {
+      return this.observeTabDispatch(page, request, parsedArgs, phase);
+    }
+    const observation = await page.observeActionTarget(request.action.name(), parsedArgs, phase);
+    return {
+      target: observation.target,
+      effectTarget: observation,
+      evidence: [],
+      pageRevision: observation.pageRevision,
+    };
+  }
+
+  private async observeMediaDispatch(
+    page: {
+      tabId: number;
+      url: () => string;
+      observeMedia: (targetDigest?: string) => Promise<{
+        kind: string;
+        targetDigest?: string;
+        state?: string;
+      }>;
+    },
+    request: DispatchRequest,
+    parsedArgs: unknown,
+    phase: 'before' | 'after',
+  ): Promise<TargetObservation> {
+    const targetDigest = this.readStringField(parsedArgs, 'target_digest');
+    const observed = await page.observeMedia(targetDigest);
+    const digest = observed.targetDigest;
+    if (observed.kind !== 'bound' || !digest) {
+      return { effectTarget: { tag: 'video' }, evidence: [] };
+    }
+    const mediaState = observed.state ?? '';
+    let urlOrigin = 'null';
+    try {
+      urlOrigin = new URL(page.url()).origin;
+    } catch {
+      // Keep the redacted null origin for non-URL pages.
+    }
+    const targetRefId = `media:${observed.targetDigest}`;
+    const evidence =
+      phase === 'after'
+        ? [
+            {
+              criterionId: `media-state:${request.roundId}`,
+              roundId: request.roundId,
+              targetRefId,
+              observedAt: this.deps.now(),
+              source: 'page' as const,
+              value: mediaState,
+              passed: true,
+            },
+          ]
+        : [];
+    return {
+      target: {
+        id: targetRefId,
+        kind: 'media',
+        tabId: page.tabId,
+        frameId: 0,
+        urlOrigin,
+        digest,
+      },
+      effectTarget: { tag: 'video' },
+      evidence,
+    };
+  }
+
+  private async observeTabDispatch(
+    page: {
+      tabId: number;
+      url: () => string;
+      observeMedia: (targetDigest?: string) => Promise<{
+        kind: string;
+        targetDigest?: string;
+        state?: string;
+      }>;
+    },
+    request: DispatchRequest,
+    parsedArgs: unknown,
+    phase: 'before' | 'after',
+  ): Promise<TargetObservation> {
+    const tabId =
+      this.readNumberField(parsedArgs, 'tab_id') ?? (Number.isSafeInteger(page.tabId) ? page.tabId : undefined);
+    const targetRefId = tabId !== undefined ? `tab-${tabId}` : `tab-${page.tabId}`;
+    let urlOrigin = 'null';
+    try {
+      urlOrigin = new URL(page.url()).origin;
+    } catch {
+      // Keep redacted null origin.
+    }
+    const digest = await sha256(`${request.action.name()}:${targetRefId}`);
+    let evidence: CompletionEvidence[] = [];
+    if (phase === 'after' && tabId !== undefined) {
+      const tabState = await this.probeTabState(tabId);
+      const expected = request.action.name() === 'close_tab' ? 'closed' : 'active';
+      evidence = [
+        {
+          criterionId: `tab-state:${request.roundId}`,
+          roundId: request.roundId,
+          targetRefId,
+          observedAt: this.deps.now(),
+          source: 'page',
+          value: tabState === 'inactive' && expected === 'active' ? 'inactive' : tabState,
+          passed: tabState === expected,
+        },
+      ];
+    }
+    return {
+      target: {
+        id: targetRefId,
+        kind: 'page',
+        tabId: tabId ?? page.tabId,
+        frameId: 0,
+        urlOrigin,
+        digest,
+      },
+      effectTarget: { tag: 'tab' },
+      evidence,
+    };
+  }
+
   private executorHooks(taskId: string): ExecutorHooks {
     const dispatcher = new ActionDispatcher({
       now: this.deps.now,
       persistAttempt: attempt => this.persistAttempt(taskId, attempt),
-      observe: async (request, parsedArgs, phase) => {
-        const { browserContext } = await import('../agent/factory');
-        const page = await browserContext.getCurrentPage();
-        if (request.action.name() === 'control_media') {
-          const targetDigest = this.readStringField(parsedArgs, 'target_digest');
-          const observed = await page.observeMedia(targetDigest);
-          if (observed.kind !== 'bound') {
-            return { effectTarget: { tag: 'video' }, evidence: [] };
-          }
-          let urlOrigin = 'null';
-          try {
-            urlOrigin = new URL(page.url()).origin;
-          } catch {
-            // Keep the redacted null origin for non-URL pages.
-          }
-          const targetRefId = `media:${observed.targetDigest}`;
-          // After-act digest evidence feeds continuous control; completion still needs criteria.
-          const evidence =
-            phase === 'after'
-              ? [
-                  {
-                    criterionId: `media-state:${request.roundId}`,
-                    roundId: request.roundId,
-                    targetRefId,
-                    observedAt: this.deps.now(),
-                    source: 'page' as const,
-                    value: observed.state,
-                    passed: true,
-                  },
-                ]
-              : [];
-          return {
-            target: {
-              id: targetRefId,
-              kind: 'media',
-              tabId: page.tabId,
-              frameId: 0,
-              urlOrigin,
-              digest: observed.targetDigest,
-            },
-            effectTarget: { tag: 'video' },
-            evidence,
-          };
-        }
-        if (request.action.name() === 'close_tab' || request.action.name() === 'switch_tab') {
-          const tabId =
-            this.readNumberField(parsedArgs, 'tab_id') ?? (Number.isSafeInteger(page.tabId) ? page.tabId : undefined);
-          const targetRefId = tabId !== undefined ? `tab-${tabId}` : `tab-${page.tabId}`;
-          let urlOrigin = 'null';
-          try {
-            urlOrigin = new URL(page.url()).origin;
-          } catch {
-            // Keep redacted null origin.
-          }
-          const digest = await sha256(`${request.action.name()}:${targetRefId}`);
-          let evidence: CompletionEvidence[] = [];
-          if (phase === 'after' && tabId !== undefined) {
-            const tabState = await this.probeTabState(tabId);
-            const expected = request.action.name() === 'close_tab' ? 'closed' : 'active';
-            evidence = [
-              {
-                criterionId: `tab-state:${request.roundId}`,
-                roundId: request.roundId,
-                targetRefId,
-                observedAt: this.deps.now(),
-                source: 'page',
-                value: tabState === 'inactive' && expected === 'active' ? 'inactive' : tabState,
-                passed: tabState === expected,
-              },
-            ];
-          }
-          return {
-            target: {
-              id: targetRefId,
-              kind: 'page',
-              tabId: tabId ?? page.tabId,
-              frameId: 0,
-              urlOrigin,
-              digest,
-            },
-            effectTarget: { tag: 'tab' },
-            evidence,
-          };
-        }
-        const observation = await page.observeActionTarget(request.action.name(), parsedArgs, phase);
-        return {
-          target: observation.target,
-          effectTarget: observation,
-          evidence: [],
-          pageRevision: observation.pageRevision,
-        };
+      priorAttempts: async (_taskId, roundId) => {
+        const task = await getTask(taskId);
+        return task?.rounds.find(item => item.id === roundId)?.attempts ?? [];
       },
+      observe: (request, parsedArgs, phase) => this.observeDispatchTarget(request, parsedArgs, phase),
     });
     this.dispatchers.set(taskId, dispatcher);
     return {
@@ -1398,7 +1456,10 @@ export class TaskManager {
         } else if (!result.actionResult.error && result.attempt.state === 'observed') {
           const artifact = result.actionResult.artifact;
           if (artifact) {
-            const completed = await this.tryCompleteFromProducedResult(taskId, roundId, { artifacts: [artifact] });
+            const completed = await this.tryCompleteFromProducedResult(taskId, roundId, {
+              artifacts: [artifact],
+              hasMorePages: result.actionResult.hasMorePages,
+            });
             if (completed) {
               result.actionResult.isDone = true;
               return result;
@@ -1638,8 +1699,8 @@ export class TaskManager {
     return 'inactive';
   }
 
-  private async probeDownloadState(): Promise<DownloadStateProbe> {
-    if (this.deps.probeDownloadState) return this.deps.probeDownloadState();
+  private async probeDownloadState(notBefore: number): Promise<DownloadStateProbe> {
+    if (this.deps.probeDownloadState) return this.deps.probeDownloadState({ notBefore });
     return 'none';
   }
 
@@ -2528,13 +2589,9 @@ export class TaskManager {
           observedUrl: this.observedUrlForResult([]),
         });
         const resultMatches = resultIsPresentAndMatches(asked, produced);
-        let artifactVerified = artifacts.length === 0;
-        if (artifacts.length > 0) {
-          const artifactGate = this.verifyArtifactsIndependently(
-            artifacts,
-            this.instructions.get(taskId) ?? task.goalSummary ?? '',
-          );
-          artifactVerified = artifactGate.complete;
+        const artifactGate = this.independentArtifactGate(artifacts, instructionForRound, asked);
+        const artifactVerified = artifactGate.complete;
+        if (this.requiresIndependentArtifactGate(artifacts, asked)) {
           const evidence = artifactGate.artifactEvidence ?? [];
           const passedN = evidence.filter(e => e.passed).length;
           const failedN = evidence.filter(e => !e.passed).length;
@@ -2552,7 +2609,7 @@ export class TaskManager {
               passed: passedN,
               failed: failedN,
               inconclusive: artifactGate.verdict === 'INCONCLUSIVE' ? 1 : 0,
-              evidence_ref: artifacts[0]?.id ?? 'none',
+              evidence_ref: artifacts.map(artifact => artifact.id).join(',') || 'none',
             },
           });
           await traceStore.finishSpan(verifySpan, artifactGate.complete ? 'ok' : 'fail');
@@ -2589,8 +2646,9 @@ export class TaskManager {
           // No deliverable after a bounded retry — fail honestly, never ask for confirmation.
           current.status = 'failed';
           currentRound.status = 'failed';
-          currentRound.failureCategory =
-            artifacts.length > 0 ? 'artifact_verification_failed' : 'no_completion_criteria';
+          currentRound.failureCategory = this.requiresIndependentArtifactGate(artifacts, asked)
+            ? 'artifact_verification_failed'
+            : 'no_completion_criteria';
           delete currentRound.waitReason;
           current.revision += 1;
           current.updatedAt = this.deps.now();
@@ -2604,7 +2662,7 @@ export class TaskManager {
         if (retry) {
           verificationRetries += 1;
           driver.addFollowUp(
-            artifacts.length > 0
+            this.requiresIndependentArtifactGate(artifacts, asked)
               ? 'The artifact is not independently verified. Inspect the page, add required browser criteria, then return the requested deliverable.'
               : 'The last answer was not a result. Write the user-facing result. Do not acknowledge.',
           );
@@ -2781,16 +2839,13 @@ export class TaskManager {
         observedOutcome: this.observedOutcomeForResult(checked.evidence, round.criteria),
       });
       const resultMatches = resultIsPresentAndMatches(asked, produced);
-      const artifactGate =
-        candidateArtifacts.length > 0
-          ? this.verifyArtifactsIndependently(candidateArtifacts, instructionForRound, {
-              now: this.deps.now(),
-              currentRoundId: round.id,
-              criteria: round.criteria,
-              observations,
-            })
-          : null;
-      const artifactsVerified = artifactGate?.complete ?? true;
+      const artifactGate = this.independentArtifactGate(candidateArtifacts, instructionForRound, asked, {
+        now: this.deps.now(),
+        currentRoundId: round.id,
+        criteria: round.criteria,
+        observations,
+      });
+      const artifactsVerified = artifactGate.complete;
       const orderedSourceProof = await checkOrderedSourceVisitProof(
         instructionForRound,
         this.visitedPageEvidence(task),
@@ -2808,7 +2863,10 @@ export class TaskManager {
         currentRound.evidence.push(...checked.evidence);
         this.syncMissionPlanFromEvidence(current, checked.evidence);
         const requiredAction = currentRound.criteria.filter(
-          criterion => criterion.required && criterion.kind !== 'page_text' && criterion.kind !== 'user_confirmed',
+          criterion =>
+            criterion.required &&
+            criterion.kind !== 'user_confirmed' &&
+            (criterion.kind !== 'page_text' || isFormValueCriterion(criterion)),
         );
         const actionPassed = requiredAction.every(criterion =>
           checked.evidence.some(item => item.criterionId === criterion.id && item.passed),
@@ -2876,6 +2934,23 @@ export class TaskManager {
     }
   }
 
+  /** Table tasks cannot complete from a summary CSV; other tasks skip verify when empty. */
+  private requiresIndependentArtifactGate(artifacts: TaskArtifact[], asked: AcceptedTask): boolean {
+    return artifacts.length > 0 || asked.askedKind === 'table';
+  }
+
+  private independentArtifactGate(
+    artifacts: TaskArtifact[],
+    instruction: string,
+    asked: AcceptedTask,
+    completion?: CompletionCheckInput,
+  ) {
+    if (!this.requiresIndependentArtifactGate(artifacts, asked)) {
+      return { complete: true, artifactEvidence: [], verdict: 'PASS' as const };
+    }
+    return this.verifyArtifactsIndependently(artifacts, instruction, completion);
+  }
+
   /**
    * product/022 Independent Verifier for TaskArtifact deliverables.
    * Does not read Executor reasoning — only artifacts + instruction-derived criteria.
@@ -2914,7 +2989,11 @@ export class TaskManager {
         operator: '>=',
         expected: typeof expectedRows === 'number' ? expectedRows : 1,
       });
-      criteria.push({ kind: 'artifact_source_count', operator: '>=', expected: 1 });
+      criteria.push({
+        kind: 'artifact_source_count',
+        operator: '>=',
+        expected: Math.max(1, deriveInstructionUrlPlan(instruction).sourceUrls.length),
+      });
     }
     return criteria;
   }
@@ -3099,9 +3178,10 @@ export class TaskManager {
     const now = this.deps.now();
     const tabCriteria = criteria.filter(criterion => criterion.kind === 'tab_state');
     const downloadCriteria = criteria.filter(criterion => criterion.kind === 'download_state');
-    const pageCriteria = criteria.filter(
+    const pageAndFormCriteria = criteria.filter(
       criterion => criterion.kind !== 'tab_state' && criterion.kind !== 'download_state',
     );
+    const { formCriteria, pageCriteria } = splitFormValueCriteria(pageAndFormCriteria);
 
     const tabObservations: ProbeObservation[] = [];
     for (const criterion of tabCriteria) {
@@ -3119,7 +3199,7 @@ export class TaskManager {
 
     const downloadObservations: ProbeObservation[] = [];
     for (const criterion of downloadCriteria) {
-      const state = await this.probeDownloadState();
+      const state = await this.probeDownloadState(criterion.notBefore);
       downloadObservations.push({
         criterionId: criterion.id,
         roundId: criterion.roundId,
@@ -3131,7 +3211,8 @@ export class TaskManager {
     }
 
     let pageObservations: ProbeObservation[] = [];
-    if (pageCriteria.length > 0) {
+    let formObservations: ProbeObservation[] = [];
+    if (pageCriteria.length + formCriteria.length > 0) {
       let tabToProbe = task.activeTabId;
       try {
         const { browserContext } = await import('../agent/factory');
@@ -3159,8 +3240,9 @@ export class TaskManager {
         }
       }
       pageObservations = await this.deps.observeCriteria(pageCriteria);
+      formObservations = await observeCurrentFormValueCriteria(formCriteria, now);
     }
-    return [...tabObservations, ...downloadObservations, ...pageObservations];
+    return [...tabObservations, ...downloadObservations, ...pageObservations, ...formObservations];
   }
 
   private tabIdFromTargetRef(targetRefId: string): number | undefined {
@@ -3196,6 +3278,30 @@ export class TaskManager {
         round.failureCategory = outcome.category || 'unknown';
         break;
     }
+  }
+
+  private bindFrozenCriterion(
+    criterion: CompletionCriterion,
+    probe: ProbeObservation | undefined,
+    boundPageTarget: TaskSession['targetRefs'][number] | undefined,
+    forceFalseBaseline: boolean,
+  ): void {
+    if (isFormValueCriterion(criterion)) {
+      if (probe?.targetRefId) criterion.targetRefId = probe.targetRefId;
+      if (probe?.pageRevision) criterion.pageRevision = probe.pageRevision;
+      criterion.baseline = false;
+      return;
+    }
+    if (criterion.kind === 'url') {
+      if (probe) criterion.targetRefId = probe.targetRefId;
+      criterion.baseline = false;
+      return;
+    }
+    if (boundPageTarget && criterion.kind === 'page_text') {
+      criterion.targetRefId = boundPageTarget.id;
+      criterion.pageRevision = boundPageTarget.pageRevision;
+    } else if (probe) criterion.targetRefId = probe.targetRefId;
+    criterion.baseline = forceFalseBaseline && criterion.kind === 'page_text' ? false : (probe?.value ?? false);
   }
 
   private async freezeCriteria(
@@ -3238,7 +3344,8 @@ export class TaskManager {
       );
       const additions = plannedDrafts
         .filter(draft => {
-          if (!isFirstFreeze && existingKinds.has(draft.kind)) return false;
+          const storedKind = draft.kind === 'form_value' ? 'page_text' : draft.kind;
+          if (!isFirstFreeze && existingKinds.has(storedKind)) return false;
           const identity = this.criterionDraftKey(draft);
           return !seenDrafts.has(identity);
         })
@@ -3287,7 +3394,7 @@ export class TaskManager {
         observation =>
           observation.source === 'page' &&
           observation.roundId === round.id &&
-          /^(?:tab-\d+|media:[a-f0-9]{64}|download:session)$/.test(observation.targetRefId),
+          /^(?:tab-\d+|media:[a-f0-9]{64}|download:session|form:[a-f0-9]{64})$/.test(observation.targetRefId),
       );
       const observedTabTargets = new Set(
         pageObservations.map(observation => observation.targetRefId).filter(target => target.startsWith('tab-')),
@@ -3305,16 +3412,12 @@ export class TaskManager {
         else task.targetRefs.push(nextTarget);
       }
       for (const criterion of criteria) {
-        const observation = pageObservations.find(item => item.criterionId === criterion.id);
-        if (boundPageTarget && criterion.kind === 'page_text') {
-          criterion.targetRefId = boundPageTarget.id;
-          criterion.pageRevision = boundPageTarget.pageRevision;
-        } else if (observation) criterion.targetRefId = observation.targetRefId;
-        criterion.baseline =
-          (readOnlyBrowserEvidence || parseProductTableInstruction(instructionForFreeze) !== null) &&
-          (criterion.kind === 'page_text' || criterion.kind === 'url')
-            ? false
-            : (observation?.value ?? false);
+        this.bindFrozenCriterion(
+          criterion,
+          pageObservations.find(item => item.criterionId === criterion.id),
+          boundPageTarget,
+          readOnlyBrowserEvidence || parseProductTableInstruction(instructionForFreeze) !== null,
+        );
       }
       if (observedTabTargets.size === 1) {
         const observedTabId = Number([...observedTabTargets][0].slice(4));
@@ -3400,57 +3503,59 @@ export class TaskManager {
     drafts: CompletionCriterionDraft[],
     criteria: CompletionCriterion[],
   ): CompletionCriterionTemplate[] {
-    return criteria.map((criterion, index) => {
-      const draft = drafts[index];
-      switch (criterion.kind) {
-        case 'url':
-          return {
-            kind: 'url',
-            operator: criterion.operator,
-            expectedTemplate: criterion.expected,
-            required: criterion.required,
-          };
-        case 'page_text': {
-          if (draft?.kind !== 'page_text') throw new Error('Page-text criterion draft is missing');
-          return {
-            kind: 'page_text',
-            operator: criterion.operator,
-            expectedTemplate: draft.expected.replace(/\s+/g, ' ').trim(),
-            required: criterion.required,
-          };
+    return criteria
+      .map((criterion, index) => ({ criterion, draft: drafts[index] }))
+      .filter(({ criterion }) => !isFormValueCriterion(criterion))
+      .map(({ criterion, draft }) => {
+        switch (criterion.kind) {
+          case 'url':
+            return {
+              kind: 'url',
+              operator: criterion.operator,
+              expectedTemplate: criterion.expected,
+              required: criterion.required,
+            };
+          case 'page_text': {
+            if (draft?.kind !== 'page_text') throw new Error('Page-text criterion draft is missing');
+            return {
+              kind: 'page_text',
+              operator: criterion.operator,
+              expectedTemplate: draft.expected.replace(/\s+/g, ' ').trim(),
+              required: criterion.required,
+            };
+          }
+          case 'element_state':
+            return {
+              kind: 'element_state',
+              operator: criterion.operator,
+              expected: criterion.expected,
+              required: criterion.required,
+            };
+          case 'media_state':
+            return {
+              kind: 'media_state',
+              operator: criterion.operator,
+              expected: criterion.expected,
+              required: criterion.required,
+            };
+          case 'tab_state':
+            return {
+              kind: 'tab_state',
+              operator: criterion.operator,
+              expected: criterion.expected,
+              required: criterion.required,
+            };
+          case 'download_state':
+            return {
+              kind: 'download_state',
+              operator: criterion.operator,
+              expected: criterion.expected,
+              required: criterion.required,
+            };
+          case 'user_confirmed':
+            return { kind: 'user_confirmed', operator: 'equals', expected: true, required: criterion.required };
         }
-        case 'element_state':
-          return {
-            kind: 'element_state',
-            operator: criterion.operator,
-            expected: criterion.expected,
-            required: criterion.required,
-          };
-        case 'media_state':
-          return {
-            kind: 'media_state',
-            operator: criterion.operator,
-            expected: criterion.expected,
-            required: criterion.required,
-          };
-        case 'tab_state':
-          return {
-            kind: 'tab_state',
-            operator: criterion.operator,
-            expected: criterion.expected,
-            required: criterion.required,
-          };
-        case 'download_state':
-          return {
-            kind: 'download_state',
-            operator: criterion.operator,
-            expected: criterion.expected,
-            required: criterion.required,
-          };
-        case 'user_confirmed':
-          return { kind: 'user_confirmed', operator: 'equals', expected: true, required: criterion.required };
-      }
-    });
+      });
   }
 
   private roundKey(taskId: string, roundId: string): string {
@@ -3462,6 +3567,8 @@ export class TaskManager {
       case 'url':
       case 'page_text':
         return `${draft.kind}:${draft.operator}:${draft.expected.replace(/\s+/g, ' ').trim()}:${draft.required}`;
+      case 'form_value':
+        return `${draft.kind}:${draft.operator}:${draft.field}:${draft.expected}:${draft.required}`;
       case 'element_state':
       case 'media_state':
       case 'tab_state':
@@ -3507,6 +3614,15 @@ export class TaskManager {
           expectedDigest: await sha256(normalized.toLocaleLowerCase()),
         };
       }
+      case 'form_value':
+        return {
+          ...base,
+          kind: 'page_text',
+          operator: 'present',
+          expectedDigest: await digestFormValue(draft.expected),
+          observationSource: 'form_value',
+          formFieldDigest: await digestFormField(draft.field),
+        };
       case 'user_confirmed':
         return { ...base, kind: 'user_confirmed', operator: 'equals', expected: true };
       case 'element_state':
@@ -3527,7 +3643,7 @@ export class TaskManager {
    * - Explicit success text ("success is Saved successfully" / "until you see Done") → page_text
    */
   private extractImplicitCompletionCriteria(instruction: string, tabOrigin?: string): CompletionCriterionDraft[] {
-    const drafts: CompletionCriterionDraft[] = [];
+    const drafts: CompletionCriterionDraft[] = deriveFillOnlyFormCriteria(instruction);
     const seen = new Set<string>();
     const fieldValues = this.extractUserFieldValues(instruction);
 
@@ -4005,7 +4121,9 @@ export class TaskManager {
     evidence: CompletionEvidence[],
   ): string | undefined {
     if (!asked.askedText) return undefined;
-    const requiredText = criteria.filter(item => item.kind === 'page_text' && item.required);
+    const requiredText = criteria.filter(
+      item => item.kind === 'page_text' && item.required && !isFormValueCriterion(item),
+    );
     if (requiredText.length === 0) return undefined;
     const passed = requiredText.every(item => evidence.some(entry => entry.criterionId === item.id && entry.passed));
     return passed ? asked.askedText : undefined;
@@ -4039,8 +4157,9 @@ export class TaskManager {
   private async tryCompleteFromProducedResult(
     taskId: string,
     roundId: string,
-    input: { artifacts?: TaskArtifact[]; summary?: string },
+    input: { artifacts?: TaskArtifact[]; summary?: string; hasMorePages?: boolean },
   ): Promise<boolean> {
+    if (input.hasMorePages) return false;
     const task = await getTask(taskId);
     if (!task || task.status !== 'running' || task.currentRoundId !== roundId) return false;
     const asked = this.acceptedTaskFor(taskId);
@@ -4051,6 +4170,8 @@ export class TaskManager {
       observedUrl: this.observedUrlForResult([]),
     });
     if (!resultIsPresentAndMatches(asked, produced)) return false;
+    const instruction = this.instructions.get(taskId) ?? asked.instruction;
+    if (!this.independentArtifactGate(input.artifacts ?? [], instruction, asked).complete) return false;
     let completed = false;
     await this.queueTransition(async () => {
       const current = await getTask(taskId);
@@ -4186,9 +4307,19 @@ export class TaskManager {
     return true;
   }
 
+  private noteRunningTask(task: TaskSession): void {
+    const running = task.status === 'running';
+    const wasRunning = this.runningTaskIds.has(task.id);
+    if (running === wasRunning) return;
+    if (running) this.runningTaskIds.add(task.id);
+    else this.runningTaskIds.delete(task.id);
+    void syncTaskKeepAlive(this.runningTaskIds.size > 0);
+  }
+
   private async persist(task: TaskSession): Promise<void> {
     task.updatedAt = this.deps.now();
     await saveTask(task);
+    this.noteRunningTask(task);
     void traceStore.recordTaskSnapshot(toRedactedTaskSnapshot(task));
     const snapshot = structuredClone(task);
     for (const listener of this.listeners) {

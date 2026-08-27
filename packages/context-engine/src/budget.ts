@@ -9,7 +9,8 @@ export function fitToContext(blocks: readonly ContextBlock[], maxChars: number):
 
   const selected = selectWithinBudget(blocks, limit);
   if (selected.size === 0) return truncateBlock(blocks[0], limit);
-  return materialize(blocks, selected);
+  const replacements = fillRemainingBudget(blocks, selected, limit);
+  return materialize(blocks, selected, replacements);
 }
 
 function selectWithinBudget(blocks: readonly ContextBlock[], limit: number): Set<number> {
@@ -51,18 +52,37 @@ function addIfFits(blocks: readonly ContextBlock[], selected: Set<number>, index
   return size;
 }
 
-function materialize(blocks: readonly ContextBlock[], selected: Set<number>): ContextBlock[] {
+function fillRemainingBudget(
+  blocks: readonly ContextBlock[],
+  selected: Set<number>,
+  limit: number,
+): ReadonlyMap<number, ContextBlock> {
+  const remaining = limit - contextBlockCharacters(OMISSION) - totalSelected(blocks, selected);
+  if (remaining <= 0) return new Map();
+  const index = blocks.findIndex((block, candidate) => !selected.has(candidate) && block.type !== 'heading');
+  if (index < 0) return new Map();
+  const replacement = truncateBlock(blocks[index], remaining)[0];
+  if (!replacement) return new Map();
+  selected.add(index);
+  return new Map([[index, replacement]]);
+}
+
+function materialize(
+  blocks: readonly ContextBlock[],
+  selected: Set<number>,
+  replacements: ReadonlyMap<number, ContextBlock>,
+): ContextBlock[] {
   const indexes = [...selected].sort((a, b) => a - b);
-  if (indexes.length === blocks.length) return indexes.map(index => blocks[index]);
+  if (indexes.length === blocks.length && replacements.size === 0) return indexes.map(index => blocks[index]);
   const result: ContextBlock[] = [];
   let marked = false;
   let previous = -1;
   for (const index of indexes) {
-    if (!marked && index > previous + 1) {
+    if (!marked && (index > previous + 1 || replacements.has(index))) {
       result.push(OMISSION);
       marked = true;
     }
-    result.push(blocks[index]);
+    result.push(replacements.get(index) ?? blocks[index]);
     previous = index;
   }
   if (!marked && previous < blocks.length - 1) result.push(OMISSION);

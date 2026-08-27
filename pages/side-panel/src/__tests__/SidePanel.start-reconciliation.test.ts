@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskSnapshot } from '@extension/storage';
-import { acceptedStartSnapshotRequest, reconnectTaskSnapshotRequest } from '../SidePanel';
+import { acceptedStartSnapshotRequest } from '../SidePanel';
 import { mergeTaskSnapshot } from '../task-snapshot';
+import { canBootstrapReconnectSnapshot, reconnectTaskSnapshotRequest } from '../presentation/task-reconnect';
 
 const runningSnapshot = {
   id: 'task-started-without-event',
@@ -39,16 +40,38 @@ describe('SidePanel accepted task start reconciliation', () => {
     ).toBeNull();
   });
 
-  it('restores the pending start after reconnect before falling back to the active task', () => {
-    expect(reconnectTaskSnapshotRequest(null, { taskId: runningSnapshot.id })).toEqual({
-      type: 'get_task',
-      taskId: runningSnapshot.id,
+  it('does not let a late cold-restore snapshot undo an explicit New Chat', () => {
+    const request = reconnectTaskSnapshotRequest({
+      pendingReset: null,
+      pendingStart: null,
+      blankComposerSession: false,
     });
-    expect(reconnectTaskSnapshotRequest({ taskId: 'cancelling-task' }, { taskId: runningSnapshot.id })).toEqual({
-      type: 'get_task',
-      taskId: 'cancelling-task',
-    });
-    expect(reconnectTaskSnapshotRequest(null, null)).toEqual({ type: 'get_active_task' });
-    expect(reconnectTaskSnapshotRequest(null, null, false)).toBeNull();
+    expect(request).toEqual({ type: 'get_active_task' });
+
+    // New Chat wins even if this already-sent request answers afterwards.
+    expect(canBootstrapReconnectSnapshot(true)).toBe(false);
+  });
+
+  it('restores exact pending work before falling back to the durable active task', () => {
+    expect(
+      reconnectTaskSnapshotRequest({
+        pendingReset: null,
+        pendingStart: { taskId: runningSnapshot.id },
+        blankComposerSession: false,
+      }),
+    ).toEqual({ type: 'get_task', taskId: runningSnapshot.id });
+    expect(
+      reconnectTaskSnapshotRequest({
+        pendingReset: { taskId: 'cancelling-task' },
+        pendingStart: { taskId: runningSnapshot.id },
+        blankComposerSession: false,
+      }),
+    ).toEqual({ type: 'get_task', taskId: 'cancelling-task' });
+    expect(
+      reconnectTaskSnapshotRequest({ pendingReset: null, pendingStart: null, blankComposerSession: false }),
+    ).toEqual({ type: 'get_active_task' });
+    expect(
+      reconnectTaskSnapshotRequest({ pendingReset: null, pendingStart: null, blankComposerSession: true }),
+    ).toBeNull();
   });
 });

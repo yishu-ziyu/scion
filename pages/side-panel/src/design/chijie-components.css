@@ -1793,9 +1793,10 @@ button.chijie-answer-source:hover > span:not(.chijie-search-host) {
   font-weight: 600;
 }
 
-/* Label shine (aicss thinking-reasoning): a soft brightness valley sweeps
-   the label while the run is live; stops the moment it is done. */
-.chijie-thinking[data-running='true'] .chijie-thinking-label {
+/* Label shine (aicss thinking-state): a soft brightness valley sweeps
+   the live label; stops the moment the run is done. */
+.chijie-thinking[data-running='true'] .chijie-thinking-label,
+.chijie-process-disclosure[data-live='true'] [data-testid='task-now-summary'] {
   color: transparent;
   background: linear-gradient(
     90deg,
@@ -1887,7 +1888,8 @@ button.chijie-answer-source:hover > span:not(.chijie-search-host) {
     transition: none;
   }
 
-  .chijie-thinking[data-running='true'] .chijie-thinking-label {
+  .chijie-thinking[data-running='true'] .chijie-thinking-label,
+  .chijie-process-disclosure[data-live='true'] [data-testid='task-now-summary'] {
     color: var(--chijie-muted);
     background: none;
     animation: none;

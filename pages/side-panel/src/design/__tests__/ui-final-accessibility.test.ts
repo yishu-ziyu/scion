@@ -18,6 +18,7 @@ const componentsCss = source('../chijie-components.css');
 const tokensCss = source('../chijie-tokens.css');
 const sidePanelCss = source('../../SidePanel.css');
 const sidePanel = source('../../SidePanel.tsx');
+const sessionIdentity = source('../../presentation/session-task-identity.ts');
 
 function tokenHex(name: string): string {
   const match = tokensCss.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, 'i'));
@@ -66,7 +67,7 @@ describe('final side-panel accessibility gates', () => {
     expect(chatInput).toContain('setDeliveryFeedback(result.feedback');
     expect(chatInput).toContain('data-testid="goal-send-feedback"');
     expect(chatInput).toContain('role="alert"');
-    expect(sidePanel).toContain("feedback: '上一个任务还在启动。输入已保留，请稍后再试。'");
+    expect(sessionIdentity).toContain("blockFeedback: '上一个任务还在启动。输入已保留，请稍后再试。'");
   });
 
   it('gives the live stream a thinking fold and a takeover control', () => {

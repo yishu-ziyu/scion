@@ -20,10 +20,12 @@
   },
   "dependencies": {
     "@extension/agent-core": "workspace:*",
+    "@extension/context-engine": "workspace:*",
     "@extension/contracts": "workspace:*",
     "@extension/i18n": "workspace:*",
     "@extension/shared": "workspace:*",
     "@extension/storage": "workspace:*",
+    "@extension/wisebase-core": "workspace:*",
     "@langchain/anthropic": "0.3.33",
     "@langchain/cerebras": "0.0.4",
     "@langchain/core": "0.3.79",

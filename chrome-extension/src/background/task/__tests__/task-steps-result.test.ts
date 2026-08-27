@@ -179,6 +179,73 @@ describe('task / steps / result chain', () => {
     expect(round?.result?.body).toContain('Alpha,$49.99,4.5');
   });
 
+  it('stores one merged table from later sources instead of the first extract only', async () => {
+    const first = createTableArtifact({
+      title: 'shop-a',
+      columns: ['name', 'price', 'rating'],
+      rows: [{ name: 'Alpha', price: '$1', rating: '5' }],
+      sources: [{ url: 'https://a.test/products' }],
+    });
+    const later = createTableArtifact({
+      title: 'shop-b',
+      columns: ['name', 'price', 'rating'],
+      rows: [{ name: 'Beta', price: '$2', rating: '4' }],
+      sources: [{ url: 'https://b.test/products' }],
+    });
+    const manager = new TaskManager({
+      createExecutor: async () =>
+        driver({
+          kind: 'candidate_complete',
+          summary: 'Extracted 2 records. Task is not complete.',
+          artifacts: [first, later],
+        }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-table-merged', 'Extract products to a CSV table with name, price, rating');
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-table-merged'))?.status).toBe('completed');
+    });
+    const body = (await manager.snapshot('task-table-merged'))?.rounds[0]?.result?.body ?? '';
+    expect(body.match(/name,price,rating/g)?.length).toBe(1);
+    expect(body).toContain('Alpha,$1,5');
+    expect(body).toContain('Beta,$2,4');
+    expect(body).toContain('https://a.test/products');
+    expect(body).toContain('https://b.test/products');
+  });
+
+  it('does not complete a table when a later source extract is missing required columns', async () => {
+    const first = createTableArtifact({
+      title: 'shop-a',
+      columns: ['name', 'price', 'rating'],
+      rows: [{ name: 'Alpha', price: '$1', rating: '5' }],
+      sources: [{ url: 'https://a.test/products' }],
+    });
+    const later = createTableArtifact({
+      title: 'shop-b',
+      columns: ['name', 'price'],
+      rows: [{ name: 'Beta', price: '$2' }],
+      sources: [{ url: 'https://b.test/products' }],
+    });
+    const manager = new TaskManager({
+      createExecutor: async () =>
+        driver({
+          kind: 'candidate_complete',
+          summary: 'Extracted 2 records. Task is not complete.',
+          artifacts: [first, later],
+        }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-table-later-fail', 'Extract products to a CSV table with name, price, rating');
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-table-later-fail'))?.status).toBe('failed');
+    });
+    expect((await manager.snapshot('task-table-later-fail'))?.rounds[0]?.result).toBeUndefined();
+  });
+
   it('completes a table with a link column without visiting each cell URL', async () => {
     const artifact = createTableArtifact({
       title: 'products',
@@ -277,6 +344,173 @@ describe('task / steps / result chain', () => {
       expect((await manager.snapshot('task-extract-act'))?.status).toBe('completed');
     });
     expect((await manager.snapshot('task-extract-act'))?.rounds[0]?.result?.body).toContain('Alpha,$1,5');
+  });
+
+  it('does not complete extract_content from a matching table when more pages remain', async () => {
+    let hooks!: ExecutorHooks;
+    const pending = driver({ kind: 'candidate_complete', summary: 'still going' });
+    pending.run = vi.fn(() => new Promise<ExecutorOutcome>(() => {}));
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return pending;
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-extract-more-pages', 'Extract products to a CSV table with name, price, rating');
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = (await manager.snapshot('task-extract-more-pages'))?.currentRoundId;
+    if (!roundId) throw new Error('missing round');
+    const artifact = createTableArtifact({
+      title: 'products',
+      columns: ['name', 'price', 'rating'],
+      rows: [{ name: 'Alpha', price: '$1', rating: '5' }],
+      sources: [{ url: 'https://fixture.local/products' }],
+    });
+    const dispatched = await hooks.dispatchAction(
+      roundId,
+      new Action(
+        async () => new ActionResult({ success: true, artifact, hasMorePages: true }),
+        extractContentActionSchema,
+      ),
+      { goal: 'name,price,rating', intent: 'extract' },
+    );
+    expect(dispatched.actionResult.isDone).toBe(false);
+    const snap = await manager.snapshot('task-extract-more-pages');
+    expect(snap?.status).not.toBe('completed');
+    expect(['failed', 'running']).toContain(snap?.status);
+    expect(snap?.rounds[0]?.result).toBeUndefined();
+    expect(snap?.rounds[0]?.receipt).toBeUndefined();
+  });
+
+  const dualSourceExtractInstruction =
+    'Extract products from https://a.test/products and https://b.test/products to a CSV table with name, price, rating';
+
+  it('does not complete extract_content from one independent source when the instruction names two', async () => {
+    let hooks!: ExecutorHooks;
+    const pending = driver({ kind: 'candidate_complete', summary: 'still going' });
+    pending.run = vi.fn(() => new Promise<ExecutorOutcome>(() => {}));
+    const manager = new TaskManager({
+      createExecutor: async (_input, nextHooks) => {
+        hooks = nextHooks;
+        return pending;
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-extract-one-of-two', dualSourceExtractInstruction);
+    await vi.waitFor(() => expect(hooks).toBeDefined());
+    const roundId = (await manager.snapshot('task-extract-one-of-two'))?.currentRoundId;
+    if (!roundId) throw new Error('missing round');
+    const artifact = createTableArtifact({
+      title: 'products',
+      columns: ['name', 'price', 'rating'],
+      rows: [{ name: 'Alpha', price: '$1', rating: '5' }],
+      sources: [{ url: 'https://a.test/products' }],
+    });
+    const dispatched = await hooks.dispatchAction(
+      roundId,
+      new Action(async () => new ActionResult({ success: true, artifact }), extractContentActionSchema),
+      { goal: 'name,price,rating', intent: 'extract' },
+    );
+    expect(dispatched.actionResult.isDone).toBe(false);
+    const snap = await manager.snapshot('task-extract-one-of-two');
+    expect(snap?.status).not.toBe('completed');
+    expect(['failed', 'running']).toContain(snap?.status);
+    expect(snap?.rounds[0]?.result).toBeUndefined();
+    expect(snap?.rounds[0]?.receipt).toBeUndefined();
+  });
+
+  it('does not complete a two-source table candidate_complete from one source artifact', async () => {
+    const artifact = createTableArtifact({
+      title: 'products',
+      columns: ['name', 'price', 'rating'],
+      rows: [{ name: 'Alpha', price: '$1', rating: '5' }],
+      sources: [{ url: 'https://a.test/products' }],
+    });
+    const manager = new TaskManager({
+      createExecutor: async () =>
+        driver({
+          kind: 'candidate_complete',
+          summary: 'Extracted 1 record. Task is not complete.',
+          artifacts: [artifact],
+        }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: item.kind === 'url' ? item.expected : true,
+        })),
+      ),
+      now: () => 100,
+    });
+    await start(manager, 'task-table-one-of-two', dualSourceExtractInstruction);
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-table-one-of-two'))?.status).not.toBe('running');
+    });
+    const snap = await manager.snapshot('task-table-one-of-two');
+    expect(snap?.status).not.toBe('completed');
+    expect(['failed', 'running']).toContain(snap?.status);
+    expect(snap?.rounds[0]?.result).toBeUndefined();
+    expect(snap?.rounds[0]?.receipt).toBeUndefined();
+  });
+
+  it('does not complete a table candidate_complete from a summary CSV with no artifacts', async () => {
+    const summary = ['name,price,rating', 'Alpha,$1,5', 'Beta,$2,4'].join('\n');
+    const manager = new TaskManager({
+      createExecutor: async () =>
+        driver({
+          kind: 'candidate_complete',
+          summary,
+        }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async (criteria: Parameters<ObserveCriteria>[0]) =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: item.kind === 'url' ? item.expected : true,
+        })),
+      ),
+      now: () => 100,
+    });
+    await start(manager, 'task-table-summary-csv', dualSourceExtractInstruction);
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-table-summary-csv'))?.status).not.toBe('running');
+    });
+    const snap = await manager.snapshot('task-table-summary-csv');
+    expect(snap?.status).not.toBe('completed');
+    expect(['failed', 'running']).toContain(snap?.status);
+    expect(snap?.rounds[0]?.result).toBeUndefined();
+    expect(snap?.rounds[0]?.receipt).toBeUndefined();
+  });
+
+  it('does not complete a table from a summary CSV when there are no artifacts or source URLs', async () => {
+    const summary = ['name,price,rating', 'Alpha,$1,5', 'Beta,$2,4'].join('\n');
+    const manager = new TaskManager({
+      createExecutor: async () => driver({ kind: 'candidate_complete', summary }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-table-summary-csv-no-url', 'Extract products to a CSV table with name, price, rating');
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-table-summary-csv-no-url'))?.status).not.toBe('running');
+    });
+    const snap = await manager.snapshot('task-table-summary-csv-no-url');
+    expect(snap?.status).not.toBe('completed');
+    expect(['failed', 'running']).toContain(snap?.status);
+    expect(snap?.rounds[0]?.result).toBeUndefined();
+    expect(snap?.rounds[0]?.receipt).toBeUndefined();
   });
 
   it('does not complete a page-about task from an opened host', async () => {
@@ -456,6 +690,49 @@ describe('task / steps / result chain', () => {
       expect((await manager.snapshot('task-rehydrate-table'))?.status).toBe('failed');
     });
     expect((await manager.snapshot('task-rehydrate-table'))?.rounds[0]?.result).toBeUndefined();
+  });
+
+  it('restores acceptTask after recover of running work so a table task cannot complete on a two-character summary', async () => {
+    const instruction = 'Extract products to a CSV table with name, price, rating';
+    store.sessions.set('task-rehydrate-running', {
+      id: 'task-rehydrate-running',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-rehydrate-running',
+      instructionMessageId: 'message-rehydrate-running',
+      status: 'running',
+      revision: 4,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      rounds: [
+        {
+          id: 'round-1',
+          instructionMessageId: 'message-rehydrate-running',
+          instructionSummary: 'User instruction',
+          status: 'running',
+          commandAcks: {},
+          criteria: [],
+          attempts: [],
+          evidence: [],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 4,
+    });
+    store.chatSessions.set('chat-rehydrate-running', {
+      messages: [{ id: 'message-rehydrate-running', content: instruction }],
+    });
+    const manager = new TaskManager({
+      createExecutor: async () => driver({ kind: 'candidate_complete', summary: 'hi' }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await manager.recover();
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-rehydrate-running'))?.status).toBe('failed');
+    });
+    expect((await manager.snapshot('task-rehydrate-running'))?.rounds[0]?.result).toBeUndefined();
   });
 
   it('does not mark extract_content done when the task is no longer running', async () => {

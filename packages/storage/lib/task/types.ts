@@ -75,7 +75,14 @@ type CriterionBase = {
 
 export type CompletionCriterion =
   | (CriterionBase & { kind: 'url'; operator: 'equals' | 'starts_with'; expected: string })
-  | (CriterionBase & { kind: 'page_text'; operator: 'present' | 'absent'; expectedDigest: string })
+  | (CriterionBase & {
+      kind: 'page_text';
+      operator: 'present' | 'absent';
+      expectedDigest: string;
+      /** Exact non-sensitive form value proof. Both field and value stay digest-only. */
+      observationSource?: 'form_value';
+      formFieldDigest?: string;
+    })
   | (CriterionBase & {
       kind: 'element_state';
       operator: 'equals';

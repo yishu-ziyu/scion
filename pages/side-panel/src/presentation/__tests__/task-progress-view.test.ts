@@ -460,7 +460,15 @@ describe('liveProcessFold', () => {
     ).toEqual({ summary: '正在读取' });
   });
 
-  it('keeps a human action and does not repeat the site inside the summary', () => {
+  it('collapses 查看/打开 host lines to 正在看 and strips tab unread counts', () => {
+    expect(
+      liveProcessFold({
+        summary: '查看 youtube.com',
+        purpose: '推进当前任务',
+        site: '(25) Bijan Bowen - YouTube',
+        startedAt: 1,
+      }),
+    ).toEqual({ summary: '正在看', site: 'Bijan Bowen - YouTube' });
     expect(
       liveProcessFold({
         summary: '打开 etsy.com',
@@ -468,6 +476,6 @@ describe('liveProcessFold', () => {
         site: 'etsy.com',
         startedAt: 1,
       }),
-    ).toEqual({ summary: '打开 etsy.com' });
+    ).toEqual({ summary: '正在看', site: 'etsy.com' });
   });
 });

@@ -5,6 +5,7 @@ import {
   type ChatMessage,
   type EvidenceSpace,
   type Message,
+  type MessageSource,
   type TaskCommand,
   type TaskSnapshot,
   Actors,
@@ -33,12 +34,13 @@ import { PROGRESS_MESSAGE_CONTENT, classifyAgentEvent, shouldMergeFailure } from
 import {
   formatBindChip,
   formatBindDetail,
-  bindTabForTask,
   instructionPointsAtCurrentPage,
   taskBoundContentTab,
   type BoundContentTab,
 } from './presentation/active-tab-bind';
-import { applyChatStreamDelta, isChatOnlyMessage, type ChatStreamState } from './presentation/chat-turn';
+import { resolveActiveContentTab } from './presentation/active-tab-runtime';
+import { applyChatStreamDelta, classifyChatTurn, type ChatStreamState } from './presentation/chat-turn';
+import { canBootstrapReconnectSnapshot, reconnectTaskSnapshotRequest } from './presentation/task-reconnect';
 import {
   isActiveTaskStatus,
   shouldAutoRestoreTaskSession,
@@ -55,6 +57,10 @@ import {
   canBeginExclusiveTaskLaunch,
   canExposeMessageRecoveryActions,
   canFollowUpInOwnedSession,
+  pendingFollowUpTexts,
+  planComposerSend,
+  mergeRestoredSessionMessages,
+  userTextByRoundId,
   canDispatchTaskCommand,
   confirmsNewChatCancellation,
   hasPendingLifecycleCommand,
@@ -131,50 +137,8 @@ export function acceptedStartSnapshotRequest(
   return { type: 'get_task', taskId: pendingStart.taskId };
 }
 
-export function reconnectTaskSnapshotRequest(
-  pendingReset: { taskId: string } | null,
-  pendingStart: { taskId: string } | null,
-  restoreActive = true,
-): { type: 'get_task'; taskId: string } | { type: 'get_active_task' } | null {
-  if (pendingReset) return { type: 'get_task', taskId: pendingReset.taskId };
-  if (pendingStart) return { type: 'get_task', taskId: pendingStart.taskId };
-  if (!restoreActive) return null;
-  return { type: 'get_active_task' };
-}
-
 /** A new-chat reset is safe only after the old live task has acknowledged cancellation. */
 export { confirmsNewChatCancellation, shouldAcceptTaskSignal } from './presentation/session-task-identity';
-
-/** Resolve the content tab the user is looking at (not chrome:// / extension pages). */
-export async function resolveActiveContentTab(
-  options: { allowLastFocused?: boolean } = {},
-): Promise<BoundContentTab | null> {
-  const attempts: chrome.tabs.QueryInfo[] = [{ currentWindow: true }];
-  if (options.allowLastFocused !== false) {
-    attempts.push({ lastFocusedWindow: true });
-  }
-  for (const query of attempts) {
-    try {
-      const tabs = await chrome.tabs.query(query);
-      const bound = bindTabForTask(tabs);
-      if (bound) return bound;
-    } catch {
-      /* try next query */
-    }
-  }
-  return null;
-}
-
-function userTextByRoundId(rounds: TaskSnapshot['rounds'], messages: Message[]): Record<string, string> {
-  return Object.fromEntries(
-    rounds.map(round => {
-      const spoken = messages.find(
-        message => message.actor === Actors.USER && 'id' in message && message.id === round.instructionMessageId,
-      );
-      return [round.id, spoken?.content ?? ''];
-    }),
-  );
-}
 
 const SidePanel = () => {
   const progressMessage = PROGRESS_MESSAGE_CONTENT;
@@ -391,20 +355,32 @@ const SidePanel = () => {
       if (sessionId === undefined && isHistoricalSessionRef.current) return null;
       const isProgressMessage = newMessage.content === progressMessage;
       const effectiveSessionId = sessionId !== undefined ? sessionId : sessionIdRef.current;
-      if (shouldRenderMessageForSession(sessionId, sessionIdRef.current)) {
-        setMessages(prev => {
-          if (replaceVisible) return [newMessage];
-          const filteredMessages = prev.filter(
-            (msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1),
-          );
-          return [...filteredMessages, newMessage];
-        });
+      if (!effectiveSessionId || isProgressMessage || !persist) {
+        if (shouldRenderMessageForSession(sessionId, sessionIdRef.current)) {
+          setMessages(prev => {
+            if (replaceVisible) return [newMessage];
+            const filteredMessages = prev.filter(
+              (msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1),
+            );
+            return [...filteredMessages, newMessage];
+          });
+        }
+        return null;
       }
-      if (!effectiveSessionId || isProgressMessage || !persist) return null;
-      return chatHistoryStore.addMessage(effectiveSessionId, {
+      const stored = await chatHistoryStore.addMessage(effectiveSessionId, {
         ...newMessage,
         content: storedContent ?? newMessage.content,
       });
+      if (shouldRenderMessageForSession(sessionId, sessionIdRef.current)) {
+        setMessages(prev => {
+          if (replaceVisible) return [stored];
+          const filteredMessages = prev.filter(
+            (msg, idx) => !(msg.content === progressMessage && idx === prev.length - 1),
+          );
+          return [...filteredMessages, stored];
+        });
+      }
+      return stored;
     },
     [progressMessage],
   );
@@ -486,7 +462,7 @@ const SidePanel = () => {
       }
       setCurrentSessionId(session.id);
       sessionIdRef.current = session.id;
-      setMessages(session.messages);
+      setMessages(prev => mergeRestoredSessionMessages(session.messages, prev));
       setIsHistoricalSession(false);
       isHistoricalSessionRef.current = false;
       if (
@@ -700,6 +676,11 @@ const SidePanel = () => {
     }
   }, []);
 
+  const handleChatStreamSource = useCallback((sessionId: string, source: MessageSource) => {
+    const stream = chatStreamRef.current;
+    if (stream?.sessionId === sessionId) stream.source = source;
+  }, []);
+
   const handleChatStreamDone = useCallback((sessionId: string) => {
     const stream = chatStreamRef.current;
     if (!stream || stream.sessionId !== sessionId) return;
@@ -710,6 +691,7 @@ const SidePanel = () => {
         actor: Actors.SYSTEM,
         content: stream.text,
         timestamp: stream.timestamp,
+        source: stream.source,
       });
     }
   }, []);
@@ -807,7 +789,7 @@ const SidePanel = () => {
                 displayedTaskId: isHistoricalSessionRef.current ? null : taskSnapshotRef.current?.id,
                 pendingStartTaskId: pendingStartCommandRef.current?.taskId,
                 currentSessionId: isHistoricalSessionRef.current ? null : sessionIdRef.current,
-                allowBootstrap: true,
+                allowBootstrap: canBootstrapReconnectSnapshot(blankComposerSessionRef.current),
                 allowAuthoritativeRecovery: recoveringAuthoritativeTaskRef.current,
               })
             ) {
@@ -1100,11 +1082,13 @@ const SidePanel = () => {
             timestamp: Date.now(),
           });
           setIsProcessingSpeech(false);
-        } else if (message && message.type === 'chat_stream_delta') {
+        } else if (message && /^(?:chat|page_summary)_stream_source$/.test(message.type)) {
+          handleChatStreamSource(message.sessionId, message.source);
+        } else if (message && /^(?:chat|page_summary)_stream_delta$/.test(message.type)) {
           handleChatStreamDelta(message.sessionId, message.text);
-        } else if (message && message.type === 'chat_stream_done') {
+        } else if (message && /^(?:chat|page_summary)_stream_done$/.test(message.type)) {
           handleChatStreamDone(message.sessionId);
-        } else if (message && message.type === 'chat_stream_error') {
+        } else if (message && /^(?:chat|page_summary)_stream_error$/.test(message.type)) {
           handleChatStreamError(message.sessionId, message.error ?? t('errors_unknown'));
         } else if (message && message.type === 'heartbeat_ack') {
           console.log('Heartbeat acknowledged');
@@ -1152,12 +1136,11 @@ const SidePanel = () => {
           stopConnection(); // Stop if port is invalid
         }
       }, 25000);
-      const pendingReset = pendingNewChatCancellationRef.current;
-      const hasLiveSurface = Boolean(
-        !blankComposerSessionRef.current &&
-          (sessionIdRef.current || taskSnapshotRef.current || authoritativeTaskSnapshotRef.current),
-      );
-      const reconnectRequest = reconnectTaskSnapshotRequest(pendingReset, pendingStartCommandRef.current, hasLiveSurface);
+      const reconnectRequest = reconnectTaskSnapshotRequest({
+        pendingReset: pendingNewChatCancellationRef.current,
+        pendingStart: pendingStartCommandRef.current,
+        blankComposerSession: blankComposerSessionRef.current,
+      });
       if (reconnectRequest) portRef.current.postMessage(reconnectRequest);
       else setTaskSnapshotLoaded(true);
     } catch (error) {
@@ -1179,6 +1162,7 @@ const SidePanel = () => {
     scheduleReconnect,
     stopConnection,
     handleChatStreamDelta,
+    handleChatStreamSource,
     handleChatStreamDone,
     handleChatStreamError,
   ]);
@@ -1258,13 +1242,17 @@ const SidePanel = () => {
     [appendMessage, sendMessage],
   );
 
-  // Send a chat-only message over the direct stream; false when the port is gone.
+  // Send direct chat or page-summary streams; false when the port is gone.
   const sendChatStreamMessage = useCallback(
-    (sessionId: string, text: string): boolean => {
+    (sessionId: string, text: string, tabId?: number): boolean => {
       if (!portRef.current) setupConnection();
       try {
         chatStreamRef.current = { sessionId, timestamp: Date.now(), text: '' };
-        portRef.current?.postMessage({ type: 'chat_stream', sessionId, text });
+        portRef.current?.postMessage(
+          tabId === undefined
+            ? { type: 'chat_stream', sessionId, text }
+            : { type: 'page_summary_stream', sessionId, text, tabId },
+        );
         return true;
       } catch {
         chatStreamRef.current = null;
@@ -1366,6 +1354,7 @@ const SidePanel = () => {
       const wasHandled = await handleCommand(trimmedText);
       if (wasHandled) return { delivered: true };
     }
+    const route = classifyChatTurn(trimmedText);
 
     if (isHistoricalSession) {
       return { delivered: false, feedback: '历史会话不能继续发送。输入已保留。' };
@@ -1380,15 +1369,20 @@ const SidePanel = () => {
       return { delivered: false, feedback: '正在恢复上一个任务。输入已保留，请稍后再试。' };
     }
 
-    const startingFreshSession = !isFollowUpMode || !sessionIdRef.current;
-    if (
-      !canBeginExclusiveTaskLaunch({
-        pendingAsyncLaunch: pendingAsyncLaunchRef.current !== null,
-        pendingStartTaskId: pendingStartCommandRef.current?.taskId,
-      })
-    ) {
-      return { delivered: false, feedback: '上一个任务还在启动。输入已保留，请稍后再试。' };
+    const sendPlan = planComposerSend({
+      liveTask: taskSnapshotRef.current,
+      sessionId: sessionIdRef.current,
+      pendingAsyncLaunch: pendingAsyncLaunchRef.current !== null,
+      pendingStartTaskId: pendingStartCommandRef.current?.taskId ?? null,
+    });
+    if (sendPlan.blockFeedback) {
+      return { delivered: false, feedback: sendPlan.blockFeedback };
     }
+    if (sendPlan.sessionId && sendPlan.sessionId !== sessionIdRef.current) {
+      sessionIdRef.current = sendPlan.sessionId;
+      setCurrentSessionId(sendPlan.sessionId);
+    }
+    const startingFreshSession = sendPlan.startingFreshSession;
     const launchOwner = startingFreshSession
       ? {
           kind: 'message' as const,
@@ -1462,7 +1456,7 @@ const SidePanel = () => {
 
       const currentTask = taskSnapshotRef.current;
       const canFollowUp = canFollowUpInOwnedSession(currentTask, turnSessionId);
-      if (canFollowUp && currentTask) {
+      if (canFollowUp && currentTask && route !== 'page_summary') {
         commandDispatched = sendTaskCommand({
           type: 'follow_up',
           commandId: crypto.randomUUID(),
@@ -1474,20 +1468,20 @@ const SidePanel = () => {
           changeType: isDirectionChange ? 'direction_change' : 'follow_up',
           forceExecute: options?.retry === true,
         });
-      } else if (isChatOnlyMessage(text)) {
+        setInputEnabled(true);
+      } else if (route === 'chat') {
         commandDispatched = sendChatStreamMessage(turnSessionId, text);
       } else {
-        const bound = await resolveActiveContentTab({ allowLastFocused: false });
+        const bound =
+          route === 'page_summary' && canFollowUp && currentTask
+            ? taskBoundContentTab(currentTask, bindPreview)
+            : await resolveActiveContentTab({ allowLastFocused: false });
         if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) {
           return { delivered: false };
         }
-        if (!bound && instructionPointsAtCurrentPage(text)) {
+        if (!bound && (route === 'page_summary' || instructionPointsAtCurrentPage(text))) {
           appendMessage(
-            {
-              actor: Actors.SYSTEM,
-              content: t('chat_task_bind_this_page'),
-              timestamp: Date.now(),
-            },
+            { actor: Actors.SYSTEM, content: t('chat_task_bind_this_page'), timestamp: Date.now() },
             turnSessionId,
           );
           setInputEnabled(true);
@@ -1497,16 +1491,19 @@ const SidePanel = () => {
         }
         setBindPreview(bound);
         blankComposerSessionRef.current = false;
-        commandDispatched = sendTaskCommand({
-          type: 'start',
-          commandId: crypto.randomUUID(),
-          taskId: turnSessionId,
-          instruction: text,
-          chatSessionId: turnSessionId,
-          instructionMessageId: storedMessage.id,
-          tabId: bound?.tabId ?? -1,
-          forceExecute: options?.retry === true,
-        });
+        commandDispatched =
+          route === 'page_summary'
+            ? sendChatStreamMessage(turnSessionId, text, bound!.tabId)
+            : sendTaskCommand({
+                type: 'start',
+                commandId: crypto.randomUUID(),
+                taskId: turnSessionId,
+                instruction: text,
+                chatSessionId: turnSessionId,
+                instructionMessageId: storedMessage.id,
+                tabId: bound?.tabId ?? -1,
+                forceExecute: options?.retry === true,
+              });
       }
       if (!commandDispatched) {
         setInputEnabled(true);
@@ -2311,6 +2308,7 @@ const SidePanel = () => {
                         taskSnapshot.status,
                         currentRound?.waitReason,
                       );
+                      const roundUtterances = userTextByRoundId(taskSnapshot.rounds, displayMessages);
                       return (
                         <TaskStatusCard
                           snapshot={taskSnapshot}
@@ -2320,7 +2318,8 @@ const SidePanel = () => {
                           isDarkMode={false}
                           defaultInstruction={latestInstruction}
                           missionInstruction={originalInstruction}
-                          roundUtterances={userTextByRoundId(taskSnapshot.rounds, displayMessages)}
+                          roundUtterances={roundUtterances}
+                          pendingFollowUps={pendingFollowUpTexts(displayMessages, roundUtterances, originalInstruction)}
                           evidenceSpace={evidenceSpace}
                           pendingCommandTypes={pendingCommandTypes}
                           readOnly={isHistoricalSession}

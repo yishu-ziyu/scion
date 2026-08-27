@@ -6,6 +6,7 @@ import { ActionResult } from '../../agent/types';
 import { ActionDispatcher } from '../action-dispatcher';
 import { resolveMediaArgs, resolveTabArgs } from '../media';
 import { checkCompletion } from '../completion';
+import { downloadStateFromItems } from '../download-state';
 
 describe('continuous media control', () => {
   it('binds pause to the last played media target', async () => {
@@ -336,5 +337,13 @@ describe('download evidence completion surface', () => {
         ],
       }).passed,
     ).toBe(true);
+  });
+
+  it('maps leftover complete plus a post-freeze in_progress download to started, not finished', () => {
+    const notBefore = 1_700_000_000_000;
+    const leftover = { startTime: new Date(notBefore - 120_000).toISOString(), state: 'complete' };
+    const started = { startTime: new Date(notBefore + 1_000).toISOString(), state: 'in_progress' };
+    expect(downloadStateFromItems([leftover, started], notBefore)).toBe('started');
+    expect(downloadStateFromItems([leftover], notBefore)).toBe('none');
   });
 });

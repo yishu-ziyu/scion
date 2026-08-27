@@ -2,8 +2,9 @@
  * 019-SW: service-worker restart must not lose the task or double-commit.
  *
  * Flow: fixture form task → kill the extension service worker mid-run →
- * reopen the panel (SW restarts, TaskManager.recover classifies the round) →
- * resume via the card affordance → one external commit lands, receipt unique.
+ * reopen the panel (SW restarts, TaskManager.recover continues reversible
+ * running work) → one external commit lands, receipt unique. Do not click
+ * resume. An in-flight external_commit must not double-submit.
  *
  * Launch mode only: killing the owner Chrome's SW in CDP connect mode would
  * disturb a live user session, so this scenario refuses CDP_URL/CONNECT_URL.
@@ -240,60 +241,71 @@ async function runSwRestartScenario(run) {
   await new Promise(resolve => setTimeout(resolve, 1_000));
 
   phase = 'recovered';
-  // recover() runs at SW boot; the panel may briefly show the pre-recover
-  // status, so wait until the card settles on interrupted before asserting.
+  // recover() runs at SW boot and continues reversible running work. The panel
+  // may briefly show the pre-recover status, so wait until it is no longer
+  // sitting on interrupted / resume.
   const recoveredStart = Date.now();
   let recovered = null;
   while (Date.now() - recoveredStart < 30_000) {
     const probe = await readTaskProof(panel);
-    if (probe.status === 'interrupted' && probe.roundStatus === 'interrupted') {
-      recovered = probe;
-      break;
-    }
     if (['failed', 'cancelled'].includes(probe.status)) {
       await failSnapshot(panel, 'recover-failed');
       throw new Error(`task ${probe.status} after SW restart: ${probe.cardText}`);
+    }
+    if (probe.waitReason === 'commit_outcome_uncertain') {
+      await failSnapshot(panel, 'recover-uncertain-commit');
+      throw new Error('reversible running work recovered as uncertain commit');
+    }
+    if (
+      probe.taskId === preKill.taskId &&
+      probe.status !== 'interrupted' &&
+      ['running', 'completed', 'waiting_user'].includes(probe.status) &&
+      probe.hasResume === false
+    ) {
+      recovered = probe;
+      break;
     }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   if (!recovered) {
     await failSnapshot(panel, 'recover-timeout');
-    throw new Error(`recover did not classify the task; last=${JSON.stringify(await readTaskProof(panel))}`);
+    throw new Error(`recover did not continue the task; last=${JSON.stringify(await readTaskProof(panel))}`);
   }
   assert.equal(recovered.taskId, preKill.taskId, 'task identity changed across SW restart');
   assert.equal(recovered.roundId, preKill.roundId, 'round identity changed across SW restart');
   assert.ok(recovered.attempts.length >= preKill.attempts.length, 'attempts were truncated across SW restart');
   assert.ok(recovered.evidenceCount >= preKill.evidenceCount, 'evidence was truncated across SW restart');
   assert.ok(recovered.criteriaCount >= preKill.criteriaCount, 'criteria were truncated across SW restart');
-  // Running without a pending external commit must recover to interrupted.
-  assert.equal(recovered.status, 'interrupted', `recover classified ${recovered.status} (expected interrupted)`);
-  assert.equal(recovered.roundStatus, 'interrupted', `round recover classified ${recovered.roundStatus}`);
-  assert.equal(recovered.cardStatus, 'interrupted', `panel shows ${recovered.cardStatus}`);
-  assert.match(recovered.cardText, /中断|interrupted/i, 'panel copy does not mention interruption');
-  assert.ok(recovered.hasResume, 'resume affordance missing after recovery');
-  console.log(`[e2e] run${run} recovered: interrupted, attempts=${recovered.attempts.length} evidence=${recovered.evidenceCount}`);
+  assert.notEqual(recovered.status, 'interrupted', `recover classified ${recovered.status} (expected running)`);
+  assert.equal(recovered.hasResume, false, 'resume card must not be required after auto-continue');
+  console.log(`[e2e] run${run} recovered: ${recovered.status}, attempts=${recovered.attempts.length} evidence=${recovered.evidenceCount}`);
 
-  phase = 'resume';
-  await press(panel, 'composer-resume');
+  phase = 'continue';
   const start = Date.now();
-  let done = null;
-  while (Date.now() - start < timeout) {
+  let done = recovered.status === 'completed' && (await submitCount()) === 1 && recovered.receiptIds.length === 1
+    ? { ...recovered, count: 1 }
+    : null;
+  while (!done && Date.now() - start < timeout) {
     const proof = await readTaskProof(panel);
     const count = await submitCount();
     if (count > 1) throw new Error(`duplicate external commit: submit count=${count}`);
+    if (proof.waitReason === 'commit_outcome_uncertain') {
+      await failSnapshot(panel, 'continue-uncertain-commit');
+      throw new Error('in-flight external_commit recovered as wait; do not double-submit');
+    }
     if (proof.status === 'completed' && count === 1 && proof.receiptIds.length === 1) {
       done = { ...proof, count };
       break;
     }
     if (['failed', 'cancelled'].includes(proof.status)) {
-      await failSnapshot(panel, 'resume-failed');
-      throw new Error(`task ${proof.status} after resume: ${proof.cardText}`);
+      await failSnapshot(panel, 'continue-failed');
+      throw new Error(`task ${proof.status} after auto-continue: ${proof.cardText}`);
     }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   if (!done) {
-    await failSnapshot(panel, 'resume-timeout');
-    throw new Error(`timeout after resume; submit=${await submitCount()} status=${(await readTaskProof(panel)).status}`);
+    await failSnapshot(panel, 'continue-timeout');
+    throw new Error(`timeout after auto-continue; submit=${await submitCount()} status=${(await readTaskProof(panel)).status}`);
   }
   assert.equal(done.count, 1, `submissions !== 1 (${done.count})`);
   assert.equal(done.receiptIds.length, 1, 'receipt count !== 1');
@@ -302,7 +314,7 @@ async function runSwRestartScenario(run) {
   const pageEvidence = await target
     .$eval('#saved', element => element.textContent?.trim() || '')
     .catch(() => '');
-  assert.equal(pageEvidence, 'Saved successfully', 'page evidence missing after resume');
+  assert.equal(pageEvidence, 'Saved successfully', 'page evidence missing after auto-continue');
   // Quiescence: count and receipt must stay stable.
   const receiptToken = done.receiptIds[0];
   for (let confirmations = 0; confirmations < 3; confirmations += 1) {

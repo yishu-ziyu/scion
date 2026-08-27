@@ -4,6 +4,7 @@
  * Does NOT re-implement browser control.
  */
 import type { Action } from '../../agent/actions/builder';
+import { modelActionRejection } from '../../agent/actions/model-action-safety';
 import type BrowserContext from '../context';
 import type { AgentContext } from '../../agent/types';
 import type { ExecutorHooks } from '../../task/contracts';
@@ -12,16 +13,20 @@ import { createLogger } from '../../log';
 import { buildObservationFrame } from './observation';
 import { computeObservationDiff } from './diff';
 import { normalizeVisiblePageText } from './visible-text';
-import type {
-  BrowserKernel,
-  ExtractionRequest,
-  ExtractionResult,
-  KernelActionResult,
-  ObservationDiff,
-  ObservationFrame,
-  ObserveOptions,
-  WaitCondition,
+import {
+  PAGE_CHANGING_ACTIONS,
+  type BrowserKernel,
+  type ExtractionRequest,
+  type ExtractionResult,
+  type KernelActionResult,
+  type ObservationDiff,
+  type ObservationFrame,
+  type ObserveOptions,
+  type WaitCondition,
 } from './types';
+
+/** Poll for a new snapshot after clicks/navigations. readyState complete is not enough for SPA updates. */
+const REVISION_CHANGE_TIMEOUT_MS = 4_000;
 
 const logger = createLogger('BrowserKernel');
 
@@ -51,6 +56,7 @@ export interface BrowserKernelDeps {
 
 export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
   let last: ObservationFrame | null = null;
+  let kernel!: BrowserKernel;
 
   async function observe(options?: ObserveOptions): Promise<ObservationFrame> {
     const useVision = options?.useVision ?? deps.defaultUseVision ?? deps.agentContext?.options.useVision ?? false;
@@ -126,6 +132,9 @@ export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
     args: unknown,
     frameRevision?: string,
   ): Promise<KernelActionResult> {
+    const rejection = modelActionRejection(actionName, args);
+    if (rejection) return { error: rejection };
+
     const action = deps.resolveAction(actionName);
     if (!action) {
       return { error: `unknown action ${actionName}` };
@@ -135,15 +144,15 @@ export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
     const boundArgs = bindIndexedActionToFrame(rawArgs, revision);
     try {
       const result = await deps.hooks.dispatchAction(roundId, action, boundArgs);
-      if (deps.agentContext) {
-        deps.agentContext.actionResults.push(result.actionResult);
-      }
-      return {
+      deps.agentContext?.actionResults.push(result.actionResult);
+      const outcome: KernelActionResult = {
         error: result.actionResult?.error ?? null,
         isDone: Boolean(result.actionResult?.isDone),
         summary: result.actionResult?.extractedContent ?? null,
         pageRevision: result.pageRevision ?? revision ?? undefined,
       };
+      await waitForPageChangeIfNeeded(actionName, outcome, revision);
+      return outcome;
     } catch (error) {
       if (isStaleActionTargetError(error)) {
         logger.debug('kernel.act action target became stale; re-observe before retrying');
@@ -182,16 +191,30 @@ export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
 
   async function waitFor(condition: WaitCondition, timeoutMs: number): Promise<ObservationFrame> {
     const deadline = Date.now() + Math.max(0, timeoutMs);
-    let lastFrame = last ?? (await observe());
+    let lastFrame = last ?? (await observe({ waitForLoad: false }));
     while (Date.now() <= deadline) {
-      lastFrame = await observe();
+      lastFrame = await observe({ waitForLoad: false });
       if (matchesCondition(lastFrame, condition)) return lastFrame;
       await sleep(200);
     }
     return lastFrame;
   }
 
-  return {
+  async function waitForPageChangeIfNeeded(
+    actionName: string,
+    outcome: KernelActionResult,
+    fromRevision: string | null,
+  ): Promise<void> {
+    if (outcome.error || !fromRevision || !PAGE_CHANGING_ACTIONS.has(actionName)) return;
+    try {
+      const frame = await kernel.waitFor({ kind: 'revision_changed', fromRevision }, REVISION_CHANGE_TIMEOUT_MS);
+      if (frame.pageRevision) outcome.pageRevision = frame.pageRevision;
+    } catch {
+      // Dispatch already succeeded; the next observe retries the snapshot.
+    }
+  }
+
+  kernel = {
     observe,
     act,
     extract,
@@ -199,6 +222,7 @@ export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
     lastFrame: () => last,
     diff: (from, to) => computeObservationDiff(from, to),
   };
+  return kernel;
 }
 
 function matchesCondition(frame: ObservationFrame, condition: WaitCondition): boolean {

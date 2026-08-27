@@ -62,6 +62,34 @@ describe('control-supervise', () => {
     expect(text.length).toBeLessThanOrEqual(80);
   });
 
+  it('keeps redacted form-field evidence even when visible body wording is present', () => {
+    const text = pageTextForSupervisor({
+      url: 'https://example.com/form',
+      title: 'Form',
+      visibleText: 'Name Submit',
+      formFieldsText: `Form fields:
+[1] text "Name" value=Ada`,
+      fallback: 'full worker snapshot',
+    });
+    expect(text).toContain('Name Submit');
+    expect(text).toContain('[1] text "Name" value=Ada');
+    expect(text).not.toContain('full worker snapshot');
+  });
+
+  it('prioritizes form evidence before a long body so the value survives the cap', () => {
+    const text = pageTextForSupervisor({
+      url: 'https://example.com/form',
+      title: 'Form',
+      visibleText: 'body '.repeat(10_000),
+      formFieldsText: `Form fields:
+[1] text "Name" value=eval(1); document.body.remove()`,
+      fallback: 'unused',
+      maxChars: 500,
+    });
+    expect(text).toContain('value=eval(1); document.body.remove()');
+    expect(text.length).toBeLessThanOrEqual(500);
+  });
+
   it('keeps reject memory readable when the reason is empty', () => {
     expect(formatSuperviseRejectMemory('').toLowerCase()).toContain('supervisor rejected');
   });

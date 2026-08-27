@@ -44,11 +44,10 @@ describe('clickCdpElement', () => {
 
     expect(api.attach).toHaveBeenCalledWith({ targetId: 'tgt-iframe' }, '1.3');
     expect(api.sendCommand).toHaveBeenCalledWith({ targetId: 'tgt-iframe' }, 'DOM.resolveNode', { backendNodeId: 22 });
-    expect(api.sendCommand).toHaveBeenCalledWith(
-      { targetId: 'tgt-iframe' },
-      'Runtime.callFunctionOn',
-      expect.objectContaining({ objectId: 'obj-22' }),
-    );
+    expect(api.sendCommand).toHaveBeenCalledWith({ targetId: 'tgt-iframe' }, 'Runtime.callFunctionOn', {
+      objectId: 'obj-22',
+      functionDeclaration: 'function() { if (this && this.click) { this.click(); return true; } return false; }',
+    });
     const methods = api.sendCommand.mock.calls.map(call => String(call[1]));
     expect(methods).not.toContain('Input.dispatchMouseEvent');
     expect(api.detach).not.toHaveBeenCalled();

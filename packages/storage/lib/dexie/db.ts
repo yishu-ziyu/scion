@@ -1,3 +1,4 @@
+import type { ChunkRecord, SourceRecord } from '@extension/wisebase-core';
 import Dexie, { type Table } from 'dexie';
 
 export interface ChatSessionRow {
@@ -47,6 +48,8 @@ export class ScionDB extends Dexie {
   tasks!: Table<TaskRow, string>;
   sources!: Table<SourceRow, string>;
   notes!: Table<NoteRow, string>;
+  wisebaseSources!: Table<SourceRecord, string>;
+  wisebaseChunks!: Table<ChunkRecord, string>;
 
   constructor(name = 'scion') {
     super(name);
@@ -57,11 +60,17 @@ export class ScionDB extends Dexie {
       sources: 'id, taskId, createdAt',
       notes: 'id, taskId, createdAt',
     });
+    this.version(2).stores({
+      wisebase_sources: 'id, &fingerprint, canonicalUrl, sourceType, createdAt, updatedAt',
+      wisebase_chunks: 'id, sourceId, &[sourceId+index]',
+    });
     this.chatSessions = this.table('chat_sessions');
     this.chatMessages = this.table('chat_messages');
     this.tasks = this.table('tasks');
     this.sources = this.table('sources');
     this.notes = this.table('notes');
+    this.wisebaseSources = this.table('wisebase_sources');
+    this.wisebaseChunks = this.table('wisebase_chunks');
   }
 }
 

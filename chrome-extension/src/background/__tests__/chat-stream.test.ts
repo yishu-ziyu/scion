@@ -106,6 +106,32 @@ describe('chat_stream handler', () => {
     expect(port.sent.at(-1)).toEqual({ type: 'chat_stream_done', sessionId: 's1' });
   });
 
+  it('grounds chat in saved sources and names the top source', async () => {
+    const port = makePort();
+    const handler = createChatStreamHandler({
+      ...baseDeps,
+      recallSavedSources: async () => [
+        {
+          sourceId: 'source:1',
+          title: 'Plant energy',
+          url: 'https://biology.example/photosynthesis',
+          snippet: 'Photosynthesis turns sunlight into chemical energy.',
+        },
+      ],
+    });
+
+    await handler({ sessionId: 's1', text: '光合作用怎么工作' }, port);
+
+    expect(port.sent[0]).toEqual({
+      type: 'chat_stream_source',
+      sessionId: 's1',
+      source: { title: 'Plant energy', url: 'https://biology.example/photosynthesis' },
+    });
+    expect(seenTurns.messages?.[0]).toMatchObject({ role: 'system' });
+    expect(seenTurns.messages?.[0]?.content).toContain('Photosynthesis turns sunlight');
+    expect(seenTurns.messages?.at(-1)).toEqual({ role: 'user', content: '光合作用怎么工作' });
+  });
+
   it('reports 未绑定 chat 模型 when neither navigator nor planner is configured', async () => {
     const port = makePort();
     const handler = createChatStreamHandler({ ...baseDeps, getAgentModels: async () => ({}) });

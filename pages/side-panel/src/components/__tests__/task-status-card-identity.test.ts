@@ -581,19 +581,18 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).toContain('data-turn="agent"');
     expect(html).toContain('打开 etsy 搜相框，抽出前 5 个商品写进表格');
     expect(html).toContain('data-live-log="true"');
-    expect(html).toContain('data-testid="task-work-stream"');
-    expect(html).toContain('data-testid="task-page-card"');
     expect(html).toContain('data-testid="live-tool-log"');
     expect(html).not.toContain('data-testid="live-cursor"');
     expect(html).toContain('data-testid="live-stop-generating"');
     expect(html).toContain('接管');
+    expect(html).toContain('正在看');
     expect(html).toContain('etsy.com');
+    expect(html).not.toContain('data-testid="task-page-card"');
     expect(html).toContain('data-testid="task-process-disclosure"');
     expect(html).toContain('data-live="true"');
     expect(html).toContain('data-testid="task-now-line"');
     expect(html).toContain('data-testid="task-now-summary"');
     expect(html).not.toContain('chijie-act-chip');
-    expect(html).toContain('https://etsy.com');
     expect(html).not.toContain('>目标<');
     expect(html).not.toContain('>现在<');
     expect(html).not.toContain('>结果<');
@@ -829,7 +828,7 @@ describe('TaskStatusCard identity markers', () => {
     expect(source).not.toContain('writeText(deliverableAnswer)');
   });
 
-  it('already-open Google results show the fourth title, the page reading, and the click', () => {
+  it('already-open Google results show the fourth title and the click, not a page-reading sentence', () => {
     const snapshot = {
       id: 'task-serp',
       goalSummary: 'User task',
@@ -907,7 +906,7 @@ describe('TaskStatusCard identity markers', () => {
     );
 
     expect(html).toContain('某某教程');
-    expect(html).toContain('当前是搜索结果页，第四条是某某教程');
+    expect(html).not.toContain('当前是搜索结果页，第四条是某某教程');
     expect(html).toContain('点击第四个：某某教程');
     expect(html).toContain('data-testid="task-search-board"');
     expect(html).toContain('data-testid="task-act-line"');
@@ -984,6 +983,49 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).toContain('https://example.com/hackathon');
     expect(html).not.toContain('获取页面快照');
     expect(html).not.toContain('做完会出现在这里');
+  });
+
+  it('draws a follow-up bubble as soon as the user sends, before a new round exists', () => {
+    const snapshot = {
+      id: 'task-follow',
+      goalSummary: 'User task',
+      chatSessionId: 'chat-1',
+      instructionMessageId: 'message-1',
+      status: 'running',
+      revision: 2,
+      activeTabId: 7,
+      currentRoundId: 'round-1',
+      targetRefs: [],
+      rounds: [
+        {
+          id: 'round-1',
+          instructionMessageId: 'message-1',
+          instructionSummary: 'User instruction',
+          status: 'running',
+          commandAcks: {},
+          criteria: [],
+          attempts: [],
+          evidence: [],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 2,
+    } satisfies TaskSnapshot;
+
+    const html = renderToStaticMarkup(
+      createElement(TaskStatusCard, {
+        snapshot,
+        send: vi.fn(),
+        missionInstruction: '打开bijanbowen的YouTube主页',
+        roundUtterances: { 'round-1': '打开bijanbowen的YouTube主页' },
+        pendingFollowUps: ['他有测试GLM 5.3 Flash吗？'],
+        onStop: vi.fn(),
+      }),
+    );
+
+    expect(html).toContain('打开bijanbowen的YouTube主页');
+    expect(html).toContain('data-testid="task-follow-up"');
+    expect(html).toContain('他有测试GLM 5.3 Flash吗？');
   });
 
   it('keeps the original sentence and draws a follow-up as a later user turn', () => {
@@ -1072,7 +1114,7 @@ describe('TaskStatusCard identity markers', () => {
     expect(html).toContain('只要木质的');
     expect(html).toContain('找到 5 个相框');
     expect(html).not.toContain('获取页面快照');
-    expect(html).toContain('youtube.com');
+    expect(html).toContain('正在看 YouTube');
     expect(html).toContain('data-turn="user"');
     expect(html).toContain('data-turn="agent"');
     expect(html).not.toContain('>目标<');

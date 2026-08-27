@@ -21,6 +21,11 @@ import {
   type ProviderConfig,
 } from '@extension/storage';
 import { createLogger } from './log';
+import {
+  attachRecalledSources,
+  recallSavedSources as recallSavedSourcesFromLibrary,
+  type RecalledSource,
+} from './wisebase-runtime';
 
 const logger = createLogger('ChatStream');
 
@@ -35,6 +40,7 @@ export interface ChatStreamRequest {
 }
 
 export type ChatStreamEvent =
+  | { type: 'chat_stream_source'; sessionId: string; source: { title: string; url: string } }
   | { type: 'chat_stream_delta'; sessionId: string; text: string }
   | { type: 'chat_stream_done'; sessionId: string }
   | { type: 'chat_stream_error'; sessionId: string; error: string };
@@ -54,6 +60,7 @@ export interface ChatStreamDeps {
     input: Parameters<typeof selectRuntime>[0],
     getApiKey: Parameters<typeof selectRuntime>[1],
   ) => Promise<SelectRuntimeResult>;
+  recallSavedSources?: (query: string) => Promise<RecalledSource[]>;
 }
 
 const NATIVE_ADAPTER_BY_PROVIDER_TYPE: Partial<Record<ProviderTypeEnum, AdapterType>> = {
@@ -117,6 +124,35 @@ const defaultRuntimeFactory: RuntimeFactory = (model, apiKey, provider) =>
     ? createOpenAICompatibleRuntime(model, apiKey, provider)
     : unsupportedAdapterRuntime(provider);
 
+/** Resolve any chat-capable recipe through the same configured chat model. */
+export async function resolveChatRuntime(
+  deps: ChatStreamDeps,
+  featureId = CHAT_FEATURE_ID,
+): Promise<SelectRuntimeResult | null> {
+  const [providers, agentModels] = await Promise.all([deps.getProviders(), deps.getAgentModels()]);
+  const binding = chatFeatureBinding(agentModels);
+  if (!binding) return null;
+
+  const profiles: ProviderProfile[] = [];
+  const models: ModelDescriptor[] = [];
+  for (const [id, config] of Object.entries(providers)) {
+    profiles.push(await toProviderProfile(id, config));
+    models.push(...toModelDescriptors(id, config));
+  }
+
+  return (deps.selectRuntimeImpl ?? selectRuntime)(
+    {
+      featureId,
+      bindings: [{ featureId, ...binding }],
+      requirements: [{ featureId, requiredCapabilities: ['chat'] }],
+      providers: profiles,
+      models,
+      factory: deps.runtimeFactory,
+    },
+    deps.getApiKey,
+  );
+}
+
 async function loadHistoryTurns(
   getSessionMessages: ChatStreamDeps['getSessionMessages'],
   sessionId: string,
@@ -148,7 +184,6 @@ async function loadHistoryTurns(
  * over the port. Key material stays inside this handler (service worker).
  */
 export function createChatStreamHandler(deps: ChatStreamDeps) {
-  const selectRuntimeImpl = deps.selectRuntimeImpl ?? selectRuntime;
   return async function handleChatStream(request: ChatStreamRequest, port: ChatStreamPort): Promise<void> {
     const { sessionId, text } = request;
     const post = (message: ChatStreamEvent): boolean => {
@@ -160,43 +195,19 @@ export function createChatStreamHandler(deps: ChatStreamDeps) {
       }
     };
 
-    const [providers, agentModels] = await Promise.all([deps.getProviders(), deps.getAgentModels()]);
-    const binding = chatFeatureBinding(agentModels);
-    if (!binding) {
-      post({ type: 'chat_stream_error', sessionId, error: CHAT_STREAM_UNBOUND_ERROR });
-      return;
-    }
-
-    const providerEntries = Object.entries(providers);
-    const profiles: ProviderProfile[] = [];
-    const models: ModelDescriptor[] = [];
-    for (const [id, config] of providerEntries) {
-      profiles.push(await toProviderProfile(id, config));
-      models.push(...toModelDescriptors(id, config));
-    }
-
-    const result = await selectRuntimeImpl(
-      {
-        featureId: CHAT_FEATURE_ID,
-        bindings: [{ featureId: CHAT_FEATURE_ID, ...binding }],
-        requirements: [{ featureId: CHAT_FEATURE_ID, requiredCapabilities: ['chat'] }],
-        providers: profiles,
-        models,
-        factory: deps.runtimeFactory,
-      },
-      deps.getApiKey,
-    );
-
-    if (!result.ok) {
+    const result = await resolveChatRuntime(deps);
+    if (!result?.ok) {
       const detail =
-        result.reason === 'missing_api_key'
+        result?.reason === 'missing_api_key'
           ? `chat 模型缺少 API key（${result.provider.id}）`
           : CHAT_STREAM_UNBOUND_ERROR;
       post({ type: 'chat_stream_error', sessionId, error: detail });
       return;
     }
 
-    const messages = await loadHistoryTurns(deps.getSessionMessages, sessionId, text);
+    const recalled = await recallForChat(deps, text);
+    const messages = attachRecalledSources(await loadHistoryTurns(deps.getSessionMessages, sessionId, text), recalled);
+    if (!emitRecalledSource(post, sessionId, recalled[0])) return;
 
     let finished = false;
     for await (const event of runRecipe(webChatRecipe, { runtime: result.runtime, model: result.model, messages })) {
@@ -214,14 +225,17 @@ export function createChatStreamHandler(deps: ChatStreamDeps) {
   };
 }
 
-/** Production handler bound to chrome.storage-backed deps. */
-export const handleChatStream = createChatStreamHandler({
+/** Production dependencies stay in the service worker, including key lookup. */
+export const productionChatStreamDeps: ChatStreamDeps = {
   getProviders: () => llmProviderStore.getAllProviders(),
   getAgentModels: () => agentModelStore.getAllAgentModels(),
   getApiKey: async ref => (await getApiKey(ref)) ?? null,
   getSessionMessages: async sessionId => (await chatHistoryStore.getSession(sessionId))?.messages ?? null,
   runtimeFactory: defaultRuntimeFactory,
-});
+  recallSavedSources: query => recallSavedSourcesFromLibrary(query),
+};
+
+export const handleChatStream = createChatStreamHandler(productionChatStreamDeps);
 
 /** Validate an incoming port message; returns the request or null. */
 export function parseChatStreamRequest(message: unknown): ChatStreamRequest | null {
@@ -231,6 +245,24 @@ export function parseChatStreamRequest(message: unknown): ChatStreamRequest | nu
   if (typeof record.sessionId !== 'string' || !record.sessionId) return null;
   if (typeof record.text !== 'string' || !record.text.trim()) return null;
   return { sessionId: record.sessionId, text: record.text };
+}
+
+async function recallForChat(deps: ChatStreamDeps, text: string): Promise<RecalledSource[]> {
+  if (!deps.recallSavedSources) return [];
+  try {
+    return await deps.recallSavedSources(text);
+  } catch {
+    return [];
+  }
+}
+
+function emitRecalledSource(
+  post: (message: ChatStreamEvent) => boolean,
+  sessionId: string,
+  top: RecalledSource | undefined,
+): boolean {
+  if (!top || !(top.title || top.url)) return true;
+  return post({ type: 'chat_stream_source', sessionId, source: { title: top.title, url: top.url } });
 }
 
 /** Entry for the side-panel port switch: parse, then stream over the port. */
