@@ -5004,14 +5004,13 @@ describe('TaskManager independent URL opens', () => {
         title: 'Web browser',
       },
     ]);
-    let manager!: TaskManager;
     let hooks!: ExecutorHooks;
     let executorInstruction = '';
     const switchTab = vi.fn();
     const driver = fakeDriver();
     const run = vi.fn(() => new Promise<ExecutorOutcome>(() => {}));
     driver.run = run;
-    manager = new TaskManager({
+    const manager = new TaskManager({
       createExecutor: async (input, nextHooks) => {
         executorInstruction = input.instruction;
         hooks = nextHooks;

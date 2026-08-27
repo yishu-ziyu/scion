@@ -56,6 +56,8 @@ export interface BrowserKernelDeps {
 
 export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
   let last: ObservationFrame | null = null;
+  // Assigned once after helpers close over it; prefer-const cannot apply.
+  // eslint-disable-next-line prefer-const -- waitForPageChangeIfNeeded reads kernel.waitFor
   let kernel!: BrowserKernel;
 
   async function observe(options?: ObserveOptions): Promise<ObservationFrame> {

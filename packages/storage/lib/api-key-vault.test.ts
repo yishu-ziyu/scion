@@ -16,10 +16,11 @@ const localData: Record<string, unknown> = {};
   },
 };
 
-let vault: typeof import('./api-key-vault');
+const loadVault = () => import('./api-key-vault');
+let vault: Awaited<ReturnType<typeof loadVault>>;
 
 beforeAll(async () => {
-  vault = await import('./api-key-vault');
+  vault = await loadVault();
 });
 
 beforeEach(() => {

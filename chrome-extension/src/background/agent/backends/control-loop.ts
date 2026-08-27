@@ -19,6 +19,7 @@ import {
   type ActionSchema,
 } from '../actions/schemas';
 import { ActionResult } from '../types';
+import type { TaskArtifact } from '../../task/artifact';
 import type {
   CompletionCriterionDraft,
   ExecutorDriver,
@@ -33,7 +34,7 @@ const logger = createLogger('ControlLoopBackend');
 export type ControlScriptStep =
   | { type: 'plan'; criteria: CompletionCriterionDraft[] }
   | { type: 'action'; name: string; args: Record<string, unknown> }
-  | { type: 'candidate_complete'; summary?: string }
+  | { type: 'candidate_complete'; summary?: string; artifacts?: TaskArtifact[] }
   | { type: 'fail'; category: string }
   | { type: 'waiting_user'; reason: 'login_required' | 'captcha_required' | 'target_missing' };
 
@@ -120,7 +121,11 @@ export function createControlLoopDriver(
             break;
           }
           case 'candidate_complete':
-            return { kind: 'candidate_complete', summary: step.summary ?? 'Control loop candidate complete' };
+            return {
+              kind: 'candidate_complete',
+              summary: step.summary ?? 'Control loop candidate complete',
+              ...(step.artifacts && step.artifacts.length > 0 ? { artifacts: step.artifacts } : {}),
+            };
           case 'fail':
             return { kind: 'failed', category: step.category };
           case 'waiting_user':
@@ -217,7 +222,10 @@ export function fixtureNavigateControlSteps(opts?: { url?: string; urlStartsWith
  * deliverable summary. The marker is independently observed from the fixture.
  * TaskManager stores summary as instructionSummary for side-panel deliverable.
  */
-export function fixtureProductTableControlSteps(opts?: { csvSummary?: string }): ControlScriptStep[] {
+export function fixtureProductTableControlSteps(opts?: {
+  csvSummary?: string;
+  artifacts?: TaskArtifact[];
+}): ControlScriptStep[] {
   const summary =
     opts?.csvSummary ??
     [
@@ -235,7 +243,11 @@ export function fixtureProductTableControlSteps(opts?: { csvSummary?: string }):
       type: 'plan',
       criteria: [{ kind: 'page_text', operator: 'present', expected: 'Alpha Wireless Headphones', required: true }],
     },
-    { type: 'candidate_complete', summary },
+    {
+      type: 'candidate_complete',
+      summary,
+      ...(opts?.artifacts && opts.artifacts.length > 0 ? { artifacts: opts.artifacts } : {}),
+    },
   ];
 }
 

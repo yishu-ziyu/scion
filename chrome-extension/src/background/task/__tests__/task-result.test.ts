@@ -146,6 +146,51 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     expect(resultIsPresentAndMatches(asked, result)).toBe(true);
   });
 
+  it('keeps a matching table summary when artifacts are also present', () => {
+    const asked = acceptTask('Extract products to a CSV table with name, price, rating');
+    const conclusion = '最贵商品是 Beta Mechanical Keyboard，价格为 $89.00。';
+    const summary = [
+      '已提取 2 件商品（CSV）：',
+      'name,price,rating',
+      'Alpha Wireless Headphones,$49.99,4.5',
+      'Beta Mechanical Keyboard,$89.00,4.8',
+      conclusion,
+    ].join('\n');
+    const artifact = createTableArtifact({
+      title: 'products',
+      columns: ['name', 'price', 'rating'],
+      rows: [
+        { name: 'Alpha Wireless Headphones', price: '$49.99', rating: '4.5' },
+        { name: 'Beta Mechanical Keyboard', price: '$89.00', rating: '4.8' },
+      ],
+      sources: [{ url: 'http://127.0.0.1/products' }],
+    });
+    const result = produceResult({ asked, artifacts: [artifact], summary });
+    expect(result?.body).toContain('name,price,rating');
+    expect(result?.body).toContain(conclusion);
+  });
+
+  it('does not let a 1-row matching summary replace a fuller artifact table', () => {
+    const asked = acceptTask('Extract products to a CSV table with name, price, rating');
+    expect(asked.askedMinRows).toBe(1);
+    const thinSummary = ['已提取 1 件商品（CSV）：', 'name,price,rating', 'Alpha Wireless Headphones,$49.99,4.5'].join(
+      '\n',
+    );
+    const artifact = createTableArtifact({
+      title: 'products',
+      columns: ['name', 'price', 'rating'],
+      rows: [
+        { name: 'Alpha Wireless Headphones', price: '$49.99', rating: '4.5' },
+        { name: 'Beta Mechanical Keyboard', price: '$89.00', rating: '4.8' },
+      ],
+      sources: [{ url: 'http://127.0.0.1/products' }],
+    });
+    const result = produceResult({ asked, artifacts: [artifact], summary: thinSummary });
+    expect(result?.body).toContain('Alpha Wireless Headphones');
+    expect(result?.body).toContain('Beta Mechanical Keyboard');
+    expect(result?.body).not.toContain('已提取 1 件商品');
+  });
+
   it('merges tables from later sources into one CSV instead of returning only the first', () => {
     const asked = acceptTask('Extract products to a CSV table with name, price, rating');
     const first = createTableArtifact({

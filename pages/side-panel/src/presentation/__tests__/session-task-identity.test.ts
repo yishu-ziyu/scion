@@ -222,39 +222,36 @@ describe('side-panel session/task identity contract', () => {
     ]);
   });
 
-  it.each([
-    ['paused', true],
-    ['interrupted', true],
-    ['failed', false],
-    ['completed', false],
-    ['cancelled', false],
-  ] as const)('starts a clean task after %s without letting the old session retake the UI', (status, _mustCancel) => {
-    const oldTask = { taskId: 'A', status };
-    expect(newChatCancellationTarget({ authoritativeTask: oldTask })).toBeNull();
+  it.each(['paused', 'interrupted', 'failed', 'completed', 'cancelled'] as const)(
+    'starts a clean task after %s without letting the old session retake the UI',
+    status => {
+      const oldTask = { taskId: 'A', status };
+      expect(newChatCancellationTarget({ authoritativeTask: oldTask })).toBeNull();
 
-    const dismissedTaskIds = new Set(['A']);
-    expect(
-      shouldAcceptTaskSignal({
-        taskId: 'A',
-        dismissedTaskIds,
-        authoritativeTaskId: null,
-        displayedTaskId: null,
-        pendingStartTaskId: 'B',
-        currentSessionId: 'B',
-      }),
-    ).toBe(false);
-    expect(
-      shouldAcceptTaskSignal({
-        taskId: 'B',
-        dismissedTaskIds,
-        authoritativeTaskId: null,
-        displayedTaskId: null,
-        pendingStartTaskId: 'B',
-        currentSessionId: 'B',
-      }),
-    ).toBe(true);
-    expect(modelHistoryForTurn([{ actor: Actors.USER, content: 'old goal', timestamp: 1 }], true)).toEqual([]);
-  });
+      const dismissedTaskIds = new Set(['A']);
+      expect(
+        shouldAcceptTaskSignal({
+          taskId: 'A',
+          dismissedTaskIds,
+          authoritativeTaskId: null,
+          displayedTaskId: null,
+          pendingStartTaskId: 'B',
+          currentSessionId: 'B',
+        }),
+      ).toBe(false);
+      expect(
+        shouldAcceptTaskSignal({
+          taskId: 'B',
+          dismissedTaskIds,
+          authoritativeTaskId: null,
+          displayedTaskId: null,
+          pendingStartTaskId: 'B',
+          currentSessionId: 'B',
+        }),
+      ).toBe(true);
+      expect(modelHistoryForTurn([{ actor: Actors.USER, content: 'old goal', timestamp: 1 }], true)).toEqual([]);
+    },
+  );
 
   it('makes a command type single-shot until its acknowledgement settles', () => {
     const pending = [{ taskId: 'A', type: 'pause' }];

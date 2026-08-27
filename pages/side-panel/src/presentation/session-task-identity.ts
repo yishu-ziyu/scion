@@ -62,11 +62,12 @@ export function isLiveTaskIdentity(task: TaskIdentity | null | undefined): task 
 }
 
 /** New Chat is a new session. It does not stop other sessions. */
-export function newChatCancellationTarget(_input: {
+export function newChatCancellationTarget(input: {
   authoritativeTask?: TaskIdentity | null;
   pendingStartTaskId?: string | null;
   displayedTask?: TaskIdentity | null;
 }): string | null {
+  void input;
   return null;
 }
 

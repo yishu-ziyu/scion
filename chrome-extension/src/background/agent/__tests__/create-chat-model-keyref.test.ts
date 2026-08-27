@@ -17,12 +17,14 @@ const localData: Record<string, unknown> = {};
   },
 };
 
-let storage: typeof import('@extension/storage');
-let createChatModel: (typeof import('../helper'))['createChatModel'];
+const loadStorage = () => import('@extension/storage');
+const loadHelper = () => import('../helper');
+let storage: Awaited<ReturnType<typeof loadStorage>>;
+let createChatModel: Awaited<ReturnType<typeof loadHelper>>['createChatModel'];
 
 beforeAll(async () => {
-  storage = await import('@extension/storage');
-  ({ createChatModel } = await import('../helper'));
+  storage = await loadStorage();
+  ({ createChatModel } = await loadHelper());
 });
 
 beforeEach(() => {

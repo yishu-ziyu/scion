@@ -430,7 +430,7 @@ export function deriveWorkStream(input: {
       const summary = attempt.displaySummary?.replace(/\s+/g, ' ').trim();
       const title = summary && summary.length >= 2 ? compact(summary, 80) : pageTitleFromAttempt(attempt, searchHits);
       const live = isLive(attempt.state);
-      if (/^(查看|打开|切换到)\s+\S+$/u.test(title)) {
+      if (/^(查看|打开|切换到)\s+\S+$/.test(title)) {
         i += 1;
         continue;
       }
