@@ -18,17 +18,17 @@ describe('SidePanel newChat pending lifecycle', () => {
   it('retries after stale_revision via fresh revision and finally finalizes', () => {
     let pending = cancellationIntentAfterDispatch('paused-A', 'cancel-1', true);
     // stale ack does not confirm
-    expect(
-      confirmsNewChatCancellation(pending, { taskId: 'paused-A', commandId: 'cancel-1', accepted: false }),
-    ).toBe(false);
+    expect(confirmsNewChatCancellation(pending, { taskId: 'paused-A', commandId: 'cancel-1', accepted: false })).toBe(
+      false,
+    );
     // SidePanel resets to null commandId then retries with revision 7
     pending = { taskId: 'paused-A', commandId: null };
     expect(pending.commandId).toBeNull();
     const retry = cancellationIntentAfterDispatch('paused-A', 'cancel-2', true);
     pending = retry;
-    expect(
-      confirmsNewChatCancellation(pending, { taskId: 'paused-A', commandId: 'cancel-2', accepted: true }),
-    ).toBe(true);
+    expect(confirmsNewChatCancellation(pending, { taskId: 'paused-A', commandId: 'cancel-2', accepted: true })).toBe(
+      true,
+    );
   });
 
   it('timeout fallback forces finalize when no confirmation arrives within 4s', () => {

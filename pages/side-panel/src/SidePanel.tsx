@@ -137,6 +137,14 @@ export function acceptedStartSnapshotRequest(
   return { type: 'get_task', taskId: pendingStart.taskId };
 }
 
+function postGetTask(port: { postMessage: (message: unknown) => void } | null | undefined, taskId: string) {
+  try {
+    port?.postMessage({ type: 'get_task', taskId });
+  } catch {
+    /* port gone */
+  }
+}
+
 /** A new-chat reset is safe only after the old live task has acknowledged cancellation. */
 export { confirmsNewChatCancellation, shouldAcceptTaskSignal } from './presentation/session-task-identity';
 
@@ -719,11 +727,7 @@ const SidePanel = () => {
       setInputEnabled(false);
       if (ack.error === 'stale_revision' && typeof ack.revision === 'number') {
         requestNewChatCancellationRef.current(pending.taskId, ack.revision);
-        try {
-          portRef.current?.postMessage({ type: 'get_task', taskId: pending.taskId });
-        } catch {
-          void 0;
-        }
+        postGetTask(portRef.current, pending.taskId);
       }
       return false;
     },
@@ -1279,12 +1283,7 @@ const SidePanel = () => {
       try {
         const dispatched = sendTaskCommand({ type: 'cancel', commandId, taskId, expectedRevision: revision });
         pendingNewChatCancellationRef.current = cancellationIntentAfterDispatch(taskId, commandId, dispatched);
-        if (!dispatched)
-          try {
-            portRef.current?.postMessage({ type: 'get_task', taskId });
-          } catch {
-            void 0;
-          }
+        if (!dispatched) postGetTask(portRef.current, taskId);
       } catch (error) {
         pendingNewChatCancellationRef.current = { taskId, commandId: null };
         setInputEnabled(false);
@@ -1293,11 +1292,7 @@ const SidePanel = () => {
           content: error instanceof Error ? error.message : String(error),
           timestamp: Date.now(),
         });
-        try {
-          portRef.current?.postMessage({ type: 'get_task', taskId });
-        } catch {
-          void 0;
-        }
+        postGetTask(portRef.current, taskId);
       }
     },
     [appendMessage, sendTaskCommand],
@@ -1640,12 +1635,7 @@ const SidePanel = () => {
             ? taskSnapshot
             : null;
       if (known) requestNewChatCancellation(cancellationTaskId, known.revision);
-      else
-        try {
-          portRef.current?.postMessage({ type: 'get_task', taskId: cancellationTaskId });
-        } catch {
-          void 0;
-        }
+      else postGetTask(portRef.current, cancellationTaskId);
       scheduleNewChatTimeout(cancellationTaskId);
     },
     [taskSnapshot],

@@ -90,11 +90,8 @@ export function produceResult(input: ProduceResultInput): TaskResult | null {
   const fromArtifacts = resultFromArtifacts(asked, input.artifacts ?? []);
 
   if (asked.askedKind === 'table') {
-    // A matching table-shaped summary is the user-visible result (prefix + CSV +
-    // any derived line). Artifacts still prove the table for independent verify.
     const tableFromSummary = tableResultFromText(input.summary);
     if (tableFromSummary && resultIsPresentAndMatches(asked, tableFromSummary)) return tableFromSummary;
-    if (fromArtifacts && resultIsPresentAndMatches(asked, fromArtifacts)) return fromArtifacts;
     return fromArtifacts ?? null;
   }
 
