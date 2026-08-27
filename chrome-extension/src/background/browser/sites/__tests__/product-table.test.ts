@@ -19,6 +19,10 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturePath = path.resolve(__dirname, '../../../../../test/fixtures/products.html');
 const fixtureHtml = readFileSync(fixturePath, 'utf8');
+const allinoneHtml = readFileSync(
+  path.resolve(__dirname, '../../../../../test/fixtures/allinone-product-cards.html'),
+  'utf8',
+);
 
 describe('product-table R1 tracer', () => {
   it('binds evidence to the complete row instead of a bag of cells', () => {
@@ -171,6 +175,16 @@ describe('product-table R1 tracer', () => {
     const plan = productTableCompletionPlan(rows);
     expect(plan?.summary).toContain('name,price,rating');
     expect(plan?.summary).toContain('Alpha Wireless Headphones');
+  });
+
+  it('extracts product-wrapper cards instead of footer columns', () => {
+    const rows = extractProductsFromHtml(allinoneHtml);
+    expect(rows).toEqual([
+      { name: 'Asus ROG Strix GL553VD-DM535T', price: '$1101.83', rating: '2' },
+      { name: 'Nokia 123', price: '$24.99', rating: '3' },
+      { name: 'MSI GL62M 7REX2', price: '$1199', rating: '2' },
+    ]);
+    expect(rows.map(row => row.name)).not.toEqual(expect.arrayContaining(['Products', 'Company']));
   });
 
   it('extracts from simple HTML table rows', () => {

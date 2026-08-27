@@ -17,6 +17,7 @@ import type { ActionResult, AgentContext } from '../../types';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const productsHtml = readFileSync(join(here, '../../../../../test/fixtures/products.html'), 'utf8');
+const allinoneHtml = readFileSync(join(here, '../../../../../test/fixtures/allinone-product-cards.html'), 'utf8');
 
 function fieldedRows(rows: Array<Record<string, string>>): Array<Record<string, string>> {
   return rows.filter(row => Object.keys(row).length >= 2 && Object.values(row).some(value => value.trim()));
@@ -95,6 +96,17 @@ describe('extractStructuredRecords', () => {
       }),
     );
   });
+
+  it('reads product-wrapper cards instead of footer columns for name,price,rating', () => {
+    const rows = extractStructuredRecords(allinoneHtml, ['name', 'price', 'rating']);
+    expect(rows).toEqual([
+      { name: 'Asus ROG Strix GL553VD-DM535T', price: '$1101.83', rating: '2' },
+      { name: 'Nokia 123', price: '$24.99', rating: '3' },
+      { name: 'MSI GL62M 7REX2', price: '$1199', rating: '2' },
+    ]);
+    const blob = JSON.stringify(rows);
+    expect(blob).not.toMatch(/Products|Company|Resources|Contact|Web Scraper Cloud|About us/);
+  });
 });
 
 describe('extract_content action', () => {
@@ -148,6 +160,27 @@ describe('extract_content action', () => {
     );
     expect(fieldedRows(parseExtractedRecords(result.extractedContent)).length).toBeGreaterThanOrEqual(5);
     expect(result.isDone).toBe(false);
+  });
+
+  it('stores a name/price/rating table from product-wrapper cards, not footer columns', async () => {
+    const result = await runExtractContent(
+      { goal: 'Extract products to a CSV table with name, price, rating', schema: 'name,price,rating' },
+      {
+        getContent: async () => allinoneHtml,
+        url: () => 'https://webscraper.io/test-sites/e-commerce/allinone',
+        title: async () => 'Web Scraper | Test Sites',
+      },
+    );
+    expect(result.isDone).toBe(false);
+    expect(result.success).toBe(true);
+    expect(result.artifact?.type).toBe('table');
+    expect(tableRowCount(result.artifact!)).toBe(3);
+    expect(tableDataRows(result.artifact!)).toEqual([
+      { name: 'Asus ROG Strix GL553VD-DM535T', price: '$1101.83', rating: '2' },
+      { name: 'Nokia 123', price: '$24.99', rating: '3' },
+      { name: 'MSI GL62M 7REX2', price: '$1199', rating: '2' },
+    ]);
+    expect(result.extractedContent).not.toMatch(/Web Scraper Cloud|About us/);
   });
 
   it('returns empty JSON without an artifact and without completing when nothing structured is found', async () => {

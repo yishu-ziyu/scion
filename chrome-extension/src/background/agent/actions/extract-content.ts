@@ -52,8 +52,15 @@ export function parseSchemaHint(schema?: string, goal?: string): string[] | unde
 export function extractStructuredRecords(html: string, schema?: string[]): ExtractedRecord[] {
   if (!html?.trim()) return [];
   const root = parseHtml(html);
-  const candidates = [extractFromTables(root), extractFromLists(root), extractFromRepeatingBlocks(root)];
-  const best = candidates.reduce((winner, rows) => (scoreRows(rows) > scoreRows(winner) ? rows : winner), []);
+  const candidates = [
+    extractFromTables(root, schema),
+    extractFromLists(root, schema),
+    extractFromRepeatingBlocks(root, schema),
+  ];
+  const best = candidates.reduce(
+    (winner, rows) => (scoreRows(rows, schema) > scoreRows(winner, schema) ? rows : winner),
+    [],
+  );
   return projectFields(best, schema);
 }
 
@@ -420,13 +427,19 @@ function columnsFor(rows: ExtractedRecord[], schema?: string[]): string[] {
   return columns.length ? columns : ['value'];
 }
 
-function scoreRows(rows: ExtractedRecord[]): number {
+function scoreRows(rows: ExtractedRecord[], schema?: string[]): number {
   if (!rows.length) return 0;
-  const fields = rows.reduce((sum, row) => sum + Object.keys(row).length, 0) / rows.length;
-  return rows.length * 10 + fields;
+  if (!schema?.length) {
+    const fields = rows.reduce((sum, row) => sum + Object.keys(row).length, 0) / rows.length;
+    return rows.length * 10 + fields;
+  }
+  const usable = projectFields(rows, schema);
+  if (!usable.length) return 0;
+  const filled = usable.reduce((sum, row) => sum + Object.keys(row).length, 0);
+  return filled * 10 + usable.length;
 }
 
-function extractFromTables(root: SimpleNode): ExtractedRecord[] {
+function extractFromTables(root: SimpleNode, schema?: string[]): ExtractedRecord[] {
   let best: ExtractedRecord[] = [];
   for (const table of findAll(root, node => node.tag === 'table')) {
     const trs = findAll(table, node => node.tag === 'tr');
@@ -449,22 +462,22 @@ function extractFromTables(root: SimpleNode): ExtractedRecord[] {
       });
       if (Object.keys(row).length >= 2) rows.push(row);
     }
-    if (scoreRows(rows) > scoreRows(best)) best = rows;
+    if (scoreRows(rows, schema) > scoreRows(best, schema)) best = rows;
   }
   return best;
 }
 
-function extractFromLists(root: SimpleNode): ExtractedRecord[] {
+function extractFromLists(root: SimpleNode, schema?: string[]): ExtractedRecord[] {
   let best: ExtractedRecord[] = [];
   for (const list of findAll(root, node => node.tag === 'ul' || node.tag === 'ol')) {
     const items = list.children.filter(child => child.tag === 'li');
     const rows = items.map(recordFromBlock).filter(row => Object.keys(row).length >= 2);
-    if (scoreRows(rows) > scoreRows(best)) best = rows;
+    if (scoreRows(rows, schema) > scoreRows(best, schema)) best = rows;
   }
   return best;
 }
 
-function extractFromRepeatingBlocks(root: SimpleNode): ExtractedRecord[] {
+function extractFromRepeatingBlocks(root: SimpleNode, schema?: string[]): ExtractedRecord[] {
   let best: ExtractedRecord[] = [];
   const visit = (node: SimpleNode) => {
     const groups = new Map<string, SimpleNode[]>();
@@ -478,7 +491,7 @@ function extractFromRepeatingBlocks(root: SimpleNode): ExtractedRecord[] {
     for (const group of groups.values()) {
       if (group.length < 3) continue;
       const rows = group.map(recordFromBlock).filter(row => Object.keys(row).length >= 2);
-      if (scoreRows(rows) > scoreRows(best)) best = rows;
+      if (scoreRows(rows, schema) > scoreRows(best, schema)) best = rows;
     }
     for (const child of node.children) visit(child);
   };
@@ -488,16 +501,36 @@ function extractFromRepeatingBlocks(root: SimpleNode): ExtractedRecord[] {
 
 function recordFromBlock(node: SimpleNode): ExtractedRecord {
   const row: ExtractedRecord = {};
-  for (const [name, value] of Object.entries(node.attrs)) {
-    const field = fieldFromAttr(name, value);
-    if (field) row[field] = value;
-  }
+  assignDataAttrs(node, row);
+  collectSemanticFields(node, row);
   for (const child of node.children) {
     const key = fieldFromChild(child, row);
     const value = innerText(child);
     if (key && value && !row[key]) row[key] = value;
   }
   return row;
+}
+
+function collectSemanticFields(node: SimpleNode, row: ExtractedRecord): void {
+  assignDataAttrs(node, row);
+  assignItempropField(node, row);
+  for (const child of node.children) collectSemanticFields(child, row);
+}
+
+function assignDataAttrs(node: SimpleNode, row: ExtractedRecord): void {
+  for (const [name, value] of Object.entries(node.attrs)) {
+    const field = fieldFromAttr(name, value);
+    if (field && !row[field]) row[field] = value;
+  }
+}
+
+function assignItempropField(node: SimpleNode, row: ExtractedRecord): void {
+  const prop = (node.attrs.itemprop || '').trim();
+  if (!prop) return;
+  const key = normalizeKey(prop);
+  if (!key || row[key]) return;
+  const value = (node.attrs.content || node.attrs.title || innerText(node)).trim();
+  if (value) row[key] = value;
 }
 
 function fieldFromAttr(name: string, value: string): string | undefined {

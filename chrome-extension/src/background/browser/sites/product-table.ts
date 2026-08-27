@@ -116,12 +116,49 @@ function spanByClass(block: string, className: string): string {
   return decodeHtmlEntities(m[1].replace(/<[^>]+>/g, ' '));
 }
 
+function firstGroup(html: string, re: RegExp): string {
+  const match = html.match(re);
+  if (!match?.[1]) return '';
+  return decodeHtmlEntities(match[1].replace(/<[^>]+>/g, ' '));
+}
+
+function wrapperCardName(slice: string): string {
+  return (
+    firstGroup(slice, /<a\b[^>]*\btitle\s*=\s*["']([^"']+)["'][^>]*\bitemprop\s*=\s*["']name["']/i) ||
+    firstGroup(slice, /<a\b[^>]*\bitemprop\s*=\s*["']name["'][^>]*\btitle\s*=\s*["']([^"']+)/i) ||
+    firstGroup(slice, /<a\b[^>]*\bclass\s*=\s*["'][^"']*\btitle\b[^"']*["'][^>]*\btitle\s*=\s*["']([^"']+)/i) ||
+    firstGroup(slice, /itemprop\s*=\s*["']name["'][^>]*>([\s\S]*?)<\//i)
+  );
+}
+
+function wrapperCardPrice(slice: string): string {
+  return firstGroup(slice, /itemprop\s*=\s*["']price["'][^>]*>([\s\S]*?)<\//i);
+}
+
+function wrapperCardRating(slice: string): string {
+  return firstGroup(slice, /\bdata-rating\s*=\s*["']([^"']*)["']/i);
+}
+
+function collectProductWrapperCards(
+  html: string,
+  push: (name: string, price: string, rating: string) => void,
+  atLimit: () => boolean,
+): void {
+  for (const match of html.matchAll(/<div\b[^>]*\bproduct-wrapper\b[^>]*>/gi)) {
+    if (atLimit()) return;
+    const start = match.index ?? 0;
+    const slice = html.slice(start, start + 4000);
+    push(wrapperCardName(slice), wrapperCardPrice(slice), wrapperCardRating(slice));
+  }
+}
+
 /**
  * Extract product rows from list HTML.
  * Supports:
  * 1. `<li|article|div class="product" data-name data-price data-rating>`
  * 2. Nested `.product-name` / `.product-price` / `.product-rating` spans
- * 3. Simple `<tr>` rows with 3+ `<td>` (name, price, rating)
+ * 3. `.product-wrapper` cards with `a.title` / `itemprop=price` / `data-rating`
+ * 4. Simple `<tr>` rows with 3+ `<td>` (name, price, rating)
  */
 export function extractProductsFromHtml(html: string, max = 50): ProductRow[] {
   if (!html) return [];
@@ -138,6 +175,8 @@ export function extractProductsFromHtml(html: string, max = 50): ProductRow[] {
     seen.add(key);
     found.push({ name: n, price: p, rating: r || '' });
   };
+
+  collectProductWrapperCards(html, push, () => found.length >= max);
 
   // Card / list items with data-* (fixture + Amazon-like cards)
   const cardRe =
