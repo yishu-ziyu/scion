@@ -22,6 +22,7 @@ export const PAGE_CONTEXT_MAX_FRAMES = 24;
 export const PAGE_SUMMARY_FEATURE_ID = 'page_summary';
 export const PAGE_SUMMARY_CONTEXT_LIMIT = 24_000;
 export const PAGE_NOT_WEB_ERROR = '无法读取当前页面。请打开普通网页后再试。';
+export const PAGE_COLLECT_RETRY_ERROR = '这一页没读到，再试一次。';
 
 const RESTRICTED_PAGE_PREFIXES = [
   'chrome://',
@@ -269,15 +270,6 @@ export function preparePageSummaryContext(
   return { bundle, page: { title: bundle.title, url, text } };
 }
 
-function inaccessibleIframeError(frames: readonly InaccessibleIframe[]): string {
-  const sources = frames
-    .slice(0, 3)
-    .map(frame => frame.url || frame.error)
-    .filter(Boolean)
-    .join('、');
-  return `无法完整读取页面：有 ${frames.length} 个 iframe 无法访问${sources ? `（${sources}）` : ''}。未生成摘要。`;
-}
-
 function postError(port: PageSummaryStreamPort, sessionId: string, error: string): void {
   try {
     port.postMessage({ type: 'page_summary_stream_error', sessionId, error });
@@ -337,16 +329,12 @@ export function createPageSummaryStreamHandler(deps: PageSummaryStreamDeps) {
     let collected: CollectedPageContext | null;
     try {
       collected = parseCollectedPageContext(await deps.collectPageContext(tabId));
-    } catch (error) {
-      postError(port, sessionId, collectionError(error));
+    } catch {
+      postError(port, sessionId, PAGE_COLLECT_RETRY_ERROR);
       return;
     }
     if (!collected) {
       postError(port, sessionId, PAGE_NOT_WEB_ERROR);
-      return;
-    }
-    if (collected.inaccessibleIframes.length > 0) {
-      postError(port, sessionId, inaccessibleIframeError(collected.inaccessibleIframes));
       return;
     }
 
@@ -412,11 +400,12 @@ async function readFrameHtmlViaScripting(
 ): Promise<{ title: string; url: string; html: string } | null> {
   const results = await chrome.scripting.executeScript({
     target: { tabId, frameIds: [frameId] },
-    func: () => ({
+    func: (maxChars: number) => ({
       title: document.title || '',
       url: document.URL || '',
-      html: document.documentElement?.outerHTML || '',
+      html: (document.documentElement?.outerHTML || '').slice(0, maxChars),
     }),
+    args: [PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT],
   });
   const result = results[0]?.result;
   if (!result || typeof result !== 'object') return null;
@@ -425,7 +414,7 @@ async function readFrameHtmlViaScripting(
   return {
     title: typeof record.title === 'string' ? record.title : '',
     url: typeof record.url === 'string' ? record.url : '',
-    html: record.html,
+    html: record.html.slice(0, PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT),
   };
 }
 
@@ -443,10 +432,12 @@ type PageContextFrameOutcome =
   | { frame: PageContextFrame; error: string };
 
 function collectedFromHtml(html: string, title: string, url: string): CollectedPageContext {
-  const bundle = extractWebpageContext(html, { title, url: safePageUrl(url) });
+  const truncated = html.length > PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT;
+  const bounded = truncated ? html.slice(0, PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT) : html;
+  const bundle = extractWebpageContext(bounded, { title, url: safePageUrl(url) });
   return {
     bundle: { ...bundle, url: safePageUrl(bundle.url || url), anchors: [] },
-    truncated: false,
+    truncated,
     inaccessibleIframes: [],
   };
 }
@@ -480,10 +471,8 @@ async function readOneFrame(
   } catch (error) {
     sendError = collectionError(error);
   }
-  if (frame.frameId === 0) {
-    const scripted = await contextFromHtmlFallback(tabId, frame, api);
-    if (scripted) return { frame, context: scripted };
-  }
+  const scripted = await contextFromHtmlFallback(tabId, frame, api);
+  if (scripted) return { frame, context: scripted };
   return { frame, error: sendError };
 }
 
@@ -511,18 +500,13 @@ export async function collectPageContextFromTab(
   }
 
   const readable = outcomes.flatMap(outcome => ('context' in outcome ? [outcome.context] : []));
-  const inaccessibleIframes = outcomes.flatMap(outcome =>
-    'context' in outcome
-      ? outcome.context.inaccessibleIframes
-      : [
-          {
-            ...(safePageUrl(outcome.frame.url) ? { url: safePageUrl(outcome.frame.url) } : {}),
-            error: outcome.error,
-          },
-        ],
-  );
+  const inaccessibleIframes = readable.flatMap(context => context.inaccessibleIframes);
+  const unreadChildren = outcomes.filter(outcome => outcome.frame.frameId !== 0 && !('context' in outcome)).length;
   const omittedFrameCount =
-    frames.length - admitted.length + readable.reduce((sum, context) => sum + (context.omittedFrameCount ?? 0), 0);
+    frames.length -
+    admitted.length +
+    unreadChildren +
+    readable.reduce((sum, context) => sum + (context.omittedFrameCount ?? 0), 0);
   const mergedBundle: ContextBundle = {
     ...top.context.bundle,
     blocks: readable.flatMap(context => context.bundle.blocks),

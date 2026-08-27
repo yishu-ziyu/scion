@@ -24,10 +24,9 @@ function step(id: string): ActionAttempt {
 }
 
 describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', () => {
-  it('accepts an extract-table task as a table result', () => {
-    const asked = acceptTask('Extract products to a CSV table with name, price, rating');
-    expect(asked.askedKind).toBe('table');
-    expect(asked.askedTableFields).toEqual(['name', 'price', 'rating']);
+  it('accepts a current-page book summary as a summary result', () => {
+    const asked = acceptTask('Write a short summary of the first three books on this page.');
+    expect(asked.askedKind).toBe('summary');
   });
 
   it('accepts a form task with the named success sentence', () => {

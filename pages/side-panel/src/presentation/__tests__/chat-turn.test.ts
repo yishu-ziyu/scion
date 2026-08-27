@@ -33,8 +33,9 @@ describe('classifyChatTurn', () => {
     '用三点总结本页',
     'summarize this page',
     'summarize this page in three bullets',
-  ])('routes a standalone current-page summary with output preferences to page_summary: %s', message => {
-    expect(classifyChatTurn(message)).toBe('page_summary');
+    'Write a short summary of the first three books on this page.',
+  ])('routes a current-page summary onto the task loop: %s', message => {
+    expect(classifyChatTurn(message)).toBe('task');
   });
 
   it.each([

@@ -5,6 +5,7 @@ import type { ChatStreamDeps } from '../chat-stream';
 import {
   PAGE_CONTEXT_MAX_FRAMES,
   PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT,
+  PAGE_COLLECT_RETRY_ERROR,
   PAGE_NOT_WEB_ERROR,
   PAGE_SUMMARY_CONTEXT_LIMIT,
   collectPageContextFromTab,
@@ -167,10 +168,7 @@ describe('page_summary_stream handler', () => {
     const port = makePort();
     const handler = createPageSummaryStreamHandler({
       ...runtimeDeps,
-      collectPageContext: async () =>
-        frameContext('Checkout', 'https://shop.test/checkout', 'Visible shell', {
-          inaccessibleIframes: [{ url: 'https://pay.test', error: 'cross-origin frame' }],
-        }),
+      collectPageContext: async () => null,
       ingestPageContext,
     });
 
@@ -179,7 +177,7 @@ describe('page_summary_stream handler', () => {
     expect(ingestPageContext).not.toHaveBeenCalled();
   });
 
-  it('refuses to summarize when any iframe is inaccessible and never resolves a model', async () => {
+  it('still summarizes when a child iframe is inaccessible if the top frame has text', async () => {
     const getProviders = vi.fn(runtimeDeps.getProviders);
     const port = makePort();
     const handler = createPageSummaryStreamHandler({
@@ -193,12 +191,9 @@ describe('page_summary_stream handler', () => {
 
     await handler({ sessionId: 's2', text: '总结当前页面', tabId: 7 }, port);
 
-    expect(getProviders).not.toHaveBeenCalled();
-    expect(factoryCalls).toEqual([]);
-    expect(port.sent).toHaveLength(1);
-    expect(port.sent[0]).toMatchObject({ type: 'page_summary_stream_error', sessionId: 's2' });
-    expect((port.sent[0] as { error: string }).error).toContain('iframe');
-    expect((port.sent[0] as { error: string }).error).toContain('https://pay.test');
+    expect(getProviders).toHaveBeenCalled();
+    expect(port.sent.at(-1)).toEqual({ type: 'page_summary_stream_done', sessionId: 's2' });
+    expect(JSON.stringify(port.sent)).not.toContain('请打开普通网页后再试');
   });
 
   it('refuses chrome:// with the ordinary-webpage copy', async () => {
@@ -231,9 +226,10 @@ describe('page_summary_stream handler', () => {
       {
         type: 'page_summary_stream_error',
         sessionId: 's4',
-        error: 'Could not establish connection. Receiving end does not exist.',
+        error: PAGE_COLLECT_RETRY_ERROR,
       },
     ]);
+    expect((port.sent[0] as { error: string }).error).not.toContain('Receiving end does not exist');
     expect((port.sent[0] as { error: string }).error).not.toContain('请打开普通网页后再试');
   });
 
@@ -269,7 +265,7 @@ describe('collectPageContextFromTab', () => {
     expect(prepared.page.text).toContain('Embedded frame fact.');
   });
 
-  it('reports a frame that has no content-script response', async () => {
+  it('keeps a top-frame summary when a child has no content-script listener', async () => {
     const collected = await collectPageContextFromTab(9, {
       getFrames: async () => [
         { frameId: 0, url: 'https://example.test/article' },
@@ -281,9 +277,9 @@ describe('collectPageContextFromTab', () => {
       },
     });
 
-    expect(collected?.inaccessibleIframes).toEqual([
-      { url: 'https://blocked.test/frame', error: 'Receiving end does not exist' },
-    ]);
+    expect(collected?.inaccessibleIframes).toEqual([]);
+    expect(preparePageSummaryContext(collected!).page.text).toContain('Top frame fact.');
+    expect(JSON.stringify(collected)).not.toContain('无法读取当前页面');
   });
 
   it('bounds the total wire payload across a page with more frames than the budget can admit', async () => {
@@ -367,6 +363,24 @@ describe('collectPageContextFromTab', () => {
     expect(text).toContain('A Light in the Attic');
     expect(text).toContain('Tipping the Velvet');
     expect(text).toContain('Soumission');
+  });
+
+  it('caps fallback HTML before parsing so a large page cannot blow the worker', async () => {
+    const collected = await collectPageContextFromTab(8, {
+      getTab: async () => ({ url: 'https://books.toscrape.com/' }),
+      getFrames: async () => [{ frameId: 0, url: 'https://books.toscrape.com/' }],
+      sendToFrame: async () => {
+        throw new Error('Could not establish connection. Receiving end does not exist.');
+      },
+      readFrameHtml: async () => ({
+        title: 'Huge catalogue',
+        url: 'https://books.toscrape.com/',
+        html: `<html><body><main><h1>Books</h1><p>${'x'.repeat(80_000)}</p></main></body></html>`,
+      }),
+    });
+
+    expect(collected).not.toBeNull();
+    expect(JSON.stringify(collected).length).toBeLessThanOrEqual(PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT);
   });
 
   it('returns null for chrome:// without reading HTML', async () => {
