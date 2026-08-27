@@ -34,6 +34,7 @@ describe('control-llm core purity (022)', () => {
     const reobserve = codeOnly.slice(reobserveAt, codeOnly.indexOf('resolveQueuedAction: action', reobserveAt));
     expect(reobserveAt).toBeGreaterThan(0);
     expect(reobserve).toMatch(/persistSerpObserve/);
+    expect(reobserve).toMatch(/observeFrame\(\{\s*waitForLoad:\s*false\s*\}\)/);
   });
 
   it('mailbox ask writes userVisibleText as the round page reading', () => {

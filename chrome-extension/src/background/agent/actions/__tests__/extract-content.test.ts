@@ -19,6 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const productsHtml = readFileSync(join(here, '../../../../../test/fixtures/products.html'), 'utf8');
 const allinoneHtml = readFileSync(join(here, '../../../../../test/fixtures/allinone-product-cards.html'), 'utf8');
 const booksHtml = readFileSync(join(here, '../../../../../test/fixtures/books-product-pods.html'), 'utf8');
+const booksHomeHtml = readFileSync(join(here, '../../../../../test/fixtures/books-toscrape-home.html'), 'utf8');
 
 function fieldedRows(rows: Array<Record<string, string>>): Array<Record<string, string>> {
   return rows.filter(row => Object.keys(row).length >= 2 && Object.values(row).some(value => value.trim()));
@@ -114,6 +115,21 @@ describe('extractStructuredRecords', () => {
     ]);
     const blob = JSON.stringify(rows);
     expect(blob).not.toMatch(/Products|Company|Resources|Contact|Web Scraper Cloud|About us/);
+  });
+
+  it('reads the live books.toscrape homepage into name/price/rating rows', () => {
+    const rows = extractStructuredRecords(booksHomeHtml, ['name', 'price', 'rating']);
+    expect(rows.length).toBeGreaterThanOrEqual(20);
+    expect(rows[0]).toEqual(
+      expect.objectContaining({
+        name: 'A Light in the Attic',
+        price: '£51.77',
+        rating: '3',
+      }),
+    );
+    expect(rows.map(row => row.name)).toEqual(
+      expect.arrayContaining(['A Light in the Attic', 'Tipping the Velvet', 'Soumission']),
+    );
   });
 
   it('reads product_pod cards instead of sidebar categories for name,price,rating', () => {
@@ -220,6 +236,41 @@ describe('extract_content action', () => {
     expect(result.extractedContent).not.toMatch(/Travel|Mystery/);
   });
 
+  it('extracts the live homepage through getContent and does not click Next', async () => {
+    expect(htmlHasNextPage(booksHomeHtml)).toBe(true);
+    const advancePage = vi.fn(async () => true);
+    const extractWithModel = vi.fn(async () => '[]');
+    const result = await runExtractContent(
+      { goal: 'extract products to a CSV table with name, price, rating', schema: 'name,price,rating' },
+      { getContent: async () => booksHomeHtml, url: () => 'https://books.toscrape.com/' },
+      { advancePage, extractWithModel },
+    );
+    expect(advancePage).not.toHaveBeenCalled();
+    expect(extractWithModel).not.toHaveBeenCalled();
+    expect(result.error).toBeNull();
+    expect(result.hasMorePages).toBe(true);
+    expect(tableDataRows(result.artifact!).map(row => String(row.name ?? '')).slice(0, 3)).toEqual([
+      'A Light in the Attic',
+      'Tipping the Velvet',
+      'Soumission',
+    ]);
+  });
+
+  it('reads document HTML from evaluate when getContent returns visible text without markup', async () => {
+    const result = await runExtractContent(
+      { goal: 'extract products to a CSV table with name, price, rating', schema: 'name,price,rating' },
+      {
+        getContent: async () => 'A Light in the Attic £51.77 Tipping the Velvet',
+        evaluate: async () => booksHomeHtml,
+      },
+    );
+    expect(tableDataRows(result.artifact!).map(row => String(row.name ?? '')).slice(0, 3)).toEqual([
+      'A Light in the Attic',
+      'Tipping the Velvet',
+      'Soumission',
+    ]);
+  });
+
   it('does not crawl Next on books.toscrape product_pod pages once a name/price/rating table is on the page', async () => {
     const html = booksHtmlWithNextPager();
     expect(htmlHasNextPage(html)).toBe(true);
@@ -264,6 +315,23 @@ describe('extract_content action', () => {
     expect(result.isDone).toBe(false);
     expect(result.artifact).toBeNull();
     expect(result.extractedContent).toMatch(/Extracted 0 records/);
+  });
+
+  it('fails a table extract with no_structured_records instead of paging or calling the worker model', async () => {
+    const html = '<p>Nothing to extract.</p><li class="next"><a href="/page-2">next</a></li>';
+    const advancePage = vi.fn(async () => true);
+    const extractWithModel = vi.fn(async () => '[]');
+    const result = await runExtractContent(
+      { goal: 'extract products to a CSV table with name, price, rating', schema: 'name,price,rating' },
+      { getContent: async () => html },
+      { advancePage, extractWithModel },
+    );
+    expect(advancePage).not.toHaveBeenCalled();
+    expect(extractWithModel).not.toHaveBeenCalled();
+    expect(result.error).toBe('no_structured_records');
+    expect(result.success).toBe(false);
+    expect(result.isDone).toBe(false);
+    expect(result.artifact).toBeNull();
   });
 
   it('extracts repeating cards that are not list items', () => {

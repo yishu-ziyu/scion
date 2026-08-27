@@ -29,6 +29,7 @@ import { captureActionFrame } from '../task/action-frame';
 import { durableHttpCompletionUrl, redactedHttpUrlIdentity } from '../task/completion';
 import { fillEditableElement, type FillResult } from './kernel/fill-text';
 import { cdpHandleFromDomNode, clickCdpElement } from './cdp/click';
+import { readTabOuterHtml } from './read-tab-html';
 
 const logger = createLogger('Page');
 
@@ -396,6 +397,8 @@ export default class Page {
   }
 
   async getContent(): Promise<string> {
+    const html = await readTabOuterHtml(this._tabId);
+    if (html.trim()) return html;
     if (!this._puppeteerPage) {
       throw new Error('Puppeteer page is not connected');
     }

@@ -66,34 +66,47 @@ export function extractStructuredRecords(html: string, schema?: string[]): Extra
 }
 
 export async function readPageHtml(page: ExtractContentPage): Promise<string> {
-  if (typeof page.getContent === 'function') {
-    try {
-      const html = await page.getContent();
-      if (html?.trim()) return html;
-    } catch {
-      // try readability
-    }
+  return (
+    (await htmlFromGetContent(page)) || (await htmlFromEvaluate(page)) || (await htmlFromReadability(page)) || ''
+  );
+}
+
+async function htmlFromGetContent(page: ExtractContentPage): Promise<string> {
+  if (typeof page.getContent !== 'function') return '';
+  try {
+    const html = await page.getContent();
+    return looksLikeHtml(html) ? html : '';
+  } catch {
+    return '';
   }
-  if (typeof page.getReadabilityContent === 'function') {
-    try {
-      const raw = await page.getReadabilityContent();
-      if (typeof raw === 'string' && raw.trim()) return raw;
-      if (raw && typeof raw === 'object' && typeof raw.content === 'string' && raw.content.trim()) {
-        return raw.content;
-      }
-    } catch {
-      // try visible text
-    }
+}
+
+async function htmlFromEvaluate(page: ExtractContentPage): Promise<string> {
+  if (typeof page.evaluate !== 'function') return '';
+  try {
+    const html = await page.evaluate(() => document.documentElement?.outerHTML || '');
+    return typeof html === 'string' && looksLikeHtml(html) ? html : '';
+  } catch {
+    return '';
   }
-  if (typeof page.evaluate === 'function') {
-    try {
-      const text = await page.evaluate(() => document.body?.innerText || '');
-      if (typeof text === 'string') return text;
-    } catch {
-      // empty
+}
+
+async function htmlFromReadability(page: ExtractContentPage): Promise<string> {
+  if (typeof page.getReadabilityContent !== 'function') return '';
+  try {
+    const raw = await page.getReadabilityContent();
+    if (typeof raw === 'string' && looksLikeHtml(raw)) return raw;
+    if (raw && typeof raw === 'object' && typeof raw.content === 'string' && looksLikeHtml(raw.content)) {
+      return raw.content;
     }
+  } catch {
+    return '';
   }
   return '';
+}
+
+function looksLikeHtml(value: string | undefined): boolean {
+  return Boolean(value?.trim() && /<[a-zA-Z]/.test(value));
 }
 
 const EXTRACT_PAGE_CAP = 8;
@@ -116,12 +129,14 @@ export async function runExtractContent(
   const schema = parseSchemaHint(input.schema, input.goal);
   const collected = await collectPagedExtract(page, input.goal, schema, options);
   if (!collected.rows.length) {
+    const tableAsk = isTableExtractAsk({ goal: input.goal, schema });
     return new ActionResult({
       extractedContent: 'Extracted 0 records. Task is not complete.',
       includeInMemory: true,
-      success: true,
+      success: !tableAsk,
       isDone: false,
       hasMorePages: collected.hasMorePages,
+      ...(tableAsk ? { error: 'no_structured_records' } : {}),
     });
   }
   const columns = columnsFor(collected.rows, schema);
@@ -240,16 +255,11 @@ function shouldAdvancePage(params: {
 }): boolean {
   if (!params.hasMorePages || !params.options?.advancePage) return false;
   if (params.pageIndex >= EXTRACT_PAGE_CAP - 1) return false;
-  if (stopPagingAfterFirstMatchingTable(params)) return false;
+  if (isTableExtractAsk(params)) return false;
   return true;
 }
 
-function stopPagingAfterFirstMatchingTable(params: {
-  goal: string;
-  schema: string[] | undefined;
-  rowCount: number;
-}): boolean {
-  if (params.rowCount <= 0) return false;
+function isTableExtractAsk(params: { goal: string; schema: string[] | undefined }): boolean {
   if (instructionAsksForTable(params.goal)) return true;
   const keys = new Set((params.schema ?? []).map(field => field.trim().toLowerCase()));
   return keys.has('name') && keys.has('price') && keys.has('rating');
@@ -263,6 +273,7 @@ async function rowsFromHtml(
 ): Promise<ExtractedRecord[]> {
   const rows = extractStructuredRecords(html, schema);
   if (rows.length || !extractWithModel || !html.trim()) return rows;
+  if (isTableExtractAsk({ goal, schema })) return rows;
   try {
     return parseModelExtractedRecords(await extractWithModel(html, goal, schema), schema);
   } catch {

@@ -1131,7 +1131,7 @@ export async function createLlmControlDriver(
           }
         },
         reobserve: async () => {
-          const frame = await observeFrame();
+          const frame = await observeFrame({ waitForLoad: false });
           await recordObservedPageIfNeeded(roundId, frame);
           await persistSerpObserve(roundId, frame);
           const forceFull = !previousFrame || previousFrame.tab.url !== frame.tab.url;

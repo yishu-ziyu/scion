@@ -14,7 +14,7 @@ export type RetryDecision = 'retry' | 'no_retry' | 'escalate';
 const ESCALATE_PATTERN = /max failures|max_failures|max steps|max_steps/i;
 
 const NO_RETRY_PATTERN =
-  /invalid input|invalid_input|unknown action|permission|forbidden|unauthorized|model_not_found|session not found/i;
+  /invalid input|invalid_input|unknown action|permission|forbidden|unauthorized|model_not_found|session not found|no_structured_records/i;
 
 export function classifyRetry(error: unknown): RetryDecision {
   const message = error instanceof Error ? error.message : String(error ?? '');

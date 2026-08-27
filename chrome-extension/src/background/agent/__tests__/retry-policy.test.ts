@@ -44,6 +44,7 @@ describe('classifyRetry', () => {
     expect(classifyRetry('Failed to click element: [object Object]. Error: Invalid input: index is NaN')).toBe(
       'no_retry',
     );
+    expect(classifyRetry('no_structured_records')).toBe('no_retry');
   });
 
   it('escalates budget exhaustion', () => {
