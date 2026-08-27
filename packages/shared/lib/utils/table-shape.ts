@@ -1,6 +1,8 @@
 /**
  * CSV / Markdown table shape used by `checkInstructionDeliverable`
- * (`csvOrMarkdownBlockSpans`) and by `resultIsPresentAndMatches` (`looksLikeTable`).
+ * (`csvOrMarkdownBlockSpans`), `resultIsPresentAndMatches` (`looksLikeTable`),
+ * and `parseAnswerBlocks` so a table `TaskResult.body` keeps header and data rows
+ * on separate lines in `[data-testid="completion-result"]`.
  * Comma prose and header+separator-only Markdown are not tables.
  */
 
@@ -106,6 +108,28 @@ function lineOffsetSpans(text: string): Array<{ start: number; end: number; line
   return spans;
 }
 
+type OffsetLine = { start: number; end: number; line: string };
+
+function extendTableRun(lines: OffsetLine[], index: number): { endIndex: number; dataRows: number } {
+  const header = lines[index]!;
+  const markdown = header.line.startsWith('|') && header.line.endsWith('|');
+  const width = structuredTableCells(header.line).length;
+  let endIndex = index;
+  let dataRows = 0;
+  for (let next = index + 1; next < lines.length; next += 1) {
+    const line = lines[next]!.line;
+    if (!line) break;
+    if (isTableSeparator(line)) {
+      endIndex = next;
+      continue;
+    }
+    if (!csvOrMarkdownDataRow(line, width, markdown)) break;
+    endIndex = next;
+    dataRows += 1;
+  }
+  return { endIndex, dataRows };
+}
+
 export function csvOrMarkdownBlockSpans(answer: string): Array<{ start: number; end: number; dataRows: number }> {
   const lines = lineOffsetSpans(answer);
   const spans: Array<{ start: number; end: number; dataRows: number }> = [];
@@ -116,21 +140,7 @@ export function csvOrMarkdownBlockSpans(answer: string): Array<{ start: number; 
       index += 1;
       continue;
     }
-    const markdown = header.line.startsWith('|') && header.line.endsWith('|');
-    const width = structuredTableCells(header.line).length;
-    let endIndex = index;
-    let dataRows = 0;
-    for (let next = index + 1; next < lines.length; next += 1) {
-      const line = lines[next]!.line;
-      if (!line) break;
-      if (isTableSeparator(line)) {
-        endIndex = next;
-        continue;
-      }
-      if (!csvOrMarkdownDataRow(line, width, markdown)) break;
-      endIndex = next;
-      dataRows += 1;
-    }
+    const { endIndex, dataRows } = extendTableRun(lines, index);
     if (dataRows >= 1) {
       spans.push({ start: header.start, end: lines[endIndex]!.end, dataRows });
       index = endIndex + 1;

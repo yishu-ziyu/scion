@@ -1,10 +1,19 @@
+import { csvOrMarkdownBlockSpans } from '@extension/shared';
+
 export type AnswerSpan = { bold?: boolean; text: string; href?: string };
 
 export type AnswerBlock =
   | { type: 'section'; spans: AnswerSpan[] }
   | { type: 'p'; spans: AnswerSpan[] }
+  | { type: 'pre'; text: string }
   | { type: 'ul'; items: AnswerSpan[][] }
   | { type: 'ol'; items: AnswerSpan[][] };
+
+type ProseState = {
+  paragraph: string[];
+  bullets: string[];
+  numbers: string[];
+};
 
 const SECTION_LINE = /^\*\*([^*]+)\*\*\s*[:：]?\s*$/;
 const SECTION_AFTER_SENTENCE = /^(.*?[。！？])\s*\*\*([^*]+)\*\*\s*[:：]?\s*$/;
@@ -32,81 +41,116 @@ export function parseAnswerBlocks(raw: string): AnswerBlock[] {
   const text = normalizeAnswerSource(raw);
   if (!text) return [];
   const blocks: AnswerBlock[] = [];
-  let paragraph: string[] = [];
-  let bullets: string[] = [];
-  let numbers: string[] = [];
-
-  const flushParagraph = () => {
-    if (paragraph.length === 0) return;
-    const joined = paragraph.join(' ').replace(/\s+/g, ' ').trim();
-    if (joined) blocks.push({ type: 'p', spans: parseSpans(joined) });
-    paragraph = [];
-  };
-  const flushBullets = () => {
-    if (bullets.length === 0) return;
-    blocks.push({ type: 'ul', items: bullets.map(item => parseSpans(item)) });
-    bullets = [];
-  };
-  const flushNumbers = () => {
-    if (numbers.length === 0) return;
-    blocks.push({ type: 'ol', items: numbers.map(item => parseSpans(item)) });
-    numbers = [];
-  };
-
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      flushParagraph();
-      flushBullets();
-      flushNumbers();
-      continue;
-    }
-    const heading = /^#{1,6}\s+(.+?)\s*#*$/.exec(trimmed);
-    if (heading?.[1]) {
-      flushParagraph();
-      flushBullets();
-      flushNumbers();
-      blocks.push({ type: 'section', spans: parseSpans(heading[1]) });
-      continue;
-    }
-    const bullet = /^[-*•]\s+(.+)$/.exec(trimmed);
-    if (bullet?.[1]) {
-      flushParagraph();
-      flushNumbers();
-      bullets.push(bullet[1]);
-      continue;
-    }
-    const boldNumbered = /^\*\*(\d+)[.、]\s*([^*]+?)\*\*\s*(.*)$/.exec(trimmed);
-    if (boldNumbered) {
-      flushParagraph();
-      flushBullets();
-      const label = `**${boldNumbered[1]}. ${boldNumbered[2].trim()}**`;
-      const rest = boldNumbered[3]?.trim();
-      numbers.push(rest ? `${label} ${rest}` : label);
-      continue;
-    }
-    const numbered = /^\d+[.、]\s*(.+)$/.exec(trimmed);
-    if (numbered?.[1]) {
-      flushParagraph();
-      flushBullets();
-      numbers.push(numbered[1]);
-      continue;
-    }
-    flushBullets();
-    flushNumbers();
-    const section = sectionNameFromLine(trimmed);
-    if (section.name) {
-      if (section.rest) paragraph.push(section.rest);
-      flushParagraph();
-      blocks.push({ type: 'section', spans: [{ text: section.name }] });
-      continue;
-    }
-    paragraph.push(trimmed);
+  let cursor = 0;
+  for (const span of csvOrMarkdownBlockSpans(text)) {
+    appendProseBlocks(blocks, text.slice(cursor, span.start));
+    const table = text
+      .slice(span.start, span.end)
+      .split('\n')
+      .map(line => line.trim())
+      .join('\n');
+    if (table) blocks.push({ type: 'pre', text: table });
+    cursor = span.end;
+    if (text[cursor] === '\n') cursor += 1;
   }
-  flushParagraph();
-  flushBullets();
-  flushNumbers();
+  appendProseBlocks(blocks, text.slice(cursor));
   return blocks;
+}
+
+function appendProseBlocks(blocks: AnswerBlock[], raw: string): void {
+  const text = raw.replace(/^\n+|\n+$/g, '');
+  if (!text) return;
+  const state: ProseState = { paragraph: [], bullets: [], numbers: [] };
+  for (const line of text.split('\n')) {
+    consumeProseLine(blocks, state, line.trim());
+  }
+  flushParagraph(blocks, state);
+  flushBullets(blocks, state);
+  flushNumbers(blocks, state);
+}
+
+function consumeProseLine(blocks: AnswerBlock[], state: ProseState, trimmed: string): void {
+  if (!trimmed) {
+    flushParagraph(blocks, state);
+    flushBullets(blocks, state);
+    flushNumbers(blocks, state);
+    return;
+  }
+  if (consumeHeading(blocks, state, trimmed)) return;
+  if (consumeBullet(blocks, state, trimmed)) return;
+  if (consumeBoldNumbered(blocks, state, trimmed)) return;
+  if (consumeNumbered(blocks, state, trimmed)) return;
+  flushBullets(blocks, state);
+  flushNumbers(blocks, state);
+  if (consumeSection(blocks, state, trimmed)) return;
+  state.paragraph.push(trimmed);
+}
+
+function consumeHeading(blocks: AnswerBlock[], state: ProseState, trimmed: string): boolean {
+  const heading = /^#{1,6}\s+(.+?)\s*#*$/.exec(trimmed);
+  if (!heading?.[1]) return false;
+  flushParagraph(blocks, state);
+  flushBullets(blocks, state);
+  flushNumbers(blocks, state);
+  blocks.push({ type: 'section', spans: parseSpans(heading[1]) });
+  return true;
+}
+
+function consumeBullet(blocks: AnswerBlock[], state: ProseState, trimmed: string): boolean {
+  const bullet = /^[-*•]\s+(.+)$/.exec(trimmed);
+  if (!bullet?.[1]) return false;
+  flushParagraph(blocks, state);
+  flushNumbers(blocks, state);
+  state.bullets.push(bullet[1]);
+  return true;
+}
+
+function consumeBoldNumbered(blocks: AnswerBlock[], state: ProseState, trimmed: string): boolean {
+  const boldNumbered = /^\*\*(\d+)[.、]\s*([^*]+?)\*\*\s*(.*)$/.exec(trimmed);
+  if (!boldNumbered) return false;
+  flushParagraph(blocks, state);
+  flushBullets(blocks, state);
+  const label = `**${boldNumbered[1]}. ${boldNumbered[2].trim()}**`;
+  const rest = boldNumbered[3]?.trim();
+  state.numbers.push(rest ? `${label} ${rest}` : label);
+  return true;
+}
+
+function consumeNumbered(blocks: AnswerBlock[], state: ProseState, trimmed: string): boolean {
+  const numbered = /^\d+[.、]\s*(.+)$/.exec(trimmed);
+  if (!numbered?.[1]) return false;
+  flushParagraph(blocks, state);
+  flushBullets(blocks, state);
+  state.numbers.push(numbered[1]);
+  return true;
+}
+
+function consumeSection(blocks: AnswerBlock[], state: ProseState, trimmed: string): boolean {
+  const section = sectionNameFromLine(trimmed);
+  if (!section.name) return false;
+  if (section.rest) state.paragraph.push(section.rest);
+  flushParagraph(blocks, state);
+  blocks.push({ type: 'section', spans: [{ text: section.name }] });
+  return true;
+}
+
+function flushParagraph(blocks: AnswerBlock[], state: ProseState): void {
+  if (state.paragraph.length === 0) return;
+  const joined = state.paragraph.join(' ').replace(/\s+/g, ' ').trim();
+  if (joined) blocks.push({ type: 'p', spans: parseSpans(joined) });
+  state.paragraph = [];
+}
+
+function flushBullets(blocks: AnswerBlock[], state: ProseState): void {
+  if (state.bullets.length === 0) return;
+  blocks.push({ type: 'ul', items: state.bullets.map(item => parseSpans(item)) });
+  state.bullets = [];
+}
+
+function flushNumbers(blocks: AnswerBlock[], state: ProseState): void {
+  if (state.numbers.length === 0) return;
+  blocks.push({ type: 'ol', items: state.numbers.map(item => parseSpans(item)) });
+  state.numbers = [];
 }
 
 function normalizeAnswerSource(raw: string): string {
@@ -149,6 +193,7 @@ export function attachSourceHrefs(
     });
   return blocks.map(block => {
     if (block.type === 'p' || block.type === 'section') return { ...block, spans: linkSpans(block.spans) };
+    if (block.type === 'pre') return block;
     return { ...block, items: block.items.map(item => linkSpans(item)) };
   });
 }

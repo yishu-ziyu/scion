@@ -658,10 +658,13 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).toContain('FiCopy');
     expect(componentsCss).toContain('.chijie-answer');
     expect(componentsCss).toContain('.chijie-answer-section');
+    expect(componentsCss).toContain('.chijie-answer-table');
+    expect(componentsCss).toContain('white-space: pre-wrap');
     expect(componentsCss).toContain('chijie-answer-in');
     expect(componentsCss).toContain('.chijie-answer .chijie-answer-sources li');
     expect(componentsCss).toMatch(/\.chijie-answer \.chijie-answer-sources li \{[\s\S]{0,180}--chijie-text-sm/);
     expect(answerProseSource).toContain('chijie-answer-section');
+    expect(answerProseSource).toContain('chijie-answer-table');
     expect(answerProseSource).not.toContain('chijie-thinking-sentence-in');
   });
 

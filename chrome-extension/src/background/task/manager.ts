@@ -85,7 +85,7 @@ import {
 } from './mission-plan';
 import { ActionResult } from '../agent/types';
 import { isUnderstandingOnlyInstruction } from '../browser/sites/understanding-answer';
-import { csvOrMarkdownBlockSpans } from './table-shape';
+import { csvOrMarkdownBlockSpans } from '@extension/shared';
 import { instructionAsksPageAbout } from '../browser/sites/theme-citation';
 import {
   isBilibiliWatchUrl,

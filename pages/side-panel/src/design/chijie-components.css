@@ -2051,6 +2051,18 @@ button.chijie-answer-source:hover > span:not(.chijie-search-host) {
   line-height: 1.65;
 }
 
+.chijie-answer-table {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  color: var(--chijie-foreground);
+  font-size: var(--chijie-text-md);
+  font-weight: var(--chijie-weight-regular);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
 .chijie-answer ul,
 .chijie-answer ol {
   display: flex;
