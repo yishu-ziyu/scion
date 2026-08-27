@@ -642,25 +642,33 @@ export class ActionBuilder {
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_START, intent);
       const page = await this.context.browserContext.getCurrentPage();
       const extractor = this.extractorLLM;
-      const result = await runExtractContent(input, page, {
-        extractWithModel: async (html, goal, schema) => {
-          const response = await extractor.invoke([
-            new SystemMessage(
-              'Extract records from the page as a JSON array of objects. No markdown. No prose. Empty array if nothing matches.',
-            ),
-            new HumanMessage(
-              [`Goal: ${goal}`, schema?.length ? `Fields: ${schema.join(',')}` : '', html.slice(0, 20000)]
-                .filter(Boolean)
-                .join('\n'),
-            ),
-          ]);
-          return typeof response.content === 'string' ? response.content : JSON.stringify(response.content ?? '');
-        },
-        advancePage: () => advanceExtractPage(page, this.context.options.useVision),
-        priorEmptyExtract: (this.context.actionResults ?? []).some(
-          result => result.error === 'empty_extract_snapshot' || result.error === 'no_structured_records',
-        ),
-      });
+      const extractPageUrl = () => (typeof page.url === 'function' ? page.url() : '');
+      const runPageExtract = (priorEmptyExtract: boolean) =>
+        runExtractContent(input, page, {
+          extractWithModel: async (html, goal, schema) => {
+            const response = await extractor.invoke([
+              new SystemMessage(
+                'Extract records from the page as a JSON array of objects. No markdown. No prose. Empty array if nothing matches.',
+              ),
+              new HumanMessage(
+                [`Goal: ${goal}`, schema?.length ? `Fields: ${schema.join(',')}` : '', html.slice(0, 20000)]
+                  .filter(Boolean)
+                  .join('\n'),
+              ),
+            ]);
+            return typeof response.content === 'string' ? response.content : JSON.stringify(response.content ?? '');
+          },
+          advancePage: () => advanceExtractPage(page, this.context.options.useVision),
+          priorEmptyExtract,
+        });
+      const startUrl = extractPageUrl();
+      let result = await runPageExtract(false);
+      if (result.error === 'empty_extract_snapshot') {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        if (extractPageUrl() === startUrl) {
+          result = await runPageExtract(true);
+        }
+      }
       const rows = result.artifact ? tableRowCount(result.artifact) : 0;
       this.context.emitEvent(
         Actors.NAVIGATOR,

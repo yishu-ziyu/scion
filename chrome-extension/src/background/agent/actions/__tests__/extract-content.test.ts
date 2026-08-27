@@ -321,11 +321,11 @@ describe('extract_content action', () => {
     const html = '<p>Nothing to extract.</p><li class="next"><a href="/page-2">next</a></li>';
     const advancePage = vi.fn(async () => true);
     const extractWithModel = vi.fn(async () => '[]');
-    const result = await runExtractContent(
-      { goal: 'extract products to a CSV table with name, price, rating', schema: 'name,price,rating' },
-      { getContent: async () => html },
-      { advancePage, extractWithModel },
-    );
+    const page = { getContent: async () => html };
+    const input = { goal: 'extract products to a CSV table with name, price, rating', schema: 'name,price,rating' };
+    const first = await runExtractContent(input, page, { advancePage, extractWithModel });
+    expect(first.error).toBe('empty_extract_snapshot');
+    const result = await runExtractContent(input, page, { advancePage, extractWithModel, priorEmptyExtract: true });
     expect(advancePage).not.toHaveBeenCalled();
     expect(extractWithModel).not.toHaveBeenCalled();
     expect(result.error).toBe('no_structured_records');
