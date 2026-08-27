@@ -2,6 +2,7 @@ import { pageSummaryRecipe, runRecipe } from '@extension/agent-core';
 import {
   contextBlockCharacters,
   contextBlockText,
+  extractWebpageContext,
   fitToContext,
   safePageUrl,
   type ContextBlock,
@@ -20,6 +21,18 @@ export const PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT = 24_000;
 export const PAGE_CONTEXT_MAX_FRAMES = 24;
 export const PAGE_SUMMARY_FEATURE_ID = 'page_summary';
 export const PAGE_SUMMARY_CONTEXT_LIMIT = 24_000;
+export const PAGE_NOT_WEB_ERROR = '无法读取当前页面。请打开普通网页后再试。';
+
+const RESTRICTED_PAGE_PREFIXES = [
+  'chrome://',
+  'chrome-extension://',
+  'edge://',
+  'about:',
+  'devtools://',
+  'view-source:',
+  'chrome-search://',
+  'chrome-error://',
+];
 
 export interface InaccessibleIframe {
   url?: string;
@@ -68,6 +81,11 @@ export interface PageContextFrame {
 export interface PageContextTabApi {
   getFrames: (tabId: number) => Promise<PageContextFrame[]>;
   sendToFrame: (tabId: number, frameId: number, maxPayloadChars: number) => Promise<unknown>;
+  getTab?: (tabId: number) => Promise<{ url?: string; title?: string }>;
+  readFrameHtml?: (
+    tabId: number,
+    frameId: number,
+  ) => Promise<{ title?: string; url?: string; html?: string } | null>;
 }
 
 export function parsePageSummaryStreamRequest(message: unknown): PageSummaryStreamRequest | null {
@@ -319,11 +337,12 @@ export function createPageSummaryStreamHandler(deps: PageSummaryStreamDeps) {
     let collected: CollectedPageContext | null;
     try {
       collected = parseCollectedPageContext(await deps.collectPageContext(tabId));
-    } catch {
-      collected = null;
+    } catch (error) {
+      postError(port, sessionId, collectionError(error));
+      return;
     }
     if (!collected) {
-      postError(port, sessionId, '无法读取当前页面。请打开普通网页后再试。');
+      postError(port, sessionId, PAGE_NOT_WEB_ERROR);
       return;
     }
     if (collected.inaccessibleIframes.length > 0) {
@@ -380,7 +399,40 @@ const chromePageContextApi: PageContextTabApi = {
   getFrames: async tabId => (await chrome.webNavigation.getAllFrames({ tabId })) ?? [],
   sendToFrame: (tabId, frameId, maxPayloadChars) =>
     chrome.tabs.sendMessage(tabId, { type: PAGE_CONTEXT_COLLECT, maxPayloadChars }, { frameId }),
+  getTab: async tabId => {
+    const tab = await chrome.tabs.get(tabId);
+    return { url: tab.url, title: tab.title };
+  },
+  readFrameHtml: readFrameHtmlViaScripting,
 };
+
+async function readFrameHtmlViaScripting(
+  tabId: number,
+  frameId: number,
+): Promise<{ title: string; url: string; html: string } | null> {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, frameIds: [frameId] },
+    func: () => ({
+      title: document.title || '',
+      url: document.URL || '',
+      html: document.documentElement?.outerHTML || '',
+    }),
+  });
+  const result = results[0]?.result;
+  if (!result || typeof result !== 'object') return null;
+  const record = result as { title?: unknown; url?: unknown; html?: unknown };
+  if (typeof record.html !== 'string') return null;
+  return {
+    title: typeof record.title === 'string' ? record.title : '',
+    url: typeof record.url === 'string' ? record.url : '',
+    html: record.html,
+  };
+}
+
+export function isRestrictedPageUrl(url: string | undefined | null): boolean {
+  if (!url?.trim()) return false;
+  return RESTRICTED_PAGE_PREFIXES.some(prefix => url.trim().startsWith(prefix));
+}
 
 function collectionError(error: unknown): string {
   return error instanceof Error && error.message ? error.message : 'content script did not respond';
@@ -390,11 +442,59 @@ type PageContextFrameOutcome =
   | { frame: PageContextFrame; context: CollectedPageContext }
   | { frame: PageContextFrame; error: string };
 
+function collectedFromHtml(html: string, title: string, url: string): CollectedPageContext {
+  const bundle = extractWebpageContext(html, { title, url: safePageUrl(url) });
+  return {
+    bundle: { ...bundle, url: safePageUrl(bundle.url || url), anchors: [] },
+    truncated: false,
+    inaccessibleIframes: [],
+  };
+}
+
+async function contextFromHtmlFallback(
+  tabId: number,
+  frame: PageContextFrame,
+  api: PageContextTabApi,
+): Promise<CollectedPageContext | null> {
+  if (!api.readFrameHtml) return null;
+  try {
+    const raw = await api.readFrameHtml(tabId, frame.frameId);
+    if (!raw || typeof raw.html !== 'string' || !raw.html.trim()) return null;
+    return collectedFromHtml(raw.html, raw.title ?? '', raw.url ?? frame.url ?? '');
+  } catch {
+    return null;
+  }
+}
+
+async function readOneFrame(
+  tabId: number,
+  frame: PageContextFrame,
+  maxPayloadChars: number,
+  api: PageContextTabApi,
+): Promise<PageContextFrameOutcome> {
+  let sendError = 'invalid or oversized page context response';
+  try {
+    const response = await api.sendToFrame(tabId, frame.frameId, maxPayloadChars);
+    const context = parseCollectedPageContext(response, maxPayloadChars);
+    if (context) return { frame, context };
+  } catch (error) {
+    sendError = collectionError(error);
+  }
+  if (frame.frameId === 0) {
+    const scripted = await contextFromHtmlFallback(tabId, frame, api);
+    if (scripted) return { frame, context: scripted };
+  }
+  return { frame, error: sendError };
+}
+
 /** Read a bounded set of frames in the background without activating the tab. */
 export async function collectPageContextFromTab(
   tabId: number,
   api: PageContextTabApi = chromePageContextApi,
 ): Promise<CollectedPageContext | null> {
+  const tab = api.getTab ? await api.getTab(tabId).catch(() => undefined) : undefined;
+  if (isRestrictedPageUrl(tab?.url)) return null;
+
   const discovered = await api.getFrames(tabId);
   const frames = (discovered.length > 0 ? discovered : [{ frameId: 0 }]).sort(
     (left, right) => left.frameId - right.frameId,
@@ -402,19 +502,13 @@ export async function collectPageContextFromTab(
   const admitted = frames.slice(0, PAGE_CONTEXT_MAX_FRAMES);
   const budgets = allocateFramePayloadBudgets(admitted.length);
   const outcomes = await Promise.all(
-    admitted.map(async (frame, index): Promise<PageContextFrameOutcome> => {
-      const maxPayloadChars = budgets[index];
-      try {
-        const response = await api.sendToFrame(tabId, frame.frameId, maxPayloadChars);
-        const context = parseCollectedPageContext(response, maxPayloadChars);
-        return context ? { frame, context } : { frame, error: 'invalid or oversized page context response' };
-      } catch (error) {
-        return { frame, error: collectionError(error) };
-      }
-    }),
+    admitted.map((frame, index) => readOneFrame(tabId, frame, budgets[index], api)),
   );
   const top = outcomes.find(outcome => outcome.frame.frameId === 0);
-  if (!top || !('context' in top)) return null;
+  if (!top || !('context' in top)) {
+    if (isRestrictedPageUrl(top?.frame.url ?? tab?.url)) return null;
+    throw new Error(top && 'error' in top ? top.error : 'content script did not respond');
+  }
 
   const readable = outcomes.flatMap(outcome => ('context' in outcome ? [outcome.context] : []));
   const inaccessibleIframes = outcomes.flatMap(outcome =>

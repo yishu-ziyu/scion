@@ -5,6 +5,7 @@ import type { ChatStreamDeps } from '../chat-stream';
 import {
   PAGE_CONTEXT_MAX_FRAMES,
   PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT,
+  PAGE_NOT_WEB_ERROR,
   PAGE_SUMMARY_CONTEXT_LIMIT,
   collectPageContextFromTab,
   createPageSummaryStreamHandler,
@@ -200,6 +201,42 @@ describe('page_summary_stream handler', () => {
     expect((port.sent[0] as { error: string }).error).toContain('https://pay.test');
   });
 
+  it('refuses chrome:// with the ordinary-webpage copy', async () => {
+    const port = makePort();
+    const handler = createPageSummaryStreamHandler({
+      ...runtimeDeps,
+      collectPageContext: async () => null,
+    });
+
+    await handler({ sessionId: 's5', text: '总结当前页面', tabId: 1 }, port);
+
+    expect(port.sent).toEqual([{ type: 'page_summary_stream_error', sessionId: 's5', error: PAGE_NOT_WEB_ERROR }]);
+  });
+
+  it('does not tell the user to open a normal webpage when https collect throws', async () => {
+    const port = makePort();
+    const handler = createPageSummaryStreamHandler({
+      ...runtimeDeps,
+      collectPageContext: async () => {
+        throw new Error('Could not establish connection. Receiving end does not exist.');
+      },
+    });
+
+    await handler(
+      { sessionId: 's4', text: 'Write a short summary of the first three books on this page.', tabId: 8 },
+      port,
+    );
+
+    expect(port.sent).toEqual([
+      {
+        type: 'page_summary_stream_error',
+        sessionId: 's4',
+        error: 'Could not establish connection. Receiving end does not exist.',
+      },
+    ]);
+    expect((port.sent[0] as { error: string }).error).not.toContain('请打开普通网页后再试');
+  });
+
   it('never sends query tokens from the page URL to the model or the chat source', () => {
     const prepared = preparePageSummaryContext(
       frameContext('Reset', 'https://example.test/reset?token=SECRET_TOKEN#frag', 'Reset this password.'),
@@ -290,18 +327,61 @@ describe('collectPageContextFromTab', () => {
   });
 
   it('rejects a legacy frame response that sends raw HTML to the background', async () => {
-    const collected = await collectPageContextFromTab(12, {
-      getFrames: async () => [{ frameId: 0, url: 'https://example.test/' }],
-      sendToFrame: async () => ({
-        title: 'Legacy response',
-        url: 'https://example.test/',
-        html: `<main>${'raw html '.repeat(10_000)}</main>`,
-        truncated: false,
-        inaccessibleIframes: [],
+    await expect(
+      collectPageContextFromTab(12, {
+        getTab: async () => ({ url: 'https://example.test/' }),
+        getFrames: async () => [{ frameId: 0, url: 'https://example.test/' }],
+        sendToFrame: async () => ({
+          title: 'Legacy response',
+          url: 'https://example.test/',
+          html: `<main>${'raw html '.repeat(10_000)}</main>`,
+          truncated: false,
+          inaccessibleIframes: [],
+        }),
+      }),
+    ).rejects.toThrow(/invalid or oversized page context response/);
+  });
+
+  it('collects books-like https HTML when the content-script listener is missing', async () => {
+    const collected = await collectPageContextFromTab(8, {
+      getTab: async () => ({ url: 'https://books.toscrape.com/', title: 'All products | Books to Scrape - Sandbox' }),
+      getFrames: async () => [{ frameId: 0, url: 'https://books.toscrape.com/' }],
+      sendToFrame: async () => {
+        throw new Error('Could not establish connection. Receiving end does not exist.');
+      },
+      readFrameHtml: async () => ({
+        title: 'All products | Books to Scrape - Sandbox',
+        url: 'https://books.toscrape.com/',
+        html: `<html><body><main>
+          <h1>Books to Scrape</h1>
+          <article><h3><a href="catalogue/a-light-in-the-attic_1000/index.html">A Light in the Attic</a></h3><p>£51.77</p></article>
+          <article><h3><a href="catalogue/tipping-the-velvet_999/index.html">Tipping the Velvet</a></h3><p>£53.74</p></article>
+          <article><h3><a href="catalogue/soumission_998/index.html">Soumission</a></h3><p>£50.10</p></article>
+        </main></body></html>`,
       }),
     });
 
+    expect(collected).not.toBeNull();
+    expect(collected?.inaccessibleIframes).toEqual([]);
+    const text = preparePageSummaryContext(collected!).page.text;
+    expect(text).toContain('A Light in the Attic');
+    expect(text).toContain('Tipping the Velvet');
+    expect(text).toContain('Soumission');
+  });
+
+  it('returns null for chrome:// without reading HTML', async () => {
+    const readFrameHtml = vi.fn();
+    const collected = await collectPageContextFromTab(1, {
+      getTab: async () => ({ url: 'chrome://extensions' }),
+      getFrames: async () => [{ frameId: 0, url: 'chrome://extensions' }],
+      sendToFrame: async () => {
+        throw new Error('Receiving end does not exist');
+      },
+      readFrameHtml,
+    });
+
     expect(collected).toBeNull();
+    expect(readFrameHtml).not.toHaveBeenCalled();
   });
 });
 
