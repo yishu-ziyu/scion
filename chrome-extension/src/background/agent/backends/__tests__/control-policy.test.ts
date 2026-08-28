@@ -610,5 +610,18 @@ describe('observationSupportsWaitingUser', () => {
     );
     expect(skipped.done).toBe(true);
     expect(skipped.waitingUser).toBeNull();
+    const afterRead = applyInaccessibleIframeGate(
+      {
+        observation: 'read the catalogue',
+        criteria: [],
+        done: false,
+        action: { name: 'read_page_text', args: { max_chars: 20_000 } },
+        actions: [{ name: 'read_page_text', args: { max_chars: 20_000 } }],
+        waitingUser: null,
+      },
+      blocked,
+    );
+    expect(afterRead.waitingUser).toBeNull();
+    expect(afterRead.action?.name).toBe('read_page_text');
   });
 });

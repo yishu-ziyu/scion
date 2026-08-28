@@ -959,9 +959,13 @@ export async function createLlmControlDriver(
           try {
             const parsed = extractJsonFromModelOutput(rawText);
             decision = parseControlPolicyDecision(parsed);
-            const queued = (decision.actions.length > 0 ? decision.actions : decision.action ? [decision.action] : [])
-              .map(item => rewriteInventedLookupNavigation(instruction, item))
-              .filter((item): item is { name: string; args: Record<string, unknown> } => item !== null);
+            const queued = filterPageSummaryActions(
+              instruction,
+              (decision.actions.length > 0 ? decision.actions : decision.action ? [decision.action] : [])
+                .map(item => rewriteInventedLookupNavigation(instruction, item))
+                .filter((item): item is { name: string; args: Record<string, unknown> } => item !== null),
+              { pageBodyRead },
+            );
             decision = {
               ...decision,
               action: queued[0] ?? null,
@@ -996,7 +1000,12 @@ export async function createLlmControlDriver(
           }
 
           if (decision.waitingUser) {
-            if (!observationSupportsWaitingUser(currentFrame, decision.waitingUser)) {
+            if (
+              !observationSupportsWaitingUser(
+                observationFrameForPageSummary(instruction, currentFrame),
+                decision.waitingUser,
+              )
+            ) {
               logger.warning('ignored waiting_user without page blocker evidence', {
                 url: currentFrame?.tab.url,
                 reason: decision.waitingUser,

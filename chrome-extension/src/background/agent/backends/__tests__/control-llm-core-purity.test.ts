@@ -34,6 +34,10 @@ describe('control-llm core purity (022)', () => {
     const reobserve = codeOnly.slice(reobserveAt, codeOnly.indexOf('resolveQueuedAction: action', reobserveAt));
     expect(reobserveAt).toBeGreaterThan(0);
     expect(reobserve).toMatch(/persistSerpObserve/);
+    const parseAt = codeOnly.indexOf('parseControlPolicyDecision');
+    const parseBlock = codeOnly.slice(parseAt, codeOnly.indexOf('control JSON parse failed', parseAt));
+    expect(parseBlock.indexOf('filterPageSummaryActions')).toBeGreaterThan(0);
+    expect(parseBlock.indexOf('filterPageSummaryActions')).toBeLessThan(parseBlock.indexOf('applyInaccessibleIframeGate'));
   });
 
   it('mailbox ask writes userVisibleText as the round page reading', () => {
