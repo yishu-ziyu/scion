@@ -29,7 +29,11 @@ function resolveUnattachedDelivery(input: {
   done: boolean;
   observation: string;
   hasAction: boolean;
+  pageSummaryReady?: boolean;
 }): ControlDeliveryResolution {
+  if (input.pageSummaryReady) {
+    return input.hasAction ? { kind: 'act' } : { kind: 'read_page', observation: READ_PAGE_BEFORE_RESULT };
+  }
   if (input.hasAction) return { kind: 'act' };
   if (input.done && !isPlaceholderDelivery(input.observation)) return { kind: 'complete' };
   if (input.observation.trim().length >= 8 && !isPlaceholderDelivery(input.observation)) {
@@ -48,12 +52,7 @@ export function resolveControlDelivery(input: {
   /** Pure current-page summary: finish from the page text instead of acting. */
   pageSummaryReady?: boolean;
 }): ControlDeliveryResolution {
-  if (input.pageAttached === false) {
-    if (input.pageSummaryReady) {
-      return input.hasAction ? { kind: 'act' } : { kind: 'read_page', observation: READ_PAGE_BEFORE_RESULT };
-    }
-    return resolveUnattachedDelivery(input);
-  }
+  if (input.pageAttached === false) return resolveUnattachedDelivery(input);
   if (input.pageSummaryReady && input.hasPageBody) return { kind: 'complete' };
   if (input.done) {
     if (isPlaceholderDelivery(input.observation)) {
