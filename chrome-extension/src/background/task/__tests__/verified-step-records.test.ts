@@ -6,7 +6,10 @@ import {
   filterPageSummaryActions,
   formatVerifiedPagesForPrompt,
   instructionPointsAtCurrentPage,
+  isPureCurrentPageSummaryInstruction,
+  observationFrameForPageSummary,
   pageMatchesInstruction,
+  pageSummaryDeliverable,
   pickVerifiedQuote,
   shouldCommitVerifiedPage,
   upsertVerifiedPageTarget,
@@ -169,11 +172,32 @@ describe('verified step records', () => {
       { name: 'read_page_text', args: { max_chars: 20_000 } },
       read,
     ]);
+    expect(filterPageSummaryActions('总结当前页面', [click], { pageBodyRead: true })).toEqual([]);
   });
 
   it('leaves queued acts unchanged when the user asked to operate the page', () => {
     const click = { name: 'click_element', args: { index: 3 } };
     expect(filterPageSummaryActions('总结当前页面，然后点击下一页', [click])).toEqual([click]);
     expect(filterPageSummaryActions('打开淘宝首页', [click])).toEqual([click]);
+  });
+
+  it('builds a takeable summary from page wording instead of a click plan', () => {
+    expect(isPureCurrentPageSummaryInstruction('Write a short summary of the first three books on this page.')).toBe(
+      true,
+    );
+    expect(observationFrameForPageSummary('总结当前页面', { inaccessible: true })).toBeNull();
+    expect(observationFrameForPageSummary('打开淘宝首页', { inaccessible: true })).toEqual({ inaccessible: true });
+    expect(
+      pageSummaryDeliverable('click the first book', {
+        title: 'All products | Books to Scrape',
+        visibleText: 'A Light in the Attic £51.77 Tipping the Velvet £53.74 Soumission £50.10',
+      }),
+    ).toContain('A Light in the Attic');
+    expect(
+      pageSummaryDeliverable('A Light in the Attic, Tipping the Velvet, and Soumission are the first three books.', {
+        title: 'ignored',
+        visibleText: 'ignored',
+      }),
+    ).toBe('A Light in the Attic, Tipping the Velvet, and Soumission are the first three books.');
   });
 });

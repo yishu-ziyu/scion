@@ -95,18 +95,45 @@ const PAGE_OPERATION_INTENT =
 
 const READ_PAGE_TEXT_ACTION = { name: 'read_page_text', args: { max_chars: 20_000 } };
 
-function instructionIsPureCurrentPageSummary(instruction: string): boolean {
+export function isPureCurrentPageSummaryInstruction(instruction: string): boolean {
   const text = instruction.replace(/\s+/g, ' ').trim();
   if (!text || PAGE_OPERATION_INTENT.test(text) || !instructionPointsAtCurrentPage(text)) return false;
   return PAGE_SUMMARY_INTENT.test(text);
 }
 
-/** Pure current-page summary may observe/read. Rewrite click/fill/navigate to a page read. */
+/** Child iframe / leftover debugger must not block a current-page summary. */
+export function observationFrameForPageSummary<T>(instruction: string, frame: T): T | null {
+  if (isPureCurrentPageSummaryInstruction(instruction)) return null;
+  return frame;
+}
+
+/** Prefer a written takeaway; otherwise the visible page wording itself. */
+export function pageSummaryDeliverable(
+  observation: string,
+  page: { title?: string; visibleText?: string } | null | undefined,
+): string {
+  const written = observation.replace(/\s+/g, ' ').trim();
+  if (
+    written.length >= 8 &&
+    !PAGE_OPERATION_INTENT.test(written) &&
+    !/^Control loop candidate complete$/i.test(written)
+  ) {
+    return written;
+  }
+  const title = page?.title?.replace(/\s+/g, ' ').trim() ?? '';
+  const body = page?.visibleText?.replace(/\s+/g, ' ').trim() ?? '';
+  const fromPage = [title, body].filter(Boolean).join('\n').slice(0, 4_000);
+  return fromPage || written;
+}
+
+/** Pure current-page summary may observe/read. After a page read, stop acting. */
 export function filterPageSummaryActions<T extends { name: string; args: Record<string, unknown> }>(
   instruction: string,
   actions: readonly T[],
+  options: { pageBodyRead?: boolean } = {},
 ): T[] {
-  if (!instructionIsPureCurrentPageSummary(instruction)) return [...actions];
+  if (!isPureCurrentPageSummaryInstruction(instruction)) return [...actions];
+  if (options.pageBodyRead) return [];
   return actions.map(action =>
     PAGE_CHANGING_ACTIONS.has(action.name) || action.name === 'input_text'
       ? ({ ...action, ...READ_PAGE_TEXT_ACTION } as T)

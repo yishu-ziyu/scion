@@ -3,9 +3,11 @@ import { Actors, type Message } from '@extension/storage';
 import {
   applyChatStreamDelta,
   classifyChatTurn,
+  dispatchPageSummaryInterrupt,
   isChatOnlyMessage,
   isCurrentPageSummaryInstruction,
   shouldFollowUpOwnedTask,
+  shouldSupersedeOwnedTask,
 } from '../chat-turn';
 
 describe('isChatOnlyMessage', () => {
@@ -86,6 +88,29 @@ describe('current-page summary follow-up bind', () => {
   it('does not follow up when the session does not own a live task', () => {
     expect(shouldFollowUpOwnedTask(false, '总结当前页面')).toBe(false);
     expect(shouldFollowUpOwnedTask(false, '再试一次')).toBe(false);
+  });
+
+  it('interrupts an active owned task instead of starting a second loop', () => {
+    const sent: Array<{ type: string; taskId: string }> = [];
+    expect(shouldSupersedeOwnedTask(true, '总结当前页面')).toBe(true);
+    expect(shouldSupersedeOwnedTask(true, '再试一次')).toBe(false);
+    expect(shouldSupersedeOwnedTask(false, '再试一次')).toBe(true);
+    dispatchPageSummaryInterrupt(
+      command => {
+        sent.push(command);
+        return true;
+      },
+      { id: 'task-1', revision: 4 },
+      'Write a short summary of the first three books on this page.',
+      true,
+    );
+    expect(sent).toEqual([{ type: 'cancel', commandId: expect.any(String), taskId: 'task-1', expectedRevision: 4 }]);
+    sent.length = 0;
+    dispatchPageSummaryInterrupt(command => {
+      sent.push(command);
+      return true;
+    }, { id: 'task-1', revision: 4 }, '总结当前页面', false);
+    expect(sent).toEqual([]);
   });
 });
 

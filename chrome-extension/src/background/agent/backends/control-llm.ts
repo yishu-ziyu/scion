@@ -34,7 +34,13 @@ import type {
   ObservedPageSnapshot,
   VerifiedPageRecord,
 } from '../../task/contracts';
-import { filterPageSummaryActions, formatVerifiedPagesForPrompt } from '../../task/verified-step-records';
+import {
+  filterPageSummaryActions,
+  formatVerifiedPagesForPrompt,
+  isPureCurrentPageSummaryInstruction,
+  observationFrameForPageSummary,
+  pageSummaryDeliverable,
+} from '../../task/verified-step-records';
 import {
   applyInaccessibleIframeGate,
   applyLoginWallGate,
@@ -560,6 +566,15 @@ export async function createLlmControlDriver(
         if (stateText === NO_PAGE_SNAPSHOT) {
           return { kind: 'done', summary };
         }
+        if (isPureCurrentPageSummaryInstruction(instruction)) {
+          return {
+            kind: 'done',
+            summary: pageSummaryDeliverable(summary, {
+              title: currentFrame?.tab.title,
+              visibleText: currentFrame?.visibleText,
+            }),
+          };
+        }
         const pageText = pageTextForSupervisor({
           url: currentFrame?.tab.url,
           title: currentFrame?.tab.title,
@@ -953,7 +968,10 @@ export async function createLlmControlDriver(
               actions: queued,
             };
             decision = applyLoginWallGate(decision, currentFrame);
-            decision = applyInaccessibleIframeGate(decision, currentFrame);
+            decision = applyInaccessibleIframeGate(
+              decision,
+              observationFrameForPageSummary(instruction, currentFrame),
+            );
           } catch (error) {
             logger.error('control JSON parse failed', error);
             return { kind: 'recoverable', category: 'json_parse_failed' };
@@ -995,6 +1013,7 @@ export async function createLlmControlDriver(
             hasAction: Boolean(decision.action),
             hasPageBody: pageBodyRead,
             pageAttached: stateText !== NO_PAGE_SNAPSHOT,
+            pageSummaryReady: isPureCurrentPageSummaryInstruction(instruction),
           });
           if (delivery.kind === 'read_page') {
             return {
@@ -1022,13 +1041,17 @@ export async function createLlmControlDriver(
             return settleProposedDone(decision.observation || 'Control loop candidate complete', stateText);
           }
 
-          const queued = filterPageSummaryActions(instruction, decision.actions);
+          const queued = filterPageSummaryActions(instruction, decision.actions, { pageBodyRead });
           const first = queued[0];
           if (!first) {
             if (pageBodyRead) {
-              const retry = decideVisiblePageWithoutAction(lastActionMemory || JUDGE_PAGE_THEN_WRITE);
-              lastActionMemory = retry.memory;
-              return retry.decision;
+              return settleProposedDone(
+                pageSummaryDeliverable(decision.observation, {
+                  title: currentFrame?.tab.title,
+                  visibleText: currentFrame?.visibleText,
+                }),
+                stateText,
+              );
             }
             return { kind: 'recoverable', category: 'no_action' };
           }

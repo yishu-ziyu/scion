@@ -42,7 +42,9 @@ import { resolveActiveContentTab } from './presentation/active-tab-runtime';
 import {
   applyChatStreamDelta,
   classifyChatTurn,
+  dispatchPageSummaryInterrupt,
   shouldFollowUpOwnedTask,
+  shouldSupersedeOwnedTask,
   type ChatStreamState,
 } from './presentation/chat-turn';
 import { canBootstrapReconnectSnapshot, reconnectTaskSnapshotRequest } from './presentation/task-reconnect';
@@ -1407,7 +1409,13 @@ const SidePanel = () => {
       setInputEnabled(false);
       if (startingFreshSession) {
         const supersededTask = taskSnapshotRef.current;
-        if (supersededTask && !isActiveTaskStatus(supersededTask.status)) {
+        if (supersededTask && shouldSupersedeOwnedTask(isActiveTaskStatus(supersededTask.status), text)) {
+          dispatchPageSummaryInterrupt(
+            sendTaskCommand,
+            supersededTask,
+            text,
+            isActiveTaskStatus(supersededTask.status),
+          );
           dismissedTaskIdsRef.current.add(supersededTask.id);
           taskSnapshotRef.current = null;
           if (authoritativeTaskSnapshotRef.current?.id === supersededTask.id) {

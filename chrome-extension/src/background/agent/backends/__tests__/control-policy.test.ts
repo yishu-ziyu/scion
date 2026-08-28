@@ -597,5 +597,18 @@ describe('observationSupportsWaitingUser', () => {
     );
     expect(fill.action).toBeNull();
     expect(fill.waitingUser).toBe('target_missing');
+    const skipped = applyInaccessibleIframeGate(
+      {
+        observation: 'three books listed',
+        criteria: [],
+        done: true,
+        action: null,
+        actions: [],
+        waitingUser: null,
+      },
+      null,
+    );
+    expect(skipped.done).toBe(true);
+    expect(skipped.waitingUser).toBeNull();
   });
 });

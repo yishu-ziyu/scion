@@ -131,4 +131,28 @@ describe('resolveControlDelivery', () => {
       }),
     ).toEqual({ kind: 'act' });
   });
+
+  it('completes a current-page summary from page text instead of acting', () => {
+    expect(
+      resolveControlDelivery({
+        done: false,
+        observation: 'click the first book',
+        hasAction: true,
+        hasPageBody: true,
+        pageSummaryReady: true,
+      }),
+    ).toEqual({ kind: 'complete' });
+  });
+
+  it('still reads the page when a current-page summary has no body yet', () => {
+    expect(
+      resolveControlDelivery({
+        done: false,
+        observation: 'summarize this page',
+        hasAction: false,
+        hasPageBody: false,
+        pageSummaryReady: true,
+      }),
+    ).toEqual({ kind: 'read_page', observation: READ_PAGE_BEFORE_RESULT });
+  });
 });

@@ -45,8 +45,11 @@ export function resolveControlDelivery(input: {
   hasPageBody: boolean;
   /** False on the first decide before any debugger attach. Defaults true. */
   pageAttached?: boolean;
+  /** Pure current-page summary: finish from the page text instead of acting. */
+  pageSummaryReady?: boolean;
 }): ControlDeliveryResolution {
   if (input.pageAttached === false) return resolveUnattachedDelivery(input);
+  if (input.pageSummaryReady && input.hasPageBody) return { kind: 'complete' };
   if (input.done) {
     if (isPlaceholderDelivery(input.observation)) {
       if (!input.hasPageBody) return { kind: 'read_page', observation: READ_PAGE_BEFORE_RESULT };

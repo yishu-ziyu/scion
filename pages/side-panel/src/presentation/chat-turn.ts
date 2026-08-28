@@ -6,7 +6,7 @@
  * Doubt always falls to the task loop: only messages that clearly do not
  * touch the page take the chat path.
  */
-import type { Message } from '@extension/storage';
+import type { Message, TaskCommand } from '@extension/storage';
 import { instructionPointsAtCurrentPage } from './active-tab-bind';
 
 /** Verbs that mean "operate the browser / this page", not "talk to me". */
@@ -24,9 +24,33 @@ export function isCurrentPageSummaryInstruction(text: string): boolean {
   return PAGE_SUMMARY_INTENT.test(trimmed);
 }
 
-/** Follow-up keeps the prior task tab. Current-page summary must start against the visible tab. */
+/**
+ * Follow-up keeps the prior task tab. Current-page summary never follow-ups.
+ * If that owned task is still active, interrupt it first, then start — one request, not a second loop.
+ */
 export function shouldFollowUpOwnedTask(canFollowUp: boolean, instruction: string): boolean {
   return canFollowUp && !isCurrentPageSummaryInstruction(instruction);
+}
+
+/** Completed tasks and current-page summaries both leave the prior snapshot. */
+export function shouldSupersedeOwnedTask(taskActive: boolean, instruction: string): boolean {
+  return !taskActive || isCurrentPageSummaryInstruction(instruction);
+}
+
+/** Stop the live owned task so 总结当前页面 can bind the visible tab. */
+export function dispatchPageSummaryInterrupt(
+  send: (command: TaskCommand) => boolean,
+  task: { id: string; revision: number } | null | undefined,
+  instruction: string,
+  taskActive: boolean,
+): void {
+  if (!task || !taskActive || !isCurrentPageSummaryInstruction(instruction)) return;
+  send({
+    type: 'cancel',
+    commandId: crypto.randomUUID(),
+    taskId: task.id,
+    expectedRevision: task.revision,
+  });
 }
 
 /** Page-summary instructions start a task so steps and 已完成 can appear. */
