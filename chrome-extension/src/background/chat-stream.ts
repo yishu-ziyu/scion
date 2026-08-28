@@ -1,8 +1,6 @@
 import {
   createOpenAICompatibleRuntime,
-  runRecipe,
   selectRuntime,
-  webChatRecipe,
   type ChatTurn,
   type RuntimeFactory,
   type SelectRuntimeResult,
@@ -20,7 +18,12 @@ import {
   type ModelConfig,
   type ProviderConfig,
 } from '@extension/storage';
+import type { LanguageModel, ModelMessage } from 'ai';
 import { createLogger } from './log';
+import { createCompatibleLanguageModel } from './orchestrator/model';
+import { runOrchestratorTurn } from './orchestrator/run';
+import { tryCheapStop } from './orchestrator/stop';
+import type { OrchestratorHost } from './orchestrator/types';
 import {
   attachRecalledSources,
   recallSavedSources as recallSavedSourcesFromLibrary,
@@ -42,6 +45,7 @@ export interface ChatStreamRequest {
 export type ChatStreamEvent =
   | { type: 'chat_stream_source'; sessionId: string; source: { title: string; url: string } }
   | { type: 'chat_stream_delta'; sessionId: string; text: string }
+  | { type: 'chat_stream_worker_started'; sessionId: string }
   | { type: 'chat_stream_done'; sessionId: string }
   | { type: 'chat_stream_error'; sessionId: string; error: string };
 
@@ -50,7 +54,7 @@ export interface ChatStreamPort {
 }
 
 /** Everything the handler reads from the outside world; tests inject fakes. */
-export interface ChatStreamDeps {
+export interface ChatStreamDeps extends OrchestratorHost {
   getProviders: () => Promise<Record<string, ProviderConfig>>;
   getAgentModels: () => Promise<Partial<Record<AgentNameEnum, ModelConfig>>>;
   getApiKey: (ref: string) => Promise<string | null>;
@@ -178,50 +182,111 @@ async function loadHistoryTurns(
   }
 }
 
+function toModelMessages(turns: ChatTurn[]): ModelMessage[] {
+  return turns
+    .filter(
+      (turn): turn is ChatTurn & { role: 'system' | 'user' | 'assistant' } =>
+        turn.role === 'system' || turn.role === 'user' || turn.role === 'assistant',
+    )
+    .map(turn => ({ role: turn.role, content: turn.content }));
+}
+
+function postPort(port: ChatStreamPort, message: ChatStreamEvent): boolean {
+  try {
+    port.postMessage(message);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveLanguageModel(
+  deps: ChatStreamDeps,
+): Promise<{ ok: true; model: LanguageModel } | { ok: false; error: string }> {
+  const result = await resolveChatRuntime(deps);
+  if (!result?.ok) {
+    const error =
+      result?.reason === 'missing_api_key'
+        ? `chat 模型缺少 API key（${result.provider.id}）`
+        : CHAT_STREAM_UNBOUND_ERROR;
+    return { ok: false, error };
+  }
+  const apiKey = await deps.getApiKey(result.provider.apiKeyRef);
+  if (!apiKey) return { ok: false, error: `chat 模型缺少 API key（${result.provider.id}）` };
+  const model = (deps.createLanguageModel ?? createCompatibleLanguageModel)({
+    modelId: result.model.modelId,
+    apiKey,
+    baseUrl: result.provider.baseUrl,
+    providerId: result.provider.id,
+    adapterType: result.provider.adapterType,
+  });
+  if (!model) return { ok: false, error: `adapter "${result.provider.adapterType}" 还没接入 chat 直连` };
+  return { ok: true, model };
+}
+
+function emitOrchestratorEvent(
+  post: (message: ChatStreamEvent) => boolean,
+  sessionId: string,
+  event:
+    | { type: 'delta'; text: string }
+    | { type: 'worker_started' }
+    | { type: 'done' }
+    | { type: 'error'; error: string },
+): boolean {
+  if (event.type === 'delta') return post({ type: 'chat_stream_delta', sessionId, text: event.text });
+  if (event.type === 'worker_started') return post({ type: 'chat_stream_worker_started', sessionId });
+  if (event.type === 'error') {
+    post({ type: 'chat_stream_error', sessionId, error: event.error });
+    return false;
+  }
+  return post({ type: 'chat_stream_done', sessionId });
+}
+
 /**
  * Handle one `chat_stream` request from the side panel: resolve the chat
- * feature model through contracts + agent-core, then push every token back
- * over the port. Key material stays inside this handler (service worker).
+ * model, then run the orchestrator (which may delegate to a worker).
+ * Key material stays inside this handler (service worker).
  */
 export function createChatStreamHandler(deps: ChatStreamDeps) {
   return async function handleChatStream(request: ChatStreamRequest, port: ChatStreamPort): Promise<void> {
     const { sessionId, text } = request;
-    const post = (message: ChatStreamEvent): boolean => {
-      try {
-        port.postMessage(message);
-        return true;
-      } catch {
-        return false; // panel closed mid-stream; drop the rest
-      }
-    };
+    const post = (message: ChatStreamEvent): boolean => postPort(port, message);
 
-    const result = await resolveChatRuntime(deps);
-    if (!result?.ok) {
-      const detail =
-        result?.reason === 'missing_api_key'
-          ? `chat 模型缺少 API key（${result.provider.id}）`
-          : CHAT_STREAM_UNBOUND_ERROR;
-      post({ type: 'chat_stream_error', sessionId, error: detail });
+    const stopped = await tryCheapStop({ text, sessionId, host: deps });
+    if (stopped) {
+      if (post({ type: 'chat_stream_delta', sessionId, text: stopped })) {
+        post({ type: 'chat_stream_done', sessionId });
+      }
+      return;
+    }
+
+    const resolved = await resolveLanguageModel(deps);
+    if (!resolved.ok) {
+      post({ type: 'chat_stream_error', sessionId, error: resolved.error });
       return;
     }
 
     const recalled = await recallForChat(deps, text);
-    const messages = attachRecalledSources(await loadHistoryTurns(deps.getSessionMessages, sessionId, text), recalled);
+    const messages = toModelMessages(
+      attachRecalledSources(await loadHistoryTurns(deps.getSessionMessages, sessionId, text), recalled),
+    );
     if (!emitRecalledSource(post, sessionId, recalled[0])) return;
 
-    let finished = false;
-    for await (const event of runRecipe(webChatRecipe, { runtime: result.runtime, model: result.model, messages })) {
-      if (event.type === 'token') {
-        if (!post({ type: 'chat_stream_delta', sessionId, text: event.text })) return;
-      } else if (event.type === 'done') {
-        post({ type: 'chat_stream_done', sessionId });
-        finished = true;
-      } else {
-        post({ type: 'chat_stream_error', sessionId, error: event.text });
-        finished = true;
-      }
+    try {
+      await runOrchestratorTurn({
+        model: resolved.model,
+        messages,
+        host: { ...deps, workerModel: deps.workerModel ?? resolved.model },
+        sessionId,
+        onEvent: event => emitOrchestratorEvent(post, sessionId, event),
+      });
+    } catch (error) {
+      post({
+        type: 'chat_stream_error',
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-    if (!finished) post({ type: 'chat_stream_done', sessionId });
   };
 }
 
@@ -235,7 +300,14 @@ export const productionChatStreamDeps: ChatStreamDeps = {
   recallSavedSources: query => recallSavedSourcesFromLibrary(query),
 };
 
-export const handleChatStream = createChatStreamHandler(productionChatStreamDeps);
+let productionHandler = createChatStreamHandler(productionChatStreamDeps);
+
+/** Attach TaskManager / page-read host after the service worker constructs them. */
+export function attachChatStreamHost(host: OrchestratorHost): void {
+  productionHandler = createChatStreamHandler({ ...productionChatStreamDeps, ...host });
+}
+
+export const handleChatStream = (request: ChatStreamRequest, port: ChatStreamPort) => productionHandler(request, port);
 
 /** Validate an incoming port message; returns the request or null. */
 export function parseChatStreamRequest(message: unknown): ChatStreamRequest | null {

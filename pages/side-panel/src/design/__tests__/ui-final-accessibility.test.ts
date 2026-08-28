@@ -72,6 +72,8 @@ describe('final side-panel accessibility gates', () => {
 
   it('gives the live stream a thinking fold and a takeover control', () => {
     expect(workStream).toContain('chat_task_thinking_heading');
+    expect(workStream).toContain('chat_task_thinking_live');
+    expect(taskStatusCard).toContain('ThinkingFold');
     expect(taskStatusCard).toContain('chat_task_takeover');
     expect(taskStatusCard).toContain('data-testid="live-stop-generating"');
     expect(workStream).not.toContain('data-testid="live-stop-generating"');

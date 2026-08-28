@@ -37,7 +37,7 @@ vi.mock('../../../browser/context', () => ({
   },
 }));
 
-const createLlmControlDriver = vi.fn(async (...args: unknown[]) => {
+const createToolLoopControlDriver = vi.fn(async (...args: unknown[]) => {
   void args;
   return {
     run: vi.fn(),
@@ -48,8 +48,8 @@ const createLlmControlDriver = vi.fn(async (...args: unknown[]) => {
   };
 });
 
-vi.mock('../control-llm', () => ({
-  createLlmControlDriver: (...args: unknown[]) => createLlmControlDriver(...args),
+vi.mock('../tool-loop-control', () => ({
+  createToolLoopControlDriver: (...args: unknown[]) => createToolLoopControlDriver(...args),
 }));
 
 import { createExecutorDriver } from '../../factory';
@@ -60,13 +60,13 @@ describe('factory control driver', () => {
     vi.clearAllMocks();
   });
 
-  it('createExecutorDriver without scripted steps uses LLM control driver', async () => {
+  it('createExecutorDriver without scripted steps uses the tool-loop control driver', async () => {
     const hooks = { onPlan: vi.fn(), dispatchAction: vi.fn() };
     await createExecutorDriver({ taskId: 't', roundId: 'r', instruction: 'i', tabId: 1 }, hooks);
-    expect(createLlmControlDriver).toHaveBeenCalledOnce();
+    expect(createToolLoopControlDriver).toHaveBeenCalledOnce();
   });
 
-  it('createExecutorDriver with scripted steps does not call the LLM control driver', async () => {
+  it('createExecutorDriver with scripted steps does not call the tool-loop control driver', async () => {
     const hooks = {
       onPlan: vi.fn(async () => undefined),
       dispatchAction: vi.fn(async (_r, action, args) => ({
@@ -88,6 +88,6 @@ describe('factory control driver', () => {
     });
     const outcome = await driver.run('r');
     expect(outcome.kind).toBe('candidate_complete');
-    expect(createLlmControlDriver).not.toHaveBeenCalled();
+    expect(createToolLoopControlDriver).not.toHaveBeenCalled();
   });
 });

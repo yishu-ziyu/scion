@@ -178,6 +178,9 @@
   "chat_task_thinking_heading": {
     "message": "思考過程"
   },
+  "chat_task_thinking_live": {
+    "message": "思考中…"
+  },
   "chat_task_steps_heading": {
     "message": "執行步驟"
   },

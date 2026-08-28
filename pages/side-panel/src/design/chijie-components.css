@@ -1586,6 +1586,12 @@ button.chijie-answer-source:hover > span:not(.chijie-search-host) {
   padding-top: 2px;
 }
 
+.chijie-live-process {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 .chijie-process-disclosure {
   border-top: 1px solid var(--chijie-border);
 }
@@ -1918,18 +1924,12 @@ button.chijie-answer-source:hover > span:not(.chijie-search-host) {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  color: var(--chijie-paper-ink);
-  font-size: 13px;
-  font-weight: 450;
-  line-height: 20px;
-  letter-spacing: -0.005em;
-  animation: chijie-thinking-sentence-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.chijie-thinking:not([data-running='true']) .chijie-thinking-stream li {
   color: var(--chijie-muted);
   font-size: var(--chijie-text-sm);
   font-weight: var(--chijie-weight-regular);
+  line-height: 20px;
+  letter-spacing: -0.005em;
+  animation: chijie-thinking-sentence-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .chijie-tool-icon {
@@ -2534,19 +2534,20 @@ button.chijie-answer-source:hover > span:not(.chijie-search-host) {
 }
 
 .chijie-chat-log[data-live='true'] {
-  display: none;
+  display: block;
 }
 
 .chijie-chat-log[data-task-visible='true'] {
-  display: none;
+  display: block;
 }
 
-/* S4: task-active chat collapses so progress console stays first. */
+/* S4: live chat stays compact so the task card and thread both fit. */
 .chijie-chat-log[data-collapsed='true'] {
   flex: 0 0 auto;
   min-height: 0;
-  max-height: none;
-  overflow: visible;
+  max-height: 8.5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-top: 6px;
   padding-bottom: 6px;
 }

@@ -178,6 +178,9 @@
   "chat_task_thinking_heading": {
     "message": "Thinking"
   },
+  "chat_task_thinking_live": {
+    "message": "Thinking…"
+  },
   "chat_task_steps_heading": {
     "message": "Execution steps"
   },

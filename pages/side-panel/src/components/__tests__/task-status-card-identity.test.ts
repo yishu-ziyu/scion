@@ -659,15 +659,20 @@ describe('TaskStatusCard identity markers', () => {
     );
 
     expect(html).toContain('这篇在说什么？');
+    expect(html).toContain('data-testid="task-thinking-process"');
+    expect(html).toContain('思考中…');
+    expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('data-testid="task-process-disclosure"');
     expect(html).toContain('data-live="true"');
     expect(html).toContain('正在读取');
     expect(html).toContain('zhuanlan.zhihu.com');
     expect(html).toContain('接管');
+    expect(html.indexOf('task-thinking-process')).toBeLessThan(html.indexOf('task-now-summary'));
     expect(html).not.toContain('后台进行');
     expect(html).not.toContain('获取页面快照');
     expect(html).not.toContain('data-testid="live-cursor"');
     expect(html).not.toContain('chijie-now-line');
+    expect(html).not.toContain('SENTENCES');
   });
 
   it('uses a truthful terminal presence label instead of calling a failed task idle', () => {
