@@ -21,6 +21,10 @@ const REPORT_WORDS = /\breport\b|报告|短报/;
 const TABLE_EXTRACT = /(?:\bcsv\b|表格|\btable\b).{0,40}(?:extract|export|列出|提取|导出)|(?:extract|export|列出|提取|导出).{0,40}(?:\bcsv\b|表格|\btable\b)/i;
 const PRICE_LINE = /^(?:[£$€¥]\s*)?\d[\d,]*(?:\.\d{1,2})?(?:\s*(?:USD|EUR|GBP|CAD|AUD))?$/i;
 const INLINE_PRICE = /([£$€¥]\s*\d[\d,]*(?:\.\d{1,2})?|\d[\d,]*(?:\.\d{1,2})?\s*(?:USD|EUR|GBP))/;
+const PRICE_SPAN = /[£$€¥]\s*\d[\d,]*(?:\.\d{1,2})?|\d[\d,]*(?:\.\d{1,2})?\s*(?:USD|EUR|GBP|CAD|AUD)/g;
+const SKIP_PHRASE = /\b(?:in stock|add to basket|add to cart|\d+\s+reviews?|star rating)\b/gi;
+const JUNK_NAME =
+  /top items|scraped right now|welcome to|training site|demo website|results\s*-|warning!|e-commerce/i;
 const SKIP_NAME =
   /^(?:home|books?|in stock|add to basket|add to cart|(?:\d+\s+)?reviews?|star rating|view basket|next|previous|filter|sort|search|login|sign in|cart|checkout|copyright)$/i;
 
@@ -59,36 +63,29 @@ export function productCountFromInstruction(instruction: string): number {
 }
 
 export function parseNamePriceProducts(visibleText: string, max = 3): TwoSiteProduct[] {
-  const products: TwoSiteProduct[] = [];
-  const seen = new Set<string>();
-  const lines = visibleText
-    .split(/\n+/)
-    .map(line => line.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
+  return mergeProducts(parseProductsFromLines(visibleText, max), parseProductsFromPriceSpans(visibleText, max), max);
+}
 
-  const push = (name: string, price: string) => {
-    const n = name.replace(/\s+/g, ' ').trim();
-    const p = price.replace(/\s+/g, ' ').trim();
-    if (!n || !p || SKIP_NAME.test(n) || n.length > 120) return;
-    const key = `${n.toLowerCase()}|${p}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    products.push({ name: n, price: p });
+export function twoSitePageFromFrame(
+  frame: {
+    tab?: { url: string; title?: string };
+    url?: string;
+    title?: string;
+    visibleText?: string;
+    interactiveElements?: Array<{ text?: string; title?: string }>;
+  } | null,
+): { url: string; title?: string; visibleText: string } | null {
+  const url = frame?.tab?.url ?? frame?.url;
+  if (!frame || !url) return null;
+  const title = frame.tab?.title ?? frame.title;
+  const extras = (frame.interactiveElements ?? []).flatMap(element =>
+    [element.title, element.text].filter((value): value is string => Boolean(value?.trim())),
+  );
+  return {
+    url,
+    ...(title ? { title } : {}),
+    visibleText: [frame.visibleText ?? '', ...extras].filter(Boolean).join('\n'),
   };
-
-  for (let i = 0; i < lines.length && products.length < max; i++) {
-    const line = lines[i]!;
-    if (PRICE_LINE.test(line)) {
-      const name = nameBesidePrice(lines, i);
-      if (name) push(name, line);
-      continue;
-    }
-    const inline = INLINE_PRICE.exec(line);
-    if (!inline || inline.index === undefined) continue;
-    const name = line.slice(0, inline.index).replace(/[—–\-|:]+$/g, '').trim();
-    if (name) push(name, inline[1]!.trim());
-  }
-  return products;
 }
 
 export function applyTwoSiteReportObservation(
@@ -138,11 +135,16 @@ export function resolveTwoSiteReportTurn(
   if (page?.url) applyTwoSiteReportObservation(instruction, captures, page);
   const summary = twoSiteReportDeliverable(instruction, captures);
   if (summary) return { kind: 'done', summary };
+  const unread = unreadNamedUrls(instruction, captures);
+  if (unread[0]) {
+    if (page?.url && pageMatchesNamedUrl(page.url, unread[0]) && sourceNeedsProducts(instruction, captures, page.url)) {
+      return { kind: 'read', url: unread[0] };
+    }
+    return { kind: 'open', url: unread[0] };
+  }
   if (page?.url && sourceNeedsProducts(instruction, captures, page.url)) {
     return { kind: 'read', url: page.url };
   }
-  const unread = unreadNamedUrls(instruction, captures);
-  if (unread[0]) return { kind: 'open', url: unread[0] };
   return { kind: 'continue' };
 }
 
@@ -233,6 +235,120 @@ function hostFromUrl(value: string): string {
   } catch {
     return '';
   }
+}
+
+function parseProductsFromLines(visibleText: string, max: number): TwoSiteProduct[] {
+  const products: TwoSiteProduct[] = [];
+  const seen = new Set<string>();
+  const lines = visibleText
+    .split(/\n+/)
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const push = collectProduct(products, seen);
+  for (let i = 0; i < lines.length && products.length < max; i++) {
+    const line = lines[i]!;
+    if (PRICE_LINE.test(line)) {
+      const name = nameBesidePrice(lines, i);
+      if (name) push(name, line);
+      continue;
+    }
+    if (line.length > 120) continue;
+    const inline = INLINE_PRICE.exec(line);
+    if (!inline || inline.index === undefined) continue;
+    const name = line.slice(0, inline.index).replace(/[—–\-|:]+$/g, '').trim();
+    if (name) push(name, inline[1]!.trim());
+  }
+  return products;
+}
+
+function parseProductsFromPriceSpans(visibleText: string, max: number): TwoSiteProduct[] {
+  const products: TwoSiteProduct[] = [];
+  const seen = new Set<string>();
+  const push = collectProduct(products, seen);
+  const flat = visibleText.replace(/\s+/g, ' ').trim();
+  const matches = [...flat.matchAll(new RegExp(PRICE_SPAN.source, 'g'))];
+  let previousName = '';
+  for (let i = 0; i < matches.length && products.length < max; i++) {
+    const match = matches[i]!;
+    if (match.index === undefined) continue;
+    const prevEnd = i === 0 ? 0 : matches[i - 1]!.index! + matches[i - 1]![0].length;
+    const before = flat.slice(prevEnd, match.index);
+    const afterStart = match.index + match[0].length;
+    const afterEnd = i + 1 < matches.length ? matches[i + 1]!.index! : Math.min(flat.length, afterStart + 60);
+    const name = pickCollapsedName(before, flat.slice(afterStart, afterEnd), previousName);
+    if (!name) continue;
+    previousName = name;
+    push(name, match[0].trim());
+  }
+  return products;
+}
+
+function collectProduct(products: TwoSiteProduct[], seen: Set<string>) {
+  return (name: string, price: string) => {
+    const n = name.replace(/\s+/g, ' ').trim();
+    const p = price.replace(/\s+/g, ' ').trim();
+    if (!n || !p || SKIP_NAME.test(n) || isJunkName(n) || n.length > 120) return;
+    const key = p;
+    if (seen.has(key)) return;
+    seen.add(key);
+    products.push({ name: n, price: p });
+  };
+}
+
+function mergeProducts(first: TwoSiteProduct[], second: TwoSiteProduct[], max: number): TwoSiteProduct[] {
+  const merged = [...first];
+  const byPrice = new Map(first.map(item => [item.price, item]));
+  for (const item of second) {
+    const existing = byPrice.get(item.price);
+    if (existing) {
+      if (isBetterProductName(item.name, existing.name)) existing.name = item.name;
+      continue;
+    }
+    if (merged.length >= max) continue;
+    byPrice.set(item.price, item);
+    merged.push(item);
+  }
+  return merged.slice(0, max);
+}
+
+function isBetterProductName(candidate: string, current: string): boolean {
+  const stem = current.replace(/\.{2,}$/, '').trim();
+  if (/\.{2,}$/.test(current) && candidate.startsWith(stem) && candidate.length > stem.length) return true;
+  return false;
+}
+
+function pickCollapsedName(before: string, after: string, previousName: string): string | undefined {
+  const prev = lastProductChunk(before);
+  const next = firstProductChunk(after);
+  if (prev && prev !== previousName && !isJunkName(prev)) return expandTruncatedName(prev, next);
+  return next;
+}
+
+function lastProductChunk(before: string): string | undefined {
+  const words = stripSkipPhrases(before).split(/[.!?]/).pop()?.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean) ?? [];
+  const chunk = words.slice(-5).join(' ');
+  return isProductNameLine(chunk) ? chunk : undefined;
+}
+
+function firstProductChunk(after: string): string | undefined {
+  const words = stripSkipPhrases(after).replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  const chunk = words.slice(0, 5).join(' ');
+  return isProductNameLine(chunk) ? chunk : undefined;
+}
+
+function stripSkipPhrases(value: string): string {
+  return value.replace(SKIP_PHRASE, ' ');
+}
+
+function isJunkName(name: string): boolean {
+  return JUNK_NAME.test(name);
+}
+
+function expandTruncatedName(name: string, other?: string): string {
+  if (!other) return name;
+  const stem = name.replace(/\.{2,}$/, '').trim();
+  if (other.startsWith(stem) && other.length > name.length && other.length <= 80) return other;
+  return name;
 }
 
 function sourceNeedsProducts(

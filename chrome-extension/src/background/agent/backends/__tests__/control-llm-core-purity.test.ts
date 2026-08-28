@@ -37,6 +37,8 @@ describe('control-llm core purity (022)', () => {
     expect(codeOnly).toMatch(/resolveTwoSiteReportTurn/);
     expect(codeOnly).toMatch(/filterTwoSiteReportActions/);
     expect(codeOnly).toMatch(/skipInitialObserve:\s*!isTwoSiteProductReportInstruction\(input\.instruction\)/);
+    expect(codeOnly).toMatch(/decideTwoSiteReportTurn/);
+    expect(codeOnly).toMatch(/twoSitePageFromFrame/);
     expect(codeOnly).toMatch(/turn\.kind === 'read'/);
   });
 

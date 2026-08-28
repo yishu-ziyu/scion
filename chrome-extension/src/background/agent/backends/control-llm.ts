@@ -40,6 +40,7 @@ import {
   formatTwoSiteReportCapturesForPrompt,
   isTwoSiteProductReportInstruction,
   resolveTwoSiteReportTurn,
+  twoSitePageFromFrame,
   type TwoSiteReportCapture,
 } from '../../task/two-site-report';
 import {
@@ -216,6 +217,24 @@ export function memoryAfterAction(
   }
   return null;
 }
+
+function decideTwoSiteReportTurn(
+  instruction: string,
+  captures: Map<string, TwoSiteReportCapture>,
+  frame: ObservationFrame | null,
+): LoopDecision | null {
+  const turn = resolveTwoSiteReportTurn(instruction, captures, twoSitePageFromFrame(frame));
+  if (turn.kind === 'done') return { kind: 'done', summary: turn.summary };
+  if (turn.kind === 'open' || turn.kind === 'read') {
+    const stay = turn.kind === 'read';
+    return {
+      kind: 'action',
+      name: stay ? 'read_page_text' : 'open_tab',
+      args: stay ? { max_chars: 20_000 } : { url: turn.url },
+      observation: stay ? `读 ${turn.url}` : `打开 ${turn.url}`,
+    };
+  }
+  return null;
 
 export async function invokeWithTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
@@ -613,24 +632,7 @@ export async function createLlmControlDriver(
         }
       };
 
-      const twoSitePage = () =>
-        currentFrame
-          ? { url: currentFrame.tab.url, title: currentFrame.tab.title, visibleText: currentFrame.visibleText ?? '' }
-          : null;
-      const twoSiteDecision = (): LoopDecision | null => {
-        const turn = resolveTwoSiteReportTurn(input.instruction, twoSiteCaptures, twoSitePage());
-        if (turn.kind === 'done') return { kind: 'done', summary: turn.summary };
-        if (turn.kind === 'open' || turn.kind === 'read') {
-          const stay = turn.kind === 'read';
-          return {
-            kind: 'action',
-            name: stay ? 'read_page_text' : 'open_tab',
-            args: stay ? { max_chars: 20_000 } : { url: turn.url },
-            observation: stay ? `读 ${turn.url}` : `打开 ${turn.url}`,
-          };
-        }
-        return null;
-      };
+      const twoSiteDecision = () => decideTwoSiteReportTurn(input.instruction, twoSiteCaptures, currentFrame);
 
       const loopOutcome = await runObserveActLoop({
         skipInitialObserve: !isTwoSiteProductReportInstruction(input.instruction),

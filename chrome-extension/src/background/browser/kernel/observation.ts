@@ -89,6 +89,7 @@ export function digestInteractiveElements(state: PageState, limit = 80): Interac
       index,
       tagName: node.tagName || undefined,
       text: text || undefined,
+      ...optionalElementTitle(attrs),
       type: attrs.type,
       name: attrs.name,
       id: attrs.id,
@@ -107,6 +108,11 @@ export function digestInteractiveElements(state: PageState, limit = 80): Interac
     });
   }
   return out;
+}
+
+function optionalElementTitle(attrs: Record<string, string>): { title?: string } {
+  const title = `${attrs.title || attrs.alt || ''}`.replace(/\s+/g, ' ').trim();
+  return title ? { title } : {};
 }
 
 function stripSerializedControlValues(elementsText: string, state: PageState): string {

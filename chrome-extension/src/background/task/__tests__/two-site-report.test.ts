@@ -8,6 +8,7 @@ import {
   parseNamePriceProducts,
   productCountFromInstruction,
   resolveTwoSiteReportTurn,
+  twoSitePageFromFrame,
   twoSiteReportDeliverable,
   type TwoSiteReportCapture,
 } from '../two-site-report';
@@ -131,6 +132,30 @@ describe('two-site product report', () => {
     expect(parseNamePriceProducts(LIVE_ALLINONE_TEXT, 3).map(item => item.name).join('\n')).not.toContain(
       'Top items being scraped right now',
     );
+    const collapsedBooks = [
+      'Home Books Travel Mystery Historical Fiction Sequential Art Classics Philosophy Romance Womens Fiction Fiction Childrens Religion Nonfiction Music Default Science Fiction Sports and Games Fantasy New Adult Young Adult Science Poetry Paranormal Art Psychology Autobiography Parenting',
+      '1000 results - showing 1 to 20. Warning! This is a demo website for web scraping purposes. Prices and ratings here were randomly assigned and have no real meaning.',
+      'A Light in the Attic £51.77 In stock Add to basket Tipping the Velvet £53.74 In stock Add to basket Soumission £50.10 In stock Add to basket Sharp Objects £47.82',
+    ].join(' ');
+    expect(parseNamePriceProducts(collapsedBooks, 3)).toEqual([
+      { name: 'A Light in the Attic', price: '£51.77' },
+      { name: 'Tipping the Velvet', price: '£53.74' },
+      { name: 'Soumission', price: '£50.10' },
+    ]);
+    expect(
+      parseNamePriceProducts('Aspire E1-572G $581.99 Acer Predator Helios 300 $1187.98 Dell Vostro 15 $497.17', 3),
+    ).toEqual([
+      { name: 'Aspire E1-572G', price: '$581.99' },
+      { name: 'Acer Predator Helios 300', price: '$1187.98' },
+      { name: 'Dell Vostro 15', price: '$497.17' },
+    ]);
+    expect(
+      parseNamePriceProducts('$581.99 Aspire E1-572G $1187.98 Acer Predator Helios 300 $497.17 Dell Vostro 15', 3),
+    ).toEqual([
+      { name: 'Aspire E1-572G', price: '$581.99' },
+      { name: 'Acer Predator Helios 300', price: '$1187.98' },
+      { name: 'Dell Vostro 15', price: '$497.17' },
+    ]);
   });
 
   it('opens the unread named URL after the current page is read, then emits 结果 instead of bouncing', () => {
@@ -166,21 +191,21 @@ describe('two-site product report', () => {
     ).toBe('done');
   });
 
-  it('rereads an empty source instead of opening the other site or bouncing back', () => {
-    const captures = new Map<string, TwoSiteReportCapture>();
+  it('opens the second site after an empty first-page read instead of rereading until fail', () => {
+    const captures = new Map<TwoSiteReportCapture['key'], TwoSiteReportCapture>();
     expect(
       resolveTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
-        url: 'https://books.toscrape.com/catalogue/category/books_1/index.html',
+        url: 'https://books.toscrape.com/',
         visibleText: 'All products',
       }),
     ).toEqual({
-      kind: 'read',
-      url: 'https://books.toscrape.com/catalogue/category/books_1/index.html',
+      kind: 'open',
+      url: 'https://webscraper.io/test-sites/e-commerce/allinone',
     });
     expect(captures.size).toBe(0);
 
     applyTwoSiteReportObservation(LIVE_INSTRUCTION, captures, {
-      url: 'https://books.toscrape.com/catalogue/category/books_1/index.html',
+      url: 'https://books.toscrape.com/',
       visibleText: BOOKS_TEXT,
     });
     expect(
@@ -193,6 +218,29 @@ describe('two-site product report', () => {
       url: 'https://webscraper.io/test-sites/e-commerce/allinone',
     });
     expect(twoSiteReportDeliverable(LIVE_INSTRUCTION, captures)).toBeNull();
+  });
+
+  it('reads collapsed first-page wording then opens allinone', () => {
+    const captures = new Map<string, TwoSiteReportCapture>();
+    const page = twoSitePageFromFrame({
+      tab: { url: 'https://books.toscrape.com/', title: 'All products' },
+      visibleText: [
+        'Home Books Travel Mystery Historical Fiction Sequential Art Classics Philosophy Romance Womens Fiction Fiction Childrens Religion Nonfiction Music',
+        'A Light in the Attic £51.77 In stock Add to basket Tipping the Velvet £53.74 In stock Add to basket Soumission £50.10 In stock Add to basket',
+      ].join(' '),
+      interactiveElements: [{ title: 'A Light in the Attic', text: 'A Light in the ... £51.77' }],
+    });
+    expect(
+      resolveTwoSiteReportTurn(LIVE_INSTRUCTION, captures, page),
+    ).toEqual({
+      kind: 'open',
+      url: 'https://webscraper.io/test-sites/e-commerce/allinone',
+    });
+    expect(captures.get('current-page')?.products).toEqual([
+      { name: 'A Light in the Attic', price: '£51.77' },
+      { name: 'Tipping the Velvet', price: '£53.74' },
+      { name: 'Soumission', price: '£50.10' },
+    ]);
   });
 
   it('rewrites switch_tab bounce toward the unread source, then drops nav once both are read', () => {

@@ -242,6 +242,9 @@ export function deriveInstructionUrlPlan(instruction: string): InstructionUrlPla
   const analysis = analyzeInstructionLanguage(instruction);
   const sourceUrls = analysis.urls.map(occurrence => occurrence.value);
   const requiresOrderedSourceProof = instructionAffirmsTarget(analysis, 'ordered_sources');
+  if (isTwoSiteProductReportInstruction(instruction)) {
+    return { sourceUrls, currentPageUrls: [], requiresOrderedSourceProof: false };
+  }
 
   return {
     sourceUrls,
@@ -3645,7 +3648,6 @@ export class TaskManager {
    */
   private extractImplicitCompletionCriteria(instruction: string, tabOrigin?: string): CompletionCriterionDraft[] {
     const drafts: CompletionCriterionDraft[] = deriveFillOnlyFormCriteria(instruction);
-    if (isTwoSiteProductReportInstruction(instruction)) return drafts;
     const seen = new Set<string>();
     const fieldValues = this.extractUserFieldValues(instruction);
 
