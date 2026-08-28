@@ -239,6 +239,61 @@ describe('two-site product report', () => {
     ]);
   });
 
+  it('does not skip a truncated first book card or pair a later-grid tablet', () => {
+    const collapsedTruncatedBooks = [
+      'Home Books Travel Mystery Historical Fiction Sequential Art Classics Philosophy Romance Womens Fiction Fiction Childrens Religion Nonfiction Music Default Science Fiction Sports and Games Fantasy New Adult Young Adult Science Poetry Paranormal Art Psychology Autobiography Parenting',
+      '1000 results - showing 1 to 20. Warning! This is a demo website for web scraping purposes. Prices and ratings here were randomly assigned and have no real meaning.',
+      'A Light in the ... £51.77 In stock Add to basket Tipping the Velvet £53.74 In stock Add to basket Soumission £50.10 In stock Add to basket Sharp Objects £47.82',
+    ].join(' ');
+    expect(parseNamePriceProducts(collapsedTruncatedBooks, 3)).toEqual([
+      { name: 'A Light in the ...', price: '£51.77' },
+      { name: 'Tipping the Velvet', price: '£53.74' },
+      { name: 'Soumission', price: '£50.10' },
+    ]);
+    expect(parseNamePriceProducts(collapsedTruncatedBooks, 3).map(item => item.name)).not.toContain('Sharp Objects');
+
+    const booksPage = twoSitePageFromFrame({
+      tab: { url: 'https://books.toscrape.com/', title: 'All products | Books to Scrape' },
+      visibleText: collapsedTruncatedBooks,
+      interactiveElements: [
+        { title: 'A Light in the Attic', text: 'A Light in the ...' },
+        { title: 'Tipping the Velvet', text: 'Tipping the Velvet' },
+        { title: 'Soumission', text: 'Soumission' },
+        { title: 'Sharp Objects', text: 'Sharp Objects' },
+      ],
+    });
+    expect(parseNamePriceProducts(booksPage?.visibleText ?? '', 3)).toEqual([
+      { name: 'A Light in the Attic', price: '£51.77' },
+      { name: 'Tipping the Velvet', price: '£53.74' },
+      { name: 'Soumission', price: '£50.10' },
+    ]);
+
+    const allinonePage = twoSitePageFromFrame({
+      tab: { url: 'https://webscraper.io/test-sites/e-commerce/allinone', title: 'Allinone' },
+      visibleText: [
+        'Top items being scraped right now $494.71 Acer Aspire 3... Acer Aspire 128GB SSD, Windows 10 Home $1399 Windows 10 Home, Eng kbd $97.99',
+        'Computers Laptops $581.99 Aspire E1-572G Intel Core i5-4210U, 8GB RAM, 1TB HDD, 15.6", Windows 8.1 7 reviews',
+        '$1187.98 Acer Predator Helios 300 (PH317-51) 15.6", Core i7-7700HQ, 8GB, 1TB + 128GB SSD, Windows 10 Home 7 reviews',
+        '$497.17 Dell Vostro 15 (3568) Red Red, 15.6", Core i5-7200U, 4GB, 128GB SSD, Windows 10 Home, Eng kbd 7 reviews',
+        'Galaxy Tab 3 $97.99',
+      ].join(' '),
+      interactiveElements: [
+        { title: 'Galaxy Tab 3', text: 'Galaxy Tab 3 $97.99' },
+        { title: 'Aspire E1-572G', text: 'Aspire E1-572G' },
+        { title: 'Acer Predator Helios 300 (PH317-51)', text: 'Acer Predator Helios 300 (PH317-51)' },
+        { title: 'Dell Vostro 15 (3568) Red', text: 'Dell Vostro 15 (3568) Red' },
+      ],
+    });
+    expect(parseNamePriceProducts(allinonePage?.visibleText ?? '', 3)).toEqual([
+      { name: 'Aspire E1-572G', price: '$581.99' },
+      { name: 'Acer Predator Helios 300 (PH317-51)', price: '$1187.98' },
+      { name: 'Dell Vostro 15 (3568) Red', price: '$497.17' },
+    ]);
+    expect(parseNamePriceProducts(allinonePage?.visibleText ?? '', 3).map(item => `${item.name} ${item.price}`)).not.toContain(
+      'Galaxy Tab 3 $97.99',
+    );
+  });
+
   it('opens the unread named URL after the current page is read, then emits 结果 instead of bouncing', () => {
     const captures = new Map<string, TwoSiteReportCapture>();
     expect(

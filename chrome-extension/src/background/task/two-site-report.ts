@@ -27,6 +27,7 @@ const JUNK_NAME =
   /top items|scraped right now|welcome to|training site|demo website|results\s*-|warning!|e-commerce/i;
 const SKIP_NAME =
   /^(?:(?:home|books?|computers|laptops|tablets|phones)(?:\s+(?:home|books?|computers|laptops|tablets|phones))*|in stock|add to basket|add to cart|(?:\d+\s+)?reviews?|star rating|view basket|next|previous|filter|sort|search|login|sign in|cart|checkout|copyright)$/i;
+const TABLET_NAME = /\bgalaxy\s*tab\b|\btab\s*\d\b/i;
 const SPEC_NAME =
   /\b(?:\d+\s*gb\b|windows\s*\d|eng kbd|core i\d)\b|,.*,/i;
 const SPEC_START =
@@ -67,13 +68,19 @@ export function productCountFromInstruction(instruction: string): number {
 }
 
 export function parseNamePriceProducts(visibleText: string, max = 3): TwoSiteProduct[] {
-  const skipTruncated = /top items being scraped right now/i.test(visibleText);
+  const carousel = /top items being scraped right now/i.test(visibleText);
+  const pool = max + 3;
   let best: TwoSiteProduct[] = [];
   for (const region of catalogRegions(visibleText)) {
-    const parsed = mergeProducts(
-      parseProductsFromLines(region, max, skipTruncated),
-      parseProductsFromPriceSpans(region, max, skipTruncated),
+    const parsed = takeCatalogProducts(
+      mergeProducts(
+        parseProductsFromLines(region, pool, carousel),
+        parseProductsFromPriceSpans(region, pool, carousel),
+        pool,
+      ),
+      visibleText,
       max,
+      carousel,
     );
     if (parsed.length > best.length) best = parsed;
     if (best.length >= max) break;
@@ -93,9 +100,7 @@ export function twoSitePageFromFrame(
   const url = frame?.tab?.url ?? frame?.url;
   if (!frame || !url) return null;
   const title = frame.tab?.title ?? frame.title;
-  const extras = (frame.interactiveElements ?? []).flatMap(element =>
-    [element.title, element.text].filter((value): value is string => Boolean(value?.trim())),
-  );
+  const extras = (frame.interactiveElements ?? []).flatMap(elementExtra);
   return {
     url,
     ...(title ? { title } : {}),
@@ -256,12 +261,20 @@ function catalogRegions(text: string): string[] {
   const heading = text.search(/top items being scraped right now/i);
   if (heading < 0) return [text];
   const rest = text.slice(heading);
-  const catalog = rest.search(/\b(?:computers|laptops|tablets)\b/i);
+  const catalog = rest.search(/\b(?:computers|laptops)\b/i);
   if (catalog < 0) return [rest];
-  return [rest.slice(catalog), rest];
+  const slice = rest.slice(catalog);
+  return slice.length < 80 ? [rest] : [slice, rest];
 }
 
-function parseProductsFromLines(visibleText: string, max: number, skipTruncated = false): TwoSiteProduct[] {
+function elementExtra(element: { text?: string; title?: string }): string[] {
+  const title = element.title?.trim();
+  if (title) return [title];
+  const text = element.text?.trim();
+  return text ? [text] : [];
+}
+
+function parseProductsFromLines(visibleText: string, max: number, skipCarousel = false): TwoSiteProduct[] {
   const products: TwoSiteProduct[] = [];
   const seen = new Set<string>();
   const usedNames = new Set<string>();
@@ -269,7 +282,7 @@ function parseProductsFromLines(visibleText: string, max: number, skipTruncated 
     .split(/\n+/)
     .map(line => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
-  const push = collectProduct(products, seen, skipTruncated);
+  const push = collectProduct(products, seen, skipCarousel);
   for (let i = 0; i < lines.length && products.length < max; i++) {
     takeLineProduct(lines, i, usedNames, push);
   }
@@ -303,10 +316,10 @@ function rememberProduct(
   if (name && push(name, price)) usedNames.add(name);
 }
 
-function parseProductsFromPriceSpans(visibleText: string, max: number, skipTruncated = false): TwoSiteProduct[] {
+function parseProductsFromPriceSpans(visibleText: string, max: number, skipCarousel = false): TwoSiteProduct[] {
   const products: TwoSiteProduct[] = [];
   const seen = new Set<string>();
-  const push = collectProduct(products, seen, skipTruncated);
+  const push = collectProduct(products, seen, skipCarousel);
   const flat = visibleText.replace(/\s+/g, ' ').trim();
   const matches = [...flat.matchAll(new RegExp(PRICE_SPAN.source, 'g'))];
   let previousName = '';
@@ -324,17 +337,54 @@ function parseProductsFromPriceSpans(visibleText: string, max: number, skipTrunc
   return products;
 }
 
-function collectProduct(products: TwoSiteProduct[], seen: Set<string>, skipTruncated = false) {
+function collectProduct(products: TwoSiteProduct[], seen: Set<string>, skipCarousel = false) {
   return (name: string, price: string): boolean => {
     const n = name.replace(/\s+/g, ' ').trim();
     const p = price.replace(/\s+/g, ' ').trim();
     if (!n || !p || !isProductNameLine(n) || isJunkName(n)) return false;
-    if (skipTruncated && /\.{2,}$/.test(n)) return false;
+    if (skipCarousel && isCarouselNoiseName(n)) return false;
     if (seen.has(p)) return false;
     seen.add(p);
     products.push({ name: n, price: p });
     return true;
   };
+}
+
+function takeCatalogProducts(
+  items: TwoSiteProduct[],
+  page: string,
+  max: number,
+  carousel: boolean,
+): TwoSiteProduct[] {
+  const expanded = items.map(item => ({
+    name: polishProductName(item.name, page),
+    price: item.price,
+  }));
+  if (!carousel) return expanded.slice(0, max);
+  const catalog = expanded.filter(item => !isCarouselNoiseName(item.name));
+  return (catalog.length >= max ? catalog : expanded).slice(0, max);
+}
+
+function isCarouselNoiseName(name: string): boolean {
+  return /\.{2,}$/.test(name) || TABLET_NAME.test(name);
+}
+
+function polishProductName(name: string, page: string): string {
+  const expanded = expandTruncatedFromText(name, page);
+  if (expanded !== name) return expanded;
+  for (const raw of page.split(/\n+/)) {
+    const line = raw.replace(/\s+/g, ' ').trim();
+    if (
+      line.startsWith(name) &&
+      line.length > name.length &&
+      line.length <= 80 &&
+      isProductNameLine(line) &&
+      !TABLET_NAME.test(line)
+    ) {
+      return line;
+    }
+  }
+  return name;
 }
 
 function mergeProducts(first: TwoSiteProduct[], second: TwoSiteProduct[], max: number): TwoSiteProduct[] {
@@ -362,13 +412,22 @@ function isBetterProductName(candidate: string, current: string): boolean {
 function pickCollapsedName(before: string, after: string, previousName: string): string | undefined {
   const prev = lastProductChunk(before);
   const next = firstProductChunk(after);
-  if (prev && prev !== previousName && !isJunkName(prev)) return expandTruncatedName(prev, next);
+  if (prev && !sameProductName(prev, previousName) && !isJunkName(prev)) return expandTruncatedName(prev, next);
   return next;
 }
 
+function sameProductName(left: string, right: string): boolean {
+  if (!left || !right) return false;
+  return left === right || left.startsWith(right) || right.startsWith(left);
+}
+
 function lastProductChunk(before: string): string | undefined {
-  const words = stripSkipPhrases(before).split(/[.!?]/).pop()?.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean) ?? [];
-  const chunk = words.slice(-5).join(' ');
+  const sentence = stripSkipPhrases(before)
+    .replace(/\.{2,}/g, '\u2026')
+    .split(/[.!?]/)
+    .pop();
+  const words = sentence?.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean) ?? [];
+  const chunk = words.slice(-5).join(' ').replace(/\u2026/g, '...');
   return isProductNameLine(chunk) ? chunk : undefined;
 }
 
@@ -400,6 +459,19 @@ function expandTruncatedName(name: string, other?: string): string {
   if (!other) return name;
   const stem = name.replace(/\.{2,}$/, '').trim();
   if (other.startsWith(stem) && other.length > name.length && other.length <= 80) return other;
+  return name;
+}
+
+function expandTruncatedFromText(name: string, page: string): string {
+  if (!/\.{2,}$/.test(name)) return name;
+  const stem = name.replace(/\s*\.{2,}$/, '').trim();
+  if (stem.length < 4) return name;
+  for (const raw of page.split(/\n+/)) {
+    const line = raw.replace(/\s+/g, ' ').trim();
+    if (line.startsWith(stem) && line.length > name.length && line.length <= 80 && !/\.{2,}$/.test(line) && isProductNameLine(line)) {
+      return line;
+    }
+  }
   return name;
 }
 
