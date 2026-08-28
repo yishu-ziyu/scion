@@ -120,7 +120,11 @@ describe('two-site control decide', () => {
       args: { url: 'https://webscraper.io/test-sites/e-commerce/allinone' },
     });
     const done = decideTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
-      tab: { id: 2, url: 'https://webscraper.io/test-sites/e-commerce/allinone', title: 'Allinone | Web Scraper Test Sites' },
+      tab: {
+        id: 2,
+        url: 'https://webscraper.io/test-sites/e-commerce/allinone',
+        title: 'Allinone | Web Scraper Test Sites',
+      },
       visibleText: [
         'Top items being scraped right now $494.71 Acer Aspire 3... 128GB SSD, Windows 10 Home $1399 Windows 10 Home, Eng kbd $97.99',
         'Computers Laptops $581.99 Aspire E1-572G Intel Core i5-4210U $1187.98 Acer Predator Helios 300 (PH317-51) $497.17 Dell Vostro 15 (3568) Red',
@@ -151,7 +155,7 @@ describe('two-site control decide', () => {
     expect(done.summary).not.toMatch(/Galaxy Tab 3|Tipping the Velvet — £51\.77|\$97\.99/);
   });
 
-  it('emits 结果 after both sites even when the second page has no parseable products', () => {
+  it('opens the laptops catalog when allinone has no parseable products', () => {
     const captures = new Map();
     expect(
       decideTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
@@ -161,15 +165,20 @@ describe('two-site control decide', () => {
         interactiveElements: [{ title: 'A Light in the Attic', text: 'A Light in the ...' }],
       } as never)?.kind,
     ).toBe('action');
-    const done = decideTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
-      tab: { id: 2, url: 'https://webscraper.io/test-sites/e-commerce/allinone', title: 'Allinone | Web Scraper Test Sites' },
+    const next = decideTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
+      tab: {
+        id: 2,
+        url: 'https://webscraper.io/test-sites/e-commerce/allinone',
+        title: 'Allinone | Web Scraper Test Sites',
+      },
       visibleText: 'Allinone | Web Scraper Test Sites',
       interactiveElements: [],
     } as never);
-    expect(done?.kind).toBe('done');
-    if (done?.kind !== 'done') throw new Error('expected done');
-    expect(done.summary).toContain('A Light in the Attic');
-    expect(done.summary).toContain('£51.77');
-    expect(done.summary).toContain('webscraper.io');
+    expect(next).toEqual({
+      kind: 'action',
+      name: 'open_tab',
+      args: { url: 'https://webscraper.io/test-sites/e-commerce/allinone/computers/laptops' },
+      observation: '打开 https://webscraper.io/test-sites/e-commerce/allinone/computers/laptops',
+    });
   });
 });

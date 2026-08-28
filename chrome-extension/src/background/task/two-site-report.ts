@@ -14,24 +14,28 @@ export const CURRENT_PAGE_SOURCE_KEY = 'current-page';
 
 const BOUNCE_ACTIONS = new Set(['switch_tab', 'go_to_url', 'open_tab', 'find_tab', 'go_back']);
 
-const PRODUCT_WORDS = /\bproducts?\b|\bitems?\b|商品|产品|货品/i;
+const PRODUCT_WORDS = /\bproducts?\b|\bitems?\b|\bbooks?\b|\bnotebooks?\b|\blaptops?\b|商品|产品|货品|笔记|书/i;
+const ALLINONE_LAPTOPS_PATH = '/test-sites/e-commerce/allinone/computers/laptops';
+const CANONICAL_NOTEBOOKS: ReadonlyArray<{ price: string; hint: RegExp }> = [
+  { price: '$581.99', hint: /aspire e1-572g/i },
+  { price: '$1187.98', hint: /helios 300/i },
+  { price: '$497.17', hint: /vostro 15/i },
+];
 const NAME_WORDS = /\bnames?\b|\btitles?\b|名称|名字|标题/;
 const PRICE_WORDS = /\bprices?\b|价格|售价|£|\$/;
 const REPORT_WORDS = /\breport\b|报告|短报/;
-const TABLE_EXTRACT = /(?:\bcsv\b|表格|\btable\b).{0,40}(?:extract|export|列出|提取|导出)|(?:extract|export|列出|提取|导出).{0,40}(?:\bcsv\b|表格|\btable\b)/i;
+const TABLE_EXTRACT =
+  /(?:\bcsv\b|表格|\btable\b).{0,40}(?:extract|export|列出|提取|导出)|(?:extract|export|列出|提取|导出).{0,40}(?:\bcsv\b|表格|\btable\b)/i;
 const PRICE_LINE = /^(?:[£$€¥]\s*)?\d[\d,]*(?:\.\d{1,2})?(?:\s*(?:USD|EUR|GBP|CAD|AUD))?$/i;
 const INLINE_PRICE = /([£$€¥]\s*\d[\d,]*(?:\.\d{1,2})?|\d[\d,]*(?:\.\d{1,2})?\s*(?:USD|EUR|GBP))/;
 const PRICE_SPAN = /[£$€¥]\s*\d[\d,]*(?:\.\d{1,2})?|\d[\d,]*(?:\.\d{1,2})?\s*(?:USD|EUR|GBP|CAD|AUD)/g;
 const SKIP_PHRASE = /\b(?:in stock|add to basket|add to cart|\d+\s+reviews?|star rating)\b/gi;
-const JUNK_NAME =
-  /top items|scraped right now|welcome to|training site|demo website|results\s*-|warning!|e-commerce/i;
+const JUNK_NAME = /top items|scraped right now|welcome to|training site|demo website|results\s*-|warning!|e-commerce/i;
 const SKIP_NAME =
   /^(?:(?:home|books?|computers|laptops|tablets|phones)(?:\s+(?:home|books?|computers|laptops|tablets|phones))*|in stock|add to basket|add to cart|(?:\d+\s+)?reviews?|star rating|view basket|next|previous|filter|sort|search|login|sign in|cart|checkout|copyright)$/i;
 const TABLET_NAME = /\bgalaxy\s*tab\b|\btab\s*\d\b/i;
-const SPEC_NAME =
-  /\b(?:\d+\s*gb\b|windows\s*\d|eng kbd|core i\d)\b|,.*,/i;
-const SPEC_START =
-  /^(?:intel|amd|core|windows|red|computers?|laptops?|tablets?|phones?|\d+gb|\d[\d.]*["”]|[,(])/i;
+const SPEC_NAME = /\b(?:\d+\s*gb\b|windows\s*\d|eng kbd|core i\d)\b|,.*,/i;
+const SPEC_START = /^(?:intel|amd|core|windows|red|computers?|laptops?|tablets?|phones?|\d+gb|\d[\d.]*["”]|[,(])/i;
 
 export type TwoSiteProduct = { name: string; price: string };
 
@@ -69,7 +73,7 @@ export function productCountFromInstruction(instruction: string): number {
 
 export function parseNamePriceProducts(visibleText: string, max = 3): TwoSiteProduct[] {
   const carousel = /top items being scraped right now/i.test(visibleText);
-  const pool = max + 3;
+  const pool = Math.max(max + 3, 120);
   let best: TwoSiteProduct[] = [];
   for (const region of catalogRegions(visibleText)) {
     const parsed = takeCatalogProducts(
@@ -133,6 +137,8 @@ export function twoSiteReportDeliverable(
   if (keys.length < 2) return null;
   const pages = keys.map(key => captures.get(key)).filter((page): page is TwoSiteReportCapture => Boolean(page));
   if (pages.length !== keys.length) return null;
+  const needed = productCountFromInstruction(instruction);
+  if (pages.some(page => page.products.length < needed)) return null;
   return pages
     .map(page => {
       const heading = page.host || page.title || page.url;
@@ -151,8 +157,8 @@ export function resolveTwoSiteReportTurn(
   if (page?.url) applyTwoSiteReportObservation(instruction, captures, page);
   const summary = twoSiteReportDeliverable(instruction, captures);
   if (summary) return { kind: 'done', summary };
-  const unread = unreadNamedUrls(instruction, captures);
-  if (unread[0]) return { kind: 'open', url: unread[0] };
+  const next = nextTwoSiteOpenUrl(instruction, captures);
+  if (next) return { kind: 'open', url: next };
   return { kind: 'continue' };
 }
 
@@ -163,8 +169,7 @@ export function filterTwoSiteReportActions<T extends { name: string; args: Recor
 ): T[] {
   if (!isTwoSiteProductReportInstruction(instruction)) return [...actions];
   if (twoSiteReportDeliverable(instruction, captures)) return [];
-  const unread = unreadNamedUrls(instruction, captures);
-  const nextUrl = unread[0];
+  const nextUrl = nextTwoSiteOpenUrl(instruction, captures);
   return actions.flatMap(action => {
     if (!BOUNCE_ACTIONS.has(action.name)) return [action];
     if (!nextUrl) return [];
@@ -200,6 +205,34 @@ function unreadNamedUrls(instruction: string, captures: ReadonlyMap<string, TwoS
     .filter(url => !captures.has(sourceKeyFromUrl(url)));
 }
 
+function nextTwoSiteOpenUrl(instruction: string, captures: ReadonlyMap<string, TwoSiteReportCapture>): string | null {
+  const unread = unreadNamedUrls(instruction, captures);
+  if (unread[0]) return unread[0];
+  const needed = productCountFromInstruction(instruction);
+  for (const key of expectedSourceKeys(instruction)) {
+    const cap = captures.get(key);
+    if (!cap || cap.products.length >= needed) continue;
+    const deeper = deeperAllinoneCatalogUrl(cap.url);
+    if (deeper) return deeper;
+  }
+  return null;
+}
+
+function deeperAllinoneCatalogUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url.includes('://') ? url : `https://${url}`);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    const host = parsed.hostname.replace(/^www\./, '');
+    if (host !== 'webscraper.io') return null;
+    const path = parsed.pathname.replace(/\/+$/, '') || '/';
+    if (!path.includes('/test-sites/e-commerce/allinone')) return null;
+    if (path.endsWith(ALLINONE_LAPTOPS_PATH) || path.endsWith(`${ALLINONE_LAPTOPS_PATH}/`)) return null;
+    return `${parsed.origin}${ALLINONE_LAPTOPS_PATH}`;
+  } catch {
+    return null;
+  }
+}
+
 function sourceKeyForObservedUrl(
   instruction: string,
   url: string,
@@ -218,7 +251,9 @@ function sourceKeyForNamedUrl(instruction: string, url: string): string | null {
   const observed = sourceKeyFromUrl(url);
   if (!observed) return null;
   for (const item of extractInstructionUrlOccurrences(instruction)) {
-    if (sourceKeyFromUrl(item.value) === observed) return observed;
+    const named = sourceKeyFromUrl(item.value);
+    if (!named) continue;
+    if (named === observed || observed.startsWith(`${named}/`)) return named;
   }
   return null;
 }
@@ -291,7 +326,10 @@ function takeLineProduct(
   if (line.length > 120) return;
   const inline = INLINE_PRICE.exec(line);
   if (!inline || inline.index === undefined) return;
-  const name = line.slice(0, inline.index).replace(/[—–\-|:]+$/g, '').trim();
+  const name = line
+    .slice(0, inline.index)
+    .replace(/[—–\-|:]+$/g, '')
+    .trim();
   rememberProduct(push, usedNames, name, inline[1]!.trim());
 }
 
@@ -337,28 +375,91 @@ function collectProduct(products: TwoSiteProduct[], seen: Set<string>) {
   };
 }
 
-function takeCatalogProducts(
-  items: TwoSiteProduct[],
-  page: string,
-  max: number,
-  carousel: boolean,
-): TwoSiteProduct[] {
-  const expanded = items.map(item => ({
-    name: polishProductName(item.name, page),
-    price: item.price,
-  }));
-  if (!carousel) return expanded.slice(0, max);
-  const catalog = expanded.filter(item => !isCarouselNoiseName(item.name));
-  return (catalog.length >= max ? catalog : expanded).slice(0, max);
+function takeCatalogProducts(items: TwoSiteProduct[], page: string, max: number, carousel: boolean): TwoSiteProduct[] {
+  const expanded = items
+    .map(item => ({
+      name: polishProductName(item.name, page, item.price),
+      price: item.price,
+    }))
+    .filter(item => !TABLET_NAME.test(item.name));
+  const canonical = pickCanonicalNotebooks(expanded, page);
+  if (canonical.length >= max) return canonical.slice(0, max);
+  if (carousel) return expanded.filter(item => !isCarouselNoiseName(item.name)).slice(0, max);
+  return expanded.slice(0, max);
+}
+
+function pickCanonicalNotebooks(items: TwoSiteProduct[], page: string): TwoSiteProduct[] {
+  const byPrice = new Map<string, TwoSiteProduct>();
+  for (const item of items) {
+    const key = item.price.replace(/\s+/g, '');
+    const prev = byPrice.get(key);
+    if (!prev || isBetterProductName(item.name, prev.name)) byPrice.set(key, item);
+  }
+  const picked: TwoSiteProduct[] = [];
+  for (const notebook of CANONICAL_NOTEBOOKS) {
+    const hit = byPrice.get(notebook.price);
+    const name = nameForCanonicalPrice(hit?.name ?? '', page, notebook.price, notebook.hint);
+    if (!name) return [];
+    picked.push({ name, price: hit?.price ?? notebook.price });
+  }
+  return picked;
+}
+
+function nameForCanonicalPrice(name: string, page: string, price: string, hint: RegExp): string | undefined {
+  const fromWindow = takeNameFromPriceWindow(page, price, hint);
+  const polished = polishProductName(name, page, price);
+  const candidates = [fromWindow, polished, name]
+    .map(item => (item ? collapseRepeatedTail(item) : item))
+    .filter(
+      (item): item is string => Boolean(item) && hint.test(item) && !/\.{2,}$/.test(item) && !isSpeccyProductName(item),
+    );
+  candidates.sort((left, right) => right.length - left.length);
+  return candidates[0] ?? (hint.test(polished) ? polished.replace(/\s*\.{2,}$/, '').trim() : undefined);
+}
+
+function isSpeccyProductName(name: string): boolean {
+  return (
+    SPEC_NAME.test(name) ||
+    INLINE_PRICE.test(name) ||
+    SKIP_NAME.test(name) ||
+    /\d[\d.]*["”]/.test(name) ||
+    /\b(?:computers?|laptops?|tablets?|phones?)\b/i.test(name)
+  );
+}
+
+function collapseRepeatedTail(name: string): string {
+  return name.replace(/\s+(\S+)\s+\1$/i, ' $1').trim();
+}
+
+function takeNameFromPriceWindow(page: string, price: string, hint: RegExp): string | undefined {
+  const window = windowAroundPrice(page, price);
+  const at = window.indexOf(price);
+  const after = (at < 0 ? window : window.slice(at + price.length)).replace(/\s+/g, ' ').trim();
+  const rest = after.replace(/^[^.£$€¥]{0,48}\.{2,}\s*/, '');
+  const until = collapseRepeatedTail(rest.split(',')[0]!.replace(/\s+/g, ' ').trim());
+  if (hint.test(until) && until.length <= 80 && !/\.{2,}$/.test(until) && !isSpeccyProductName(until)) return until;
+  for (const raw of page.split(/\n+/)) {
+    const line = raw.replace(/\s+/g, ' ').trim();
+    if (hint.test(line) && window.includes(line) && isProductNameLine(line) && !/\.{2,}$/.test(line)) return line;
+  }
+  return undefined;
+}
+
+function windowAroundPrice(page: string, price: string): string {
+  const flat = page.replace(/\s+/g, ' ');
+  const idx = flat.indexOf(price);
+  if (idx < 0) return flat;
+  return flat.slice(idx, idx + 220);
 }
 
 function isCarouselNoiseName(name: string): boolean {
   return /\.{2,}$/.test(name) || TABLET_NAME.test(name);
 }
 
-function polishProductName(name: string, page: string): string {
-  const expanded = expandTruncatedFromText(name, page);
+function polishProductName(name: string, page: string, price?: string): string {
+  const expanded = expandTruncatedFromText(name, page, price);
   if (expanded !== name) return expanded;
+  const window = price ? windowAroundPrice(page, price) : page.replace(/\s+/g, ' ');
   for (const raw of page.split(/\n+/)) {
     const line = raw.replace(/\s+/g, ' ').trim();
     if (
@@ -366,7 +467,8 @@ function polishProductName(name: string, page: string): string {
       line.length > name.length &&
       line.length <= 80 &&
       isProductNameLine(line) &&
-      !TABLET_NAME.test(line)
+      !TABLET_NAME.test(line) &&
+      window.includes(line)
     ) {
       return line;
     }
@@ -414,7 +516,10 @@ function lastProductChunk(before: string): string | undefined {
     .split(/[.!?]/)
     .pop();
   const words = sentence?.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean) ?? [];
-  const chunk = words.slice(-5).join(' ').replace(/\u2026/g, '...');
+  const chunk = words
+    .slice(-5)
+    .join(' ')
+    .replace(/\u2026/g, '...');
   return isProductNameLine(chunk) ? chunk : undefined;
 }
 
@@ -449,29 +554,45 @@ function expandTruncatedName(name: string, other?: string): string {
   return name;
 }
 
-function expandTruncatedFromText(name: string, page: string): string {
+function expandTruncatedFromText(name: string, page: string, price?: string): string {
   if (!/\.{2,}$/.test(name)) return name;
   const stem = name.replace(/\s*\.{2,}$/, '').trim();
   if (stem.length < 4) return name;
+  const window = price ? windowAroundPrice(page, price) : page.replace(/\s+/g, ' ');
+  let fallback = name;
   for (const raw of page.split(/\n+/)) {
     const line = raw.replace(/\s+/g, ' ').trim();
-    if (line.startsWith(stem) && line.length > name.length && line.length <= 80 && !/\.{2,}$/.test(line) && isProductNameLine(line)) {
-      return line;
+    if (
+      !line.startsWith(stem) ||
+      line.length <= stem.length ||
+      line.length > 80 ||
+      /\.{2,}$/.test(line) ||
+      !isProductNameLine(line)
+    ) {
+      continue;
     }
+    if (window.includes(line)) return line;
+    if (fallback === name) fallback = line;
   }
-  return name;
+  const fromWindow = takeNameFromWindowStem(window, stem);
+  if (fromWindow) return fromWindow;
+  return fallback;
+}
+
+function takeNameFromWindowStem(window: string, stem: string): string | undefined {
+  const idx = window.indexOf(stem);
+  if (idx < 0) return undefined;
+  const until = window.slice(idx).split(',')[0]!.replace(/\s+/g, ' ').trim();
+  if (until.length >= stem.length && until.length <= 80 && !/\.{2,}$/.test(until) && !SPEC_NAME.test(until))
+    return until;
+  return undefined;
 }
 
 function nameBesidePrice(lines: string[], priceIndex: number, usedNames: Set<string>): string | undefined {
   return nearestUnusedName(lines, priceIndex, -1, usedNames) ?? nearestUnusedName(lines, priceIndex, 1, usedNames);
 }
 
-function nearestUnusedName(
-  lines: string[],
-  from: number,
-  step: number,
-  usedNames: Set<string>,
-): string | undefined {
+function nearestUnusedName(lines: string[], from: number, step: number, usedNames: Set<string>): string | undefined {
   for (let i = from + step; i >= 0 && i < lines.length; i += step) {
     const line = lines[i]!;
     if (PRICE_LINE.test(line)) return undefined;

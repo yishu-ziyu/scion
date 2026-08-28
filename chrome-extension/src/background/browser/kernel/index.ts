@@ -24,6 +24,7 @@ export {
   DEFAULT_VISIBLE_TEXT_CHARS,
   MIN_USABLE_PAGE_BODY_CHARS,
   hasUsablePageBody,
+  mergeVisibleTextWithLinkTitles,
   normalizeVisiblePageText,
 } from './visible-text';
 export { renderFormFieldsBlock, describeFormControl, isFillableControl } from './form-fields';
