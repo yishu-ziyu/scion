@@ -972,10 +972,7 @@ export async function createLlmControlDriver(
               actions: queued,
             };
             decision = applyLoginWallGate(decision, currentFrame);
-            decision = applyInaccessibleIframeGate(
-              decision,
-              observationFrameForPageSummary(instruction, currentFrame),
-            );
+            decision = applyInaccessibleIframeGate(decision, observationFrameForPageSummary(instruction, currentFrame));
           } catch (error) {
             logger.error('control JSON parse failed', error);
             return { kind: 'recoverable', category: 'json_parse_failed' };

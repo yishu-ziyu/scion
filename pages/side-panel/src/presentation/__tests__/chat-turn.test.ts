@@ -66,24 +66,21 @@ describe('classifyChatTurn', () => {
 });
 
 describe('current-page summary follow-up bind', () => {
-  it.each([
-    '总结当前页面',
-    '请概括一下这个网页',
-    'Write a short summary of the first three books on this page.',
-  ])('treats a pure current-page summary as not a follow-up: %s', message => {
-    expect(isCurrentPageSummaryInstruction(message)).toBe(true);
-    expect(shouldFollowUpOwnedTask(true, message)).toBe(false);
-  });
+  it.each(['总结当前页面', '请概括一下这个网页', 'Write a short summary of the first three books on this page.'])(
+    'treats a pure current-page summary as not a follow-up: %s',
+    message => {
+      expect(isCurrentPageSummaryInstruction(message)).toBe(true);
+      expect(shouldFollowUpOwnedTask(true, message)).toBe(false);
+    },
+  );
 
-  it.each([
-    '总结当前页面，然后点击下一页',
-    'summarize this page, then click Next',
-    '再试一次',
-    '你好',
-  ])('lets a non-summary or mixed instruction follow up the owned task: %s', message => {
-    expect(isCurrentPageSummaryInstruction(message)).toBe(false);
-    expect(shouldFollowUpOwnedTask(true, message)).toBe(true);
-  });
+  it.each(['总结当前页面，然后点击下一页', 'summarize this page, then click Next', '再试一次', '你好'])(
+    'lets a non-summary or mixed instruction follow up the owned task: %s',
+    message => {
+      expect(isCurrentPageSummaryInstruction(message)).toBe(false);
+      expect(shouldFollowUpOwnedTask(true, message)).toBe(true);
+    },
+  );
 
   it('does not follow up when the session does not own a live task', () => {
     expect(shouldFollowUpOwnedTask(false, '总结当前页面')).toBe(false);
@@ -106,10 +103,15 @@ describe('current-page summary follow-up bind', () => {
     );
     expect(sent).toEqual([{ type: 'cancel', commandId: expect.any(String), taskId: 'task-1', expectedRevision: 4 }]);
     sent.length = 0;
-    dispatchPageSummaryInterrupt(command => {
-      sent.push(command);
-      return true;
-    }, { id: 'task-1', revision: 4 }, '总结当前页面', false);
+    dispatchPageSummaryInterrupt(
+      command => {
+        sent.push(command);
+        return true;
+      },
+      { id: 'task-1', revision: 4 },
+      '总结当前页面',
+      false,
+    );
     expect(sent).toEqual([]);
   });
 });

@@ -37,7 +37,9 @@ describe('control-llm core purity (022)', () => {
     const parseAt = codeOnly.indexOf('parseControlPolicyDecision');
     const parseBlock = codeOnly.slice(parseAt, codeOnly.indexOf('control JSON parse failed', parseAt));
     expect(parseBlock.indexOf('filterPageSummaryActions')).toBeGreaterThan(0);
-    expect(parseBlock.indexOf('filterPageSummaryActions')).toBeLessThan(parseBlock.indexOf('applyInaccessibleIframeGate'));
+    expect(parseBlock.indexOf('filterPageSummaryActions')).toBeLessThan(
+      parseBlock.indexOf('applyInaccessibleIframeGate'),
+    );
     expect(codeOnly).toMatch(/skipInitialObserve:\s*!isPureCurrentPageSummaryInstruction\(instruction\)/);
   });
 

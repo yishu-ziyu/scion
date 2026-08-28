@@ -436,12 +436,7 @@ type PageContextFrameOutcome =
   | { frame: PageContextFrame; context: CollectedPageContext }
   | { frame: PageContextFrame; error: string };
 
-function collectedFromHtml(
-  html: string,
-  title: string,
-  url: string,
-  alreadyTruncated = false,
-): CollectedPageContext {
+function collectedFromHtml(html: string, title: string, url: string, alreadyTruncated = false): CollectedPageContext {
   const overLimit = html.length > PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT;
   const truncated = alreadyTruncated || overLimit;
   const bounded = overLimit ? html.slice(0, PAGE_CONTEXT_TOTAL_PAYLOAD_LIMIT) : html;
@@ -501,9 +496,7 @@ export async function collectPageContextFromTab(
   );
   const admitted = frames.slice(0, PAGE_CONTEXT_MAX_FRAMES);
   const budgets = allocateFramePayloadBudgets(admitted.length);
-  const outcomes = await Promise.all(
-    admitted.map((frame, index) => readOneFrame(tabId, frame, budgets[index], api)),
-  );
+  const outcomes = await Promise.all(admitted.map((frame, index) => readOneFrame(tabId, frame, budgets[index], api)));
   const top = outcomes.find(outcome => outcome.frame.frameId === 0);
   if (!top || !('context' in top)) {
     if (isRestrictedPageUrl(top?.frame.url ?? tab?.url)) return null;
