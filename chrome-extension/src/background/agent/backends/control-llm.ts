@@ -40,10 +40,7 @@ import {
   formatTwoSiteReportCapturesForPrompt,
   type TwoSiteReportCapture,
 } from '../../task/two-site-report';
-import {
-  decideTwoSiteReportTurn,
-  skipControlInitialObserve,
-} from './control-two-site';
+import { decideTwoSiteReportTurn, skipControlInitialObserve } from './control-two-site';
 import {
   applyInaccessibleIframeGate,
   applyLoginWallGate,

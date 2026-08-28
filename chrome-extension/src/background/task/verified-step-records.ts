@@ -49,7 +49,9 @@ export function verifiedStepRecordsEnabled(instruction: string): boolean {
 function twoSiteReportNeedsPageRecords(text: string, urlCount: number): boolean {
   if (urlCount < 1 || !instructionPointsAtCurrentPage(text)) return false;
   if (!/\bproducts?\b|商品|产品/.test(text)) return false;
-  return /\breport\b|报告/.test(text) || (/\bnames?\b|名称|名字|标题/.test(text) && /\bprices?\b|价格|售价|£|\$/.test(text));
+  return (
+    /\breport\b|报告/.test(text) || (/\bnames?\b|名称|名字|标题/.test(text) && /\bprices?\b|价格|售价|£|\$/.test(text))
+  );
 }
 
 export function stripQueryTokensFromRecordText(value: string): string {

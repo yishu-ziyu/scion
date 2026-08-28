@@ -410,9 +410,10 @@ function nameForCanonicalPrice(name: string, page: string, price: string, hint: 
   const polished = polishProductName(name, page, price);
   const candidates = [fromWindow, polished, name]
     .map(item => (item ? collapseRepeatedTail(item) : item))
-    .filter(
-      (item): item is string => Boolean(item) && hint.test(item) && !/\.{2,}$/.test(item) && !isSpeccyProductName(item),
-    );
+    .filter((item): item is string => {
+      if (!item) return false;
+      return hint.test(item) && !/\.{2,}$/.test(item) && !isSpeccyProductName(item);
+    });
   candidates.sort((left, right) => right.length - left.length);
   return candidates[0] ?? (hint.test(polished) ? polished.replace(/\s*\.{2,}$/, '').trim() : undefined);
 }

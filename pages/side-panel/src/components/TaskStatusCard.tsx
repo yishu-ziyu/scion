@@ -20,7 +20,12 @@ import { productFailureLabel, toProductFailureCode } from '../presentation/failu
 import { waitUserAction } from '../presentation/wait-affordance';
 import { deriveWaitAsk } from '../presentation/wait-ask';
 import { deriveTaskProgressView, stripTabCountPrefix } from '../presentation/task-progress-view';
-import { collectStreamSources, deriveWorkStream, verifiedPagesFromTargets, type StreamSource } from '../presentation/work-stream';
+import {
+  collectStreamSources,
+  deriveWorkStream,
+  verifiedPagesFromTargets,
+  type StreamSource,
+} from '../presentation/work-stream';
 import { isFollowingForeground } from '../presentation/run-presence';
 import { processNowBody, workStreamBody } from './ProcessDisclosure';
 import { AnswerProse } from './AnswerProse';
