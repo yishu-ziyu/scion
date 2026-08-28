@@ -32,6 +32,11 @@ function pageRef(
 describe('verified step records', () => {
   it('enables numbered IANA + wiki title instructions and skips the YouTube skill short path', () => {
     expect(verifiedStepRecordsEnabled(IANA_INSTRUCTION)).toBe(true);
+    expect(
+      verifiedStepRecordsEnabled(
+        'Write a short report of the first 3 products on this page and the first 3 products on https://webscraper.io/test-sites/e-commerce/allinone. Include name and price from both sites.',
+      ),
+    ).toBe(true);
     expect(verifiedStepRecordsEnabled('打开 YouTube 并点击第一个视频')).toBe(false);
     expect(isAtomicSkillInstruction('打开 YouTube 并点击第一个视频')).toBe(true);
     expect(

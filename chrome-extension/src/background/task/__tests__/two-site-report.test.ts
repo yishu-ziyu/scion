@@ -45,6 +45,38 @@ $499.99
 Sony Xperia
 $350.00`;
 
+const LIVE_FAIL_BOOKS_TEXT = `A Light in the Attic
+£51.77
+Tipping the Velvet
+£53.74
+Soumission
+£50.10
+Sharp Objects
+£47.82`;
+
+const LIVE_FAIL_ALLINONE_TEXT = `Top items being scraped right now
+$494.71
+Acer Aspire 3...
+Acer Aspire
+128GB SSD, Windows 10 Home
+$1399
+Windows 10 Home, Eng kbd
+$97.99
+Computers
+Laptops
+$581.99
+Aspire E1-572G
+Intel Core i5-4210U, 8GB RAM, 1TB HDD, 15.6", Windows 8.1
+7 reviews
+$1187.98
+Acer Predator Helios 300 (PH317-51)
+15.6", Core i7-7700HQ, 8GB, 1TB + 128GB SSD, Windows 10 Home
+7 reviews
+$497.17
+Dell Vostro 15 (3568) Red
+Red, 15.6", Core i5-7200U, 4GB, 128GB SSD, Windows 10 Home, Eng kbd
+7 reviews`;
+
 const LIVE_ALLINONE_TEXT = `Top items being scraped right now
 $679
 Acer Aspire A5...
@@ -57,7 +89,21 @@ Dell Latitude 5580, 15.6" FHD, Core i5-7300U, 8GB, 256GB SSD, Windows 10 Pro
 $1178.19
 Dell Latitude...
 Dell Latitude 5580, 15.6" FHD, Core i5-7300U, 16GB, 256GB SSD, Linux + Windows 10 Home
-6 reviews`;
+6 reviews
+Computers
+Laptops
+$581.99
+Aspire E1-572G
+Intel Core i5-4210U, 8GB RAM, 1TB HDD, 15.6", Windows 8.1
+7 reviews
+$1187.98
+Acer Predator Helios 300 (PH317-51)
+15.6", Core i7-7700HQ, 8GB, 1TB + 128GB SSD, Windows 10 Home
+7 reviews
+$497.17
+Dell Vostro 15 (3568) Red
+Red, 15.6", Core i5-7200U, 4GB, 128GB SSD, Windows 10 Home, Eng kbd
+7 reviews`;
 
 const LIVE_BOOKS_TEXT = `1000 results - showing 1 to 20.
 A Light in the ...
@@ -118,20 +164,37 @@ describe('two-site product report', () => {
       { name: 'Tipping the Velvet', price: '£53.74' },
       { name: 'Soumission', price: '£50.10' },
     ]);
-    expect(parseNamePriceProducts(LIVE_ALLINONE_TEXT, 3)).toEqual([
-      {
-        name: 'Acer Aspire A515-51-5654, Black, 15.6", FHD, Core i5-8250U, 8GB DDR4, 256GB SSD, Windows 10 Home, ENG',
-        price: '$679',
-      },
-      { name: 'Dell Latitude 5580, 15.6" FHD, Core i5-7300U, 8GB, 256GB SSD, Windows 10 Pro', price: '$1144.4' },
-      {
-        name: 'Dell Latitude 5580, 15.6" FHD, Core i5-7300U, 16GB, 256GB SSD, Linux + Windows 10 Home',
-        price: '$1178.19',
-      },
+    expect(parseNamePriceProducts(LIVE_FAIL_BOOKS_TEXT, 3)).toEqual([
+      { name: 'A Light in the Attic', price: '£51.77' },
+      { name: 'Tipping the Velvet', price: '£53.74' },
+      { name: 'Soumission', price: '£50.10' },
     ]);
+    expect(parseNamePriceProducts(LIVE_FAIL_BOOKS_TEXT, 3).map(item => item.name)).not.toContain('Sharp Objects');
+    expect(parseNamePriceProducts(LIVE_FAIL_ALLINONE_TEXT, 3)).toEqual([
+      { name: 'Aspire E1-572G', price: '$581.99' },
+      { name: 'Acer Predator Helios 300 (PH317-51)', price: '$1187.98' },
+      { name: 'Dell Vostro 15 (3568) Red', price: '$497.17' },
+    ]);
+    expect(parseNamePriceProducts(LIVE_ALLINONE_TEXT, 3)).toEqual([
+      { name: 'Aspire E1-572G', price: '$581.99' },
+      { name: 'Acer Predator Helios 300 (PH317-51)', price: '$1187.98' },
+      { name: 'Dell Vostro 15 (3568) Red', price: '$497.17' },
+    ]);
+    expect(parseNamePriceProducts(LIVE_FAIL_ALLINONE_TEXT, 3).map(item => `${item.name} ${item.price}`).join('\n'))
+      .not.toMatch(/Acer Aspire 3|128GB SSD|Eng kbd|\$494\.71|\$1399|\$97\.99/);
     expect(parseNamePriceProducts(LIVE_ALLINONE_TEXT, 3).map(item => item.name).join('\n')).not.toContain(
       'Top items being scraped right now',
     );
+    expect(
+      parseNamePriceProducts(
+        'A Light in the Attic £51.77 Tipping the Velvet £53.74 Soumission £50.10 Sharp Objects £47.82',
+        3,
+      ),
+    ).toEqual([
+      { name: 'A Light in the Attic', price: '£51.77' },
+      { name: 'Tipping the Velvet', price: '£53.74' },
+      { name: 'Soumission', price: '£50.10' },
+    ]);
     const collapsedBooks = [
       'Home Books Travel Mystery Historical Fiction Sequential Art Classics Philosophy Romance Womens Fiction Fiction Childrens Religion Nonfiction Music Default Science Fiction Sports and Games Fantasy New Adult Young Adult Science Poetry Paranormal Art Psychology Autobiography Parenting',
       '1000 results - showing 1 to 20. Warning! This is a demo website for web scraping purposes. Prices and ratings here were randomly assigned and have no real meaning.',

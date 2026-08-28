@@ -37,12 +37,19 @@ function instructionLooksLikeWrittenResult(instruction: string): boolean {
 export function verifiedStepRecordsEnabled(instruction: string): boolean {
   const text = instruction.replace(/\s+/g, ' ').trim();
   if (!text) return false;
+  const analysis = analyzeInstructionLanguage(text);
+  if (twoSiteReportNeedsPageRecords(text, analysis.urls.length)) return true;
   if (isAtomicSkillInstruction(text)) return false;
   if (numberedStepSegments(text).length >= 2) return true;
-  const analysis = analyzeInstructionLanguage(text);
   if (instructionAffirmsTarget(analysis, 'ordered_sources') && analysis.urls.length >= 2) return true;
   if (analysis.urls.length > 1 && instructionLooksLikeWrittenResult(text)) return true;
   return false;
+}
+
+function twoSiteReportNeedsPageRecords(text: string, urlCount: number): boolean {
+  if (urlCount < 1 || !instructionPointsAtCurrentPage(text)) return false;
+  if (!/\bproducts?\b|商品|产品/.test(text)) return false;
+  return /\breport\b|报告/.test(text) || (/\bnames?\b|名称|名字|标题/.test(text) && /\bprices?\b|价格|售价|£|\$/.test(text));
 }
 
 export function stripQueryTokensFromRecordText(value: string): string {

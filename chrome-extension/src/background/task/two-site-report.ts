@@ -26,7 +26,9 @@ const SKIP_PHRASE = /\b(?:in stock|add to basket|add to cart|\d+\s+reviews?|star
 const JUNK_NAME =
   /top items|scraped right now|welcome to|training site|demo website|results\s*-|warning!|e-commerce/i;
 const SKIP_NAME =
-  /^(?:home|books?|in stock|add to basket|add to cart|(?:\d+\s+)?reviews?|star rating|view basket|next|previous|filter|sort|search|login|sign in|cart|checkout|copyright)$/i;
+  /^(?:(?:home|books?|computers|laptops|tablets|phones)(?:\s+(?:home|books?|computers|laptops|tablets|phones))*|in stock|add to basket|add to cart|(?:\d+\s+)?reviews?|star rating|view basket|next|previous|filter|sort|search|login|sign in|cart|checkout|copyright)$/i;
+const SPEC_NAME =
+  /\b(?:\d+\s*gb\s*(?:ssd|hdd|ddr\d|ram)|windows\s*\d|eng kbd|core i\d)\b|,.*,/i;
 
 export type TwoSiteProduct = { name: string; price: string };
 
@@ -63,7 +65,8 @@ export function productCountFromInstruction(instruction: string): number {
 }
 
 export function parseNamePriceProducts(visibleText: string, max = 3): TwoSiteProduct[] {
-  return mergeProducts(parseProductsFromLines(visibleText, max), parseProductsFromPriceSpans(visibleText, max), max);
+  const text = catalogRegion(visibleText);
+  return mergeProducts(parseProductsFromLines(text, max), parseProductsFromPriceSpans(text, max), max);
 }
 
 export function twoSitePageFromFrame(
@@ -237,28 +240,54 @@ function hostFromUrl(value: string): string {
   }
 }
 
+function catalogRegion(text: string): string {
+  const heading = text.search(/top items being scraped right now/i);
+  if (heading < 0) return text;
+  const rest = text.slice(heading);
+  const catalog = rest.search(/\b(?:computers|laptops|tablets)\b/i);
+  return catalog >= 0 ? rest.slice(catalog) : rest;
+}
+
 function parseProductsFromLines(visibleText: string, max: number): TwoSiteProduct[] {
   const products: TwoSiteProduct[] = [];
   const seen = new Set<string>();
+  const usedNames = new Set<string>();
   const lines = visibleText
     .split(/\n+/)
     .map(line => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
   const push = collectProduct(products, seen);
   for (let i = 0; i < lines.length && products.length < max; i++) {
-    const line = lines[i]!;
-    if (PRICE_LINE.test(line)) {
-      const name = nameBesidePrice(lines, i);
-      if (name) push(name, line);
-      continue;
-    }
-    if (line.length > 120) continue;
-    const inline = INLINE_PRICE.exec(line);
-    if (!inline || inline.index === undefined) continue;
-    const name = line.slice(0, inline.index).replace(/[—–\-|:]+$/g, '').trim();
-    if (name) push(name, inline[1]!.trim());
+    takeLineProduct(lines, i, usedNames, push);
   }
   return products;
+}
+
+function takeLineProduct(
+  lines: string[],
+  index: number,
+  usedNames: Set<string>,
+  push: (name: string, price: string) => boolean,
+): void {
+  const line = lines[index]!;
+  if (PRICE_LINE.test(line)) {
+    rememberProduct(push, usedNames, nameBesidePrice(lines, index, usedNames), line);
+    return;
+  }
+  if (line.length > 120) return;
+  const inline = INLINE_PRICE.exec(line);
+  if (!inline || inline.index === undefined) return;
+  const name = line.slice(0, inline.index).replace(/[—–\-|:]+$/g, '').trim();
+  rememberProduct(push, usedNames, name, inline[1]!.trim());
+}
+
+function rememberProduct(
+  push: (name: string, price: string) => boolean,
+  usedNames: Set<string>,
+  name: string | undefined,
+  price: string,
+): void {
+  if (name && push(name, price)) usedNames.add(name);
 }
 
 function parseProductsFromPriceSpans(visibleText: string, max: number): TwoSiteProduct[] {
@@ -284,14 +313,14 @@ function parseProductsFromPriceSpans(visibleText: string, max: number): TwoSiteP
 }
 
 function collectProduct(products: TwoSiteProduct[], seen: Set<string>) {
-  return (name: string, price: string) => {
+  return (name: string, price: string): boolean => {
     const n = name.replace(/\s+/g, ' ').trim();
     const p = price.replace(/\s+/g, ' ').trim();
-    if (!n || !p || SKIP_NAME.test(n) || isJunkName(n) || n.length > 120) return;
-    const key = p;
-    if (seen.has(key)) return;
-    seen.add(key);
+    if (!n || !p || !isProductNameLine(n) || isJunkName(n)) return false;
+    if (seen.has(p)) return false;
+    seen.add(p);
     products.push({ name: n, price: p });
+    return true;
   };
 }
 
@@ -361,20 +390,20 @@ function sourceNeedsProducts(
   return (captures.get(key)?.products.length ?? 0) === 0;
 }
 
-function nameBesidePrice(lines: string[], priceIndex: number): string | undefined {
-  const first = lines[priceIndex + 1];
-  const second = lines[priceIndex + 2];
-  if (first && isProductNameLine(first)) {
-    if (second && isProductNameLine(second) && second.length > first.length) return second;
-    return first;
-  }
-  return previousNameLine(lines, priceIndex);
+function nameBesidePrice(lines: string[], priceIndex: number, usedNames: Set<string>): string | undefined {
+  return nearestUnusedName(lines, priceIndex, -1, usedNames) ?? nearestUnusedName(lines, priceIndex, 1, usedNames);
 }
 
-function previousNameLine(lines: string[], priceIndex: number): string | undefined {
-  for (let i = priceIndex - 1; i >= 0; i--) {
+function nearestUnusedName(
+  lines: string[],
+  from: number,
+  step: number,
+  usedNames: Set<string>,
+): string | undefined {
+  for (let i = from + step; i >= 0 && i < lines.length; i += step) {
     const line = lines[i]!;
-    if (!isProductNameLine(line)) continue;
+    if (PRICE_LINE.test(line)) return undefined;
+    if (!isProductNameLine(line) || usedNames.has(line)) continue;
     return line;
   }
   return undefined;
@@ -382,7 +411,7 @@ function previousNameLine(lines: string[], priceIndex: number): string | undefin
 
 function isProductNameLine(line: string): boolean {
   if (!line || line.length < 2 || line.length > 120) return false;
-  if (PRICE_LINE.test(line) || SKIP_NAME.test(line)) return false;
-  if (INLINE_PRICE.test(line)) return false;
+  if (PRICE_LINE.test(line) || SKIP_NAME.test(line) || INLINE_PRICE.test(line)) return false;
+  if (SPEC_NAME.test(line) || /\S\.{2,}\S/.test(line)) return false;
   return true;
 }
