@@ -34,6 +34,10 @@ describe('control-llm core purity (022)', () => {
     const reobserve = codeOnly.slice(reobserveAt, codeOnly.indexOf('resolveQueuedAction: action', reobserveAt));
     expect(reobserveAt).toBeGreaterThan(0);
     expect(reobserve).toMatch(/persistSerpObserve/);
+    expect(codeOnly).toMatch(/resolveTwoSiteReportTurn/);
+    expect(codeOnly).toMatch(/filterTwoSiteReportActions/);
+    expect(codeOnly).toMatch(/skipInitialObserve:\s*!isTwoSiteProductReportInstruction\(input\.instruction\)/);
+    expect(codeOnly).toMatch(/turn\.kind === 'read'/);
   });
 
   it('mailbox ask writes userVisibleText as the round page reading', () => {

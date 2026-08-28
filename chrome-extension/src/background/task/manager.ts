@@ -127,6 +127,7 @@ import {
   isIndependentTabOpenFailure,
   type IndependentTabOpenAttempt,
 } from './independent-urls';
+import { isTwoSiteProductReportInstruction } from './two-site-report';
 import { classifyCreateExecutorError } from './executor-start-error';
 import type { DownloadStateProbe } from './download-state';
 import { syncTaskKeepAlive } from '../runtime/task-keep-alive';
@@ -3644,6 +3645,7 @@ export class TaskManager {
    */
   private extractImplicitCompletionCriteria(instruction: string, tabOrigin?: string): CompletionCriterionDraft[] {
     const drafts: CompletionCriterionDraft[] = deriveFillOnlyFormCriteria(instruction);
+    if (isTwoSiteProductReportInstruction(instruction)) return drafts;
     const seen = new Set<string>();
     const fieldValues = this.extractUserFieldValues(instruction);
 

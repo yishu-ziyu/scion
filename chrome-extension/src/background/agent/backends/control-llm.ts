@@ -36,6 +36,13 @@ import type {
 } from '../../task/contracts';
 import { formatVerifiedPagesForPrompt } from '../../task/verified-step-records';
 import {
+  filterTwoSiteReportActions,
+  formatTwoSiteReportCapturesForPrompt,
+  isTwoSiteProductReportInstruction,
+  resolveTwoSiteReportTurn,
+  type TwoSiteReportCapture,
+} from '../../task/two-site-report';
+import {
   applyInaccessibleIframeGate,
   applyLoginWallGate,
   buildAgentStatusBar,
@@ -401,6 +408,7 @@ export async function createLlmControlDriver(
   const artifacts: TaskArtifact[] = [];
   let lastActionMemory: string | null = null;
   let pageBodyRead = false;
+  const twoSiteCaptures = new Map<string, TwoSiteReportCapture>();
   let observeQuery: string | undefined;
   let pendingUsualMailboxHost: string | undefined;
   let mailboxConfirmationConsumed = false;
@@ -605,8 +613,27 @@ export async function createLlmControlDriver(
         }
       };
 
+      const twoSitePage = () =>
+        currentFrame
+          ? { url: currentFrame.tab.url, title: currentFrame.tab.title, visibleText: currentFrame.visibleText ?? '' }
+          : null;
+      const twoSiteDecision = (): LoopDecision | null => {
+        const turn = resolveTwoSiteReportTurn(input.instruction, twoSiteCaptures, twoSitePage());
+        if (turn.kind === 'done') return { kind: 'done', summary: turn.summary };
+        if (turn.kind === 'open' || turn.kind === 'read') {
+          const stay = turn.kind === 'read';
+          return {
+            kind: 'action',
+            name: stay ? 'read_page_text' : 'open_tab',
+            args: stay ? { max_chars: 20_000 } : { url: turn.url },
+            observation: stay ? `读 ${turn.url}` : `打开 ${turn.url}`,
+          };
+        }
+        return null;
+      };
+
       const loopOutcome = await runObserveActLoop({
-        skipInitialObserve: true,
+        skipInitialObserve: !isTwoSiteProductReportInstruction(input.instruction),
         maxSteps,
         maxFailures,
         maxNoProgress,
@@ -685,6 +712,9 @@ export async function createLlmControlDriver(
               // Stream persist is UI-only.
             }
           };
+
+          const twoSite = twoSiteDecision();
+          if (twoSite) return twoSite;
 
           if (!mailboxTabOpened) {
             const latestLine =
@@ -884,7 +914,9 @@ export async function createLlmControlDriver(
                 maxChars: 28_000,
                 compressOptions: { keepRecent: 3, fieldMaxChars: 80 },
               })
-            : [stateText, planBlock].filter(Boolean).join('\n\n');
+            : [formatTwoSiteReportCapturesForPrompt(input.instruction, twoSiteCaptures), stateText, planBlock]
+                .filter(Boolean)
+                .join('\n\n');
           let verifiedPages: VerifiedPageRecord[] = [];
           if (hooks.getVerifiedPages) {
             try {
@@ -944,9 +976,13 @@ export async function createLlmControlDriver(
           try {
             const parsed = extractJsonFromModelOutput(rawText);
             decision = parseControlPolicyDecision(parsed);
-            const queued = (decision.actions.length > 0 ? decision.actions : decision.action ? [decision.action] : [])
-              .map(item => rewriteInventedLookupNavigation(instruction, item))
-              .filter((item): item is { name: string; args: Record<string, unknown> } => item !== null);
+            const queued = filterTwoSiteReportActions(
+              input.instruction,
+              twoSiteCaptures,
+              (decision.actions.length > 0 ? decision.actions : decision.action ? [decision.action] : [])
+                .map(item => rewriteInventedLookupNavigation(instruction, item))
+                .filter((item): item is { name: string; args: Record<string, unknown> } => item !== null),
+            );
             decision = {
               ...decision,
               action: queued[0] ?? null,
@@ -1014,15 +1050,16 @@ export async function createLlmControlDriver(
             lastActionMemory = retry.memory;
             return retry.decision;
           }
-          if (delivery.kind === 'complete') {
-            return settleProposedDone(decision.observation || 'Control loop candidate complete', stateText);
+          if (delivery.kind === 'complete' || decision.done) {
+            if (isTwoSiteProductReportInstruction(input.instruction)) {
+              const ready = twoSiteDecision();
+              if (ready) return ready;
+            } else {
+              return settleProposedDone(decision.observation || 'Control loop candidate complete', stateText);
+            }
           }
 
-          if (decision.done) {
-            return settleProposedDone(decision.observation || 'Control loop candidate complete', stateText);
-          }
-
-          const queued = decision.actions;
+          const queued = filterTwoSiteReportActions(input.instruction, twoSiteCaptures, decision.actions);
           const first = queued[0];
           if (!first) {
             if (pageBodyRead) {
