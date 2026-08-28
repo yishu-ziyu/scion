@@ -55,4 +55,47 @@ describe('two-site control decide', () => {
     expect(second.summary).toContain('Dell Vostro 15');
     expect(second.summary).not.toContain('<div');
   });
+
+  it('emits 结果 after both live pages even when Computers sits after the laptop cards', () => {
+    const captures = new Map();
+    expect(
+      decideTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
+        tab: { id: 1, url: 'https://books.toscrape.com/', title: 'All products | Books to Scrape - Sandbox' },
+        visibleText:
+          'A Light in the Attic £51.77 In stock Add to basket Tipping the Velvet £53.74 In stock Add to basket Soumission £50.10 In stock Add to basket',
+        interactiveElements: [],
+      } as never)?.kind,
+    ).toBe('action');
+    const done = decideTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
+      tab: {
+        id: 2,
+        url: 'https://webscraper.io/test-sites/e-commerce/allinone',
+        title: 'Allinone | Web Scraper Test Sites',
+      },
+      visibleText: [
+        'Top items being scraped right now $494.71 Acer Aspire 3... 128GB SSD, Windows 10 Home $1399 Windows 10 Home, Eng kbd $97.99',
+        '$581.99 Aspire E1-572G Intel Core i5-4210U $1187.98 Acer Predator Helios 300 $497.17 Dell Vostro 15 Computers Laptops',
+      ].join(' '),
+      interactiveElements: [
+        { title: 'Aspire E1-572G', text: 'Aspire E1-572G' },
+        { title: 'Acer Predator Helios 300 (PH317-51)', text: 'Acer Predator Helios 300' },
+        { title: 'Dell Vostro 15 (3568) Red', text: 'Dell Vostro 15' },
+      ],
+    } as never);
+    expect(done?.kind).toBe('done');
+    if (done?.kind !== 'done') throw new Error('expected done');
+    expect(done.summary).toContain('A Light in the Attic');
+    expect(done.summary).toContain('£51.77');
+    expect(done.summary).toContain('Tipping the Velvet');
+    expect(done.summary).toContain('£53.74');
+    expect(done.summary).toContain('Soumission');
+    expect(done.summary).toContain('£50.10');
+    expect(done.summary).toContain('Aspire E1-572G');
+    expect(done.summary).toContain('$581.99');
+    expect(done.summary).toContain('Acer Predator Helios 300');
+    expect(done.summary).toContain('$1187.98');
+    expect(done.summary).toContain('Dell Vostro 15');
+    expect(done.summary).toContain('$497.17');
+    expect(done.summary).not.toMatch(/\$494\.71|\$1399|\$97\.99/);
+  });
 });

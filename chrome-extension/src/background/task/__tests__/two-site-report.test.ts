@@ -180,8 +180,26 @@ describe('two-site product report', () => {
       { name: 'Acer Predator Helios 300 (PH317-51)', price: '$1187.98' },
       { name: 'Dell Vostro 15 (3568) Red', price: '$497.17' },
     ]);
-    expect(parseNamePriceProducts(LIVE_FAIL_ALLINONE_TEXT, 3).map(item => `${item.name} ${item.price}`).join('\n'))
-      .not.toMatch(/Acer Aspire 3|128GB SSD|Eng kbd|\$494\.71|\$1399|\$97\.99/);
+    expect(
+      parseNamePriceProducts(LIVE_FAIL_ALLINONE_TEXT.replace(/\s+/g, ' '), 3).map(item => `${item.name} ${item.price}`),
+    ).toEqual([
+      'Aspire E1-572G $581.99',
+      'Acer Predator Helios 300 $1187.98',
+      'Dell Vostro 15 $497.17',
+    ]);
+    expect(
+      parseNamePriceProducts(
+        [
+          'Top items being scraped right now $494.71 Acer Aspire 3... 128GB SSD, Windows 10 Home $1399 Windows 10 Home, Eng kbd $97.99',
+          '$581.99 Aspire E1-572G Intel Core i5-4210U $1187.98 Acer Predator Helios 300 $497.17 Dell Vostro 15 Computers Laptops',
+        ].join(' '),
+        3,
+      ),
+    ).toEqual([
+      { name: 'Aspire E1-572G', price: '$581.99' },
+      { name: 'Acer Predator Helios 300', price: '$1187.98' },
+      { name: 'Dell Vostro 15', price: '$497.17' },
+    ]);
     expect(parseNamePriceProducts(LIVE_ALLINONE_TEXT, 3).map(item => item.name).join('\n')).not.toContain(
       'Top items being scraped right now',
     );

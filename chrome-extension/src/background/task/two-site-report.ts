@@ -28,7 +28,9 @@ const JUNK_NAME =
 const SKIP_NAME =
   /^(?:(?:home|books?|computers|laptops|tablets|phones)(?:\s+(?:home|books?|computers|laptops|tablets|phones))*|in stock|add to basket|add to cart|(?:\d+\s+)?reviews?|star rating|view basket|next|previous|filter|sort|search|login|sign in|cart|checkout|copyright)$/i;
 const SPEC_NAME =
-  /\b(?:\d+\s*gb\s*(?:ssd|hdd|ddr\d|ram)|windows\s*\d|eng kbd|core i\d)\b|,.*,/i;
+  /\b(?:\d+\s*gb\b|windows\s*\d|eng kbd|core i\d)\b|,.*,/i;
+const SPEC_START =
+  /^(?:intel|amd|core|windows|red|computers?|laptops?|tablets?|phones?|\d+gb|\d[\d.]*["”]|[,(])/i;
 
 export type TwoSiteProduct = { name: string; price: string };
 
@@ -65,8 +67,18 @@ export function productCountFromInstruction(instruction: string): number {
 }
 
 export function parseNamePriceProducts(visibleText: string, max = 3): TwoSiteProduct[] {
-  const text = catalogRegion(visibleText);
-  return mergeProducts(parseProductsFromLines(text, max), parseProductsFromPriceSpans(text, max), max);
+  const skipTruncated = /top items being scraped right now/i.test(visibleText);
+  let best: TwoSiteProduct[] = [];
+  for (const region of catalogRegions(visibleText)) {
+    const parsed = mergeProducts(
+      parseProductsFromLines(region, max, skipTruncated),
+      parseProductsFromPriceSpans(region, max, skipTruncated),
+      max,
+    );
+    if (parsed.length > best.length) best = parsed;
+    if (best.length >= max) break;
+  }
+  return best.slice(0, max);
 }
 
 export function twoSitePageFromFrame(
@@ -240,15 +252,16 @@ function hostFromUrl(value: string): string {
   }
 }
 
-function catalogRegion(text: string): string {
+function catalogRegions(text: string): string[] {
   const heading = text.search(/top items being scraped right now/i);
-  if (heading < 0) return text;
+  if (heading < 0) return [text];
   const rest = text.slice(heading);
   const catalog = rest.search(/\b(?:computers|laptops|tablets)\b/i);
-  return catalog >= 0 ? rest.slice(catalog) : rest;
+  if (catalog < 0) return [rest];
+  return [rest.slice(catalog), rest];
 }
 
-function parseProductsFromLines(visibleText: string, max: number): TwoSiteProduct[] {
+function parseProductsFromLines(visibleText: string, max: number, skipTruncated = false): TwoSiteProduct[] {
   const products: TwoSiteProduct[] = [];
   const seen = new Set<string>();
   const usedNames = new Set<string>();
@@ -256,7 +269,7 @@ function parseProductsFromLines(visibleText: string, max: number): TwoSiteProduc
     .split(/\n+/)
     .map(line => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
-  const push = collectProduct(products, seen);
+  const push = collectProduct(products, seen, skipTruncated);
   for (let i = 0; i < lines.length && products.length < max; i++) {
     takeLineProduct(lines, i, usedNames, push);
   }
@@ -290,10 +303,10 @@ function rememberProduct(
   if (name && push(name, price)) usedNames.add(name);
 }
 
-function parseProductsFromPriceSpans(visibleText: string, max: number): TwoSiteProduct[] {
+function parseProductsFromPriceSpans(visibleText: string, max: number, skipTruncated = false): TwoSiteProduct[] {
   const products: TwoSiteProduct[] = [];
   const seen = new Set<string>();
-  const push = collectProduct(products, seen);
+  const push = collectProduct(products, seen, skipTruncated);
   const flat = visibleText.replace(/\s+/g, ' ').trim();
   const matches = [...flat.matchAll(new RegExp(PRICE_SPAN.source, 'g'))];
   let previousName = '';
@@ -303,20 +316,20 @@ function parseProductsFromPriceSpans(visibleText: string, max: number): TwoSiteP
     const prevEnd = i === 0 ? 0 : matches[i - 1]!.index! + matches[i - 1]![0].length;
     const before = flat.slice(prevEnd, match.index);
     const afterStart = match.index + match[0].length;
-    const afterEnd = i + 1 < matches.length ? matches[i + 1]!.index! : Math.min(flat.length, afterStart + 60);
+    const afterEnd = i + 1 < matches.length ? matches[i + 1]!.index! : Math.min(flat.length, afterStart + 80);
     const name = pickCollapsedName(before, flat.slice(afterStart, afterEnd), previousName);
-    if (!name) continue;
+    if (!name || !push(name, match[0].trim())) continue;
     previousName = name;
-    push(name, match[0].trim());
   }
   return products;
 }
 
-function collectProduct(products: TwoSiteProduct[], seen: Set<string>) {
+function collectProduct(products: TwoSiteProduct[], seen: Set<string>, skipTruncated = false) {
   return (name: string, price: string): boolean => {
     const n = name.replace(/\s+/g, ' ').trim();
     const p = price.replace(/\s+/g, ' ').trim();
     if (!n || !p || !isProductNameLine(n) || isJunkName(n)) return false;
+    if (skipTruncated && /\.{2,}$/.test(n)) return false;
     if (seen.has(p)) return false;
     seen.add(p);
     products.push({ name: n, price: p });
@@ -361,8 +374,18 @@ function lastProductChunk(before: string): string | undefined {
 
 function firstProductChunk(after: string): string | undefined {
   const words = stripSkipPhrases(after).replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
-  const chunk = words.slice(0, 5).join(' ');
+  const chunk = takeTitle(words);
   return isProductNameLine(chunk) ? chunk : undefined;
+}
+
+function takeTitle(words: string[]): string {
+  const taken: string[] = [];
+  for (const word of words) {
+    if (SPEC_START.test(word)) break;
+    taken.push(word);
+    if (taken.length === 8) break;
+  }
+  return taken.join(' ');
 }
 
 function stripSkipPhrases(value: string): string {
