@@ -38,6 +38,7 @@ describe('control-llm core purity (022)', () => {
     const parseBlock = codeOnly.slice(parseAt, codeOnly.indexOf('control JSON parse failed', parseAt));
     expect(parseBlock.indexOf('filterPageSummaryActions')).toBeGreaterThan(0);
     expect(parseBlock.indexOf('filterPageSummaryActions')).toBeLessThan(parseBlock.indexOf('applyInaccessibleIframeGate'));
+    expect(codeOnly).toMatch(/skipInitialObserve:\s*!isPureCurrentPageSummaryInstruction\(instruction\)/);
   });
 
   it('mailbox ask writes userVisibleText as the round page reading', () => {

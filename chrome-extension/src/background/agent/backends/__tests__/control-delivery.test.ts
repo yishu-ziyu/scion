@@ -155,4 +155,30 @@ describe('resolveControlDelivery', () => {
       }),
     ).toEqual({ kind: 'read_page', observation: READ_PAGE_BEFORE_RESULT });
   });
+
+  it('does not finish a current-page summary on the first send before the page is attached', () => {
+    expect(
+      resolveControlDelivery({
+        done: true,
+        observation: 'I will summarize the first three books.',
+        hasAction: false,
+        hasPageBody: false,
+        pageAttached: false,
+        pageSummaryReady: true,
+      }),
+    ).toEqual({ kind: 'read_page', observation: READ_PAGE_BEFORE_RESULT });
+  });
+
+  it('lets a first page action through when a current-page summary is still unattached', () => {
+    expect(
+      resolveControlDelivery({
+        done: false,
+        observation: 'read the page',
+        hasAction: true,
+        hasPageBody: false,
+        pageAttached: false,
+        pageSummaryReady: true,
+      }),
+    ).toEqual({ kind: 'act' });
+  });
 });

@@ -621,7 +621,7 @@ export async function createLlmControlDriver(
       };
 
       const loopOutcome = await runObserveActLoop({
-        skipInitialObserve: true,
+        skipInitialObserve: !isPureCurrentPageSummaryInstruction(instruction),
         maxSteps,
         maxFailures,
         maxNoProgress,
