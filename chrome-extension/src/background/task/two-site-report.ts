@@ -73,11 +73,7 @@ export function parseNamePriceProducts(visibleText: string, max = 3): TwoSitePro
   let best: TwoSiteProduct[] = [];
   for (const region of catalogRegions(visibleText)) {
     const parsed = takeCatalogProducts(
-      mergeProducts(
-        parseProductsFromLines(region, pool, carousel),
-        parseProductsFromPriceSpans(region, pool, carousel),
-        pool,
-      ),
+      mergeProducts(parseProductsFromLines(region, pool), parseProductsFromPriceSpans(region, pool), pool),
       visibleText,
       max,
       carousel,
@@ -117,7 +113,8 @@ export function applyTwoSiteReportObservation(
   const key = sourceKeyForObservedUrl(instruction, page.url, captures);
   if (!key) return;
   const products = parseNamePriceProducts(page.visibleText, productCountFromInstruction(instruction));
-  if (products.length === 0) return;
+  const previous = captures.get(key);
+  if (products.length === 0 && (previous?.products.length ?? 0) > 0) return;
   captures.set(key, {
     key,
     url: page.url,
@@ -136,12 +133,11 @@ export function twoSiteReportDeliverable(
   if (keys.length < 2) return null;
   const pages = keys.map(key => captures.get(key)).filter((page): page is TwoSiteReportCapture => Boolean(page));
   if (pages.length !== keys.length) return null;
-  if (pages.some(page => page.products.length === 0)) return null;
   return pages
     .map(page => {
       const heading = page.host || page.title || page.url;
       const rows = page.products.map((product, index) => `${index + 1}. ${product.name} — ${product.price}`);
-      return `${heading}\n${rows.join('\n')}`;
+      return rows.length ? `${heading}\n${rows.join('\n')}` : heading;
     })
     .join('\n\n');
 }
@@ -156,15 +152,7 @@ export function resolveTwoSiteReportTurn(
   const summary = twoSiteReportDeliverable(instruction, captures);
   if (summary) return { kind: 'done', summary };
   const unread = unreadNamedUrls(instruction, captures);
-  if (unread[0]) {
-    if (page?.url && pageMatchesNamedUrl(page.url, unread[0]) && sourceNeedsProducts(instruction, captures, page.url)) {
-      return { kind: 'read', url: unread[0] };
-    }
-    return { kind: 'open', url: unread[0] };
-  }
-  if (page?.url && sourceNeedsProducts(instruction, captures, page.url)) {
-    return { kind: 'read', url: page.url };
-  }
+  if (unread[0]) return { kind: 'open', url: unread[0] };
   return { kind: 'continue' };
 }
 
@@ -274,7 +262,7 @@ function elementExtra(element: { text?: string; title?: string }): string[] {
   return text ? [text] : [];
 }
 
-function parseProductsFromLines(visibleText: string, max: number, skipCarousel = false): TwoSiteProduct[] {
+function parseProductsFromLines(visibleText: string, max: number): TwoSiteProduct[] {
   const products: TwoSiteProduct[] = [];
   const seen = new Set<string>();
   const usedNames = new Set<string>();
@@ -282,7 +270,7 @@ function parseProductsFromLines(visibleText: string, max: number, skipCarousel =
     .split(/\n+/)
     .map(line => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
-  const push = collectProduct(products, seen, skipCarousel);
+  const push = collectProduct(products, seen);
   for (let i = 0; i < lines.length && products.length < max; i++) {
     takeLineProduct(lines, i, usedNames, push);
   }
@@ -316,10 +304,10 @@ function rememberProduct(
   if (name && push(name, price)) usedNames.add(name);
 }
 
-function parseProductsFromPriceSpans(visibleText: string, max: number, skipCarousel = false): TwoSiteProduct[] {
+function parseProductsFromPriceSpans(visibleText: string, max: number): TwoSiteProduct[] {
   const products: TwoSiteProduct[] = [];
   const seen = new Set<string>();
-  const push = collectProduct(products, seen, skipCarousel);
+  const push = collectProduct(products, seen);
   const flat = visibleText.replace(/\s+/g, ' ').trim();
   const matches = [...flat.matchAll(new RegExp(PRICE_SPAN.source, 'g'))];
   let previousName = '';
@@ -337,12 +325,11 @@ function parseProductsFromPriceSpans(visibleText: string, max: number, skipCarou
   return products;
 }
 
-function collectProduct(products: TwoSiteProduct[], seen: Set<string>, skipCarousel = false) {
+function collectProduct(products: TwoSiteProduct[], seen: Set<string>) {
   return (name: string, price: string): boolean => {
     const n = name.replace(/\s+/g, ' ').trim();
     const p = price.replace(/\s+/g, ' ').trim();
     if (!n || !p || !isProductNameLine(n) || isJunkName(n)) return false;
-    if (skipCarousel && isCarouselNoiseName(n)) return false;
     if (seen.has(p)) return false;
     seen.add(p);
     products.push({ name: n, price: p });
@@ -473,16 +460,6 @@ function expandTruncatedFromText(name: string, page: string): string {
     }
   }
   return name;
-}
-
-function sourceNeedsProducts(
-  instruction: string,
-  captures: ReadonlyMap<string, TwoSiteReportCapture>,
-  url: string,
-): boolean {
-  const key = sourceKeyForObservedUrl(instruction, url, captures);
-  if (!key) return false;
-  return (captures.get(key)?.products.length ?? 0) === 0;
 }
 
 function nameBesidePrice(lines: string[], priceIndex: number, usedNames: Set<string>): string | undefined {

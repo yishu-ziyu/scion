@@ -150,4 +150,26 @@ describe('two-site control decide', () => {
     expect(done.summary).toContain('$497.17');
     expect(done.summary).not.toMatch(/Galaxy Tab 3|Tipping the Velvet — £51\.77|\$97\.99/);
   });
+
+  it('emits 结果 after both sites even when the second page has no parseable products', () => {
+    const captures = new Map();
+    expect(
+      decideTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
+        tab: { id: 1, url: 'https://books.toscrape.com/', title: 'All products | Books to Scrape - Sandbox' },
+        visibleText:
+          'A Light in the Attic £51.77 In stock Add to basket Tipping the Velvet £53.74 In stock Add to basket Soumission £50.10 In stock Add to basket',
+        interactiveElements: [{ title: 'A Light in the Attic', text: 'A Light in the ...' }],
+      } as never)?.kind,
+    ).toBe('action');
+    const done = decideTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
+      tab: { id: 2, url: 'https://webscraper.io/test-sites/e-commerce/allinone', title: 'Allinone | Web Scraper Test Sites' },
+      visibleText: 'Allinone | Web Scraper Test Sites',
+      interactiveElements: [],
+    } as never);
+    expect(done?.kind).toBe('done');
+    if (done?.kind !== 'done') throw new Error('expected done');
+    expect(done.summary).toContain('A Light in the Attic');
+    expect(done.summary).toContain('£51.77');
+    expect(done.summary).toContain('webscraper.io');
+  });
 });

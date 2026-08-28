@@ -327,7 +327,7 @@ describe('two-site product report', () => {
     ).toBe('done');
   });
 
-  it('opens the second site after an empty first-page read instead of rereading until fail', () => {
+  it('opens the second site after an empty first-page read, then emits 结果 once both are visited', () => {
     const captures = new Map<TwoSiteReportCapture['key'], TwoSiteReportCapture>();
     expect(
       resolveTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
@@ -338,22 +338,21 @@ describe('two-site product report', () => {
       kind: 'open',
       url: 'https://webscraper.io/test-sites/e-commerce/allinone',
     });
-    expect(captures.size).toBe(0);
+    expect(captures.get('current-page')?.products).toEqual([]);
 
     applyTwoSiteReportObservation(LIVE_INSTRUCTION, captures, {
       url: 'https://books.toscrape.com/',
       visibleText: BOOKS_TEXT,
     });
-    expect(
-      resolveTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
-        url: 'https://webscraper.io/test-sites/e-commerce/allinone',
-        visibleText: 'Allinone | Web Scraper Test Sites',
-      }),
-    ).toEqual({
-      kind: 'read',
+    const afterSecond = resolveTwoSiteReportTurn(LIVE_INSTRUCTION, captures, {
       url: 'https://webscraper.io/test-sites/e-commerce/allinone',
+      visibleText: 'Allinone | Web Scraper Test Sites',
     });
-    expect(twoSiteReportDeliverable(LIVE_INSTRUCTION, captures)).toBeNull();
+    expect(afterSecond.kind).toBe('done');
+    if (afterSecond.kind !== 'done') throw new Error('expected done');
+    expect(afterSecond.summary).toContain('A Light in the Attic');
+    expect(afterSecond.summary).toContain('£51.77');
+    expect(afterSecond.summary).toContain('webscraper.io');
   });
 
   it('reads collapsed first-page wording then opens allinone', () => {
