@@ -325,6 +325,7 @@ export function deriveWorkStream(input: {
   pageLabel?: string;
   pageUrl?: string;
   pageTitle?: string;
+  verifiedPages?: Array<{ id: string; title: string; host?: string; url?: string }>;
 }): WorkStreamView {
   const blocks: WorkStreamBlock[] = [];
   const running = input.status === 'running';
@@ -461,8 +462,69 @@ export function deriveWorkStream(input: {
     searchHits,
     blocks,
   });
+  prependVerifiedPages(blocks, input.verifiedPages);
 
   return { blocks };
+}
+
+function pagePathKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return url;
+    return (parsed.origin + parsed.pathname).replace(/\/+$/, '') || parsed.origin;
+  } catch {
+    return url;
+  }
+}
+
+function blockHasPageUrl(blocks: WorkStreamBlock[], url: string): boolean {
+  const key = pagePathKey(url);
+  return [...urlsInBlocks(blocks)].some(item => {
+    const other = pagePathKey(item);
+    return other === key || item === url || item.startsWith(key) || key.startsWith(item);
+  });
+}
+
+export function verifiedPagesFromTargets(
+  refs: ReadonlyArray<{
+    id: string;
+    kind?: string;
+    title?: string;
+    label?: string;
+    normalizedUrl?: string;
+    urlOrigin?: string;
+    visitSeq?: number;
+  }>,
+): Array<{ id: string; title: string; host?: string; url?: string }> {
+  return [...refs]
+    .filter(ref => ref.kind === 'page')
+    .sort((left, right) => (left.visitSeq ?? 0) - (right.visitSeq ?? 0))
+    .flatMap(ref => {
+      const title = (ref.title ?? ref.label ?? '').replace(/\s+/g, ' ').trim();
+      const url = ref.normalizedUrl || (ref.urlOrigin && ref.urlOrigin !== 'null' ? ref.urlOrigin : '');
+      if (!title || !url || !/^https?:\/\//i.test(url) || isSearchResultsUrl(url)) return [];
+      let host: string | undefined;
+      try {
+        host = new URL(url).hostname.replace(/^www\./, '');
+      } catch {
+        host = undefined;
+      }
+      return [{ id: ref.id, title, host, url }];
+    });
+}
+
+function prependVerifiedPages(
+  blocks: WorkStreamBlock[],
+  pages: Array<{ id: string; title: string; host?: string; url?: string }> | undefined,
+): void {
+  for (const page of [...(pages ?? [])].reverse()) {
+    if (!page.url || isSearchResultsUrl(page.url) || blockHasPageUrl(blocks, page.url)) continue;
+    blocks.unshift({
+      type: 'page',
+      id: page.id,
+      page: { id: page.id, title: page.title, host: page.host, url: page.url, live: false },
+    });
+  }
 }
 
 export function collectStreamSources(view: WorkStreamView): StreamSource[] {

@@ -12,7 +12,7 @@ import { bindIndexedActionToFrame } from '../../task/action-frame';
 import { createLogger } from '../../log';
 import { buildObservationFrame } from './observation';
 import { computeObservationDiff } from './diff';
-import { normalizeVisiblePageText } from './visible-text';
+import { mergeVisibleTextWithLinkTitles, normalizeVisiblePageText } from './visible-text';
 import {
   PAGE_CHANGING_ACTIONS,
   type BrowserKernel,
@@ -105,8 +105,26 @@ export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
         // viewport optional
       }
       try {
-        const raw = await page.evaluate(() => document.body?.innerText || '');
-        visibleText = normalizeVisiblePageText(raw);
+        const raw = await page.evaluate(() => {
+          const body = document.body?.innerText || '';
+          const titles: string[] = [];
+          const seen = new Set<string>();
+          for (const node of Array.from(document.querySelectorAll('a[title]'))) {
+            const title = (node.getAttribute('title') || '').replace(/\s+/g, ' ').trim();
+            const label = (node.textContent || '').replace(/\s+/g, ' ').trim();
+            if (!title || title === label || seen.has(title)) continue;
+            seen.add(title);
+            titles.push(title);
+            if (titles.length >= 200) break;
+          }
+          return { body, titles };
+        });
+        if (typeof raw === 'string') {
+          visibleText = normalizeVisiblePageText(raw);
+        } else if (raw && typeof raw === 'object') {
+          const harvested = raw as { body?: unknown; titles?: unknown };
+          visibleText = mergeVisibleTextWithLinkTitles(harvested.body, harvested.titles);
+        }
       } catch {
         // wording optional; empty visible text still recorded on the frame
       }

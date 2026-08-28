@@ -476,6 +476,46 @@ describe('deriveWorkStream', () => {
       },
     ]);
   });
+
+  it('lists both two-site sources when only the second page was an open_tab', () => {
+    const view = deriveWorkStream({
+      status: 'completed',
+      attempts: [
+        attempt({ id: 'o1', actionName: 'observe', displaySummary: '获取页面快照' }),
+        attempt({
+          id: 't1',
+          actionName: 'open_tab',
+          displaySummary: '打开 webscraper.io Allinone | Web Scraper Test Sites',
+          targetLabel: 'webscraper.io',
+          targetUrl: 'https://webscraper.io/test-sites/e-commerce/allinone',
+        }),
+      ],
+      verifiedPages: [
+        {
+          id: 'books',
+          title: 'All products | Books to Scrape',
+          host: 'books.toscrape.com',
+          url: 'https://books.toscrape.com/catalogue/category/books_1/index.html',
+        },
+        {
+          id: 'allinone',
+          title: 'Allinone | Web Scraper Test Sites',
+          host: 'webscraper.io',
+          url: 'https://webscraper.io/test-sites/e-commerce/allinone',
+        },
+      ],
+    });
+    const pages = view.blocks.filter(block => block.type === 'page');
+    expect(pages).toHaveLength(2);
+    expect(pages[0]).toMatchObject({
+      type: 'page',
+      page: { title: 'All products | Books to Scrape', host: 'books.toscrape.com' },
+    });
+    expect(pages[1]).toMatchObject({
+      type: 'page',
+      page: { title: expect.stringContaining('Allinone') },
+    });
+  });
 });
 
 describe('splitThinkingSentences', () => {

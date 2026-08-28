@@ -127,6 +127,7 @@ import {
   isIndependentTabOpenFailure,
   type IndependentTabOpenAttempt,
 } from './independent-urls';
+import { isTwoSiteProductReportInstruction } from './two-site-report';
 import { classifyCreateExecutorError } from './executor-start-error';
 import type { DownloadStateProbe } from './download-state';
 import { syncTaskKeepAlive } from '../runtime/task-keep-alive';
@@ -241,6 +242,9 @@ export function deriveInstructionUrlPlan(instruction: string): InstructionUrlPla
   const analysis = analyzeInstructionLanguage(instruction);
   const sourceUrls = analysis.urls.map(occurrence => occurrence.value);
   const requiresOrderedSourceProof = instructionAffirmsTarget(analysis, 'ordered_sources');
+  if (isTwoSiteProductReportInstruction(instruction)) {
+    return { sourceUrls, currentPageUrls: [], requiresOrderedSourceProof: false };
+  }
 
   return {
     sourceUrls,

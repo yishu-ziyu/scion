@@ -7,6 +7,7 @@ export interface InteractiveElementDigest {
   index: number;
   tagName?: string;
   text?: string;
+  title?: string;
   role?: string;
   type?: string;
   name?: string;

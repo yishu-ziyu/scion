@@ -128,6 +128,37 @@ describe('task / steps / result chain', () => {
     expect(round?.result).toEqual({ kind: 'summary', body: summary });
   });
 
+  it('completes a two-site product report from both pages instead of an empty fail', async () => {
+    const instruction =
+      'Write a short report of the first 3 products on this page and the first 3 products on https://webscraper.io/test-sites/e-commerce/allinone. Include name and price from both sites.';
+    const summary = [
+      'books.toscrape.com',
+      '1. A Light in the Attic — £51.77',
+      '2. Tipping the Velvet — £53.74',
+      '3. Soumission — £50.10',
+      '',
+      'webscraper.io',
+      '1. Samsung Galaxy S — $407.99',
+      '2. Nokia 105 — $67.99',
+      '3. Huawei P30 — $499.99',
+    ].join('\n');
+    const manager = new TaskManager({
+      createExecutor: async () => driver({ kind: 'candidate_complete', summary }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-two-site-report', instruction);
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-two-site-report'))?.status).toBe('completed');
+    });
+    const round = (await manager.snapshot('task-two-site-report'))?.rounds[0];
+    expect(round?.result?.kind).toBe('report');
+    expect(round?.result?.body).toContain('A Light in the Attic');
+    expect(round?.result?.body).toContain('Samsung Galaxy S');
+    expect(round?.result?.body).not.toContain('<div');
+  });
+
   it('does not complete a content task from leftover hi / yes / 好的', async () => {
     for (const [taskId, leftover] of [
       ['task-leftover-hi', 'hi'],
