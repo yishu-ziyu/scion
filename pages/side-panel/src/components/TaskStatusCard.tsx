@@ -20,7 +20,12 @@ import { productFailureLabel, toProductFailureCode } from '../presentation/failu
 import { waitUserAction } from '../presentation/wait-affordance';
 import { deriveWaitAsk } from '../presentation/wait-ask';
 import { deriveTaskProgressView, stripTabCountPrefix } from '../presentation/task-progress-view';
-import { collectStreamSources, deriveWorkStream, type StreamSource } from '../presentation/work-stream';
+import {
+  collectStreamSources,
+  deriveWorkStream,
+  verifiedPagesFromTargets,
+  type StreamSource,
+} from '../presentation/work-stream';
 import { isFollowingForeground } from '../presentation/run-presence';
 import { processNowBody, workStreamBody } from './ProcessDisclosure';
 import { AnswerProse } from './AnswerProse';
@@ -563,6 +568,7 @@ export function TaskStatusCard({
     pageLabel: boundPage ? siteHostLabel(snapshot) : undefined,
     pageUrl: boundPage?.normalizedUrl || (boundPage?.urlOrigin !== 'null' ? boundPage?.urlOrigin : undefined),
     pageTitle: boundPage?.title?.trim() || boundPage?.label?.trim(),
+    verifiedPages: verifiedPagesFromTargets(snapshot.targetRefs),
   });
   const storedResult = round?.result?.body?.replace(/\r\n?/g, '\n').trim() ?? '';
   const resultSentence = storedResult || deliverableAnswer || '';

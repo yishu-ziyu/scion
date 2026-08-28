@@ -72,6 +72,46 @@ describe('022-KERNEL-01 BrowserKernel contract', () => {
     expect(hooks.dispatchAction).not.toHaveBeenCalled();
   });
 
+  it('merges a[title] names that innerText truncated', async () => {
+    const getState = vi.fn(async () => ({
+      tabId: 7,
+      url: 'https://books.toscrape.com/',
+      title: 'All products',
+      elementTree: { clickableElementsToString: () => '' },
+      selectorMap: new Map(),
+    }));
+    const evaluate = vi.fn(async (fn: () => unknown) => {
+      const src = String(fn);
+      if (src.includes('innerText')) {
+        return { body: 'A Light in the ...\n£51.77', titles: ['A Light in the Attic'] };
+      }
+      if (src.includes('scrollY')) {
+        return { scrollY: 0, viewportHeight: 800, documentHeight: 1200 };
+      }
+      return undefined;
+    });
+    const kernel = createBrowserKernel({
+      browserContext: {
+        getState,
+        switchTab: vi.fn(),
+        getCurrentPage: vi.fn(async () => ({
+          observeMedia: async () => ({ kind: 'none' as const }),
+          evaluate,
+        })),
+      } as never,
+      agentContext: {
+        browserContext: {},
+        options: { useVision: false, includeAttributes: [] as string[] },
+      } as never,
+      hooks: { dispatchAction: vi.fn(async () => ({ ok: true, observed: true })) } as never,
+      resolveAction: () => undefined,
+      defaultUseVision: false,
+    });
+    const frame = await kernel.observe();
+    expect(frame.visibleText).toContain('A Light in the Attic');
+    expect(frame.visibleText).toContain('£51.77');
+  });
+
   it('can skip the page-load wait on the first look at an already-open page', async () => {
     const getState = vi.fn(async () => ({
       tabId: 7,
