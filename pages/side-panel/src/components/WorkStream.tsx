@@ -131,12 +131,12 @@ export function WorkStream({ view, running, onOpenUrl }: WorkStreamProps) {
   );
 }
 
-function ThinkingFold({ text, open, running }: { text: string; open: boolean; running: boolean }) {
-  const [expanded, setExpanded] = useState(open);
+export function ThinkingFold({ text, open, running }: { text: string; open: boolean; running: boolean }) {
+  const [expanded, setExpanded] = useState(running || open);
   const userToggled = useRef(false);
   useEffect(() => {
-    if (!userToggled.current) setExpanded(open);
-  }, [open]);
+    if (!userToggled.current) setExpanded(running || open);
+  }, [open, running]);
   const sentences = splitThinkingSentences(text);
   const [reduceMotion] = useState(
     () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true,
@@ -191,24 +191,28 @@ function ThinkingFold({ text, open, running }: { text: string; open: boolean; ru
           userToggled.current = true;
           setExpanded(next => !next);
         }}>
-        <span className="chijie-thinking-label">{t('chat_task_thinking_heading')}</span>
+        <span className="chijie-thinking-label">
+          {running ? t('chat_task_thinking_live') : t('chat_task_thinking_heading')}
+        </span>
         <FiChevronDown className="chijie-thinking-chevron" aria-hidden />
       </button>
-      <div
-        className={`chijie-thinking-collapsible t-acc-panel${expanded ? '' : ' is-collapsed'}`}
-        aria-hidden={!expanded}>
-        <div className="chijie-thinking-inner t-acc-panel-inner">
-          <div className="chijie-thinking-viewport" ref={viewportRef}>
-            <ul className="chijie-thinking-stream">
-              {visible.map((sentence, index) => (
-                <li key={`${index}-${sentence}`} data-testid={index === 0 ? 'task-thinking-line' : undefined}>
-                  {sentence}
-                </li>
-              ))}
-            </ul>
+      {visible.length > 0 ? (
+        <div
+          className={`chijie-thinking-collapsible t-acc-panel${expanded ? '' : ' is-collapsed'}`}
+          aria-hidden={!expanded}>
+          <div className="chijie-thinking-inner t-acc-panel-inner">
+            <div className="chijie-thinking-viewport" ref={viewportRef}>
+              <ul className="chijie-thinking-stream">
+                {visible.map((sentence, index) => (
+                  <li key={`${index}-${sentence}`} data-testid={index === 0 ? 'task-thinking-line' : undefined}>
+                    {sentence}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

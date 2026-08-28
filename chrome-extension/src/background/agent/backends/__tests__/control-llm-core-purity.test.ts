@@ -4,50 +4,16 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * product/022 hard gate: control-llm.ts must not import browser/sites/*.
- * Site knowledge lives under agent/skills/.
+ * The JSON-in-text control driver is retired. Production is ToolLoopAgent.
  */
-describe('control-llm core purity (022)', () => {
-  it('does not import browser/sites/*', () => {
+describe('retired JSON control driver', () => {
+  it('is not on the factory production path and no longer extracts JSON from model text', () => {
     const here = dirname(fileURLToPath(import.meta.url));
-    const source = readFileSync(join(here, '../control-llm.ts'), 'utf8');
-    // Strip block/line comments so docstrings mentioning the ban do not false-positive.
-    const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-    expect(codeOnly).not.toMatch(/from ['"][^'"]*browser\/sites\//);
-    expect(codeOnly).not.toMatch(/import\(['"][^'"]*browser\/sites\//);
-    expect(codeOnly).not.toMatch(/from ['"][^'"]*sites\/(bilibili|youtube|form-fill|product-table|public-shortcuts)/);
-    // Must route through kernel + skills.
-    expect(codeOnly).toMatch(/createBrowserKernel/);
-    expect(codeOnly).toMatch(/createSkillRuntime|skillRuntime/);
-    expect(codeOnly).toMatch(/settleProposedDone/);
-    expect(codeOnly).toMatch(/from '\.\/control-supervise'/);
-    expect(codeOnly).toMatch(/reportLoopPhase/);
-    expect(codeOnly).toMatch(/searchObserveLoopPhase/);
-    expect(codeOnly).toMatch(/waitForLoad:\s*false/);
-    const persistSerp = codeOnly.slice(
-      codeOnly.indexOf('const persistSerpObserve'),
-      codeOnly.indexOf('const observeFrame'),
-    );
-    expect(persistSerp).toMatch(/searchObserveLoopPhase/);
-    expect(persistSerp).toMatch(/collectSearchFindings/);
-    const reobserveAt = codeOnly.indexOf('reobserve: async ()');
-    const reobserve = codeOnly.slice(reobserveAt, codeOnly.indexOf('resolveQueuedAction: action', reobserveAt));
-    expect(reobserveAt).toBeGreaterThan(0);
-    expect(reobserve).toMatch(/persistSerpObserve/);
-    expect(codeOnly).toMatch(/from '\.\/control-two-site'/);
-    expect(codeOnly).toMatch(/filterTwoSiteReportActions/);
-    expect(codeOnly).toMatch(/skipInitialObserve:\s*skipControlInitialObserve\(input\.instruction\)/);
-    expect(codeOnly).toMatch(/decideTwoSiteReportTurn/);
-  });
-
-  it('mailbox ask writes userVisibleText as the round page reading', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const source = readFileSync(join(here, '../control-llm.ts'), 'utf8');
-    const askAt = source.indexOf("mailbox.kind === 'ask'");
-    expect(askAt).toBeGreaterThan(0);
-    const ask = source.slice(askAt, source.indexOf("mailbox.kind === 'open'", askAt));
-    expect(ask).toContain('persistPageReading(mailbox.userVisibleText)');
-    expect(ask).toContain("kind: 'waiting_user'");
-    expect(ask).toContain("reason: 'target_ambiguous'");
+    const factory = readFileSync(join(here, '../../factory.ts'), 'utf8');
+    const retired = readFileSync(join(here, '../control-llm.ts'), 'utf8');
+    expect(factory).toContain('createToolLoopControlDriver');
+    expect(factory).not.toMatch(/createLlmControlDriver/);
+    expect(retired).not.toContain('export async function createLlmControlDriver');
+    expect(retired).not.toContain('extractJsonFromModelOutput');
   });
 });

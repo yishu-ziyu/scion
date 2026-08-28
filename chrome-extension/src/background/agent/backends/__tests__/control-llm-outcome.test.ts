@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CONTROL_MAX_NO_PROGRESS,
@@ -114,14 +111,6 @@ describe('control-llm outcome mapping (contracts 010/011 harden)', () => {
     expect(memory).toContain('click_element failed:');
     expect(memory).toContain('[compacted');
     expect(memory!.length).toBeLessThan(30_000);
-  });
-
-  it('writes lastActionMemory through memoryAfterAction on the act result and catch', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const source = readFileSync(join(here, '../control-llm.ts'), 'utf8');
-    expect(source).toMatch(/lastActionMemory = memoryAfterAction\(name, result\)/);
-    expect(source).toMatch(/lastActionMemory = memoryAfterAction\(name, \{ error: message \}\)/);
-    expect(source).not.toMatch(/if \(!result\.error && result\.summary && shouldKeepActionResultInContext\(name\)\)/);
   });
 
   it.each(['no_progress', 'max_steps'] as const)(

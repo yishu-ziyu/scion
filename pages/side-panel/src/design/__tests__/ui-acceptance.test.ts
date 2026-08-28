@@ -188,9 +188,12 @@ describe('Feature: Side panel uses 持节 design system', () => {
       expect(sidePanelSource).not.toContain('Command rejected:');
     });
 
-    it('does not decide user turns in the side panel; start/follow_up is classified in TaskManager.dispatch', () => {
+    it('does not decide user turns in the side panel; normal sentences go to chat_stream', () => {
       expect(sidePanelSource).not.toContain("type: 'user_turn_decision'");
-      expect(sidePanelSource).toContain('forceExecute');
+      expect(sidePanelSource).not.toContain('classifyChatTurn');
+      expect(sidePanelSource).toContain("type: 'chat_stream'");
+      expect(sidePanelSource).not.toContain('page_summary_stream');
+      expect(sidePanelSource).not.toContain("route === 'task'");
       expect(sidePanelSource).not.toContain('composerIntent');
     });
   });
@@ -361,6 +364,13 @@ describe('Feature: design/003 task main blocks', () => {
     expect(componentsCss).toContain('.chijie-progress-health');
     expect(componentsCss).toContain('.chijie-progress-now');
     expect(workStreamSource).not.toContain('思考中');
+    expect(workStreamSource).toContain("t('chat_task_thinking_live')");
+    expect(processDisclosureSource).toContain('ThinkingFold');
+    expect(processDisclosureSource).toContain('chijie-live-process');
+    expect(processDisclosureSource.indexOf('ThinkingFold')).toBeLessThan(
+      processDisclosureSource.indexOf('task-process-disclosure'),
+    );
+    expect(componentsCss).toContain('.chijie-live-process');
     expect(componentsCss).toContain(".chijie-thinking[data-running='true'] .chijie-thinking-label");
     expect(componentsCss).toContain(".chijie-process-disclosure[data-live='true'] [data-testid='task-now-summary']");
     expect(componentsCss).toContain('chijie-label-shine');
@@ -671,7 +681,9 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskStatusCardSource).not.toContain('shouldShowOutcomeRating');
     expect(taskStatusCardSource).not.toContain('data-testid="task-outcome-rating"');
     expect(t('chat_task_thinking_heading')).toBe('思考过程');
+    expect(t('chat_task_thinking_live')).toBe('思考中…');
     expect(workStreamSource).toContain("t('chat_task_thinking_heading')");
+    expect(workStreamSource).toContain("t('chat_task_thinking_live')");
     expect(workStreamSource).toContain('chijie-thinking');
     expect(workStreamSource).toContain('splitThinkingSentences');
     expect(componentsCss).toContain('.chijie-process-takeover');
@@ -710,7 +722,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(sidePanelSource).toContain('chijie-workspace');
     expect(sidePanelSource).toContain('chijie-chat-log');
     expect(sidePanelSource).toContain('chijie-composer');
-    // Live task hides the chat transcript. Pause/resume stay beside the composer.
+    // Task card shares the workspace with the chat transcript. Pause/resume stay beside the composer.
     expect(sidePanelSource).not.toContain('对话 {messages.length} 条');
     expect(sidePanelSource).toContain("data-live={liveTaskConsole ? 'true' : 'false'}");
     expect(sidePanelSource).toContain("data-task-visible={showTaskCard ? 'true' : undefined}");
@@ -736,7 +748,7 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(sidePanelSource).toMatch(/onAdjustDirection=[\s\S]{0,800}setInputEnabled\(true\)/);
     expect(sidePanelSource).toMatch(/onAdjustDirection=[\s\S]{0,500}setIsHistoricalSession\(false\)/);
     expect(sidePanelSource).toContain("setInputTextRef.current?.(t('chat_task_adjust_prompt'))");
-    expect(sidePanelSource).toContain("changeType: isDirectionChange ? 'direction_change' : 'follow_up'");
+    expect(sidePanelSource).toContain('pendingDirectionChangeRef.current = true');
     expect(sidePanelSource).toContain('planComposerSend');
     expect(taskProgressOverviewSource).toContain('data-testid="task-direction-change"');
     expect(t('chat_task_adjust_prompt')).toBe('我想调整：');
@@ -751,6 +763,21 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(zhCnMessages.chat_task_presence_background.message).toBe('后台进行');
     expect(zhCnMessages.chat_task_process_disclosure.message).toBe('查看过程');
     expect(zhCnMessages.chat_task_copy_result.message).toBe('复制结果');
+  });
+
+  it('keeps MessageList in the chat log when a task card is showing', () => {
+    expect(sidePanelSource).not.toMatch(/showTaskCard\s*\?\s*null/);
+    const chatLogStart = sidePanelSource.indexOf('data-testid="sidepanel-chat-log"');
+    expect(chatLogStart).toBeGreaterThan(-1);
+    const bookmarksStart = sidePanelSource.indexOf('data-testid="bookmark-list-panel"', chatLogStart);
+    const chatLogJsx = sidePanelSource.slice(chatLogStart, bookmarksStart > -1 ? bookmarksStart : undefined);
+    expect(chatLogJsx).toContain('<MessageList');
+    expect(chatLogJsx).toMatch(/showLiveMessages\s*\?/);
+    expect(chatLogJsx.search(/showLiveMessages\s*\?/)).toBeLessThan(chatLogJsx.indexOf('<MessageList'));
+    expect(chatLogJsx).not.toMatch(/showTaskCard\s*\?\s*null/);
+    expect(componentsCss).not.toMatch(
+      /\.chijie-chat-log\[data-(?:live|task-visible)='true'\]\s*\{[^}]*display:\s*none/,
+    );
   });
 
   it('keeps terminal state truthful and current-page context on the project color system', () => {

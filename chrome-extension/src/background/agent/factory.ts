@@ -2,8 +2,8 @@ import BrowserContext from '../browser/context';
 import { createLogger } from '../log';
 import type { AgentEvent } from './event/types';
 import type { ExecutorDriver, ExecutorHooks, ExecutorInput } from '../task/contracts';
-import { createLlmControlDriver } from './backends/control-llm';
 import { createControlLoopDriver, type ControlLoopOptions, type ControlScriptStep } from './backends/control-loop';
+import { createToolLoopControlDriver } from './backends/tool-loop-control';
 
 const logger = createLogger('ExecutorFactory');
 
@@ -17,7 +17,7 @@ export interface CreateExecutorDriverOptions {
 }
 
 /**
- * Production driver: LLM control under TaskManager.
+ * Production driver: ToolLoopAgent native tools under TaskManager.
  * Pass `control.steps` only in tests for a scripted loop.
  */
 export async function createExecutorDriver(
@@ -38,5 +38,5 @@ export async function createExecutorDriver(
   if (options.control?.steps?.length) {
     return createControlLoopDriver(input, hooks, options.control);
   }
-  return createLlmControlDriver(input, hooks, browserContext);
+  return createToolLoopControlDriver(input, hooks, browserContext);
 }

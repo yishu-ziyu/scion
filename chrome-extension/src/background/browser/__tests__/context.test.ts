@@ -154,15 +154,33 @@ describe('BrowserContext tab selection', () => {
     },
   );
 
-  it('selects an allowed content tab when the active tab is an extension page', async () => {
+  it('does not attach a sibling content tab when the active tab is the side panel', async () => {
     tabsApi.query.mockImplementation(async query => (query.active ? [extensionTab] : [extensionTab, contentTab]));
-    tabsApi.get.mockResolvedValue(contentTab);
+    tabsApi.create.mockResolvedValue(blankTab);
+    tabsApi.get.mockResolvedValue(blankTab);
+    const attachPuppeteer = vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(false);
     const context = new BrowserContext({});
-    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
 
     const page = await context.getCurrentPage();
 
-    expect(page.tabId).toBe(contentTab.id);
+    expect(page.tabId).toBe(blankTab.id);
+    expect(page.tabId).not.toBe(contentTab.id);
+    expect(context.getBoundTabId()).not.toBe(contentTab.id);
+    expect(tabsApi.create).toHaveBeenCalledWith({ url: context.getConfig().homePageUrl, active: false });
+    expect(attachPuppeteer).toHaveBeenCalledTimes(1);
+    expect(page.attached).toBe(false);
+  });
+
+  it('attaches a bound task tab even when the side panel is the active tab', async () => {
+    tabsApi.query.mockImplementation(async query => (query.active ? [extensionTab] : [extensionTab, contentTab]));
+    tabsApi.get.mockResolvedValue(contentTab);
+    const attachPuppeteer = vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const context = new BrowserContext({});
+
+    await expect(context.switchTab(contentTab.id!)).resolves.toMatchObject({ tabId: contentTab.id });
+
+    expect(attachPuppeteer).toHaveBeenCalledOnce();
+    expect(context.getBoundTabId()).toBe(contentTab.id);
     expect(tabsApi.create).not.toHaveBeenCalled();
   });
 
@@ -192,17 +210,21 @@ describe('BrowserContext tab selection', () => {
     await expect(new BrowserContext({}).getTabInfos()).resolves.toEqual([]);
   });
 
-  it('does not select a pending web navigation while an extension page remains committed', async () => {
+  it('does not attach a pending web navigation or a sibling tab while an extension page remains committed', async () => {
     tabsApi.query.mockImplementation(async query =>
       query.active ? [pendingContentFromExtensionTab] : [pendingContentFromExtensionTab, contentTab],
     );
-    tabsApi.get.mockResolvedValue(contentTab);
+    tabsApi.create.mockResolvedValue(blankTab);
+    tabsApi.get.mockResolvedValue(blankTab);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(false);
     const context = new BrowserContext({});
-    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
 
     const page = await context.getCurrentPage();
 
-    expect(page.tabId).toBe(contentTab.id);
+    expect(page.tabId).toBe(blankTab.id);
+    expect(page.tabId).not.toBe(pendingContentFromExtensionTab.id);
+    expect(page.tabId).not.toBe(contentTab.id);
+    expect(tabsApi.create).toHaveBeenCalledOnce();
   });
 
   it('revalidates the current tab before reusing it', async () => {

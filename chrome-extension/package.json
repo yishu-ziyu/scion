@@ -19,6 +19,7 @@
     "e2e:sw-restart": "node scripts/sw-restart-e2e.mjs"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.39",
     "@extension/agent-core": "workspace:*",
     "@extension/context-engine": "workspace:*",
     "@extension/contracts": "workspace:*",
@@ -35,6 +36,7 @@
     "@langchain/ollama": "0.2.4",
     "@langchain/openai": "0.6.16",
     "@langchain/xai": "^0.1.0",
+    "ai": "^7.0.83",
     "jsonrepair": "^3.13.1",
     "posthog-js": "^1.271.0",
     "puppeteer-core": "^24.31.0",

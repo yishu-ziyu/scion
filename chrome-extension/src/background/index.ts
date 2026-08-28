@@ -22,7 +22,8 @@ import {
   createPageOperatingBarSyncQueue,
 } from './task/page-operating';
 import { browserContext, createExecutorDriver } from './agent/factory';
-import { handleChatStreamRequest } from './chat-stream';
+import { attachChatStreamHost, handleChatStreamRequest } from './chat-stream';
+import { createLiveOrchestratorHost } from './orchestrator/live-host';
 import { handlePageSummaryStreamRequest } from './page-summary-stream';
 
 import { createDebuggerDetachHandler } from './runtime/debugger-detach';
@@ -103,6 +104,7 @@ taskManager.subscribe(event => {
   sidePanelPorts.broadcast(port => port.postMessage({ type: 'task_event', event }));
   void syncLatestPageOperatingBar();
 });
+attachChatStreamHost(createLiveOrchestratorHost(taskManager));
 
 // Personal fork: seed MiniMax-M3 into chrome.storage on every SW boot (no GUI).
 void ensurePersonalDefaults().catch(error => logger.error('Personal bootstrap failed', error));

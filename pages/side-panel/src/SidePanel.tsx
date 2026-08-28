@@ -34,12 +34,11 @@ import { PROGRESS_MESSAGE_CONTENT, classifyAgentEvent, shouldMergeFailure } from
 import {
   formatBindChip,
   formatBindDetail,
-  instructionPointsAtCurrentPage,
   taskBoundContentTab,
   type BoundContentTab,
 } from './presentation/active-tab-bind';
 import { resolveActiveContentTab } from './presentation/active-tab-runtime';
-import { applyChatStreamDelta, classifyChatTurn, type ChatStreamState } from './presentation/chat-turn';
+import { applyChatStreamDelta, type ChatStreamState } from './presentation/chat-turn';
 import { canBootstrapReconnectSnapshot, reconnectTaskSnapshotRequest } from './presentation/task-reconnect';
 import {
   isActiveTaskStatus,
@@ -56,7 +55,6 @@ import {
   cancellationIntentAfterDispatch,
   canBeginExclusiveTaskLaunch,
   canExposeMessageRecoveryActions,
-  canFollowUpInOwnedSession,
   pendingFollowUpTexts,
   planComposerSend,
   mergeRestoredSessionMessages,
@@ -1248,17 +1246,13 @@ const SidePanel = () => {
     [appendMessage, sendMessage],
   );
 
-  // Send direct chat or page-summary streams; false when the port is gone.
+  // Every normal sentence goes to the orchestrator over chat_stream.
   const sendChatStreamMessage = useCallback(
-    (sessionId: string, text: string, tabId?: number): boolean => {
+    (sessionId: string, text: string): boolean => {
       if (!portRef.current) setupConnection();
       try {
         chatStreamRef.current = { sessionId, timestamp: Date.now(), text: '' };
-        portRef.current?.postMessage(
-          tabId === undefined
-            ? { type: 'chat_stream', sessionId, text }
-            : { type: 'page_summary_stream', sessionId, text, tabId },
-        );
+        portRef.current?.postMessage({ type: 'chat_stream', sessionId, text });
         return true;
       } catch {
         chatStreamRef.current = null;
@@ -1344,18 +1338,16 @@ const SidePanel = () => {
   const handleSendMessage = async (
     text: string,
     displayText?: string,
-    options?: { retry?: boolean },
+    _options?: { retry?: boolean },
   ): Promise<SendMessageResult> => {
     const trimmedText = text.trim();
     if (!trimmedText) return { delivered: false };
-    const isDirectionChange = pendingDirectionChangeRef.current;
     pendingDirectionChangeRef.current = false;
 
     if (trimmedText.startsWith('/')) {
       const wasHandled = await handleCommand(trimmedText);
       if (wasHandled) return { delivered: true };
     }
-    const route = classifyChatTurn(trimmedText);
 
     if (isHistoricalSession) {
       return { delivered: false, feedback: '历史会话不能继续发送。输入已保留。' };
@@ -1454,58 +1446,7 @@ const SidePanel = () => {
       }
 
       if (!portRef.current) setupConnection();
-
-      const currentTask = taskSnapshotRef.current;
-      const canFollowUp = canFollowUpInOwnedSession(currentTask, turnSessionId);
-      if (canFollowUp && currentTask && route !== 'page_summary') {
-        commandDispatched = sendTaskCommand({
-          type: 'follow_up',
-          commandId: crypto.randomUUID(),
-          taskId: currentTask.id,
-          expectedRevision: currentTask.revision,
-          instruction: text,
-          chatSessionId: turnSessionId,
-          instructionMessageId: storedMessage.id,
-          changeType: isDirectionChange ? 'direction_change' : 'follow_up',
-          forceExecute: options?.retry === true,
-        });
-        setInputEnabled(true);
-      } else if (route === 'chat') {
-        commandDispatched = sendChatStreamMessage(turnSessionId, text);
-      } else {
-        const bound =
-          route === 'page_summary' && canFollowUp && currentTask
-            ? taskBoundContentTab(currentTask, bindPreview)
-            : await resolveActiveContentTab({ allowLastFocused: false });
-        if (turnGeneration !== sessionGenerationRef.current || turnSessionId !== sessionIdRef.current) {
-          return { delivered: false };
-        }
-        if (!bound && (route === 'page_summary' || instructionPointsAtCurrentPage(text))) {
-          appendMessage(
-            { actor: Actors.SYSTEM, content: t('chat_task_bind_this_page'), timestamp: Date.now() },
-            turnSessionId,
-          );
-          setInputEnabled(true);
-          setShowStopButton(false);
-          launchResolved = true;
-          return { delivered: false, feedback: '当前页面不是网页。输入已保留。' };
-        }
-        setBindPreview(bound);
-        blankComposerSessionRef.current = false;
-        commandDispatched =
-          route === 'page_summary'
-            ? sendChatStreamMessage(turnSessionId, text, bound!.tabId)
-            : sendTaskCommand({
-                type: 'start',
-                commandId: crypto.randomUUID(),
-                taskId: turnSessionId,
-                instruction: text,
-                chatSessionId: turnSessionId,
-                instructionMessageId: storedMessage.id,
-                tabId: bound?.tabId ?? -1,
-                forceExecute: options?.retry === true,
-              });
-      }
+      commandDispatched = sendChatStreamMessage(turnSessionId, text);
       if (!commandDispatched) {
         setInputEnabled(true);
         setShowStopButton(false);
@@ -2375,7 +2316,7 @@ const SidePanel = () => {
                     data-task-visible={showTaskCard ? 'true' : undefined}
                     data-collapsed={chatCollapsed ? 'true' : 'false'}
                     data-idle={!showMainTaskSurface ? 'true' : 'false'}>
-                    {showTaskCard ? null : showLiveMessages ? (
+                    {showLiveMessages ? (
                       <>
                         <MessageList
                           messages={displayMessages.filter(message => message.content !== progressMessage)}
