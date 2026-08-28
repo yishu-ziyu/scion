@@ -38,11 +38,12 @@ import { formatVerifiedPagesForPrompt } from '../../task/verified-step-records';
 import {
   filterTwoSiteReportActions,
   formatTwoSiteReportCapturesForPrompt,
-  isTwoSiteProductReportInstruction,
-  resolveTwoSiteReportTurn,
-  twoSitePageFromFrame,
   type TwoSiteReportCapture,
 } from '../../task/two-site-report';
+import {
+  decideTwoSiteReportTurn,
+  skipControlInitialObserve,
+} from './control-two-site';
 import {
   applyInaccessibleIframeGate,
   applyLoginWallGate,
@@ -217,24 +218,6 @@ export function memoryAfterAction(
   }
   return null;
 }
-
-function decideTwoSiteReportTurn(
-  instruction: string,
-  captures: Map<string, TwoSiteReportCapture>,
-  frame: ObservationFrame | null,
-): LoopDecision | null {
-  const turn = resolveTwoSiteReportTurn(instruction, captures, twoSitePageFromFrame(frame));
-  if (turn.kind === 'done') return { kind: 'done', summary: turn.summary };
-  if (turn.kind === 'open' || turn.kind === 'read') {
-    const stay = turn.kind === 'read';
-    return {
-      kind: 'action',
-      name: stay ? 'read_page_text' : 'open_tab',
-      args: stay ? { max_chars: 20_000 } : { url: turn.url },
-      observation: stay ? `读 ${turn.url}` : `打开 ${turn.url}`,
-    };
-  }
-  return null;
 
 export async function invokeWithTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
@@ -632,10 +615,8 @@ export async function createLlmControlDriver(
         }
       };
 
-      const twoSiteDecision = () => decideTwoSiteReportTurn(input.instruction, twoSiteCaptures, currentFrame);
-
       const loopOutcome = await runObserveActLoop({
-        skipInitialObserve: !isTwoSiteProductReportInstruction(input.instruction),
+        skipInitialObserve: skipControlInitialObserve(input.instruction),
         maxSteps,
         maxFailures,
         maxNoProgress,
@@ -715,7 +696,7 @@ export async function createLlmControlDriver(
             }
           };
 
-          const twoSite = twoSiteDecision();
+          const twoSite = decideTwoSiteReportTurn(input.instruction, twoSiteCaptures, currentFrame);
           if (twoSite) return twoSite;
 
           if (!mailboxTabOpened) {
@@ -1053,12 +1034,7 @@ export async function createLlmControlDriver(
             return retry.decision;
           }
           if (delivery.kind === 'complete' || decision.done) {
-            if (isTwoSiteProductReportInstruction(input.instruction)) {
-              const ready = twoSiteDecision();
-              if (ready) return ready;
-            } else {
-              return settleProposedDone(decision.observation || 'Control loop candidate complete', stateText);
-            }
+            return settleProposedDone(decision.observation || 'Control loop candidate complete', stateText);
           }
 
           const queued = filterTwoSiteReportActions(input.instruction, twoSiteCaptures, decision.actions);
