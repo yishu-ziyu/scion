@@ -64,4 +64,17 @@ describe('isUrlAllowed private-host SSRF guard', () => {
     expect(isUrlAllowed('https://sub.example.com/page', ['example.com'], none)).toBe(true);
     expect(isUrlAllowed('https://evil.example.com/page', ['example.com'], ['evil.example.com'])).toBe(false);
   });
+
+  it('does not exclusive-lock public sites when only a private host is allowlisted', () => {
+    expect(isUrlAllowed('https://www.youtube.com/', ['127.0.0.1'], none)).toBe(true);
+    expect(isUrlAllowed('http://127.0.0.1:53168/form', ['127.0.0.1'], none)).toBe(true);
+    expect(isUrlAllowed('http://192.168.1.1/', ['127.0.0.1'], none)).toBe(false);
+  });
+
+  it('lets an already-open local tab be bound without an allowlist entry', () => {
+    expect(isUrlAllowed('http://127.0.0.1:53168/form', none, none, { existingTab: true })).toBe(true);
+    expect(isUrlAllowed('http://localhost:3000/form', none, none, { existingTab: true })).toBe(true);
+    expect(isUrlAllowed('http://169.254.169.254/latest/meta-data', none, none, { existingTab: true })).toBe(false);
+    expect(isUrlAllowed('file:///etc/passwd', none, none, { existingTab: true })).toBe(false);
+  });
 });

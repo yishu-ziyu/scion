@@ -22,6 +22,27 @@ function isPrivateOrMetadataHost(hostname: string): boolean {
   return false;
 }
 
+function hostFromAllowEntry(entry: string): string {
+  const trimmed = entry
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '');
+  if (!trimmed) return '';
+  if (trimmed.startsWith('[')) {
+    const end = trimmed.indexOf(']');
+    if (end > 1) return trimmed.slice(1, end);
+  }
+  const hostPort = trimmed.split('/')[0] ?? '';
+  const ipv4 = hostPort.match(/^(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?$/);
+  if (ipv4) return ipv4[1];
+  const colon = hostPort.indexOf(':');
+  return colon === -1 ? hostPort : hostPort.slice(0, colon);
+}
+
+function isPrivateAllowEntry(entry: string): boolean {
+  return isPrivateOrMetadataHost(hostFromAllowEntry(entry));
+}
+
 /** Private-host SSRF guard: denied unless the user explicitly allowlisted this host. */
 function firewallDeniesPrivateTarget(parsedUrl: URL, rawUrl: string, allowList: string[]): boolean {
   const host = parsedUrl.hostname
@@ -34,6 +55,14 @@ function firewallDeniesPrivateTarget(parsedUrl: URL, rawUrl: string, allowList: 
   return !allowList.some(entry => urlWithoutProtocol === entry || host === entry || host.endsWith(`.${entry}`));
 }
 
+export type UrlAllowOptions = {
+  /**
+   * The tab is already open (user or a previous navigation). Bind/observe must
+   * not treat a local page the user is looking at as a navigation SSRF.
+   */
+  existingTab?: boolean;
+};
+
 /**
  * Checks if a URL is allowed based on firewall configuration
  * @param url The URL to check
@@ -42,7 +71,7 @@ function firewallDeniesPrivateTarget(parsedUrl: URL, rawUrl: string, allowList: 
  * @returns True if the URL is allowed, false otherwise
  */
 
-export function isUrlAllowed(url: string, allowList: string[], denyList: string[]): boolean {
+export function isUrlAllowed(url: string, allowList: string[], denyList: string[], options?: UrlAllowOptions): boolean {
   const trimmedUrl = url.trim();
   if (trimmedUrl.length === 0) {
     return false;
@@ -87,14 +116,23 @@ export function isUrlAllowed(url: string, allowList: string[], denyList: string[
   }
 
   // Private/local targets are denied unless the user explicitly allowlisted
-  // them (local dev servers, local eval fixtures). Cloud metadata stays
-  // blocked unconditionally — no legitimate workflow needs it.
-  if (firewallDeniesPrivateTarget(parsedUrl, trimmedUrl, allowList)) {
+  // them (local dev servers, local eval fixtures). An already-open tab is
+  // user-initiated — bind and fill it. Cloud metadata stays blocked.
+  if (!options?.existingTab && firewallDeniesPrivateTarget(parsedUrl, trimmedUrl, allowList)) {
+    return false;
+  }
+  const host = parsedUrl.hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
+  if (host === '169.254.169.254') {
     return false;
   }
 
-  // If firewall is disabled, allow all other HTTP(S) URLs.
-  if (allowList.length === 0 && denyList.length === 0) {
+  // Allowlisting 127.0.0.1 is an SSRF exception, not an exclusive public
+  // whitelist. Exclusive matching starts only when a public host is listed.
+  const publicAllowList = allowList.filter(entry => !isPrivateAllowEntry(entry));
+  if (publicAllowList.length === 0 && denyList.length === 0) {
     return true;
   }
 
