@@ -2,7 +2,7 @@
  * Personal fork defaults for this machine only.
  * Keys are injected into secrets.local.ts at build time (gitignored).
  */
-import { AgentNameEnum, ProviderTypeEnum } from '@extension/storage';
+import { ProviderTypeEnum } from '@extension/storage';
 
 export const PERSONAL_PROVIDER_ID = 'minimax';
 
@@ -15,21 +15,8 @@ export const PERSONAL_PROVIDER = {
 
 export const PERSONAL_MODEL = 'MiniMax-M3';
 
-/** Planner + Navigator + Validator use M3 for self-use simplicity. */
-export const PERSONAL_AGENT_MODELS = {
-  [AgentNameEnum.Planner]: {
-    provider: PERSONAL_PROVIDER_ID,
-    modelName: PERSONAL_MODEL,
-    parameters: { temperature: 0.3, topP: 0.6 },
-  },
-  [AgentNameEnum.Navigator]: {
-    provider: PERSONAL_PROVIDER_ID,
-    modelName: PERSONAL_MODEL,
-    parameters: { temperature: 0.2, topP: 0.5 },
-  },
-  [AgentNameEnum.Validator]: {
-    provider: PERSONAL_PROVIDER_ID,
-    modelName: PERSONAL_MODEL,
-    parameters: { temperature: 0.1, topP: 0.3 },
-  },
+export const PERSONAL_MODEL_CONFIG = {
+  provider: PERSONAL_PROVIDER_ID,
+  modelName: PERSONAL_MODEL,
+  parameters: { temperature: 0.2, topP: 0.5 },
 } as const;

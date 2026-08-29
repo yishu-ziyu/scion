@@ -4,7 +4,6 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AgentNameEnum,
   ProviderTypeEnum,
   agentModelStore,
   getDefaultProviderConfig,
@@ -200,13 +199,10 @@ export default function FirstRunSetup({ onConnected }: FirstRunSetupProps) {
       createdAt: existing?.createdAt || Date.now(),
     });
 
-    const agentConfig = {
+    await agentModelStore.setModel({
       provider: provider.id,
       modelName: model.trim(),
-    };
-    await agentModelStore.setAgentModel(AgentNameEnum.Planner, agentConfig);
-    await agentModelStore.setAgentModel(AgentNameEnum.Navigator, agentConfig);
-    await agentModelStore.setAgentModel(AgentNameEnum.Validator, agentConfig);
+    });
 
     setPhase('success');
     window.setTimeout(() => {

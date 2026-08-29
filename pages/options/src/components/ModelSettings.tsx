@@ -13,12 +13,11 @@ import {
   llmProviderStore,
   agentModelStore,
   speechToTextModelStore,
-  AgentNameEnum,
   llmProviderModelNames,
   ProviderTypeEnum,
   getDefaultDisplayNameFromProviderId,
   getDefaultProviderConfig,
-  getDefaultAgentModelParams,
+  getDefaultModelParams,
   type ProviderConfig,
 } from '@extension/storage';
 import { t } from '@extension/i18n';
@@ -61,25 +60,9 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
   const [providers, setProviders] = useState<Record<string, ProviderConfig>>({});
   const [modifiedProviders, setModifiedProviders] = useState<Set<string>>(new Set());
   const [providersFromStorage, setProvidersFromStorage] = useState<Set<string>>(new Set());
-  const [selectedModels, setSelectedModels] = useState<Record<AgentNameEnum, string>>({
-    [AgentNameEnum.Navigator]: '',
-    [AgentNameEnum.Planner]: '',
-    [AgentNameEnum.Validator]: '',
-  });
-  const [modelParameters, setModelParameters] = useState<Record<AgentNameEnum, { temperature: number; topP: number }>>({
-    [AgentNameEnum.Navigator]: { temperature: 0, topP: 0 },
-    [AgentNameEnum.Planner]: { temperature: 0, topP: 0 },
-    [AgentNameEnum.Validator]: { temperature: 0, topP: 0 },
-  });
-
-  // State for reasoning effort for O-series models
-  const [reasoningEffort, setReasoningEffort] = useState<
-    Record<AgentNameEnum, 'minimal' | 'low' | 'medium' | 'high' | undefined>
-  >({
-    [AgentNameEnum.Navigator]: undefined,
-    [AgentNameEnum.Planner]: undefined,
-    [AgentNameEnum.Validator]: undefined,
-  });
+  const [selectedModel, setSelectedModel] = useState('');
+  const [modelParameters, setModelParameters] = useState({ temperature: 0, topP: 0 });
+  const [reasoningEffort, setReasoningEffort] = useState<'minimal' | 'low' | 'medium' | 'high' | undefined>(undefined);
   const [newModelInputs, setNewModelInputs] = useState<Record<string, string>>({});
   const [isProviderSelectorOpen, setIsProviderSelectorOpen] = useState(false);
   const newlyAddedProviderRef = useRef<string | null>(null);
@@ -118,46 +101,27 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
     loadProviders();
   }, []);
 
-  // Load existing agent models and parameters on mount
   useEffect(() => {
-    const loadAgentModels = async () => {
+    const loadModel = async () => {
       try {
-        const models: Record<AgentNameEnum, string> = {
-          [AgentNameEnum.Planner]: '',
-          [AgentNameEnum.Navigator]: '',
-          [AgentNameEnum.Validator]: '',
-        };
-
-        for (const agent of Object.values(AgentNameEnum)) {
-          const config = await agentModelStore.getAgentModel(agent);
-          if (config) {
-            // Store in provider>model format
-            models[agent] = `${config.provider}>${config.modelName}`;
-            if (config.parameters?.temperature !== undefined || config.parameters?.topP !== undefined) {
-              setModelParameters(prev => ({
-                ...prev,
-                [agent]: {
-                  temperature: config.parameters?.temperature ?? prev[agent].temperature,
-                  topP: config.parameters?.topP ?? prev[agent].topP,
-                },
-              }));
-            }
-            // Also load reasoningEffort if available
-            if (config.reasoningEffort) {
-              setReasoningEffort(prev => ({
-                ...prev,
-                [agent]: config.reasoningEffort as 'minimal' | 'low' | 'medium' | 'high',
-              }));
-            }
-          }
+        const config = await agentModelStore.getModel();
+        if (!config) return;
+        setSelectedModel(`${config.provider}>${config.modelName}`);
+        if (config.parameters?.temperature !== undefined || config.parameters?.topP !== undefined) {
+          setModelParameters(prev => ({
+            temperature: (config.parameters?.temperature as number | undefined) ?? prev.temperature,
+            topP: (config.parameters?.topP as number | undefined) ?? prev.topP,
+          }));
         }
-        setSelectedModels(models);
+        if (config.reasoningEffort) {
+          setReasoningEffort(config.reasoningEffort);
+        }
       } catch (error) {
-        console.error('Error loading agent models:', error);
+        console.error('Error loading model:', error);
       }
     };
 
-    loadAgentModels();
+    loadModel();
   }, []);
 
   useEffect(() => {
@@ -561,93 +525,43 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
     });
   };
 
-  const handleModelChange = async (agentName: AgentNameEnum, modelValue: string) => {
-    // modelValue will be in format "provider>model"
+  const handleModelChange = async (modelValue: string) => {
     const [provider, model] = modelValue.split('>');
-
-    console.log(`[handleModelChange] Setting ${agentName} model: provider=${provider}, model=${model}`);
-
-    // Set parameters based on provider type
-    const newParameters = getDefaultAgentModelParams(provider, agentName);
-
-    setModelParameters(prev => ({
-      ...prev,
-      [agentName]: newParameters,
-    }));
-
-    // Store both provider and model name in the format "provider>model"
-    setSelectedModels(prev => ({
-      ...prev,
-      [agentName]: modelValue, // Store the full provider>model value
-    }));
+    const newParameters = getDefaultModelParams(provider);
+    setModelParameters(newParameters);
+    setSelectedModel(modelValue);
 
     try {
       if (model) {
-        const providerConfig = providers[provider];
-
-        // For Azure, verify the model is in the deployment names list
-        if (providerConfig && providerConfig.type === ProviderTypeEnum.AzureOpenAI) {
-          console.log(`[handleModelChange] Azure model selected: ${model}`);
-        }
-
-        // Reset reasoning effort if switching models
-        if (isOpenAIReasoningModel(modelValue)) {
-          // Set default reasoning effort based on agent type
-          const defaultReasoningEffort = agentName === AgentNameEnum.Planner ? 'low' : 'minimal';
-          setReasoningEffort(prev => ({
-            ...prev,
-            [agentName]: prev[agentName] || defaultReasoningEffort,
-          }));
-        } else {
-          // Clear reasoning effort for non-O-series models
-          setReasoningEffort(prev => ({
-            ...prev,
-            [agentName]: undefined,
-          }));
-        }
-
-        // For Anthropic Opus models, only pass temperature, not topP
+        const nextReasoning = isOpenAIReasoningModel(modelValue) ? reasoningEffort || 'minimal' : undefined;
+        setReasoningEffort(nextReasoning);
         const parametersToSave = isAnthropicModel(modelValue)
           ? { temperature: newParameters.temperature }
           : newParameters;
-
-        await agentModelStore.setAgentModel(agentName, {
+        await agentModelStore.setModel({
           provider,
           modelName: model,
           parameters: parametersToSave,
-          reasoningEffort: isOpenAIReasoningModel(modelValue)
-            ? reasoningEffort[agentName] || (agentName === AgentNameEnum.Planner ? 'low' : 'minimal')
-            : undefined,
+          reasoningEffort: nextReasoning,
         });
       } else {
-        // Reset storage if no model is selected
-        await agentModelStore.resetAgentModel(agentName);
+        await agentModelStore.resetModel();
       }
     } catch (error) {
-      console.error('Error saving agent model:', error);
+      console.error('Error saving model:', error);
     }
   };
 
-  const handleReasoningEffortChange = async (
-    agentName: AgentNameEnum,
-    value: 'minimal' | 'low' | 'medium' | 'high',
-  ) => {
-    setReasoningEffort(prev => ({
-      ...prev,
-      [agentName]: value,
-    }));
-
-    // Only update if we have a selected model
-    if (selectedModels[agentName] && isOpenAIReasoningModel(selectedModels[agentName])) {
+  const handleReasoningEffortChange = async (value: 'minimal' | 'low' | 'medium' | 'high') => {
+    setReasoningEffort(value);
+    if (selectedModel && isOpenAIReasoningModel(selectedModel)) {
       try {
-        // Extract provider and model from the "provider>model" format
-        const [provider, modelName] = selectedModels[agentName].split('>');
-
+        const [provider, modelName] = selectedModel.split('>');
         if (provider && modelName) {
-          await agentModelStore.setAgentModel(agentName, {
+          await agentModelStore.setModel({
             provider,
             modelName,
-            parameters: modelParameters[agentName],
+            parameters: modelParameters,
             reasoningEffort: value,
           });
         }
@@ -657,37 +571,28 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
     }
   };
 
-  const handleParameterChange = async (agentName: AgentNameEnum, paramName: 'temperature' | 'topP', value: number) => {
+  const handleParameterChange = async (paramName: 'temperature' | 'topP', value: number) => {
     const newParameters = {
-      ...modelParameters[agentName],
+      ...modelParameters,
       [paramName]: value,
     };
+    setModelParameters(newParameters);
 
-    setModelParameters(prev => ({
-      ...prev,
-      [agentName]: newParameters,
-    }));
-
-    // Only update if we have a selected model
-    if (selectedModels[agentName]) {
+    if (selectedModel) {
       try {
-        // Extract provider and model from the "provider>model" format
-        const [provider, modelName] = selectedModels[agentName].split('>');
-
+        const [provider, modelName] = selectedModel.split('>');
         if (provider && modelName) {
-          // For Anthropic Opus models, only pass temperature, not topP
-          const parametersToSave = isAnthropicModel(selectedModels[agentName])
+          const parametersToSave = isAnthropicModel(selectedModel)
             ? { temperature: newParameters.temperature }
             : newParameters;
-
-          await agentModelStore.setAgentModel(agentName, {
+          await agentModelStore.setModel({
             provider,
             modelName,
             parameters: parametersToSave,
           });
         }
       } catch (error) {
-        console.error('Error saving agent parameters:', error);
+        console.error('Error saving model parameters:', error);
       }
     }
   };
@@ -714,179 +619,147 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
     }
   };
 
-  const renderModelSelect = (agentName: AgentNameEnum) => (
-    <div
-      className={`rounded-lg border ${isDarkMode ? 'border-[var(--chijie-border)] bg-[var(--chijie-surface)]' : 'border-[var(--chijie-border)] bg-[var(--chijie-surface)]'} p-4`}>
-      <h3
-        className={`mb-2 text-lg font-medium ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
-        {agentName.charAt(0).toUpperCase() + agentName.slice(1)}
-      </h3>
-      <p
-        className={`mb-4 text-sm font-normal ${isDarkMode ? 'text-[var(--chijie-muted)]' : 'text-[var(--chijie-muted)]'}`}>
-        {getAgentDescription(agentName)}
-      </p>
+  const renderModelSelect = () => (
+    <div className="space-y-4">
+      <div className="flex items-center">
+        <label
+          htmlFor="chat-model"
+          className={`w-24 text-sm font-medium ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
+          {t('options_models_labels_model')}
+        </label>
+        <select
+          id="chat-model"
+          data-testid="options-chat-model"
+          className={`flex-1 rounded-md border text-sm ${isDarkMode ? 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)]' : 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)]'} px-3 py-2`}
+          disabled={availableModels.length === 0}
+          value={selectedModel}
+          onChange={e => handleModelChange(e.target.value)}>
+          <option key="default" value="">
+            {t('options_models_chooseModel')}
+          </option>
+          {availableModels.map(({ provider, providerName, model }) => (
+            <option key={`${provider}>${model}`} value={`${provider}>${model}`}>
+              {`${providerName} > ${model}`}
+            </option>
+          ))}
+        </select>
+      </div>
 
-      <div className="space-y-4">
-        {/* Model Selection */}
+      {selectedModel && !isOpenAIReasoningModel(selectedModel) && (
         <div className="flex items-center">
           <label
-            htmlFor={`${agentName}-model`}
+            htmlFor="chat-temperature"
             className={`w-24 text-sm font-medium ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
-            {t('options_models_labels_model')}
+            {t('options_models_labels_temperature')}
           </label>
-          <select
-            id={`${agentName}-model`}
-            className={`flex-1 rounded-md border text-sm ${isDarkMode ? 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)]' : 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)]'} px-3 py-2`}
-            disabled={availableModels.length === 0}
-            value={selectedModels[agentName] || ''} // Use the stored provider>model value directly
-            onChange={e => handleModelChange(agentName, e.target.value)}>
-            <option key="default" value="">
-              {t('options_models_chooseModel')}
-            </option>
-            {availableModels.map(({ provider, providerName, model }) => (
-              <option key={`${provider}>${model}`} value={`${provider}>${model}`}>
-                {`${providerName} > ${model}`}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Temperature Slider - Only show for non-reasoning models */}
-        {selectedModels[agentName] && !isOpenAIReasoningModel(selectedModels[agentName]) && (
-          <div className="flex items-center">
-            <label
-              htmlFor={`${agentName}-temperature`}
-              className={`w-24 text-sm font-medium ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
-              {t('options_models_labels_temperature')}
-            </label>
-            <div className="flex flex-1 items-center space-x-2">
+          <div className="flex flex-1 items-center space-x-2">
+            <input
+              id="chat-temperature"
+              type="range"
+              min="0"
+              max="2"
+              step="0.01"
+              value={modelParameters.temperature}
+              onChange={e => handleParameterChange('temperature', Number.parseFloat(e.target.value))}
+              style={{
+                background: `linear-gradient(to right, var(--chijie-accent) 0%, var(--chijie-accent) ${(modelParameters.temperature / 2) * 100}%, var(--chijie-border-strong) ${(modelParameters.temperature / 2) * 100}%, var(--chijie-border-strong) 100%)`,
+              }}
+              className="h-1 flex-1 appearance-none rounded-full accent-[var(--chijie-accent)]"
+            />
+            <div className="flex items-center space-x-2">
+              <span
+                className={`w-12 text-sm ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-muted)]'}`}>
+                {modelParameters.temperature.toFixed(2)}
+              </span>
               <input
-                id={`${agentName}-temperature`}
-                type="range"
+                type="number"
                 min="0"
                 max="2"
                 step="0.01"
-                value={modelParameters[agentName].temperature}
-                onChange={e => handleParameterChange(agentName, 'temperature', Number.parseFloat(e.target.value))}
-                style={{
-                  background: `linear-gradient(to right, var(--chijie-accent) 0%, var(--chijie-accent) ${(modelParameters[agentName].temperature / 2) * 100}%, var(--chijie-border-strong) ${(modelParameters[agentName].temperature / 2) * 100}%, var(--chijie-border-strong) 100%)`,
+                value={modelParameters.temperature}
+                onChange={e => {
+                  const value = Number.parseFloat(e.target.value);
+                  if (!Number.isNaN(value) && value >= 0 && value <= 2) {
+                    handleParameterChange('temperature', value);
+                  }
                 }}
-                className="h-1 flex-1 appearance-none rounded-full accent-[var(--chijie-accent)]"
+                className={`w-20 rounded-md border ${isDarkMode ? 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)] focus:border-[var(--chijie-accent)] focus:ring-2 focus:ring-[var(--chijie-accent-subtle)]' : 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)] focus:border-[var(--chijie-accent)] focus:ring-2 focus:ring-[var(--chijie-accent-subtle)]'} px-2 py-1 text-sm`}
+                aria-label="temperature number input"
               />
-              <div className="flex items-center space-x-2">
-                <span
-                  className={`w-12 text-sm ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-muted)]'}`}>
-                  {modelParameters[agentName].temperature.toFixed(2)}
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  max="2"
-                  step="0.01"
-                  value={modelParameters[agentName].temperature}
-                  onChange={e => {
-                    const value = Number.parseFloat(e.target.value);
-                    if (!Number.isNaN(value) && value >= 0 && value <= 2) {
-                      handleParameterChange(agentName, 'temperature', value);
-                    }
-                  }}
-                  className={`w-20 rounded-md border ${isDarkMode ? 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)] focus:border-[var(--chijie-accent)] focus:ring-2 focus:ring-[var(--chijie-accent-subtle)]' : 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)] focus:border-[var(--chijie-accent)] focus:ring-2 focus:ring-[var(--chijie-accent-subtle)]'} px-2 py-1 text-sm`}
-                  aria-label={`${agentName} temperature number input`}
-                />
-              </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Top P Slider - Only show for non-reasoning models */}
-        {selectedModels[agentName] &&
-          !isOpenAIReasoningModel(selectedModels[agentName]) &&
-          !isAnthropicModel(selectedModels[agentName]) && (
-            <div className="flex items-center">
-              <label
-                htmlFor={`${agentName}-topP`}
-                className={`w-24 text-sm font-medium ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
-                {t('options_models_labels_topP')}
-              </label>
-              <div className="flex flex-1 items-center space-x-2">
-                <input
-                  id={`${agentName}-topP`}
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.001"
-                  value={modelParameters[agentName].topP}
-                  onChange={e => handleParameterChange(agentName, 'topP', Number.parseFloat(e.target.value))}
-                  style={{
-                    background: `linear-gradient(to right, var(--chijie-accent) 0%, var(--chijie-accent) ${modelParameters[agentName].topP * 100}%, var(--chijie-border-strong) ${modelParameters[agentName].topP * 100}%, var(--chijie-border-strong) 100%)`,
-                  }}
-                  className="h-1 flex-1 appearance-none rounded-full accent-[var(--chijie-accent)]"
-                />
-                <div className="flex items-center space-x-2">
-                  <span
-                    className={`w-12 text-sm ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-muted)]'}`}>
-                    {modelParameters[agentName].topP.toFixed(3)}
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.001"
-                    value={modelParameters[agentName].topP}
-                    onChange={e => {
-                      const value = Number.parseFloat(e.target.value);
-                      if (!Number.isNaN(value) && value >= 0 && value <= 1) {
-                        handleParameterChange(agentName, 'topP', value);
-                      }
-                    }}
-                    className={`w-20 rounded-md border ${isDarkMode ? 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)] focus:border-[var(--chijie-accent)] focus:ring-2 focus:ring-[var(--chijie-accent-subtle)]' : 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)] focus:border-[var(--chijie-accent)] focus:ring-2 focus:ring-[var(--chijie-accent-subtle)]'} px-2 py-1 text-sm`}
-                    aria-label={`${agentName} top P number input`}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-        {/* Reasoning Effort Selector (only for O-series models) */}
-        {selectedModels[agentName] && isOpenAIReasoningModel(selectedModels[agentName]) && (
-          <div className="flex items-center">
-            <label
-              htmlFor={`${agentName}-reasoning-effort`}
-              className={`w-24 text-sm font-medium ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
-              {t('options_models_labels_reasoning')}
-            </label>
-            <div className="flex flex-1 items-center space-x-2">
-              <select
-                id={`${agentName}-reasoning-effort`}
-                value={reasoningEffort[agentName] || (agentName === AgentNameEnum.Planner ? 'low' : 'minimal')}
-                onChange={e =>
-                  handleReasoningEffortChange(agentName, e.target.value as 'minimal' | 'low' | 'medium' | 'high')
-                }
-                className={`flex-1 rounded-md border text-sm ${isDarkMode ? 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)]' : 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)]'} px-3 py-2`}>
-                <option value="minimal/none">Minimal</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
+      {selectedModel && !isOpenAIReasoningModel(selectedModel) && !isAnthropicModel(selectedModel) && (
+        <div className="flex items-center">
+          <label
+            htmlFor="chat-topP"
+            className={`w-24 text-sm font-medium ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
+            {t('options_models_labels_topP')}
+          </label>
+          <div className="flex flex-1 items-center space-x-2">
+            <input
+              id="chat-topP"
+              type="range"
+              min="0"
+              max="1"
+              step="0.001"
+              value={modelParameters.topP}
+              onChange={e => handleParameterChange('topP', Number.parseFloat(e.target.value))}
+              style={{
+                background: `linear-gradient(to right, var(--chijie-accent) 0%, var(--chijie-accent) ${modelParameters.topP * 100}%, var(--chijie-border-strong) ${modelParameters.topP * 100}%, var(--chijie-border-strong) 100%)`,
+              }}
+              className="h-1 flex-1 appearance-none rounded-full accent-[var(--chijie-accent)]"
+            />
+            <div className="flex items-center space-x-2">
+              <span
+                className={`w-12 text-sm ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-muted)]'}`}>
+                {modelParameters.topP.toFixed(3)}
+              </span>
+              <input
+                type="number"
+                min="0"
+                max="1"
+                step="0.001"
+                value={modelParameters.topP}
+                onChange={e => {
+                  const value = Number.parseFloat(e.target.value);
+                  if (!Number.isNaN(value) && value >= 0 && value <= 1) {
+                    handleParameterChange('topP', value);
+                  }
+                }}
+                className={`w-20 rounded-md border ${isDarkMode ? 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)] focus:border-[var(--chijie-accent)] focus:ring-2 focus:ring-[var(--chijie-accent-subtle)]' : 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)] focus:border-[var(--chijie-accent)] focus:ring-2 focus:ring-[var(--chijie-accent-subtle)]'} px-2 py-1 text-sm`}
+                aria-label="top P number input"
+              />
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {selectedModel && isOpenAIReasoningModel(selectedModel) && (
+        <div className="flex items-center">
+          <label
+            htmlFor="chat-reasoning-effort"
+            className={`w-24 text-sm font-medium ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
+            {t('options_models_labels_reasoning')}
+          </label>
+          <div className="flex flex-1 items-center space-x-2">
+            <select
+              id="chat-reasoning-effort"
+              value={reasoningEffort || 'minimal'}
+              onChange={e => handleReasoningEffortChange(e.target.value as 'minimal' | 'low' | 'medium' | 'high')}
+              className={`flex-1 rounded-md border text-sm ${isDarkMode ? 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)]' : 'border-[var(--chijie-border-strong)] bg-[var(--chijie-surface-raised)] text-[var(--chijie-foreground)]'} px-3 py-2`}>
+              <option value="minimal">Minimal</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+        </div>
+      )}
     </div>
   );
-
-  const getAgentDescription = (agentName: AgentNameEnum) => {
-    switch (agentName) {
-      case AgentNameEnum.Navigator:
-        return t('options_models_agents_navigator');
-      case AgentNameEnum.Planner:
-        return t('options_models_agents_planner');
-      case AgentNameEnum.Validator:
-        return t('options_models_agents_validator');
-      default:
-        return '';
-    }
-  };
 
   const getMaxCustomProviderNumber = () => {
     let maxNumber = 0;
@@ -1644,18 +1517,16 @@ export const ModelSettings = ({ isDarkMode = false }: ModelSettingsProps) => {
         </div>
       </div>
 
-      {/* Updated Agent Models Section */}
       <div
         className={`rounded-lg border ${isDarkMode ? 'border-[var(--chijie-border)] bg-[var(--chijie-surface)]' : 'border-[var(--chijie-border)] bg-[var(--chijie-surface)]'} p-6 text-left `}>
         <h2
-          className={`mb-4 text-left text-xl font-semibold ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
+          className={`mb-2 text-left text-xl font-semibold ${isDarkMode ? 'text-[var(--chijie-foreground)]' : 'text-[var(--chijie-foreground)]'}`}>
           {t('options_models_selection_header')}
         </h2>
-        <div className="space-y-4">
-          {[AgentNameEnum.Navigator, AgentNameEnum.Validator].map(agentName => (
-            <div key={agentName}>{renderModelSelect(agentName)}</div>
-          ))}
-        </div>
+        <p className={`mb-4 text-sm ${isDarkMode ? 'text-[var(--chijie-muted)]' : 'text-[var(--chijie-muted)]'}`}>
+          {t('options_models_selection_desc')}
+        </p>
+        {renderModelSelect()}
       </div>
 
       {/* Speech-to-Text Model Selection */}

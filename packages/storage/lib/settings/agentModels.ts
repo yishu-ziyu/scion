@@ -1,9 +1,8 @@
 import { StorageEnum } from '../base/enums';
 import { createStorage } from '../base/base';
 import type { BaseStorage } from '../base/types';
-import { AgentNameEnum, llmProviderParameters } from './types';
+import { llmProviderParameters } from './types';
 
-// Interface for a single model configuration
 export interface ModelConfig {
   // providerId, the key of the provider in the llmProviderStore, not the provider name
   provider: string;
@@ -12,24 +11,42 @@ export interface ModelConfig {
   reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high'; // For o-series models (OpenAI and Azure)
 }
 
-// Interface for storing multiple agent model configurations
+/**
+ * chrome.storage `agent-models`.
+ * `model` is the one config the product uses.
+ * `agents` is the old planner/navigator/validator map; read as fallback, dropped on write.
+ */
 export interface AgentModelRecord {
-  agents: Record<AgentNameEnum, ModelConfig>;
+  model?: ModelConfig;
+  agents?: Record<string, ModelConfig>;
+}
+
+const LEGACY_SLOTS = ['navigator', 'planner', 'validator'] as const;
+
+function isUsable(config: ModelConfig | undefined): config is ModelConfig {
+  return Boolean(config?.provider && config?.modelName);
+}
+
+export function pickStoredModel(record: AgentModelRecord | null | undefined): ModelConfig | undefined {
+  if (!record) return undefined;
+  if (isUsable(record.model)) return record.model;
+  for (const slot of LEGACY_SLOTS) {
+    const cfg = record.agents?.[slot];
+    if (isUsable(cfg)) return cfg;
+  }
+  return undefined;
 }
 
 export type AgentModelStorage = BaseStorage<AgentModelRecord> & {
-  setAgentModel: (agent: AgentNameEnum, config: ModelConfig) => Promise<void>;
-  getAgentModel: (agent: AgentNameEnum) => Promise<ModelConfig | undefined>;
-  resetAgentModel: (agent: AgentNameEnum) => Promise<void>;
-  hasAgentModel: (agent: AgentNameEnum) => Promise<boolean>;
-  getConfiguredAgents: () => Promise<AgentNameEnum[]>;
-  getAllAgentModels: () => Promise<Record<AgentNameEnum, ModelConfig>>;
-  cleanupLegacyValidatorSettings: () => Promise<void>;
+  getModel: () => Promise<ModelConfig | undefined>;
+  setModel: (config: ModelConfig) => Promise<void>;
+  resetModel: () => Promise<void>;
+  hasModel: () => Promise<boolean>;
 };
 
 const storage = createStorage<AgentModelRecord>(
   'agent-models',
-  { agents: {} as Record<AgentNameEnum, ModelConfig> },
+  {},
   {
     storageEnum: StorageEnum.Local,
     liveUpdate: true,
@@ -42,73 +59,37 @@ function validateModelConfig(config: ModelConfig) {
   }
 }
 
-function getModelParameters(agent: AgentNameEnum, provider: string): Record<string, unknown> {
-  const providerParams = llmProviderParameters[provider as keyof typeof llmProviderParameters]?.[agent];
-  return providerParams ?? { temperature: 0.1, topP: 0.1 };
+function defaultParameters(provider: string): Record<string, unknown> {
+  return llmProviderParameters[provider as keyof typeof llmProviderParameters] ?? { temperature: 0.1, topP: 0.1 };
+}
+
+function withDefaults(config: ModelConfig): ModelConfig {
+  return {
+    ...config,
+    parameters: {
+      ...defaultParameters(config.provider),
+      ...config.parameters,
+    },
+  };
 }
 
 export const agentModelStore: AgentModelStorage = {
   ...storage,
-  setAgentModel: async (agent: AgentNameEnum, config: ModelConfig) => {
-    validateModelConfig(config);
-    // Merge default parameters with provided parameters
-    const defaultParams = getModelParameters(agent, config.provider);
-    const mergedConfig = {
-      ...config,
-      parameters: {
-        ...defaultParams,
-        ...config.parameters,
-      },
-    };
-    await storage.set(current => ({
-      agents: {
-        ...current.agents,
-        [agent]: mergedConfig,
-      },
-    }));
-  },
-  getAgentModel: async (agent: AgentNameEnum) => {
+  getModel: async () => {
     const data = await storage.get();
-    const config = data.agents[agent];
-    if (!config) return undefined;
-
-    // Merge default parameters with stored parameters
-    const defaultParams = getModelParameters(agent, config.provider);
-    return {
-      ...config,
-      parameters: {
-        ...defaultParams,
-        ...config.parameters,
-      },
-    };
-  },
-  resetAgentModel: async (agent: AgentNameEnum) => {
-    await storage.set(current => {
-      const newAgents = { ...current.agents };
-      delete newAgents[agent];
-      return { agents: newAgents };
-    });
-  },
-  hasAgentModel: async (agent: AgentNameEnum) => {
-    const data = await storage.get();
-    return agent in data.agents;
-  },
-  getConfiguredAgents: async () => {
-    const data = await storage.get();
-    return Object.keys(data.agents).filter(agentKey =>
-      Object.values(AgentNameEnum).includes(agentKey as AgentNameEnum),
-    ) as AgentNameEnum[];
-  },
-  getAllAgentModels: async () => {
-    const data = await storage.get();
-    const filteredAgents: Partial<Record<AgentNameEnum, ModelConfig>> = {};
-    for (const [agentKey, config] of Object.entries(data.agents)) {
-      if (Object.values(AgentNameEnum).includes(agentKey as AgentNameEnum)) {
-        filteredAgents[agentKey as AgentNameEnum] = config;
-      }
+    const picked = pickStoredModel(data);
+    if (!picked) return undefined;
+    if (!isUsable(data.model)) {
+      await storage.set({ model: withDefaults(picked) });
     }
-    return filteredAgents as Record<AgentNameEnum, ModelConfig>;
+    return withDefaults(picked);
   },
-  /** Kept so older callers compile. Validator is a first-class agent again. */
-  cleanupLegacyValidatorSettings: async () => undefined,
+  setModel: async config => {
+    validateModelConfig(config);
+    await storage.set({ model: withDefaults(config) });
+  },
+  resetModel: async () => {
+    await storage.set({});
+  },
+  hasModel: async () => Boolean(pickStoredModel(await storage.get())),
 };

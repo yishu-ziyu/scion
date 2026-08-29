@@ -398,19 +398,13 @@
     "message": "显示 API 密钥"
   },
   "options_models_selection_header": {
-    "message": "模型选择"
+    "message": "Model"
+  },
+  "options_models_selection_desc": {
+    "message": "Side panel chat and tasks use this model."
   },
   "options_models_speechToText_header": {
-    "message": "语音转文字模型"
-  },
-  "options_models_agents_navigator": {
-    "message": "浏览网站并执行操作"
-  },
-  "options_models_agents_planner": {
-    "message": "制定并调整策略以完成任务"
-  },
-  "options_models_agents_validator": {
-    "message": "Checks the live page before accepting done, and sends the worker back if it does not match"
+    "message": "Speech to text model"
   },
   "options_models_labels_model": {
     "message": "模型"
@@ -584,7 +578,7 @@
     }
   },
   "bg_setup_noNavigatorModel": {
-    "message": "请先在设置中为导览代理选择一个模型。"
+    "message": "Please choose a model in settings first."
   },
   "exec_errors_maxStepsReached": {
     "message": "已达步骤上限"

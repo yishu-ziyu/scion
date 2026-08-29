@@ -1,4 +1,4 @@
-import { AgentNameEnum, agentModelStore, llmProviderStore, userMemoryStore } from '@extension/storage';
+import { agentModelStore, llmProviderStore, userMemoryStore } from '@extension/storage';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { ensurePersonalDefaults } from '../../personal/bootstrap';
 import { createChatModel } from './helper';
@@ -30,13 +30,12 @@ export async function structureUserMemoryFromSource(sourceText: string): Promise
 
   await ensurePersonalDefaults();
   const providers = await llmProviderStore.getAllProviders();
-  const agentModels = await agentModelStore.getAllAgentModels();
-  const navigatorModel = agentModels[AgentNameEnum.Navigator] ?? agentModels[AgentNameEnum.Planner];
-  if (!navigatorModel || !providers[navigatorModel.provider]) {
+  const configured = await agentModelStore.getModel();
+  if (!configured || !providers[configured.provider]) {
     return { ok: false, error: 'no_model' };
   }
 
-  const llm = await createChatModel(providers[navigatorModel.provider], navigatorModel);
+  const llm = await createChatModel(providers[configured.provider], configured);
   let raw = '';
   try {
     const response = await llm.invoke([new SystemMessage(STRUCTURE_SYSTEM_PROMPT), new HumanMessage(text)]);

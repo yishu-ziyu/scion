@@ -1,7 +1,7 @@
 import { StorageEnum } from '../base/enums';
 import { createStorage } from '../base/base';
 import type { BaseStorage } from '../base/types';
-import { type AgentNameEnum, llmProviderModelNames, llmProviderParameters, ProviderTypeEnum } from './types';
+import { llmProviderModelNames, llmProviderParameters, ProviderTypeEnum } from './types';
 
 const AZURE_API_VERSION = '2025-04-01-preview';
 
@@ -163,12 +163,13 @@ export function getDefaultProviderConfig(providerId: string): ProviderConfig {
   }
 }
 
-export function getDefaultAgentModelParams(providerId: string, agentName: AgentNameEnum): Record<string, number> {
-  const newParameters = llmProviderParameters[providerId as keyof typeof llmProviderParameters]?.[agentName] || {
-    temperature: 0.1,
-    topP: 0.1,
-  };
-  return newParameters;
+export function getDefaultModelParams(providerId: string): { temperature: number; topP: number } {
+  return (
+    llmProviderParameters[providerId as keyof typeof llmProviderParameters] || {
+      temperature: 0.1,
+      topP: 0.1,
+    }
+  );
 }
 
 // Helper function to ensure backward compatibility for provider configs

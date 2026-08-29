@@ -1,4 +1,4 @@
-import { Actors, AgentNameEnum } from '@extension/storage';
+import { Actors } from '@extension/storage';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatTurn } from '@extension/agent-core';
 import {
@@ -46,9 +46,7 @@ const baseDeps: ChatStreamDeps = {
       modelNames: ['MiniMax-M3'],
     },
   }),
-  getAgentModels: async () => ({
-    [AgentNameEnum.Navigator]: { provider: 'minimax', modelName: 'MiniMax-M3' },
-  }),
+  getModel: async () => ({ provider: 'minimax', modelName: 'MiniMax-M3' }),
   getApiKey: async ref => (ref === 'ref-minimax' ? 'sk-real' : null),
   getSessionMessages: async () => null,
   runtimeFactory: (model, apiKey) => {
@@ -74,7 +72,7 @@ beforeEach(() => {
 });
 
 describe('chat_stream handler', () => {
-  it('resolves navigator model, reads key from vault, streams deltas to the port', async () => {
+  it('resolves the configured model, reads key from vault, streams deltas to the port', async () => {
     const port = makePort();
     const handler = createChatStreamHandler(baseDeps);
 
@@ -137,9 +135,9 @@ describe('chat_stream handler', () => {
     expect(prompt).toContain('光合作用怎么工作');
   });
 
-  it('reports 未绑定 chat 模型 when neither navigator nor planner is configured', async () => {
+  it('reports 未绑定 chat 模型 when no model is configured', async () => {
     const port = makePort();
-    const handler = createChatStreamHandler({ ...baseDeps, getAgentModels: async () => ({}) });
+    const handler = createChatStreamHandler({ ...baseDeps, getModel: async () => undefined });
 
     await handler({ sessionId: 's1', text: '你好' }, port);
 
@@ -270,10 +268,8 @@ describe('chat_stream handler', () => {
     expect(modelCalls).toEqual([]);
   });
 
-  it('falls back to planner when navigator is missing', () => {
-    const binding = chatFeatureBinding({
-      [AgentNameEnum.Planner]: { provider: 'minimax', modelName: 'MiniMax-M3' },
-    });
+  it('binds the configured model name', () => {
+    const binding = chatFeatureBinding({ provider: 'minimax', modelName: 'MiniMax-M3' });
     expect(binding).toEqual({ primaryModel: 'MiniMax-M3', fallbackModels: [] });
   });
 });

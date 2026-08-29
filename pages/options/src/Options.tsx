@@ -31,7 +31,7 @@ const Options = () => {
 
   const handleTabClick = (tabId: TabTypes) => {
     if (tabId === 'help') {
-      window.open('https://github.com/yishu-ziyu/scion/blob/main/PRODUCT.md', '_blank');
+      window.open('https://github.com/yishu-ziyu/scion', '_blank');
       return;
     }
     setActiveTab(tabId);
