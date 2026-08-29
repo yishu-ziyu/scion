@@ -6,6 +6,7 @@ export async function resolveActiveContentTab(
 ): Promise<BoundContentTab | null> {
   const attempts: chrome.tabs.QueryInfo[] = [{ currentWindow: true }];
   if (options.allowLastFocused !== false) attempts.push({ lastFocusedWindow: true });
+  attempts.push({});
   for (const query of attempts) {
     try {
       const bound = bindTabForTask(await chrome.tabs.query(query));

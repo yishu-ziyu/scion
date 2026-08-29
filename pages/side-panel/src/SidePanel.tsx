@@ -9,7 +9,6 @@ import {
   type TaskCommand,
   type TaskSnapshot,
   Actors,
-  AgentNameEnum,
   ProviderTypeEnum,
   chatHistoryStore,
   agentModelStore,
@@ -165,8 +164,6 @@ const SidePanel = () => {
   const [taskSnapshotLoaded, setTaskSnapshotLoaded] = useState(false);
   /** Live preview of the content tab that will receive the next task (Phase 1 S1). */
   const [bindPreview, setBindPreview] = useState<BoundContentTab | null>(null);
-  /** S4: while a live task owns the console, chat stays folded unless the user expands it. */
-  const [chatLogExpanded, setChatLogExpanded] = useState(false);
   const [composerResetKey, setComposerResetKey] = useState(0);
   const [newChatPending, setNewChatPending] = useState(false);
   const newChatCancellationTimeoutRef = useRef<number | null>(null);
@@ -247,7 +244,6 @@ const SidePanel = () => {
     taskSnapshotRef.current = null;
     authoritativeTaskSnapshotRef.current = null;
     setEvidenceSpace(null);
-    setChatLogExpanded(false);
     pendingTaskIdRef.current = null;
     pendingStartCommandRef.current = null;
     pendingHistoryTaskIdRef.current = null;
@@ -265,11 +261,6 @@ const SidePanel = () => {
     setTaskSnapshotLoaded(true);
   }, []);
   finalizeNewChatRef.current = finalizeNewChat;
-
-  // New live task (or task id change) starts with chat folded so Mission/Now/Health stay first.
-  useEffect(() => {
-    if (activeTaskId) setChatLogExpanded(false);
-  }, [activeTaskId]);
 
   useEffect(() => {
     void refreshBindPreview();
@@ -289,13 +280,7 @@ const SidePanel = () => {
   // Executable model config: agent assignment + provider credentials (or Ollama).
   const checkModelConfiguration = useCallback(async () => {
     try {
-      const configuredAgents = await agentModelStore.getConfiguredAgents();
-      if (configuredAgents.length === 0) {
-        setHasConfiguredModels(false);
-        return;
-      }
-      const all = await agentModelStore.getAllAgentModels();
-      const primary = all[AgentNameEnum.Navigator] || all[AgentNameEnum.Planner];
+      const primary = await agentModelStore.getModel();
       if (!primary?.provider || !primary?.modelName) {
         setHasConfiguredModels(false);
         return;
@@ -2156,8 +2141,6 @@ const SidePanel = () => {
     inputEnabled,
   });
   const lifecycleCommandPending = hasPendingLifecycleCommand(pendingCommandTypes);
-  // S4: progress console first; chat is a foldable log while the task is live.
-  const chatCollapsed = liveTaskConsole && showLiveMessages && !chatLogExpanded;
   // S6: continuous pause/resume stay beside the fixed composer; stop is demoted.
   const showComposerContinuousControls =
     liveTaskConsole &&
@@ -2314,13 +2297,14 @@ const SidePanel = () => {
                     data-testid="sidepanel-chat-log"
                     data-live={liveTaskConsole ? 'true' : 'false'}
                     data-task-visible={showTaskCard ? 'true' : undefined}
-                    data-collapsed={chatCollapsed ? 'true' : 'false'}
+                    data-collapsed="false"
                     data-idle={!showMainTaskSurface ? 'true' : 'false'}>
                     {showLiveMessages ? (
                       <>
                         <MessageList
                           messages={displayMessages.filter(message => message.content !== progressMessage)}
                           isDarkMode={false}
+                          liveTimestamp={chatStreamRef.current?.timestamp}
                           onRetry={
                             messageRecoveryEnabled
                               ? () => {

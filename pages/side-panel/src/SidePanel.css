@@ -232,9 +232,9 @@ body[data-chat-pip='open'] .chijie-pip-parked {
   }
 
   .chijie-chat-log {
-    flex: 0 0 auto;
-    min-height: 6.5rem;
-    max-height: min(36dvh, 240px);
+    flex: 1 1 auto;
+    min-height: 8.5rem;
+    max-height: none;
   }
 
   .chijie-composer {

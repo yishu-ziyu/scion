@@ -25,14 +25,13 @@
   line-height: 1.1;
 }
 
-/* Long-horizon task progress is the primary workspace. Keep chat available below,
- * but give Mission, Gates, Now, Health, and latest findings enough room to be understood. */
+/* Conversation is the spine. Task progress follows, capped so earlier turns stay on screen. */
 .chijie-paper-card {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: var(--chijie-space-4);
-  max-height: none;
+  max-height: min(42dvh, 22rem);
   margin: 0;
   padding: 18px 16px 16px;
   overflow: auto;
@@ -46,7 +45,7 @@
 .chijie-paper-card[data-status='running'],
 .chijie-paper-card[data-primary-organism='activity'],
 .chijie-paper-card[data-primary-organism='completion'] {
-  max-height: none;
+  max-height: min(42dvh, 22rem);
 }
 
 .chijie-paper-card[data-status='running'] {
@@ -2541,15 +2540,8 @@ button.chijie-answer-source:hover > span:not(.chijie-search-host) {
   display: block;
 }
 
-/* S4: live chat stays compact so the task card and thread both fit. */
 .chijie-chat-log[data-collapsed='true'] {
-  flex: 0 0 auto;
-  min-height: 0;
-  max-height: 8.5rem;
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding-top: 6px;
-  padding-bottom: 6px;
+  flex: 1 1 auto;
 }
 
 .chijie-chat-fold {

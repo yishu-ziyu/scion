@@ -409,8 +409,9 @@ describe('Feature: design/003 task main blocks', () => {
     expect(overview).toContain('overview-privacy');
     expect(overview).not.toContain('agentCoreBackend');
     expect(overview).not.toContain('backend-nano');
-    expect(modelSettings).toMatch(/\[AgentNameEnum\.Navigator, AgentNameEnum\.Validator\]/);
-    expect(modelSettings).not.toMatch(/\[AgentNameEnum\.Planner, AgentNameEnum\.Navigator, AgentNameEnum\.Validator\]/);
+    expect(modelSettings).toContain('options-chat-model');
+    expect(modelSettings).not.toMatch(/AgentNameEnum/);
+    expect(modelSettings).not.toMatch(/Navigator|Planner|Validator/);
     // Skill is task recipe, not tool chip wall
     expect(overview).toMatch(/可验证任务配方/);
     expect(overview).not.toMatch(/1\. 总览/);
@@ -715,10 +716,10 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(taskProgressOverviewSource).toContain('task-progress-health');
     expect(taskProgressOverviewSource).toContain('task-result-block');
     expect(taskProgressOverviewSource).not.toContain('做完会出现在这里');
-    // The progress workspace gets meaningful height while the fixed composer remains usable.
+    // Conversation stays the spine; the task card is capped so earlier turns remain readable.
     expect(componentsCss).toMatch(/\.chijie-chat-log[\s\S]{0,120}min-height:\s*8\.5rem/);
-    expect(componentsCss).toMatch(/\.chijie-paper-card[\s\S]{0,220}max-height:\s*none/);
-    expect(componentsCss).toMatch(/flex:\s*0\s+0\s+auto/);
+    expect(componentsCss).toMatch(/\.chijie-paper-card[\s\S]{0,280}max-height:\s*min\(/);
+    expect(componentsCss).toMatch(/\.chijie-paper-card[\s\S]{0,220}flex:\s*0\s+0\s+auto/);
     expect(sidePanelSource).toContain('chijie-workspace');
     expect(sidePanelSource).toContain('chijie-chat-log');
     expect(sidePanelSource).toContain('chijie-composer');
@@ -726,7 +727,9 @@ describe('Feature: ticket 01 Tabbit-class task mode surface (S1)', () => {
     expect(sidePanelSource).not.toContain('对话 {messages.length} 条');
     expect(sidePanelSource).toContain("data-live={liveTaskConsole ? 'true' : 'false'}");
     expect(sidePanelSource).toContain("data-task-visible={showTaskCard ? 'true' : undefined}");
-    expect(sidePanelSource).toContain("data-collapsed={chatCollapsed ? 'true' : 'false'}");
+    expect(sidePanelSource).toContain('data-collapsed="false"');
+    expect(sidePanelSource).not.toContain('chatLogExpanded');
+    expect(sidePanelSource).not.toContain('chatCollapsed');
     expect(componentsCss).toContain(".chijie-chat-log[data-live='true']");
     expect(componentsCss).toContain(".chijie-chat-log[data-task-visible='true']");
     expect(sidePanelSource).toContain('data-testid="composer-continuous-controls"');
