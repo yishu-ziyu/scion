@@ -171,8 +171,9 @@ export default class BrowserContext {
     if (
       !tab?.id ||
       !url ||
-      !isUrlAllowed(url, this._config.allowedUrls, this._config.deniedUrls) ||
-      (committedUrl && !isUrlAllowed(committedUrl, this._config.allowedUrls, this._config.deniedUrls))
+      !isUrlAllowed(url, this._config.allowedUrls, this._config.deniedUrls, { existingTab: true }) ||
+      (committedUrl &&
+        !isUrlAllowed(committedUrl, this._config.allowedUrls, this._config.deniedUrls, { existingTab: true }))
     ) {
       return undefined;
     }

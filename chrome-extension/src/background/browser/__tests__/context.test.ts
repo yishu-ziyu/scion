@@ -184,6 +184,21 @@ describe('BrowserContext tab selection', () => {
     expect(tabsApi.create).not.toHaveBeenCalled();
   });
 
+  it('binds an already-open loopback form tab without an allowlist entry', async () => {
+    const localTab = {
+      id: 21,
+      url: 'http://127.0.0.1:53168/form',
+      title: 'form',
+      windowId: 3,
+    } as chrome.tabs.Tab;
+    tabsApi.get.mockResolvedValue(localTab);
+    vi.spyOn(Page.prototype, 'attachPuppeteer').mockResolvedValue(true);
+    const context = new BrowserContext({});
+
+    await expect(context.bindToTab(21)).resolves.toMatchObject({ tabId: 21 });
+    expect(tabsApi.create).not.toHaveBeenCalled();
+  });
+
   it('binds tab discovery and switching to the task window', async () => {
     tabsApi.get.mockImplementation(async id => (id === boundWindowTab.id ? boundWindowTab : otherWindowTab));
     tabsApi.query.mockResolvedValue([boundWindowTab]);
