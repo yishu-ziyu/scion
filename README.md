@@ -12,7 +12,6 @@
 | 包名 | `chijie-browser` |
 | 版本 | 见 `package.json` |
 | Load unpacked | `pnpm build` 后加载 `./dist` |
-| 品牌 | [PRODUCT.md](./PRODUCT.md) |
 
 ## 产品要点（当前）
 
