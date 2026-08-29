@@ -23,7 +23,7 @@ import {
 } from './task/page-operating';
 import { browserContext, createExecutorDriver } from './agent/factory';
 import { attachChatStreamHost, handleChatStreamRequest } from './chat-stream';
-import { createLiveOrchestratorHost } from './orchestrator/live-host';
+import { createLiveOrchestratorHost, pickPreferredHttpTabId } from './orchestrator/live-host';
 import { handlePageSummaryStreamRequest } from './page-summary-stream';
 
 import { createDebuggerDetachHandler } from './runtime/debugger-detach';
@@ -70,6 +70,7 @@ const taskManager = new TaskManager({
     if (!tab.id) throw new Error('No tab ID available');
     return tab.id;
   },
+  findUsableHttpTab: async () => pickPreferredHttpTabId(await chrome.tabs.query({})),
 
   probeDownloadState: async ({ notBefore }) => {
     if (typeof chrome === 'undefined' || !chrome.downloads?.search) return 'none';

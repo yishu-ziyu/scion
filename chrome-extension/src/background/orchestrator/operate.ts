@@ -21,8 +21,20 @@ export function shouldFollowExistingTask(
   return FOLLOWABLE.has(task.status);
 }
 
-export function composeTaskInstruction(brief: WorkBrief): string {
-  const text = [brief.goal, brief.instructions, brief.success_criteria]
+export function mergeUserUtterance(brief: WorkBrief, userText: string): WorkBrief {
+  const utterance = userText.replace(/\s+/g, ' ').trim();
+  if (!utterance) return brief;
+  if (brief.instructions.includes(utterance) || brief.goal.includes(utterance)) return brief;
+  return {
+    ...brief,
+    instructions: [utterance, brief.instructions].filter(part => part.trim()).join('\n'),
+  };
+}
+
+export function composeTaskInstruction(brief: WorkBrief, userText = ''): string {
+  const utterance = userText.replace(/\s+/g, ' ').trim();
+  const merged = utterance ? mergeUserUtterance(brief, utterance) : brief;
+  const text = [utterance, merged.goal, merged.instructions, merged.success_criteria]
     .map(part => part.trim())
     .filter(Boolean)
     .join('\n');
@@ -33,17 +45,34 @@ function currentRound(task: TaskSnapshot) {
   return task.rounds.find(round => round.id === task.currentRoundId);
 }
 
+function observedFacts(task: TaskSnapshot): string {
+  const round = currentRound(task);
+  const chunks: string[] = [];
+  const body = round?.result?.body?.trim() || round?.produced?.body?.trim() || round?.pageReading?.trim();
+  if (body) chunks.push(body);
+  for (const ref of task.targetRefs) {
+    const title = ref.title?.trim() || ref.label?.trim();
+    const quote = ref.quote?.trim();
+    if (title && quote) chunks.push(`${title}: ${quote}`);
+    else if (quote) chunks.push(quote);
+    else if (title) chunks.push(title);
+  }
+  return [...new Set(chunks.filter(Boolean))].join('\n');
+}
+
 function summaryFromTask(task: TaskSnapshot): DelegateResult {
   const round = currentRound(task);
   const page_url = task.targetRefs.find(ref => ref.normalizedUrl)?.normalizedUrl;
-  let summary = 'The browser work was cancelled.';
+  const facts = observedFacts(task);
+  let statusLine = 'The browser work was cancelled.';
   if (task.status === 'completed') {
-    summary = round?.result?.body?.trim() || 'The browser work completed.';
+    statusLine = round?.result?.body?.trim() || 'The browser work completed.';
   } else if (task.status === 'failed') {
-    summary = round?.failureCategory
+    statusLine = round?.failureCategory
       ? `The browser work failed (${round.failureCategory}).`
       : 'The browser work failed.';
   }
+  const summary = task.status === 'completed' ? facts || statusLine : [facts, statusLine].filter(Boolean).join('\n');
   return { summary, did_operate_browser: true, ...(page_url ? { page_url } : {}) };
 }
 
@@ -124,11 +153,12 @@ export async function runBrowserWork(
   sessionId: string,
   host: OrchestratorHost,
   abortSignal?: AbortSignal,
+  userText = '',
 ): Promise<DelegateResult> {
   if (!host.dispatchTask) {
     return { summary: 'Browser operation is not available.', did_operate_browser: false };
   }
-  const instruction = composeTaskInstruction(brief);
+  const instruction = composeTaskInstruction(brief, userText);
   const active = await host.getActiveTask?.();
   const follow = shouldFollowExistingTask(active, sessionId);
   const tabId = (await host.getActiveTabId?.()) ?? -1;

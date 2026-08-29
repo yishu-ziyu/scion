@@ -2,7 +2,7 @@ import { isStepCount, ToolLoopAgent, tool, type LanguageModel } from 'ai';
 import { z } from 'zod';
 import { DEFAULT_VISIBLE_TEXT_CHARS } from '../browser/kernel/visible-text';
 import { WORKER_INSTRUCTIONS } from './prompts';
-import { runBrowserWork } from './operate';
+import { mergeUserUtterance, runBrowserWork } from './operate';
 import { toDelegateResult } from './result';
 import type { DelegateResult, OrchestratorHost, WorkBrief } from './types';
 
@@ -35,14 +35,32 @@ function readPageTool(host: OrchestratorHost, capture: { text: string; url?: str
   });
 }
 
-function operateBrowserTool(brief: WorkBrief, sessionId: string, host: OrchestratorHost) {
+function operateBrowserTool(brief: WorkBrief, sessionId: string, host: OrchestratorHost, userText: string) {
   return tool({
     description: 'Start or continue the browser operator for this session. Call once and wait for the outcome.',
     inputSchema: z.object({
       reason: z.string().optional(),
     }),
-    execute: async (_input, { abortSignal }) => runBrowserWork(brief, sessionId, host, abortSignal),
+    execute: async (_input, { abortSignal }) => runBrowserWork(brief, sessionId, host, abortSignal, userText),
   });
+}
+
+function summaryFromOperateSteps(result: {
+  steps?: Array<{
+    toolResults?: Array<{ toolName?: string; output?: unknown; result?: unknown }>;
+  }>;
+}): string {
+  for (const step of [...(result.steps ?? [])].reverse()) {
+    for (const item of [...(step.toolResults ?? [])].reverse()) {
+      if (item.toolName !== 'operate_browser') continue;
+      const payload = item.output ?? item.result;
+      if (payload && typeof payload === 'object' && 'summary' in payload) {
+        const summary = (payload as { summary?: unknown }).summary;
+        if (typeof summary === 'string' && summary.trim()) return summary.trim();
+      }
+    }
+  }
+  return '';
 }
 
 export async function runWorker(input: {
@@ -51,12 +69,14 @@ export async function runWorker(input: {
   host: OrchestratorHost;
   sessionId: string;
   abortSignal?: AbortSignal;
+  userText?: string;
 }): Promise<DelegateResult> {
+  const brief = mergeUserUtterance(input.brief, input.userText ?? '');
   const tools: Record<string, ReturnType<typeof tool>> = {};
   const capture = { text: '', url: undefined as string | undefined };
-  if (input.brief.needs_current_page) tools.read_current_page = readPageTool(input.host, capture);
-  if (input.brief.may_operate_browser) {
-    tools.operate_browser = operateBrowserTool(input.brief, input.sessionId, input.host);
+  if (brief.needs_current_page) tools.read_current_page = readPageTool(input.host, capture);
+  if (brief.may_operate_browser) {
+    tools.operate_browser = operateBrowserTool(brief, input.sessionId, input.host, input.userText ?? '');
   }
 
   const worker = new ToolLoopAgent({
@@ -66,13 +86,14 @@ export async function runWorker(input: {
     stopWhen: isStepCount(8),
   });
   const prompt = [
-    `Goal: ${input.brief.goal}`,
-    `Instructions: ${input.brief.instructions}`,
-    `Success criteria: ${input.brief.success_criteria}`,
+    `Goal: ${brief.goal}`,
+    `Instructions: ${brief.instructions}`,
+    `Success criteria: ${brief.success_criteria}`,
   ].join('\n');
   const result = await worker.generate({ prompt, abortSignal: input.abortSignal });
+  const spoken = withoutRawPage(result.text ?? '', capture.text);
   return toDelegateResult({
-    summary: withoutRawPage(result.text ?? '', capture.text),
+    summary: spoken || summaryFromOperateSteps(result),
     did_operate_browser: Boolean(
       result.steps?.some(step => step.toolCalls?.some(call => call.toolName === 'operate_browser')),
     ),

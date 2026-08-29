@@ -61,6 +61,7 @@ import { verifyCandidateComplete, type ArtifactCriterion } from './verification-
 import {
   acceptTask,
   matchingStoredResult,
+  namedFormSuccessDelivered,
   namedTakeawayText,
   produceResult,
   recordStep,
@@ -70,6 +71,7 @@ import {
 } from './task-result';
 import { sha256 } from './digest';
 import { allowsVerifiedComplete } from './page-state';
+import { successCuesFromInstruction } from '../browser/sites/form-fill';
 import { resolveMediaArgs, resolveTabArgs } from './media';
 import { toRedactedTaskSnapshot, traceStore } from './trace';
 import {
@@ -138,6 +140,9 @@ export type { DownloadStateProbe };
 /** Observed tab presence for tab_state completion criteria. */
 export type TabStateProbe = 'closed' | 'active' | 'inactive';
 
+/** Opening a later page is not the result. Keep the loop until named success is on the page. */
+const INCOMPLETE_WORK_RETRY_LIMIT = 8;
+
 interface TaskManagerDeps {
   createExecutor: (input: ExecutorInput, hooks: ExecutorHooks) => Promise<ExecutorDriver>;
   switchTab: (tabId: number) => Promise<void>;
@@ -167,6 +172,8 @@ interface TaskManagerDeps {
   openIndependentTabs?: (urls: string[]) => Promise<IndependentTabOpenAttempt[]>;
   /** Open a background about:blank tab when start has no usable content tab. */
   openBlankTaskTab?: () => Promise<number>;
+  /** Prefer an already-open http(s) tab over creating about:blank. */
+  findUsableHttpTab?: () => Promise<number>;
 }
 
 const TERMINAL_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled'];
@@ -751,6 +758,10 @@ export class TaskManager {
     }
     let tabId = command.tabId;
     let createdTaskTab = false;
+    if (tabId < 0 && this.deps.findUsableHttpTab) {
+      const found = await this.deps.findUsableHttpTab();
+      if (typeof found === 'number' && found >= 0) tabId = found;
+    }
     if (tabId < 0) {
       if (instructionPointsAtCurrentPage(command.instruction)) {
         return {
@@ -1640,17 +1651,22 @@ export class TaskManager {
       (round.instructionSummary && round.instructionSummary !== 'User instruction' ? round.instructionSummary : '') ||
       '';
     const asked = this.acceptedTaskFor(taskId);
+    const pageSuccessText = canComplete
+      ? await this.resolvePageSuccessText(asked, automaticCriteria, checked.evidence, task)
+      : undefined;
     const produced = produceResult({
       asked,
-      pageSuccessText: canComplete
-        ? this.askedSuccessSeenOnPage(asked, automaticCriteria, checked.evidence)
-        : undefined,
+      pageSuccessText,
       observedUrl: this.observedUrlForResult(checked.evidence),
       observedOutcome: this.observedOutcomeForResult(checked.evidence, automaticCriteria),
       summary: round.instructionSummary,
     });
     const resultMatches = resultIsPresentAndMatches(asked, produced);
-    const orderedSourceProof = await checkOrderedSourceVisitProof(instructionForRound, this.visitedPageEvidence(task));
+    const seenOnPage = Boolean(pageSuccessText);
+    const orderedSourceProof =
+      namedFormSuccessDelivered(asked, produced) ||
+      seenOnPage ||
+      (await checkOrderedSourceVisitProof(instructionForRound, this.visitedPageEvidence(task)));
 
     if (!canComplete || !resultMatches || !orderedSourceProof) {
       // Partial evidence still advances mission phases before full task complete.
@@ -1675,7 +1691,15 @@ export class TaskManager {
       const currentRound = this.currentRound(current);
       currentRound.evidence.push(...checked.evidence);
       this.syncMissionPlanFromEvidence(current, checked.evidence);
-      completed = await this.persistMatchingResult(current, currentRound, checked.evidence, produced);
+      completed = await this.persistMatchingResult(
+        current,
+        currentRound,
+        checked.evidence,
+        produced,
+        true,
+        [],
+        seenOnPage,
+      );
     });
     if (completed) await this.stopTaskRuntime(taskId);
     return completed;
@@ -2489,6 +2513,18 @@ export class TaskManager {
         continue;
       }
       if (outcome.kind !== 'candidate_complete') {
+        const askedForRetry = this.acceptedTaskFor(taskId);
+        if (
+          outcome.kind === 'failed' &&
+          outcome.category === 'max_steps' &&
+          (askedForRetry.askedText ||
+            deriveInstructionUrlPlan(this.instructions.get(taskId) ?? '').requiresOrderedSourceProof) &&
+          verificationRetries < this.incompleteRetryLimit(askedForRetry, this.instructions.get(taskId) ?? '')
+        ) {
+          verificationRetries += 1;
+          driver.addFollowUp(this.incompleteWorkFollowUp(askedForRetry, false, false, false));
+          continue;
+        }
         let handoffRoundId: string | undefined;
         await this.queueTransition(async () => {
           const current = await getTask(taskId);
@@ -2641,7 +2677,7 @@ export class TaskManager {
             );
             if (receiptOk) return;
           }
-          if (verificationRetries < 1) {
+          if (verificationRetries < this.incompleteRetryLimit(asked, instructionForRound)) {
             current.revision += 1;
             await this.persist(current);
             retry = true;
@@ -2668,7 +2704,7 @@ export class TaskManager {
           driver.addFollowUp(
             this.requiresIndependentArtifactGate(artifacts, asked)
               ? 'The artifact is not independently verified. Inspect the page, add required browser criteria, then return the requested deliverable.'
-              : 'The last answer was not a result. Write the user-facing result. Do not acknowledge.',
+              : this.incompleteWorkFollowUp(asked, resultMatches, false, true),
           );
           continue;
         }
@@ -2714,7 +2750,9 @@ export class TaskManager {
               return;
             }
             const currentRound = this.currentRound(current);
-            if (verificationRetries < 1) {
+            if (
+              verificationRetries < this.incompleteRetryLimit(this.acceptedTaskFor(taskId), instructionForCandidate)
+            ) {
               current.revision += 1;
               await this.persist(current);
               retryArtifact = true;
@@ -2779,7 +2817,7 @@ export class TaskManager {
           asked,
           artifacts: candidateArtifacts,
           summary: outcomeAnswer || rawOutcomeAnswer,
-          pageSuccessText: this.askedSuccessSeenOnPage(asked, automaticCriteria, automaticEvidence),
+          pageSuccessText: await this.resolvePageSuccessText(asked, automaticCriteria, automaticEvidence, task),
           observedUrl: this.observedUrlForResult(automaticEvidence),
           observedOutcome: this.observedOutcomeForResult(automaticEvidence, automaticCriteria),
         });
@@ -2834,11 +2872,12 @@ export class TaskManager {
         pageEvidenceForAnswer,
       );
       const asked = this.acceptedTaskFor(taskId);
+      const pageSuccessText = await this.resolvePageSuccessText(asked, round.criteria, checked.evidence, task);
       const produced = produceResult({
         asked,
         artifacts: candidateArtifacts,
         summary: outcomeAnswer || rawOutcomeAnswer,
-        pageSuccessText: this.askedSuccessSeenOnPage(asked, round.criteria, checked.evidence),
+        pageSuccessText,
         observedUrl: this.observedUrlForResult(checked.evidence),
         observedOutcome: this.observedOutcomeForResult(checked.evidence, round.criteria),
       });
@@ -2850,10 +2889,12 @@ export class TaskManager {
         observations,
       });
       const artifactsVerified = artifactGate.complete;
-      const orderedSourceProof = await checkOrderedSourceVisitProof(
-        instructionForRound,
-        this.visitedPageEvidence(task),
-      );
+      const namedSuccess = namedFormSuccessDelivered(asked, produced);
+      const seenOnPage = Boolean(pageSuccessText);
+      const orderedSourceProof =
+        namedSuccess ||
+        seenOnPage ||
+        (await checkOrderedSourceVisitProof(instructionForRound, this.visitedPageEvidence(task)));
       let retry = false;
       let handoffRoundId: string | undefined;
       await this.queueTransition(async () => {
@@ -2879,8 +2920,8 @@ export class TaskManager {
           resultMatches &&
           orderedSourceProof &&
           artifactsVerified &&
-          actionPassed &&
-          (checked.passed || Boolean(produced?.body))
+          (actionPassed || namedSuccess || seenOnPage) &&
+          (checked.passed || Boolean(produced?.body) || namedSuccess || seenOnPage)
         ) {
           const receiptOk = await this.persistMatchingResult(
             current,
@@ -2889,10 +2930,11 @@ export class TaskManager {
             produced,
             true,
             candidateArtifacts.map(artifact => 'artifact:' + artifact.id),
+            seenOnPage,
           );
           if (receiptOk) return;
         }
-        if (verificationRetries < 1) {
+        if (verificationRetries < this.incompleteRetryLimit(asked, instructionForRound)) {
           current.revision += 1;
           await this.persist(current);
           retry = true;
@@ -2930,11 +2972,7 @@ export class TaskManager {
         continue;
       }
       verificationRetries += 1;
-      if (!resultMatches) {
-        driver.addFollowUp('Write the user-facing result. Do not acknowledge.');
-      } else {
-        driver.addFollowUp('Completion was not verified; inspect the current page and continue.');
-      }
+      driver.addFollowUp(this.incompleteWorkFollowUp(asked, resultMatches, namedSuccess, orderedSourceProof));
     }
   }
 
@@ -3364,18 +3402,25 @@ export class TaskManager {
       );
       const asked = this.accepted.get(taskId);
       if (asked && !asked.askedText) {
-        const successDraft = additions.find(
-          draft =>
-            draft.kind === 'page_text' &&
-            draft.operator === 'present' &&
-            draft.required &&
-            !userFieldValues.has(draft.expected.replace(/\s+/g, ' ').trim()),
+        const cues = new Set(
+          successCuesFromInstruction(this.instructions.get(taskId) ?? '').map(cue => cue.replace(/\s+/g, ' ').trim()),
         );
+        const successDraft = additions.find(draft => {
+          if (draft.kind !== 'page_text' || draft.operator !== 'present' || !draft.required) return false;
+          const expected = draft.expected.replace(/\s+/g, ' ').trim();
+          if (cues.has(expected)) return true;
+          return Boolean(namedTakeawayText(expected, draft.required)) && !userFieldValues.has(expected);
+        });
         if (successDraft?.kind === 'page_text') {
-          const takeaway = namedTakeawayText(successDraft.expected, successDraft.required);
-          this.writeAskedText(taskId, takeaway);
+          this.writeAskedText(
+            taskId,
+            namedTakeawayText(successDraft.expected, successDraft.required) ?? successDraft.expected,
+          );
         }
       }
+      const successCues = new Set(
+        successCuesFromInstruction(this.instructions.get(taskId) ?? '').map(cue => cue.replace(/\s+/g, ' ').trim()),
+      );
       const criteria = await Promise.all(
         additions.map(draft =>
           this.freezeCriterion(
@@ -3388,6 +3433,7 @@ export class TaskManager {
                 : tabTargetRefId,
             frozenAt,
             userFieldValues,
+            successCues,
           ),
         ),
       );
@@ -3588,6 +3634,7 @@ export class TaskManager {
     targetRefId: string,
     frozenAt: number,
     userFieldValues: Set<string>,
+    successCues: Set<string> = new Set(),
   ): Promise<CompletionCriterion> {
     const base = {
       id: crypto.randomUUID(),
@@ -3608,7 +3655,11 @@ export class TaskManager {
       }
       case 'page_text': {
         const normalized = draft.expected.replace(/\s+/g, ' ').trim();
-        if (!normalized || normalized.length > 160 || userFieldValues.has(normalized)) {
+        if (
+          !normalized ||
+          normalized.length > 160 ||
+          (userFieldValues.has(normalized) && !successCues.has(normalized))
+        ) {
           return { ...base, kind: 'user_confirmed', operator: 'equals', expected: true };
         }
         return {
@@ -3701,19 +3752,11 @@ export class TaskManager {
       }
     }
 
-    const patterns = [
-      /\bsuccess\s+is\s+["'“]?([^"'”.;\n]+)/gi,
-      /\buntil\s+(?:you\s+)?(?:see|seeing)\s+["'“]?([^"'”.;\n]+)/gi,
-      /成功(?:标志|信号|文案|是|为)?\s*[:：]?\s*["'「]?([^"'」.;。\n]+)/g,
-      /看到\s*["'“「]?([^"'”」.;。\n]{2,80}?)(?=\s*["'”」]?\s*后\s*(?:[，,]\s*)?(?:完成|结束)|["'”」.;。\n]|$)/g,
-    ];
-    for (const pattern of patterns) {
-      for (const match of instruction.matchAll(pattern)) {
-        const expected = match[1]?.replace(/\s+/g, ' ').trim();
-        if (!expected || expected.length > 160 || seen.has(expected) || fieldValues.has(expected)) continue;
-        seen.add(expected);
-        drafts.push({ kind: 'page_text', operator: 'present', expected, required: true });
-      }
+    for (const cue of successCuesFromInstruction(instruction)) {
+      const expected = cue.replace(/\s+/g, ' ').trim();
+      if (!expected || expected.length > 160 || seen.has(expected)) continue;
+      seen.add(expected);
+      drafts.push({ kind: 'page_text', operator: 'present', expected, required: true });
     }
 
     // T0 control goals: freeze observable criteria so model verbal done cannot complete alone.
@@ -4072,6 +4115,31 @@ export class TaskManager {
     task.plan = plan;
   }
 
+  private incompleteRetryLimit(asked: AcceptedTask, instruction: string): number {
+    if (asked.askedText || deriveInstructionUrlPlan(instruction).requiresOrderedSourceProof) {
+      return INCOMPLETE_WORK_RETRY_LIMIT;
+    }
+    return 1;
+  }
+
+  private incompleteWorkFollowUp(
+    asked: AcceptedTask,
+    resultMatches: boolean,
+    namedSuccess: boolean,
+    orderedSourceProof: boolean,
+  ): string {
+    if (asked.askedText && !namedSuccess) {
+      return 'The named on-page success is not present yet. Continue the remaining unfinished steps of the user instruction. Do not stop.';
+    }
+    if (!orderedSourceProof) {
+      return 'Earlier sources in the user instruction are not proven yet. Continue the remaining unfinished steps. Do not stop.';
+    }
+    if (!resultMatches) {
+      return 'The last answer was not a result. Write the user-facing result. Do not acknowledge.';
+    }
+    return 'Completion was not verified; inspect the current page and continue.';
+  }
+
   private rememberAcceptedTask(taskId: string, instruction: string): AcceptedTask {
     const asked = acceptTask(instruction);
     const previous = this.accepted.get(taskId);
@@ -4116,6 +4184,25 @@ export class TaskManager {
 
   private acceptedTaskFor(taskId: string): AcceptedTask {
     return this.accepted.get(taskId) ?? acceptTask(this.instructions.get(taskId) ?? '');
+  }
+
+  private async namedSuccessInVisitHistory(asked: AcceptedTask, task: TaskSession): Promise<boolean> {
+    const named = asked.askedText?.replace(/\s+/g, ' ').trim();
+    if (!named) return false;
+    const digest = await sha256(named.toLocaleLowerCase());
+    return this.visitedPageEvidence(task).some(page => page.textDigests?.includes(digest));
+  }
+
+  private async resolvePageSuccessText(
+    asked: AcceptedTask,
+    criteria: TaskRound['criteria'],
+    evidence: CompletionEvidence[],
+    task: TaskSession,
+  ): Promise<string | undefined> {
+    return (
+      this.askedSuccessSeenOnPage(asked, criteria, evidence) ??
+      ((await this.namedSuccessInVisitHistory(asked, task)) ? asked.askedText : undefined)
+    );
   }
 
   /** Form success text only after required page_text actually passed — not from optional quotes. */
@@ -4193,13 +4280,16 @@ export class TaskManager {
     produced: TaskResult | null | undefined,
     incrementRevision = true,
     artifactProofIds: string[] = [],
+    pageShowedNamedSuccess = false,
   ): Promise<boolean> {
     const asked = this.acceptedTaskFor(task.id);
     if (!resultIsPresentAndMatches(asked, produced) || !produced) return false;
     const instruction = this.instructions.get(task.id) || asked.instruction || '';
     const pageEvidence = this.visitedPageEvidence(task);
-    if (!(await checkOrderedSourceVisitProof(instruction, pageEvidence))) return false;
-    if (!(await checkInstructionDeliverable(instruction, produced.body, pageEvidence)).passed) return false;
+    const namedSuccess = namedFormSuccessDelivered(asked, produced) || pageShowedNamedSuccess;
+    if (!namedSuccess && !(await checkOrderedSourceVisitProof(instruction, pageEvidence))) return false;
+    if (!namedSuccess && !(await checkInstructionDeliverable(instruction, produced.body, pageEvidence)).passed)
+      return false;
     const redactedBody = await redactDeliverableUrlsForPersistence(produced.body);
     const stored = matchingStoredResult(asked, produced, redactedBody);
     if (!stored) return false;
@@ -4211,7 +4301,14 @@ export class TaskManager {
     round.result = stored;
     round.instructionSummary = stored.body;
     delete round.produced;
-    const committed = await this.persistVerifiedReceipt(task, round, evidence, incrementRevision, artifactProofIds);
+    const committed = await this.persistVerifiedReceipt(
+      task,
+      round,
+      evidence,
+      incrementRevision,
+      artifactProofIds,
+      pageShowedNamedSuccess,
+    );
     if (!committed) {
       if (previousResult === undefined) delete round.result;
       else round.result = previousResult;
@@ -4231,10 +4328,12 @@ export class TaskManager {
     evidence: CompletionEvidence[],
     incrementRevision = true,
     artifactProofIds: string[] = [],
+    pageShowedNamedSuccess = false,
   ): Promise<boolean> {
     const asked = this.acceptedTaskFor(task.id);
+    const namedSuccess = namedFormSuccessDelivered(asked, round.result) || pageShowedNamedSuccess;
     if (!resultIsPresentAndMatches(asked, round.result)) return false;
-    if (!this.requiredRoundCriteriaAreEvidenced(round, evidence)) return false;
+    if (!namedSuccess && !this.requiredRoundCriteriaAreEvidenced(round, evidence)) return false;
     this.completeLiveObserveAttempts(round, this.deps.now());
     const passedEvidence = evidence.filter(item => item.passed);
     const visibleAnswer =
@@ -4249,6 +4348,7 @@ export class TaskManager {
 
     const instructionForReceipt = this.instructions.get(task.id) ?? '';
     if (
+      !namedSuccess &&
       verifiedStepRecordsEnabled(instructionForReceipt) &&
       (instructionAsksVerifiedTitles(instructionForReceipt) || instructionAsksVerifiedQuote(instructionForReceipt))
     ) {
@@ -4265,7 +4365,7 @@ export class TaskManager {
     if (task.plan) {
       // Required page/url criteria must already be evidenced. Do not mutate the
       // plan with a final digest before that, or a retry would persist a half-closed plan.
-      if (missionPlanHasUnverifiedRequiredProof(task.plan)) {
+      if (!namedSuccess && missionPlanHasUnverifiedRequiredProof(task.plan)) {
         return false;
       }
       const deliverableProof =
@@ -4274,7 +4374,7 @@ export class TaskManager {
         task.plan = applyFinalDeliverableToMissionPlan(task.plan, deliverableProof, this.deps.now());
       }
       task.plan = closeEmptySkeletonPhasesOnReceipt(task.plan, this.deps.now());
-      if (missionPlanHasUnverifiedRequiredProof(task.plan)) {
+      if (!namedSuccess && missionPlanHasUnverifiedRequiredProof(task.plan)) {
         return false;
       }
     }

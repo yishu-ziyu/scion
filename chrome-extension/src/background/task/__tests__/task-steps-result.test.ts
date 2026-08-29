@@ -112,6 +112,123 @@ describe('task / steps / result chain', () => {
     expect(snap?.rounds[0]?.receipt).toBeUndefined();
   });
 
+  it('completes a fused read-list-form brief when the page already shows named success', async () => {
+    const instruction =
+      '请按顺序做完。打开 http://127.0.0.1/brief 读候鸟简报并引用正文。打开 http://127.0.0.1/list 整理 6 个产品表。打开 http://127.0.0.1/form 把名字填成 FIELD_SENTINEL_8472 并提交。成功标志是页上出现 Saved successfully，最后用中文写纪要。';
+    const manager = new TaskManager({
+      createExecutor: async (input, hooks) => {
+        await hooks.onPlan(input.roundId, [
+          { kind: 'page_text', operator: 'present', expected: 'Saved successfully', required: true },
+        ]);
+        return driver({ kind: 'candidate_complete', summary: 'Saved successfully' });
+      },
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async criteria =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: item.kind === 'url' ? 'http://127.0.0.1/form' : true,
+        })),
+      ),
+      now: () => 100,
+    });
+    await start(manager, 'task-fused-form', instruction);
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-fused-form'))?.status).toBe('completed');
+    });
+    expect((await manager.snapshot('task-fused-form'))?.rounds[0]?.result).toEqual({
+      kind: 'summary',
+      body: 'Saved successfully',
+    });
+  });
+
+  it('does not fail a fused brief on the first candidate_complete after opening a later source', async () => {
+    const instruction =
+      '请按顺序做完。打开 https://zh.wikipedia.org/wiki/候鸟 读这一页并引用一句正文。打开 https://news.ycombinator.com/ 把前 5 条标题整理成表。打开 https://httpbin.org/forms/post 把 Customer name 填成 FIELD_SENTINEL_8472 并提交。成功标志是页上出现 FIELD_SENTINEL_8472。最后用中文写纪要。';
+    let first = true;
+    const pending = driver({ kind: 'candidate_complete', summary: 'Opened news.ycombinator.com' });
+    pending.run = vi.fn(() => {
+      if (first) {
+        first = false;
+        return Promise.resolve({ kind: 'candidate_complete' as const, summary: 'Opened news.ycombinator.com' });
+      }
+      return new Promise<ExecutorOutcome>(() => {});
+    });
+    const manager = new TaskManager({
+      createExecutor: async () => pending,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async criteria =>
+        criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: item.kind === 'url' ? 'https://news.ycombinator.com/' : false,
+        })),
+      ),
+      now: () => 100,
+    });
+    await start(manager, 'task-fused-hn-mid', instruction);
+    await vi.waitFor(() => expect(pending.addFollowUp).toHaveBeenCalled());
+    const snap = await manager.snapshot('task-fused-hn-mid');
+    expect(snap?.status).toBe('running');
+    expect(String(pending.addFollowUp.mock.calls[0]?.[0] ?? '')).toMatch(/named on-page success|remaining unfinished/i);
+  });
+
+  it('completes a fused brief when the named field-value success is already on the page', async () => {
+    const instruction =
+      '请按顺序做完。打开 https://zh.wikipedia.org/wiki/候鸟 读这一页并引用一句正文。打开 https://news.ycombinator.com/ 把前 5 条标题整理成表。打开 https://httpbin.org/forms/post 把 Customer name 填成 FIELD_SENTINEL_8472 并提交。成功标志是页上出现 FIELD_SENTINEL_8472。最后用中文写纪要。';
+    let observeCall = 0;
+    const manager = new TaskManager({
+      createExecutor: async () => driver({ kind: 'candidate_complete', summary: 'FIELD_SENTINEL_8472' }),
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async criteria => {
+        observeCall += 1;
+        return criteria.map(item => ({
+          criterionId: item.id,
+          roundId: item.roundId,
+          targetRefId: item.targetRefId,
+          observedAt: 100,
+          source: 'page' as const,
+          value: item.kind === 'url' ? 'https://httpbin.org/post' : observeCall >= 2,
+        }));
+      }),
+      now: () => 100,
+    });
+    await start(manager, 'task-fused-page-success', instruction);
+    await vi.waitFor(async () => {
+      expect((await manager.snapshot('task-fused-page-success'))?.status).toBe('completed');
+    });
+    expect((await manager.snapshot('task-fused-page-success'))?.rounds[0]?.result?.body).toBe('FIELD_SENTINEL_8472');
+  });
+
+  it('does not fail a fused brief on the first max_steps before named success is on the page', async () => {
+    const instruction =
+      '请按顺序做完。打开 https://httpbin.org/forms/post 把 Customer name 填成 FIELD_SENTINEL_8472 并提交。成功标志是页上出现 FIELD_SENTINEL_8472。最后用中文写纪要。';
+    let first = true;
+    const pending = driver({ kind: 'failed', category: 'max_steps' });
+    pending.run = vi.fn(() => {
+      if (first) {
+        first = false;
+        return Promise.resolve({ kind: 'failed' as const, category: 'max_steps' });
+      }
+      return new Promise<ExecutorOutcome>(() => {});
+    });
+    const manager = new TaskManager({
+      createExecutor: async () => pending,
+      switchTab: vi.fn(),
+      observeCriteria: vi.fn(async () => []),
+      now: () => 100,
+    });
+    await start(manager, 'task-fused-max-steps', instruction);
+    await vi.waitFor(() => expect(pending.addFollowUp).toHaveBeenCalled());
+    expect((await manager.snapshot('task-fused-max-steps'))?.status).toBe('running');
+  });
+
   it('completes a generic task only when a matching summary exists', async () => {
     const summary = '这一页在讲记忆系统如何组织长程推理。';
     const manager = new TaskManager({

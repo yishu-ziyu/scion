@@ -1616,15 +1616,14 @@ export default class Page {
         const bounded = bodyText.slice(0, 200_000);
         const normalizedBody = bounded.replace(/\s+/g, ' ').trim();
         if (normalizedBody) bodyDigest = await sha256(normalizedBody);
-        const candidates = [
-          ...new Set(
-            [pageTitle, bounded, ...leafText.slice(0, 1_024)]
-              .flatMap(part => part.split(/(?<=[.!?。！？])\s+|\n+/))
-              .map(part => part.replace(/\s+/g, ' ').trim())
-              .filter(part => part.length > 0 && part.length <= 240)
-              .slice(0, 512),
-          ),
-        ];
+        const quoted = [...bounded.matchAll(/["“']([^"”'\n]{2,80})["”']/g)].map(match =>
+          match[1].replace(/\s+/g, ' ').trim(),
+        );
+        const lineCandidates = [pageTitle, bounded, ...leafText.slice(0, 1_024)]
+          .flatMap(part => part.split(/(?<=[.!?。！？])\s+|\n+/))
+          .map(part => part.replace(/\s+/g, ' ').trim())
+          .filter(part => part.length > 0 && part.length <= 240);
+        const candidates = [...new Set([...quoted.filter(Boolean), ...lineCandidates])].slice(0, 512);
         if (candidates.length > 0) {
           const folded = candidates.map(candidate => candidate.toLocaleLowerCase());
           textDigests = await Promise.all([...new Set([...candidates, ...folded])].map(candidate => sha256(candidate)));
@@ -2127,20 +2126,9 @@ export default class Page {
     }
 
     const currentUrl = this._puppeteerPage.url();
-    if (!isUrlAllowed(currentUrl, this._config.allowedUrls, this._config.deniedUrls)) {
+    if (!isUrlAllowed(currentUrl, this._config.allowedUrls, this._config.deniedUrls, { existingTab: true })) {
       const errorMessage = `URL: ${currentUrl} is not allowed`;
       logger.error(errorMessage);
-
-      // Navigate to home page or about:blank
-      const safeUrl = this._config.homePageUrl || 'about:blank';
-      logger.info(`Redirecting to safe URL: ${safeUrl}`);
-
-      try {
-        await this._puppeteerPage.goto(safeUrl);
-      } catch (error) {
-        logger.error(`Failed to redirect to safe URL: ${error instanceof Error ? error.message : String(error)}`);
-      }
-
       throw new URLNotAllowedError(errorMessage);
     }
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runOrchestratorTurn } from '../run';
-import { shouldFollowExistingTask, composeTaskInstruction, runBrowserWork } from '../operate';
+import { shouldFollowExistingTask, composeTaskInstruction, mergeUserUtterance, runBrowserWork } from '../operate';
 import { toDelegateResult } from '../result';
 import type { OrchestratorHost, OrchestratorStreamEvent } from '../types';
 import {
@@ -178,6 +178,37 @@ describe('delegate result sanitizer', () => {
   });
 });
 
+describe('user utterance stays in the browser brief', () => {
+  it('prepends the original user sentence so named success cues survive a vague worker brief', () => {
+    const user =
+      '请按顺序做完。打开 http://127.0.0.1/form 把名字填成 FIELD_SENTINEL_8472 并提交。成功标志是页上出现 Saved successfully，最后用中文写纪要。';
+    const merged = mergeUserUtterance(
+      {
+        goal: 'operate the browser',
+        instructions: 'fill the form and submit',
+        success_criteria: 'the form is saved',
+        needs_current_page: true,
+        may_operate_browser: true,
+      },
+      user,
+    );
+    expect(composeTaskInstruction(merged)).toContain('成功标志是页上出现 Saved successfully');
+    expect(composeTaskInstruction(merged)).toContain('fill the form and submit');
+    expect(
+      composeTaskInstruction(
+        {
+          goal: '执行任务',
+          instructions: 'open the pages',
+          success_criteria: 'done',
+          needs_current_page: true,
+          may_operate_browser: true,
+        },
+        user,
+      ),
+    ).toContain('成功标志是页上出现 Saved successfully');
+  });
+});
+
 describe('browser operate follow-up', () => {
   it('follows an in-session running task instead of starting a second one', async () => {
     const dispatched: Array<{ type: string; taskId: string }> = [];
@@ -342,5 +373,126 @@ describe('browser operate follow-up', () => {
     );
     expect(result).toMatchObject({ summary: 'Filled the form.', did_operate_browser: true });
     expect(reads).toBeGreaterThanOrEqual(3);
+  });
+
+  it('returns observed page facts when the browser work failed after a real submit', async () => {
+    const host: OrchestratorHost = {
+      getActiveTask: async () => null,
+      getTask: async () =>
+        ({
+          id: 's1',
+          chatSessionId: 's1',
+          status: 'failed',
+          revision: 2,
+          rounds: [
+            {
+              id: 'r1',
+              status: 'failed',
+              failureCategory: 'no_action',
+              commandAcks: {},
+              criteria: [],
+              attempts: [],
+              evidence: [],
+            },
+          ],
+          currentRoundId: 'r1',
+          targetRefs: [
+            {
+              kind: 'page',
+              normalizedUrl: 'http://127.0.0.1/brief',
+              title: '候鸟简报',
+              quote: '候鸟迁徙经过这片湿地。',
+            },
+          ],
+        }) as never,
+      dispatchTask: async command => ({
+        accepted: true,
+        commandId: command.commandId,
+        taskId: command.taskId,
+        revision: 1,
+      }),
+      getActiveTabId: async () => 9,
+    };
+    const result = await runBrowserWork(
+      {
+        goal: 'read, extract, and submit',
+        instructions: 'open brief, list, and form',
+        success_criteria: 'Saved successfully',
+        needs_current_page: true,
+        may_operate_browser: true,
+      },
+      's1',
+      host,
+    );
+    expect(result.did_operate_browser).toBe(true);
+    expect(result.summary).toContain('候鸟');
+    expect(result.summary).toContain('The browser work failed (no_action).');
+  });
+});
+
+describe('orchestrator speaks the worker summary when the model stops after tools', () => {
+  it('emits the delegate summary if there is no text-delta', async () => {
+    const brief = {
+      goal: 'operate the browser',
+      instructions: 'fill the form and submit',
+      success_criteria: 'Saved successfully',
+      needs_current_page: false,
+      may_operate_browser: true,
+    };
+    const orchestrator = new MockLanguageModelV4({
+      doStream: [toolCallStreamResult('delegate_work', brief), textStreamResult([])],
+    });
+    const worker = new MockLanguageModelV4({
+      doGenerate: [toolCallGenerateResult('operate_browser', {}), textGenerateResult('')],
+    });
+    const host: OrchestratorHost = {
+      workerModel: worker,
+      getActiveTask: async () => null,
+      getTask: async () =>
+        ({
+          id: 's1',
+          chatSessionId: 's1',
+          status: 'failed',
+          revision: 2,
+          rounds: [
+            {
+              id: 'r1',
+              status: 'failed',
+              failureCategory: 'no_action',
+              commandAcks: {},
+              criteria: [],
+              attempts: [],
+              evidence: [],
+              result: { kind: 'summary', body: 'Saved successfully' },
+            },
+          ],
+          currentRoundId: 'r1',
+          targetRefs: [
+            {
+              kind: 'page',
+              normalizedUrl: 'http://127.0.0.1/brief',
+              title: '候鸟简报',
+              quote: '候鸟迁徙经过这片湿地。',
+            },
+          ],
+        }) as never,
+      dispatchTask: async command => ({
+        accepted: true,
+        commandId: command.commandId,
+        taskId: command.taskId,
+        revision: 1,
+      }),
+      getActiveTabId: async () => 9,
+    };
+    const sink = collectEvents();
+    await runOrchestratorTurn({
+      model: orchestrator,
+      messages: [{ role: 'user', content: '请按顺序做完并写纪要' }],
+      host,
+      sessionId: 's1',
+      onEvent: sink.onEvent,
+    });
+    expect(sink.text()).toContain('候鸟');
+    expect(sink.events.at(-1)).toEqual({ type: 'done' });
   });
 });

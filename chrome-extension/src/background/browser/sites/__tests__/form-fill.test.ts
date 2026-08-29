@@ -5,6 +5,7 @@ import {
   parseFormFillSubmitInstruction,
   resolveFormFillIndicesFromCandidates,
   resolveFormFillIndicesFromState,
+  successCuesFromInstruction,
 } from '../form-fill';
 
 describe('form-fill deterministic', () => {
@@ -43,6 +44,38 @@ describe('form-fill deterministic', () => {
       nameText: '小明',
       successText: '保存成功',
     });
+  });
+
+  it('parses Chinese fill with a trailing on-page success cue', () => {
+    expect(
+      parseFormFillSubmitInstruction(
+        '把名字填成 FIELD_SENTINEL_8472 然后提交。成功标志是页上出现 Saved successfully。',
+      ),
+    ).toEqual({
+      nameText: 'FIELD_SENTINEL_8472',
+      successText: 'Saved successfully',
+    });
+  });
+
+  it('extracts Saved successfully from a multi-step Chinese brief', () => {
+    const fused =
+      '请按顺序做完。打开 http://127.0.0.1/brief 读候鸟简报并引用正文，打开 http://127.0.0.1/list 整理 6 个产品表，打开 http://127.0.0.1/form 把名字填成 FIELD_SENTINEL_8472 并提交，成功标志是页上出现 Saved successfully，最后用中文写纪要。';
+    expect(successCuesFromInstruction(fused)).toEqual(['Saved successfully']);
+    expect(successCuesFromInstruction('success is 页上出现 Saved successfully')).toEqual(['Saved successfully']);
+    expect(pageShowsFormSuccess('Saved successfully', successCuesFromInstruction(fused)[0] ?? '')).toBe(true);
+    expect(successCuesFromInstruction('点击当前页面的 Submit 按钮；看到 Saved successfully 后完成。')).toEqual([
+      'Saved successfully',
+    ]);
+    expect(
+      successCuesFromInstruction('Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.'),
+    ).toEqual(['Saved successfully']);
+  });
+
+  it('extracts a named field value as the on-page success cue', () => {
+    const fused =
+      '请按顺序做完。打开 https://zh.wikipedia.org/wiki/候鸟 读这一页并引用一句正文。打开 https://news.ycombinator.com/ 把前 5 条标题整理成表。打开 https://httpbin.org/forms/post 把 Customer name 填成 FIELD_SENTINEL_8472 并提交。成功标志是页上出现 FIELD_SENTINEL_8472。最后用中文写纪要。';
+    expect(successCuesFromInstruction(fused)).toEqual(['FIELD_SENTINEL_8472']);
+    expect(pageShowsFormSuccess('custname FIELD_SENTINEL_8472', 'FIELD_SENTINEL_8472')).toBe(true);
   });
 
   it('resolves indices from state text', () => {

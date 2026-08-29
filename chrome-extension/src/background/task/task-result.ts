@@ -3,7 +3,7 @@
  * `resultIsPresentAndMatches`. Done only when `TaskResult` exists and matches.
  */
 import type { ActionAttempt, TaskResult, TaskResultKind } from '@extension/storage/lib/task';
-import { parseFormFillSubmitInstruction } from '../browser/sites/form-fill';
+import { successCuesFromInstruction } from '../browser/sites/form-fill';
 import { parseProductTableInstruction } from '../browser/sites/product-table';
 import { artifactToResultText, mergeTableArtifacts, type TaskArtifact } from './artifact';
 import { isAcknowledgementOnly, isBasicSubstantiveAnswer, isPlaceholderDelivery } from './result-text';
@@ -45,7 +45,7 @@ export function acceptTask(instruction: string): AcceptedTask {
   const text = instruction.replace(/\s+/g, ' ').trim();
   const tableGoal = parseProductTableInstruction(text);
   const askedText = namedSuccessText(text);
-  if (tableGoal || asksForTable(text)) {
+  if ((tableGoal || asksForTable(text)) && !askedText) {
     return {
       instruction: text,
       askedKind: 'table',
@@ -88,6 +88,27 @@ export function recordStep(steps: ActionAttempt[], step: ActionAttempt): ActionA
 export function produceResult(input: ProduceResultInput): TaskResult | null {
   const asked = input.asked;
   const fromArtifacts = resultFromArtifacts(asked, input.artifacts ?? []);
+  const seenSuccess = visibleBody(input.pageSuccessText);
+  if (
+    asked.askedText &&
+    seenSuccess &&
+    (seenSuccess.includes(asked.askedText) || asked.askedText.includes(seenSuccess))
+  ) {
+    if (asked.askedKind === 'table') {
+      const table = tableResultPreferringCompleteSummary(asked, input.summary, fromArtifacts);
+      if (table) return table;
+    }
+    const fuller = writtenKindBody(asked.askedKind, input.summary);
+    if (
+      fuller.includes(asked.askedText) &&
+      fuller.length > asked.askedText.length + 12 &&
+      resultIsPresentAndMatches({ ...asked, askedKind: 'summary' }, { kind: 'summary', body: fuller })
+    ) {
+      return { kind: 'summary', body: fuller };
+    }
+    const named: TaskResult = { kind: 'summary', body: asked.askedText };
+    if (resultIsPresentAndMatches({ ...asked, askedKind: 'summary' }, named)) return named;
+  }
 
   if (asked.askedKind === 'table') {
     return tableResultPreferringCompleteSummary(asked, input.summary, fromArtifacts);
@@ -95,7 +116,6 @@ export function produceResult(input: ProduceResultInput): TaskResult | null {
 
   if (fromArtifacts && resultIsPresentAndMatches(asked, fromArtifacts)) return fromArtifacts;
 
-  const seenSuccess = visibleBody(input.pageSuccessText);
   if (seenSuccess) {
     const body =
       asked.askedText && (seenSuccess.includes(asked.askedText) || asked.askedText.includes(seenSuccess))
@@ -106,7 +126,7 @@ export function produceResult(input: ProduceResultInput): TaskResult | null {
   }
 
   const summary = writtenKindBody(asked.askedKind, input.summary);
-  if (asked.askedText && summary.includes(asked.askedText)) {
+  if (asked.askedText && summary.includes(asked.askedText) && namedTakeawayText(asked.askedText)) {
     const result: TaskResult = { kind: 'summary', body: asked.askedText };
     if (resultIsPresentAndMatches(asked, result)) return result;
   }
@@ -317,13 +337,19 @@ function navigationChromeMatchesAsked(asked: AcceptedTask, body: string): boolea
 }
 
 function namedSuccessText(instruction: string): string | undefined {
-  const form = parseFormFillSubmitInstruction(instruction);
-  if (form?.successText) return form.successText.replace(/\s+/g, ' ').trim();
-  const match =
-    instruction.match(/\bsuccess\s+is\s+["'“]?([^"'”.;\n]+)/i) ??
-    instruction.match(/看到\s*["'“「]?([^"'”」.;。\n]{2,80}?)(?=\s*["'”」]?\s*后)/);
+  const fromCues = successCuesFromInstruction(instruction)[0];
+  if (fromCues) return fromCues.replace(/\s+/g, ' ').trim();
+  const match = instruction.match(/看到\s*["'“「]?([^"'”」.;。\n]{2,80}?)(?=\s*["'”」]?\s*后)/);
   const text = match?.[1]?.replace(/\s+/g, ' ').trim();
   return text || undefined;
+}
+
+/** Named on-page form success is already in the result the user can take. */
+export function namedFormSuccessDelivered(asked: AcceptedTask, result: TaskResult | null | undefined): boolean {
+  const named = asked.askedText?.replace(/\s+/g, ' ').trim() ?? '';
+  const body = result?.body?.replace(/\s+/g, ' ').trim() ?? '';
+  if (!named || !body || !namedTakeawayText(named)) return false;
+  return body === named || body.includes(named);
 }
 
 function tableFieldsFromInstruction(instruction: string): string[] | undefined {
