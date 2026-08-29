@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ALL_ACTION_SCHEMAS } from '../actions/schemas';
 import { EVERYDAY_CONTROL_ACTION_NAMES } from './control-policy';
 import { DEFAULT_VISIBLE_TEXT_CHARS, normalizeVisiblePageText } from '../../browser/kernel/visible-text';
+import { pageShowsFormSuccess } from '../../browser/sites/form-fill';
 import type { KernelActionResult } from '../../browser/kernel/types';
 
 export type ToolLoopPage = {
@@ -38,24 +39,50 @@ function toolDescription(name: string, description: string, whenToUse?: string):
   return whenToUse ? `${description} ${whenToUse}` : description;
 }
 
+export interface ToolLoopControlToolOptions {
+  successCues?: string[];
+}
+
 /** Native tools for open / click / observe / done. Execute goes through the existing kernel. */
-export function createToolLoopControlTools(browser: ToolLoopBrowser, state: ToolLoopRunState) {
+export function createToolLoopControlTools(
+  browser: ToolLoopBrowser,
+  state: ToolLoopRunState,
+  options: ToolLoopControlToolOptions = {},
+) {
   const tools: Record<string, ReturnType<typeof tool>> = {};
+  const successCues = (options.successCues ?? []).map(cue => cue.trim()).filter(Boolean);
+  let seenNamedSuccess = false;
+
+  const notePage = (page: ToolLoopPage) => {
+    const visible = `${page.visibleText || ''} ${page.text || ''}`;
+    if (successCues.some(cue => pageShowsFormSuccess(visible, cue))) seenNamedSuccess = true;
+    return page;
+  };
 
   const runAct = async (name: string, args: Record<string, unknown>) => {
     await state.waitIfPaused();
     if (state.stopped()) return { error: 'stopped' };
     if (name === 'done') {
       const summary = (typeof args.text === 'string' ? args.text.trim() : '') || 'Done.';
+      if (successCues.length > 0 && !seenNamedSuccess) {
+        const page = notePage(capPage(await browser.observe()));
+        if (!seenNamedSuccess) {
+          return {
+            error:
+              'Named on-page success is not visible yet. Continue the remaining unfinished steps. Do not call done.',
+            page,
+          };
+        }
+      }
       state.setDone(summary);
       return { ok: true, summary };
     }
     if (name === 'observe' || name === 'read_page_text') {
       const query = typeof args.query === 'string' ? args.query : undefined;
-      return capPage(await browser.observe(query));
+      return notePage(capPage(await browser.observe(query)));
     }
     const result = await browser.act(name, args);
-    const page = capPage(await browser.observe());
+    const page = notePage(capPage(await browser.observe()));
     return { error: result.error ?? null, isDone: Boolean(result.isDone), summary: result.summary ?? null, page };
   };
 

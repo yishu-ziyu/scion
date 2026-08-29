@@ -24,7 +24,7 @@ vi.mock('../../page-summary-stream', () => ({
   preparePageSummaryContext: (...args: unknown[]) => preparePageSummaryContext(...args),
 }));
 
-import { createLiveOrchestratorHost } from '../live-host';
+import { createLiveOrchestratorHost, pickActiveHttpTabId, pickPreferredHttpTabId } from '../live-host';
 
 function fakeTaskManager() {
   return {
@@ -94,5 +94,64 @@ describe('live orchestrator host page read', () => {
 
     expect(collectPageContextFromTab).toHaveBeenCalledWith(9);
     expect(debuggerApi.attach).not.toHaveBeenCalled();
+  });
+
+  it('falls back to an http tab in another window when the focused window has none', async () => {
+    const extensionTab = { id: 1, url: 'chrome-extension://test-extension/side-panel/index.html' };
+    const form = { id: 12, url: 'http://127.0.0.1:9/form', lastAccessed: 40 };
+    tabsApi.query.mockImplementation(async (query: { active?: boolean; lastFocusedWindow?: boolean }) => {
+      if (query.lastFocusedWindow) return [extensionTab];
+      return [extensionTab, form];
+    });
+    collectPageContextFromTab.mockResolvedValue({
+      bundle: { title: 'form', url: form.url, blocks: [] },
+    });
+    preparePageSummaryContext.mockReturnValue({
+      page: { title: 'form', url: form.url, text: 'Name Submit' },
+    });
+    const host = createLiveOrchestratorHost(fakeTaskManager() as never);
+
+    await expect(host.getActiveTabId?.()).resolves.toBe(12);
+    await expect(host.readCurrentPage?.()).resolves.toMatchObject({ ok: true, url: form.url });
+  });
+});
+
+describe('pickActiveHttpTabId', () => {
+  it('does not return -1 while any http tab exists', () => {
+    expect(
+      pickActiveHttpTabId({
+        activeInFocus: [{ id: 1, url: 'chrome-extension://x/side-panel/index.html' }],
+        inFocus: [{ id: 1, url: 'chrome-extension://x/side-panel/index.html' }],
+        all: [
+          { id: 1, url: 'chrome-extension://x/side-panel/index.html' },
+          { id: 8, url: 'http://127.0.0.1/form', lastAccessed: 3 },
+        ],
+      }),
+    ).toBe(8);
+  });
+
+  it("prefers another window's active page over a background tab with newer lastAccessed", () => {
+    expect(
+      pickActiveHttpTabId({
+        activeInFocus: [{ id: 1, url: 'chrome-extension://x/side-panel/index.html' }],
+        inFocus: [{ id: 1, url: 'chrome-extension://x/side-panel/index.html' }],
+        all: [
+          { id: 1, url: 'chrome-extension://x/side-panel/index.html' },
+          { id: 8, url: 'https://www.youtube.com/', active: false, lastAccessed: 100 },
+          { id: 12, url: 'http://127.0.0.1/form', active: true, lastAccessed: 40 },
+        ],
+      }),
+    ).toBe(12);
+  });
+});
+
+describe('pickPreferredHttpTabId', () => {
+  it('prefers an active http tab', () => {
+    expect(
+      pickPreferredHttpTabId([
+        { id: 8, url: 'https://www.youtube.com/', active: false, lastAccessed: 100 },
+        { id: 12, url: 'http://127.0.0.1/form', active: true, lastAccessed: 40 },
+      ]),
+    ).toBe(12);
   });
 });

@@ -8,15 +8,42 @@ function isHttpTab(tab: chrome.tabs.Tab | undefined): tab is chrome.tabs.Tab & {
   return Boolean(tab.url?.startsWith('http') || tab.pendingUrl?.startsWith('http'));
 }
 
+function newestHttpTab(tabs: chrome.tabs.Tab[]): (chrome.tabs.Tab & { id: number }) | undefined {
+  const httpTabs = tabs.filter(isHttpTab);
+  httpTabs.sort((left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0));
+  return httpTabs[0];
+}
+
+/** Prefer a window's current page over a background tab that was lastAccessed more recently. */
+export function pickPreferredHttpTabId(tabs: chrome.tabs.Tab[]): number {
+  const httpTabs = tabs.filter(isHttpTab);
+  const activeHttp = httpTabs.filter(tab => tab.active);
+  const pool = activeHttp.length > 0 ? activeHttp : httpTabs;
+  pool.sort((left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0));
+  return pool[0]?.id ?? -1;
+}
+
+/** Prefer the focused window's page; if that window has no http tab (side panel, DevTools), use any window. */
+export function pickActiveHttpTabId(input: {
+  activeInFocus: chrome.tabs.Tab[];
+  inFocus: chrome.tabs.Tab[];
+  all: chrome.tabs.Tab[];
+}): number {
+  const activeHttp = input.activeInFocus.find(isHttpTab);
+  if (activeHttp) return activeHttp.id;
+  const inFocusHttp = newestHttpTab(input.inFocus);
+  if (inFocusHttp) return inFocusHttp.id;
+  return pickPreferredHttpTabId(input.all);
+}
+
 async function getActiveHttpTabId(): Promise<number> {
   const focused = { lastFocusedWindow: true as const };
-  const activeHttp = (await chrome.tabs.query({ active: true, ...focused })).find(isHttpTab);
-  if (activeHttp) return activeHttp.id;
-  // Real side panel keeps the article tab active. A side-panel *tab* (e2e / unpacked
-  // debug) does not — still read the newest http tab in that window, never attach.
-  const httpTabs = (await chrome.tabs.query(focused)).filter(isHttpTab);
-  httpTabs.sort((left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0));
-  return httpTabs[0]?.id ?? -1;
+  const [activeInFocus, inFocus, all] = await Promise.all([
+    chrome.tabs.query({ active: true, ...focused }),
+    chrome.tabs.query(focused),
+    chrome.tabs.query({}),
+  ]);
+  return pickActiveHttpTabId({ activeInFocus, inFocus, all });
 }
 
 async function readVisibleCurrentPage(): Promise<PageRead> {

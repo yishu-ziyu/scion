@@ -23,12 +23,11 @@ vi.mock('@extension/storage', () => ({
   generalSettingsStore: {
     getSettings: vi.fn(async () => ({ maxSteps: 8 })),
   },
-  agentModelStore: { cleanupLegacyValidatorSettings: vi.fn(), getAllAgentModels: vi.fn() },
+  agentModelStore: { getModel: vi.fn() },
   llmProviderStore: { getAllProviders: vi.fn() },
   firewallStore: { getFirewall: vi.fn() },
   evalSettingsStore: { getSettings: vi.fn() },
   getApiKey: vi.fn(),
-  AgentNameEnum: { Navigator: 'navigator', Planner: 'planner', Validator: 'validator' },
 }));
 
 vi.mock('@extension/i18n', () => ({ t: (key: string) => key }));
@@ -107,6 +106,67 @@ describe('tool-loop control driver', () => {
     await expect(driver.run('r2')).resolves.toEqual({ kind: 'waiting_user', reason: 'login_required' });
   });
 
+  it('proposes complete when a multi-step Chinese brief only names 页上出现 Saved successfully', async () => {
+    const observe = vi.fn(async () => ({
+      text: 'Saved successfully',
+      visibleText: 'Saved successfully',
+      url: 'http://127.0.0.1/form',
+      title: 'Form',
+    }));
+    const driver = await createToolLoopControlDriver(
+      {
+        taskId: 't-fused',
+        roundId: 'r-fused',
+        instruction:
+          '请按顺序做完。打开 http://127.0.0.1/brief 读候鸟简报并引用正文，打开 http://127.0.0.1/list 整理 6 个产品表，打开 http://127.0.0.1/form 把名字填成 FIELD_SENTINEL_8472 并提交，成功标志是页上出现 Saved successfully，最后用中文写纪要。',
+        tabId: 9,
+      },
+      hooksMock(),
+      {} as never,
+      {
+        model: new MockLanguageModelV4({
+          doGenerate: [textGenerateResult('Looking.')],
+        }),
+        runBrowser: { observe, act: async () => ({ summary: 'unused' }) },
+        maxSteps: 1,
+      },
+    );
+    await expect(driver.run('r-fused')).resolves.toEqual({
+      kind: 'candidate_complete',
+      summary: 'Saved successfully',
+    });
+  });
+
+  it('proposes complete when a Chinese success cue is already on the page', async () => {
+    const observe = vi.fn(async () => ({
+      text: 'Saved successfully',
+      visibleText: 'Saved successfully',
+      url: 'http://127.0.0.1/form',
+      title: 'Form',
+    }));
+    const driver = await createToolLoopControlDriver(
+      {
+        taskId: 't5',
+        roundId: 'r5',
+        instruction: '把名字填成 FIELD_SENTINEL_8472 然后提交。成功标志是页上出现 Saved successfully。',
+        tabId: 9,
+      },
+      hooksMock(),
+      {} as never,
+      {
+        model: new MockLanguageModelV4({
+          doGenerate: [textGenerateResult('Looking.')],
+        }),
+        runBrowser: { observe, act: async () => ({ summary: 'unused' }) },
+        maxSteps: 1,
+      },
+    );
+    await expect(driver.run('r5')).resolves.toEqual({
+      kind: 'candidate_complete',
+      summary: 'Saved successfully',
+    });
+  });
+
   it('proposes complete when the page already shows the instruction success text', async () => {
     const observe = vi.fn(async () => ({
       text: 'Name Submit',
@@ -135,6 +195,111 @@ describe('tool-loop control driver', () => {
     await expect(driver.run('r4')).resolves.toEqual({
       kind: 'candidate_complete',
       summary: 'Saved successfully',
+    });
+  });
+
+  it('does not accept done before the named on-page success is visible', async () => {
+    const observe = vi.fn(async () => ({
+      text: 'Hacker News',
+      visibleText: 'Hacker News',
+      url: 'https://news.ycombinator.com/',
+      title: 'HN',
+    }));
+    const driver = await createToolLoopControlDriver(
+      {
+        taskId: 't-hn-done',
+        roundId: 'r-hn-done',
+        instruction:
+          '请按顺序做完。打开 https://news.ycombinator.com/ 把前 5 条标题整理成表。打开 https://httpbin.org/forms/post 把 Customer name 填成 FIELD_SENTINEL_8472 并提交。成功标志是页上出现 FIELD_SENTINEL_8472。最后用中文写纪要。',
+        tabId: 9,
+      },
+      hooksMock(),
+      {} as never,
+      {
+        model: new MockLanguageModelV4({
+          doGenerate: [toolCallGenerateResult('done', { text: 'Opened news.ycombinator.com', success: true })],
+        }),
+        runBrowser: { observe, act: async () => ({ summary: 'unused' }) },
+        maxSteps: 1,
+      },
+    );
+    await expect(driver.run('r-hn-done')).resolves.toEqual({ kind: 'failed', category: 'max_steps' });
+  });
+
+  it('accepts done after the named success was seen, even if the current page moved on', async () => {
+    let calls = 0;
+    const observe = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          text: '{"custname":"FIELD_SENTINEL_8472"}',
+          visibleText: '{"custname":"FIELD_SENTINEL_8472"}',
+          url: 'https://httpbin.org/post',
+          title: 'httpbin',
+        };
+      }
+      return {
+        text: 'Hacker News',
+        visibleText: 'Hacker News',
+        url: 'https://news.ycombinator.com/',
+        title: 'HN',
+      };
+    });
+    const driver = await createToolLoopControlDriver(
+      {
+        taskId: 't-seen-then-leave',
+        roundId: 'r-seen-then-leave',
+        instruction:
+          '打开 https://httpbin.org/forms/post 把 Customer name 填成 FIELD_SENTINEL_8472 并提交。成功标志是页上出现 FIELD_SENTINEL_8472。然后打开 https://news.ycombinator.com/',
+        tabId: 9,
+      },
+      hooksMock(),
+      {} as never,
+      {
+        model: new MockLanguageModelV4({
+          doGenerate: [
+            toolCallGenerateResult('observe', {}),
+            toolCallGenerateResult('done', { text: 'FIELD_SENTINEL_8472', success: true }),
+          ],
+        }),
+        runBrowser: { observe, act: async () => ({ summary: 'unused' }) },
+        maxSteps: 4,
+      },
+    );
+    await expect(driver.run('r-seen-then-leave')).resolves.toEqual({
+      kind: 'candidate_complete',
+      summary: 'FIELD_SENTINEL_8472',
+    });
+  });
+
+  it('accepts done once the named field-value success is visible', async () => {
+    const observe = vi.fn(async () => ({
+      text: '{"custname": "FIELD_SENTINEL_8472"}',
+      visibleText: '{"custname": "FIELD_SENTINEL_8472"}',
+      url: 'https://httpbin.org/post',
+      title: 'httpbin',
+    }));
+    const driver = await createToolLoopControlDriver(
+      {
+        taskId: 't-sentinel-done',
+        roundId: 'r-sentinel-done',
+        instruction:
+          '打开 https://httpbin.org/forms/post 把 Customer name 填成 FIELD_SENTINEL_8472 并提交。成功标志是页上出现 FIELD_SENTINEL_8472。',
+        tabId: 9,
+      },
+      hooksMock(),
+      {} as never,
+      {
+        model: new MockLanguageModelV4({
+          doGenerate: [toolCallGenerateResult('done', { text: 'FIELD_SENTINEL_8472', success: true })],
+        }),
+        runBrowser: { observe, act: async () => ({ summary: 'unused' }) },
+        maxSteps: 1,
+      },
+    );
+    await expect(driver.run('r-sentinel-done')).resolves.toEqual({
+      kind: 'candidate_complete',
+      summary: 'FIELD_SENTINEL_8472',
     });
   });
 

@@ -30,10 +30,13 @@ export function parseFormFillSubmitInstruction(instruction: string): FormFillGoa
 
   // ZH: 把名字填成 XXX 并提交。值后面必须直接出现提交短语；
   // 如果中间还有第二个字段赋值，这个表达式不会匹配。
+  // Trailing success clause is allowed: 「提交。成功标志是页上出现 Saved successfully。」
   const zh = text.match(
-    /^(?:请\s*)?(?:把\s*)?(?:名字|姓名|Name)\s*(?:字段)?\s*(?:填成|填入|填为|填写成|填写为|写成)\s*[「“"']?([^\s,，;；。.!！？「」“”"']{1,80}?)[」”"']?\s*(?:,|，)?\s*(?:并|然后|再)?\s*(?:点击\s*)?(?:提交|submit)\s*[。.!！]?$/i,
+    /^(?:请\s*)?(?:把\s*)?(?:名字|姓名|Name)\s*(?:字段)?\s*(?:填成|填入|填为|填写成|填写为|写成)\s*[「“"']?([^\s,，;；。.!！？「」“”"']{1,80}?)[」”"']?\s*(?:,|，)?\s*(?:并|然后|再)?\s*(?:点击\s*)?(?:提交|submit)(?:\s*[。.!！;；]|$|\s+)(.*)$/i,
   );
   if (zh) {
+    const rest = (zh[2] || '').trim();
+    if (/填成|填入|填为|填写成|填写为|写成/.test(rest)) return null;
     return {
       nameText: zh[1],
       successText: text.includes('Saved successfully') ? 'Saved successfully' : '保存成功',
@@ -41,6 +44,63 @@ export function parseFormFillSubmitInstruction(instruction: string): FormFillGoa
   }
 
   return null;
+}
+
+const SUCCESS_CUE_CAPTURE = /[^\s"'”」。，,;；\n][^"'”」。，,;；\n]{0,79}/;
+
+function unwrapSuccessCue(raw: string): string {
+  return raw
+    .replace(/^(?:页上出现|页面上出现)\s+/u, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[.;。]+$/g, '')
+    .trim();
+}
+
+/**
+ * On-page success sentences named in the instruction.
+ * Stop at Chinese commas so 「成功标志是页上出现 Saved successfully，最后写纪要」
+ * yields `Saved successfully`, not the rest of the brief.
+ */
+export function successCuesFromInstruction(instruction: string): string[] {
+  const text = instruction.replace(/\s+/g, ' ').trim();
+  if (!text) return [];
+  const cues: string[] = [];
+  const form = parseFormFillSubmitInstruction(instruction);
+  if (form?.successText) cues.push(form.successText.trim());
+
+  const patterns: RegExp[] = [
+    new RegExp(String.raw`成功标志是\s*(?:页上出现\s*)?["'“]?(${SUCCESS_CUE_CAPTURE.source})`, 'g'),
+    new RegExp(String.raw`\bsuccess\s+is\s+(?:页上出现\s*)?["'“]?(${SUCCESS_CUE_CAPTURE.source})`, 'gi'),
+    new RegExp(String.raw`页上出现\s*["'“]?(${SUCCESS_CUE_CAPTURE.source})`, 'g'),
+    /看到\s*["'“「]?([^"'”」.;。\n]{2,80}?)(?=\s*["'”」]?\s*后)/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const cue = unwrapSuccessCue(match[1] ?? '');
+      if (cue) cues.push(cue);
+    }
+  }
+
+  const lastClause = unwrapSuccessCue(
+    (
+      text
+        .split(/(?:。|\n)+/)
+        .filter(Boolean)
+        .at(-1) ?? ''
+    )
+      .replace(/^(?:成功标志是\s*)?(?:success\s+is\s+)?(?:页上出现\s*)?/iu, '')
+      .replace(/^(?:页上出现\s*)/u, ''),
+  );
+  if (
+    lastClause &&
+    lastClause.length <= 80 &&
+    /(?:success|saved|submitted|成功|已保存|已提交)/i.test(lastClause) &&
+    !/打开|填成|http|请按|整理|引用|success is|看到|点击|按钮|完成|Fill Name/i.test(lastClause)
+  ) {
+    cues.push(lastClause);
+  }
+
+  return [...new Set(cues.filter(Boolean))];
 }
 
 /**

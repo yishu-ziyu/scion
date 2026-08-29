@@ -3,6 +3,7 @@ import { createTableArtifact, createTextArtifact } from '../artifact';
 import {
   acceptTask,
   matchingStoredResult,
+  namedFormSuccessDelivered,
   namedTakeawayText,
   produceResult,
   recordStep,
@@ -34,6 +35,58 @@ describe('acceptTask / recordStep / produceResult / resultIsPresentAndMatches', 
     const asked = acceptTask('Fill Name with Ada and submit; success is Saved successfully.');
     expect(asked.askedKind).toBe('summary');
     expect(asked.askedText).toBe('Saved successfully');
+  });
+
+  it('keeps a fused read-list-form brief as named form success, not table-only', () => {
+    const asked = acceptTask(
+      '请按顺序做完。打开 http://127.0.0.1/brief 读候鸟简报并引用正文。打开 http://127.0.0.1/list 整理 6 个产品表。打开 http://127.0.0.1/form 把名字填成 FIELD_SENTINEL_8472 并提交。成功标志是页上出现 Saved successfully，最后用中文写纪要。',
+    );
+    expect(asked.askedText).toBe('Saved successfully');
+    expect(asked.askedKind).toBe('summary');
+    expect(
+      produceResult({
+        asked,
+        pageSuccessText: 'Saved successfully',
+        summary: 'clicked Submit',
+      })?.body,
+    ).toBe('Saved successfully');
+    expect(namedFormSuccessDelivered(asked, { kind: 'summary', body: 'Saved successfully' })).toBe(true);
+  });
+
+  it('keeps a named field-value success cue as askedText, not a table-only task', () => {
+    const asked = acceptTask(
+      '请按顺序做完。打开 https://zh.wikipedia.org/wiki/候鸟 读这一页并引用一句正文。打开 https://news.ycombinator.com/ 把前 5 条标题整理成表。打开 https://httpbin.org/forms/post 把 Customer name 填成 FIELD_SENTINEL_8472 并提交。成功标志是页上出现 FIELD_SENTINEL_8472。最后用中文写纪要。',
+    );
+    expect(asked.askedText).toBe('FIELD_SENTINEL_8472');
+    expect(asked.askedKind).toBe('summary');
+    expect(
+      produceResult({
+        asked,
+        pageSuccessText: 'FIELD_SENTINEL_8472',
+        summary: 'Opened news.ycombinator.com',
+      })?.body,
+    ).toBe('FIELD_SENTINEL_8472');
+    expect(namedFormSuccessDelivered(asked, { kind: 'summary', body: 'Opened HN FIELD_SENTINEL_8472' })).toBe(false);
+    expect(resultIsPresentAndMatches(asked, { kind: 'summary', body: 'FIELD_SENTINEL_8472' })).toBe(true);
+    expect(
+      produceResult({
+        asked,
+        summary: 'Opened news.ycombinator.com and typed FIELD_SENTINEL_8472',
+      })?.body,
+    ).not.toBe('FIELD_SENTINEL_8472');
+    const memo = [
+      '候鸟会随季节长距离迁徙。',
+      '标题,站点',
+      'Show HN: example,news.ycombinator.com',
+      '表单已提交，页上出现 FIELD_SENTINEL_8472。',
+    ].join('\n');
+    expect(
+      produceResult({
+        asked,
+        pageSuccessText: 'FIELD_SENTINEL_8472',
+        summary: memo,
+      })?.body,
+    ).toBe(memo);
   });
 
   it('records steps by id without dropping earlier ones', () => {

@@ -373,6 +373,43 @@ describe('Page action target observation', () => {
     expect(JSON.stringify(observations)).not.toContain('Saved successfully');
   });
 
+  it('matches page_text present when the cue is a quoted JSON value on a long line', async () => {
+    const page = new Page(7, 'https://httpbin.org/post', 'httpbin');
+    const state = build_initial_state(7, 'https://httpbin.org/post', 'httpbin');
+    vi.spyOn(page, 'getState').mockResolvedValue(state);
+    const json = `{"form":{"custname":"FIELD_SENTINEL_8472","comments":"${'x'.repeat(200)}"}}`;
+    (
+      page as unknown as {
+        _puppeteerPage: { url: () => string; evaluate: () => Promise<unknown> };
+      }
+    )._puppeteerPage = {
+      url: () => 'https://httpbin.org/post',
+      evaluate: async () => ({
+        title: 'httpbin',
+        bodyText: json,
+        leafText: [json],
+      }),
+    };
+
+    const observations = await page.observeCompletionCriteria([
+      {
+        id: 'text-1',
+        kind: 'page_text',
+        operator: 'present',
+        expectedDigest: await sha256('field_sentinel_8472'),
+        required: true,
+        roundId: 'round-1',
+        targetRefId: 'tab-7',
+        baseline: false,
+        frozenAt: 100,
+        notBefore: 100,
+        timeoutMs: 5000,
+      },
+    ]);
+
+    expect(observations).toEqual([expect.objectContaining({ criterionId: 'text-1', value: true })]);
+  });
+
   it('matches completion text on its own body line when the DOM tree omits plain text', async () => {
     const page = new Page(7, 'https://example.test/success', 'Fixture');
     const state = build_initial_state(7, 'https://example.test/success', 'Fixture');

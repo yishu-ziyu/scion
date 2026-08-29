@@ -6,7 +6,6 @@
 import { isStepCount, ToolLoopAgent, type LanguageModel } from 'ai';
 import {
   agentModelStore,
-  AgentNameEnum,
   firewallStore,
   generalSettingsStore,
   getApiKey,
@@ -33,7 +32,7 @@ import type {
 import { markSetupError } from '../../task/executor-start-error';
 import { createBrowserKernel } from '../../browser/kernel';
 import { createCompatibleLanguageModel } from '../../orchestrator/model';
-import { parseFormFillSubmitInstruction, pageShowsFormSuccess } from '../../browser/sites/form-fill';
+import { pageShowsFormSuccess, successCuesFromInstruction } from '../../browser/sites/form-fill';
 import { TOOL_LOOP_CONTROL_INSTRUCTIONS } from './tool-loop-control-prompts';
 import { createToolLoopControlTools, type ToolLoopBrowser } from './tool-loop-control-tools';
 
@@ -52,34 +51,21 @@ function registryFromActions(actions: ReturnType<ActionBuilder['buildDefaultActi
 async function resolveLoopModel(): Promise<LanguageModel> {
   const providers = await llmProviderStore.getAllProviders();
   if (Object.keys(providers).length === 0) throw markSetupError(t('bg_setup_noApiKeys'));
-  await agentModelStore.cleanupLegacyValidatorSettings();
-  const agentModels = await agentModelStore.getAllAgentModels();
-  const navigatorModel = agentModels[AgentNameEnum.Navigator] ?? agentModels[AgentNameEnum.Planner];
-  if (!navigatorModel) throw markSetupError(t('bg_setup_noNavigatorModel'));
-  const provider = providers[navigatorModel.provider];
-  if (!provider) throw markSetupError(t('bg_setup_noProvider', [navigatorModel.provider]));
+  const configured = await agentModelStore.getModel();
+  if (!configured) throw markSetupError(t('bg_setup_noNavigatorModel'));
+  const provider = providers[configured.provider];
+  if (!provider) throw markSetupError(t('bg_setup_noProvider', [configured.provider]));
   const apiKey = provider.apiKeyRef ? ((await getApiKey(provider.apiKeyRef)) ?? provider.apiKey) : provider.apiKey;
   if (!apiKey) throw markSetupError(t('bg_setup_noApiKeys'));
   const model = createCompatibleLanguageModel({
-    modelId: navigatorModel.modelName,
+    modelId: configured.modelName,
     apiKey,
     baseUrl: provider.baseUrl,
-    providerId: navigatorModel.provider,
+    providerId: configured.provider,
     adapterType: loopAdapterType(provider),
   });
   if (!model) throw markSetupError(t('bg_setup_noNavigatorModel'));
   return model;
-}
-
-function successCuesFromInstruction(instruction: string): string[] {
-  const cues: string[] = [];
-  const form = parseFormFillSubmitInstruction(instruction);
-  if (form?.successText) cues.push(form.successText);
-  for (const match of instruction.matchAll(/\bsuccess\s+is\s+["'“]?([^"'”.;\n]+)/gi)) {
-    const text = match[1]?.replace(/\s+/g, ' ').trim();
-    if (text) cues.push(text);
-  }
-  return [...new Set(cues.filter(Boolean))];
 }
 
 function planCriteriaFromInstruction(instruction: string): CompletionCriterionDraft[] {
@@ -116,10 +102,9 @@ async function createKernelBrowser(
   roundId: () => string,
 ): Promise<ToolLoopBrowser> {
   const providers = await llmProviderStore.getAllProviders();
-  const agentModels = await agentModelStore.getAllAgentModels();
-  const navigatorModel = agentModels[AgentNameEnum.Navigator] ?? agentModels[AgentNameEnum.Planner];
-  if (!navigatorModel || !providers[navigatorModel.provider]) throw markSetupError(t('bg_setup_noNavigatorModel'));
-  const extractor = await createChatModel(providers[navigatorModel.provider], navigatorModel);
+  const configured = await agentModelStore.getModel();
+  if (!configured || !providers[configured.provider]) throw markSetupError(t('bg_setup_noNavigatorModel'));
+  const extractor = await createChatModel(providers[configured.provider], configured);
 
   const firewall = await firewallStore.getFirewall();
   const generalSettings = await generalSettingsStore.getSettings();
@@ -228,7 +213,9 @@ export async function createToolLoopControlDriver(
           waitingUser = reason;
         },
       };
-      const tools = createToolLoopControlTools(runBrowser, state);
+      const tools = createToolLoopControlTools(runBrowser, state, {
+        successCues: successCuesFromInstruction(input.instruction),
+      });
       const agent = new ToolLoopAgent({
         model,
         instructions: TOOL_LOOP_CONTROL_INSTRUCTIONS,
