@@ -8,7 +8,6 @@ import {
 import type { AdapterType, ModelDescriptor, ProviderProfile } from '@extension/contracts';
 import {
   Actors,
-  AgentNameEnum,
   ProviderTypeEnum,
   agentModelStore,
   chatHistoryStore,
@@ -56,7 +55,7 @@ export interface ChatStreamPort {
 /** Everything the handler reads from the outside world; tests inject fakes. */
 export interface ChatStreamDeps extends OrchestratorHost {
   getProviders: () => Promise<Record<string, ProviderConfig>>;
-  getAgentModels: () => Promise<Partial<Record<AgentNameEnum, ModelConfig>>>;
+  getModel: () => Promise<ModelConfig | undefined>;
   getApiKey: (ref: string) => Promise<string | null>;
   getSessionMessages: (sessionId: string) => Promise<Array<{ actor: Actors; content: string }> | null>;
   runtimeFactory: RuntimeFactory;
@@ -99,19 +98,13 @@ function toModelDescriptors(providerId: string, config: ProviderConfig): ModelDe
   }));
 }
 
-/**
- * The chat feature binds to the navigator model (planner as fallback), the
- * same pair the legacy agent loop already resolves from `agent-models`.
- */
+/** Bind chat to the one configured model. */
 export function chatFeatureBinding(
-  agentModels: Partial<Record<AgentNameEnum, ModelConfig>>,
+  model: ModelConfig | undefined,
 ): { primaryModel: string; fallbackModels: string[] } | null {
-  const navigator = agentModels[AgentNameEnum.Navigator];
-  const planner = agentModels[AgentNameEnum.Planner];
-  const primary = navigator?.modelName?.trim() || planner?.modelName?.trim() || '';
+  const primary = model?.modelName?.trim() || '';
   if (!primary) return null;
-  const fallback = planner?.modelName?.trim();
-  return { primaryModel: primary, fallbackModels: fallback && fallback !== primary ? [fallback] : [] };
+  return { primaryModel: primary, fallbackModels: [] };
 }
 
 function unsupportedAdapterRuntime(provider: ProviderProfile): ReturnType<RuntimeFactory> {
@@ -133,8 +126,8 @@ export async function resolveChatRuntime(
   deps: ChatStreamDeps,
   featureId = CHAT_FEATURE_ID,
 ): Promise<SelectRuntimeResult | null> {
-  const [providers, agentModels] = await Promise.all([deps.getProviders(), deps.getAgentModels()]);
-  const binding = chatFeatureBinding(agentModels);
+  const [providers, model] = await Promise.all([deps.getProviders(), deps.getModel()]);
+  const binding = chatFeatureBinding(model);
   if (!binding) return null;
 
   const profiles: ProviderProfile[] = [];
@@ -293,7 +286,7 @@ export function createChatStreamHandler(deps: ChatStreamDeps) {
 /** Production dependencies stay in the service worker, including key lookup. */
 export const productionChatStreamDeps: ChatStreamDeps = {
   getProviders: () => llmProviderStore.getAllProviders(),
-  getAgentModels: () => agentModelStore.getAllAgentModels(),
+  getModel: () => agentModelStore.getModel(),
   getApiKey: async ref => (await getApiKey(ref)) ?? null,
   getSessionMessages: async sessionId => (await chatHistoryStore.getSession(sessionId))?.messages ?? null,
   runtimeFactory: defaultRuntimeFactory,

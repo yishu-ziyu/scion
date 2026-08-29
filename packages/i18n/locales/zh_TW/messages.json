@@ -400,17 +400,11 @@
   "options_models_selection_header": {
     "message": "模型選擇"
   },
+  "options_models_selection_desc": {
+    "message": "側欄對話和辦事都用這個模型。"
+  },
   "options_models_speechToText_header": {
     "message": "語音轉文字模型"
-  },
-  "options_models_agents_navigator": {
-    "message": "瀏覽網站並執行操作"
-  },
-  "options_models_agents_planner": {
-    "message": "制定並調整策略以完成任務"
-  },
-  "options_models_agents_validator": {
-    "message": "對著頁面核對是否真的做完，沒對上就打回"
   },
   "options_models_labels_model": {
     "message": "模型"
@@ -584,7 +578,7 @@
     }
   },
   "bg_setup_noNavigatorModel": {
-    "message": "請先在設定中為導覽代理程式選擇一個模型。"
+    "message": "請先在設定中選擇一個模型。"
   },
   "exec_errors_maxStepsReached": {
     "message": "已達步驟上限"

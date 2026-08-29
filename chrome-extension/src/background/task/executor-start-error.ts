@@ -27,7 +27,7 @@ export function classifyCreateExecutorError(error: unknown): CreateExecutorFailu
   // Machine tokens (tests / untranslated)
   if (/noApiKeys|noNavigator|noProvider|setup_failed/i.test(msg)) return 'setup_failed';
   // Localized bg_setup_* bodies (zh shared in en/zh_CN locale files for this fork)
-  if (/API\s*密钥|密钥的设置|导览代理|找不到提供者/.test(msg)) return 'setup_failed';
+  if (/API\s*密钥|密钥的设置|选择一个模型|导览代理|找不到提供者/.test(msg)) return 'setup_failed';
 
   return 'executor_start_failed';
 }

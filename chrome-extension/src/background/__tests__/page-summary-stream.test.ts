@@ -1,4 +1,3 @@
-import { AgentNameEnum } from '@extension/storage';
 import { selectRuntime, type ChatTurn, type TurnStreamEvent } from '@extension/agent-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatStreamDeps } from '../chat-stream';
@@ -59,9 +58,7 @@ const runtimeDeps: ChatStreamDeps = {
       modelNames: ['MiniMax-M3'],
     },
   }),
-  getAgentModels: async () => ({
-    [AgentNameEnum.Navigator]: { provider: 'minimax', modelName: 'MiniMax-M3' },
-  }),
+  getModel: async () => ({ provider: 'minimax', modelName: 'MiniMax-M3' }),
   getApiKey: async ref => (ref === 'ref-minimax' ? 'sk-real' : null),
   getSessionMessages: async () => null,
   runtimeFactory: (model, apiKey) => {

@@ -398,19 +398,13 @@
     "message": "Mostrar chave de API"
   },
   "options_models_selection_header": {
-    "message": "Seleção de Modelo"
+    "message": "Modelo"
+  },
+  "options_models_selection_desc": {
+    "message": "O chat e as tarefas da barra lateral usam este modelo."
   },
   "options_models_speechToText_header": {
-    "message": "Modelo de Fala para Texto"
-  },
-  "options_models_agents_navigator": {
-    "message": "Navega em sites e executa ações"
-  },
-  "options_models_agents_planner": {
-    "message": "Desenvolve e refina estratégias para completar tarefas"
-  },
-  "options_models_agents_validator": {
-    "message": "Confere a página atual antes de aceitar a conclusão e devolve a tarefa se não bater"
+    "message": "Modelo de fala para texto"
   },
   "options_models_labels_model": {
     "message": "Modelo"
@@ -584,7 +578,7 @@
     }
   },
   "bg_setup_noNavigatorModel": {
-    "message": "Por favor, escolha um modelo para o navegador nas configurações primeiro"
+    "message": "Escolha um modelo nas configurações primeiro."
   },
   "exec_errors_maxStepsReached": {
     "message": "Máximo de passos atingido"

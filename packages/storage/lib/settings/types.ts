@@ -1,10 +1,3 @@
-// Agent name, used to identify the agent in the settings
-export enum AgentNameEnum {
-  Planner = 'planner',
-  Navigator = 'navigator',
-  Validator = 'validator',
-}
-
 // Provider type, types before CustomOpenAI are built-in providers, CustomOpenAI is a custom provider
 // For built-in providers, we will create ChatModel instances with its respective LangChain ChatModel classes
 // For custom providers, we will create ChatModel instances with the ChatOpenAI class
@@ -53,146 +46,16 @@ export const llmProviderModelNames = {
   // Custom OpenAI providers don't have predefined models as they are user-defined
 };
 
-// Default parameters for each agent per provider, for providers not specified, use OpenAI parameters
+/** Default sampling for the one model the product uses. */
 export const llmProviderParameters = {
-  [ProviderTypeEnum.OpenAI]: {
-    [AgentNameEnum.Planner]: {
-      temperature: 0.7,
-      topP: 0.9,
-    },
-    [AgentNameEnum.Navigator]: {
-      temperature: 0.3,
-      topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.3,
-    },
-  },
-  [ProviderTypeEnum.Anthropic]: {
-    [AgentNameEnum.Planner]: {
-      temperature: 0.3,
-      topP: 0.6,
-    },
-    [AgentNameEnum.Navigator]: {
-      temperature: 0.2,
-      topP: 0.5,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.3,
-    },
-  },
-  [ProviderTypeEnum.Gemini]: {
-    [AgentNameEnum.Planner]: {
-      temperature: 0.7,
-      topP: 0.9,
-    },
-    [AgentNameEnum.Navigator]: {
-      temperature: 0.3,
-      topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.3,
-    },
-  },
-  [ProviderTypeEnum.Grok]: {
-    [AgentNameEnum.Planner]: {
-      temperature: 0.7,
-      topP: 0.9,
-    },
-    [AgentNameEnum.Navigator]: {
-      temperature: 0.3,
-      topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.3,
-    },
-  },
-  [ProviderTypeEnum.Ollama]: {
-    [AgentNameEnum.Planner]: {
-      temperature: 0.3,
-      topP: 0.9,
-    },
-    [AgentNameEnum.Navigator]: {
-      temperature: 0.1,
-      topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.3,
-    },
-  },
-  [ProviderTypeEnum.AzureOpenAI]: {
-    [AgentNameEnum.Planner]: {
-      temperature: 0.7,
-      topP: 0.9,
-    },
-    [AgentNameEnum.Navigator]: {
-      temperature: 0.3,
-      topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.3,
-    },
-  },
-  [ProviderTypeEnum.OpenRouter]: {
-    [AgentNameEnum.Planner]: {
-      temperature: 0.7,
-      topP: 0.9,
-    },
-    [AgentNameEnum.Navigator]: {
-      temperature: 0.3,
-      topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.3,
-    },
-  },
-  [ProviderTypeEnum.Groq]: {
-    [AgentNameEnum.Planner]: {
-      temperature: 0.7,
-      topP: 0.9,
-    },
-    [AgentNameEnum.Navigator]: {
-      temperature: 0.3,
-      topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.3,
-    },
-  },
-  [ProviderTypeEnum.Cerebras]: {
-    [AgentNameEnum.Planner]: {
-      temperature: 0.7,
-      topP: 0.9,
-    },
-    [AgentNameEnum.Navigator]: {
-      temperature: 0.3,
-      topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.3,
-    },
-  },
-  [ProviderTypeEnum.Llama]: {
-    [AgentNameEnum.Planner]: {
-      temperature: 0.7,
-      topP: 0.9,
-    },
-    [AgentNameEnum.Navigator]: {
-      temperature: 0.3,
-      topP: 0.85,
-    },
-    [AgentNameEnum.Validator]: {
-      temperature: 0.1,
-      topP: 0.3,
-    },
-  },
+  [ProviderTypeEnum.OpenAI]: { temperature: 0.3, topP: 0.85 },
+  [ProviderTypeEnum.Anthropic]: { temperature: 0.2, topP: 0.5 },
+  [ProviderTypeEnum.Gemini]: { temperature: 0.3, topP: 0.85 },
+  [ProviderTypeEnum.Grok]: { temperature: 0.3, topP: 0.85 },
+  [ProviderTypeEnum.Ollama]: { temperature: 0.1, topP: 0.85 },
+  [ProviderTypeEnum.AzureOpenAI]: { temperature: 0.3, topP: 0.85 },
+  [ProviderTypeEnum.OpenRouter]: { temperature: 0.3, topP: 0.85 },
+  [ProviderTypeEnum.Groq]: { temperature: 0.3, topP: 0.85 },
+  [ProviderTypeEnum.Cerebras]: { temperature: 0.3, topP: 0.85 },
+  [ProviderTypeEnum.Llama]: { temperature: 0.3, topP: 0.85 },
 };

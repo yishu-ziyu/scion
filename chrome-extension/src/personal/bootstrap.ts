@@ -1,6 +1,5 @@
 import {
   agentModelStore,
-  AgentNameEnum,
   deriveApiKeyRef,
   getApiKey,
   llmProviderStore,
@@ -8,7 +7,7 @@ import {
   putApiKey,
 } from '@extension/storage';
 import { createLogger } from '../background/log';
-import { PERSONAL_AGENT_MODELS, PERSONAL_PROVIDER, PERSONAL_PROVIDER_ID } from './config';
+import { PERSONAL_MODEL_CONFIG, PERSONAL_PROVIDER, PERSONAL_PROVIDER_ID } from './config';
 import { PERSONAL_MINIMAX_API_KEY } from './secrets.local';
 
 const logger = createLogger('PersonalBootstrap');
@@ -78,20 +77,17 @@ export async function ensurePersonalDefaults(): Promise<void> {
       createdAt: Date.now(),
     });
 
-    for (const agent of [AgentNameEnum.Planner, AgentNameEnum.Navigator, AgentNameEnum.Validator] as const) {
-      const cfg = PERSONAL_AGENT_MODELS[agent];
-      await agentModelStore.setAgentModel(agent, {
-        provider: cfg.provider,
-        modelName: cfg.modelName,
-        parameters: { ...cfg.parameters },
-      });
-    }
+    await agentModelStore.setModel({
+      provider: PERSONAL_MODEL_CONFIG.provider,
+      modelName: PERSONAL_MODEL_CONFIG.modelName,
+      parameters: { ...PERSONAL_MODEL_CONFIG.parameters },
+    });
 
     // Verify the vault round-trip (what createChatModel will actually resolve).
     const saved = await llmProviderStore.getProvider(PERSONAL_PROVIDER_ID);
     const savedKey = saved?.apiKeyRef ? await getApiKey(saved.apiKeyRef) : undefined;
     logger.info(
-      `Personal defaults applied: provider=${PERSONAL_PROVIDER_ID} model=${PERSONAL_AGENT_MODELS[AgentNameEnum.Navigator].modelName} base=${saved?.baseUrl || ''} keyRef=${saved?.apiKeyRef || 'none'} key=${maskApiKey(savedKey || '')}`,
+      `Personal defaults applied: provider=${PERSONAL_PROVIDER_ID} model=${PERSONAL_MODEL_CONFIG.modelName} base=${saved?.baseUrl || ''} keyRef=${saved?.apiKeyRef || 'none'} key=${maskApiKey(savedKey || '')}`,
     );
     if (!savedKey || savedKey !== apiKey) {
       logger.error('Vault round-trip mismatch for MiniMax API key after bootstrap');
