@@ -6,6 +6,7 @@ import { Actors, type Message } from '@extension/storage';
 import type { AgentEvent } from '../types/event';
 import { ExecutionState } from '../types/event';
 import { isStatusOnlyAnswer } from './goal-coverage';
+import { splitModelThink } from './model-think';
 
 /** Legacy + current progress sentinel shown as a bar, not as text. */
 export const PROGRESS_MESSAGE_CONTENT = '正在执行...';
@@ -22,6 +23,9 @@ export interface DisplayMessage {
   timestamp: number;
   /** Original actor retained for keys only; never show as title */
   rawActor: string;
+  /** Model `<think>` text; shown in the existing fold, never in the answer. */
+  thinking?: string;
+  thinkingOpen?: boolean;
 }
 
 export interface HumanCopy {
@@ -158,7 +162,10 @@ export function humanizeStoredMessage(msg: Message, copy: HumanCopy = DEFAULT_ZH
     };
   }
 
-  const embedded = splitEmbeddedDetail(content);
+  const split = splitModelThink(content);
+  const contentForDisplay = split.visible || (split.thinking ? '' : content);
+  const thinkingFields = split.thinking.trim().length > 0 ? { thinking: split.thinking, thinkingOpen: split.open } : {};
+  const embedded = splitEmbeddedDetail(contentForDisplay);
   // Already humanized failure body stored for new pipeline
   if (
     embedded.body === copy.failParse ||
@@ -176,6 +183,7 @@ export function humanizeStoredMessage(msg: Message, copy: HumanCopy = DEFAULT_ZH
       actions: ['retry', 'rephrase'],
       timestamp: msg.timestamp,
       rawActor: actor,
+      ...thinkingFields,
     };
   }
 
@@ -195,6 +203,7 @@ export function humanizeStoredMessage(msg: Message, copy: HumanCopy = DEFAULT_ZH
       actions: ['retry', 'rephrase'],
       timestamp: msg.timestamp,
       rawActor: actor,
+      ...thinkingFields,
     };
   }
 
@@ -215,9 +224,20 @@ export function humanizeStoredMessage(msg: Message, copy: HumanCopy = DEFAULT_ZH
   }
 
   // Any non-user actor → 助手
-  const kind: DisplayKind = actor === Actors.SYSTEM && looksLikeMachineToken(content) ? 'system_note' : 'assistant';
+  const visibleBody = embedded.body;
+  if (!visibleBody.trim() && split.thinking) {
+    return {
+      kind: 'assistant',
+      title: copy.assistant,
+      body: '',
+      timestamp: msg.timestamp,
+      rawActor: actor,
+      ...thinkingFields,
+    };
+  }
+  const kind: DisplayKind = actor === Actors.SYSTEM && looksLikeMachineToken(visibleBody) ? 'system_note' : 'assistant';
 
-  let body = content;
+  let body = visibleBody;
   if (looksLikeMachineToken(body)) {
     body = copy.failGeneric;
     return {
@@ -227,6 +247,7 @@ export function humanizeStoredMessage(msg: Message, copy: HumanCopy = DEFAULT_ZH
       actions: ['retry', 'rephrase'],
       timestamp: msg.timestamp,
       rawActor: actor,
+      ...thinkingFields,
     };
   }
 
@@ -236,6 +257,7 @@ export function humanizeStoredMessage(msg: Message, copy: HumanCopy = DEFAULT_ZH
     body,
     timestamp: msg.timestamp,
     rawActor: actor,
+    ...thinkingFields,
   };
 }
 

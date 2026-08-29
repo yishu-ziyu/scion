@@ -38,6 +38,19 @@ describe('humanizeStoredMessage', () => {
     expect(d.body).not.toMatch(/Navigator|PLANNER/i);
   });
 
+  it('moves MiniMax think tags into the fold fields and off the answer body', () => {
+    const d = humanizeStoredMessage({
+      actor: Actors.SYSTEM,
+      content: '<think>Need the current page.</think>\n\n这一页讲候鸟迁徙。',
+      timestamp: 1,
+    });
+    expect(d.kind).toBe('assistant');
+    expect(d.body).toBe('这一页讲候鸟迁徙。');
+    expect(d.body).not.toContain('<think>');
+    expect(d.thinking).toBe('Need the current page.');
+    expect(d.thinkingOpen).toBe(false);
+  });
+
   it('keeps user messages as 你', () => {
     const d = humanizeStoredMessage({
       actor: Actors.USER,

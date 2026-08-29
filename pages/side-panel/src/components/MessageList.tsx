@@ -2,15 +2,23 @@ import type { Message, MessageSource } from '@extension/storage';
 import { memo } from 'react';
 import { humanizeStoredMessage, type DisplayMessage } from '../presentation/humanize-message';
 import { AnswerProse } from './AnswerProse';
+import { ThinkingFold } from './WorkStream';
 
 interface MessageListProps {
   messages: Message[];
   isDarkMode?: boolean;
+  liveTimestamp?: number;
   onRetry?: () => void;
   onRephrase?: () => void;
 }
 
-export default memo(function MessageList({ messages, isDarkMode = false, onRetry, onRephrase }: MessageListProps) {
+export default memo(function MessageList({
+  messages,
+  isDarkMode = false,
+  liveTimestamp,
+  onRetry,
+  onRephrase,
+}: MessageListProps) {
   void isDarkMode;
   const visible = messages
     .map((message, index) => ({ message, index, display: humanizeStoredMessage(message) }))
@@ -35,6 +43,7 @@ export default memo(function MessageList({ messages, isDarkMode = false, onRetry
             display={display}
             source={message.source}
             isSameGroup={isSameGroup}
+            live={liveTimestamp === message.timestamp}
             onRetry={onRetry}
             onRephrase={onRephrase}
             showActions={display.kind === 'failure' && isLastVisible && Boolean(onRetry || onRephrase)}
@@ -49,12 +58,13 @@ interface MessageBlockProps {
   display: DisplayMessage;
   source?: MessageSource;
   isSameGroup: boolean;
+  live?: boolean;
   showActions?: boolean;
   onRetry?: () => void;
   onRephrase?: () => void;
 }
 
-function MessageBlock({ display, source, isSameGroup, showActions, onRetry, onRephrase }: MessageBlockProps) {
+function MessageBlock({ display, source, isSameGroup, live, showActions, onRetry, onRephrase }: MessageBlockProps) {
   const isProgress = display.kind === 'progress';
   const isFailure = display.kind === 'failure';
   const summarySource = source
@@ -90,9 +100,14 @@ function MessageBlock({ display, source, isSameGroup, showActions, onRetry, onRe
         {!isSameGroup && <div className="chijie-mono-label mb-1 text-[var(--chijie-foreground)]">{display.title}</div>}
 
         <div className="space-y-0.5">
-          <div className="whitespace-pre-wrap break-words text-sm text-[var(--chijie-foreground)]">
-            <MessageBody display={display} source={source} summarySource={summarySource} />
-          </div>
+          {display.thinking ? (
+            <ThinkingFold text={display.thinking} open={Boolean(live)} running={Boolean(live)} />
+          ) : null}
+          {display.body.trim() ? (
+            <div className="whitespace-pre-wrap break-words text-sm text-[var(--chijie-foreground)]">
+              <MessageBody display={display} source={source} summarySource={summarySource} />
+            </div>
+          ) : null}
 
           {isFailure && display.detail ? (
             <details className="mt-1 text-xs text-[var(--chijie-muted)]">
