@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Delayed Success Fixture</title>
+  </head>
+  <body>
+    <h1>Delayed submit</h1>
+    <button id="submit" data-testid="submit">Submit</button>
+    <div id="status" data-testid="status">idle</div>
+    <script>
+      // ?delay=0|500|2500 selects the success latency tier.
+      const params = new URLSearchParams(location.search);
+      const seed = params.get('seed') || '42';
+      const rawDelay = params.get('delay') || '500';
+      const ALLOWED_DELAYS = [0, 500, 2500];
+      const delay = ALLOWED_DELAYS.includes(Number(rawDelay)) ? Number(rawDelay) : 500;
+      function init() {
+        window.__CHIJIE_FIXTURE_STATE__ = {
+          fixture: 'delayed-success',
+          seed,
+          delay,
+          submitted: false,
+          succeeded: false,
+          submitAt: null,
+          successAt: null,
+        };
+        document.getElementById('status').textContent = 'idle';
+      }
+      document.getElementById('submit').addEventListener('click', () => {
+        const state = window.__CHIJIE_FIXTURE_STATE__;
+        state.submitted = true;
+        state.submitAt = Date.now();
+        document.getElementById('status').textContent = 'pending';
+        setTimeout(() => {
+          state.succeeded = true;
+          state.successAt = Date.now();
+          document.getElementById('status').textContent = 'saved';
+        }, state.delay);
+      });
+      window.__CHIJIE_FIXTURE_RESET__ = init;
+      init();
+    </script>
+  </body>
+</html>

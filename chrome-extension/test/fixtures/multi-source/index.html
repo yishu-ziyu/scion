@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Multi-Source Results Fixture</title>
+  </head>
+  <body>
+    <h1>Results from two sources</h1>
+    <section id="source-a" data-testid="source-a">
+      <h2>Source A</h2>
+      <ol id="list-a" data-testid="list-a"></ol>
+    </section>
+    <section id="source-b" data-testid="source-b">
+      <h2>Source B</h2>
+      <ol id="list-b" data-testid="list-b"></ol>
+    </section>
+    <script>
+      // Deterministic per seed: two sources, fixed item identities.
+      // "Open the 2nd result of source B" must resolve by (source, position),
+      // never by ambiguous text.
+      const params = new URLSearchParams(location.search);
+      const seed = params.get('seed') || '42';
+      function hashSeed(s) {
+        let h = 2166136261;
+        for (const c of String(s)) {
+          h ^= c.charCodeAt(0);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      }
+      function mulberry32(a) {
+        return function () {
+          a |= 0;
+          a = (a + 0x6d2b79f5) | 0;
+          let t = Math.imul(a ^ (a >>> 15), 1 | a);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+      function buildList(listId, source) {
+        const rand = mulberry32(hashSeed(seed + ':' + source));
+        const list = document.getElementById(listId);
+        list.innerHTML = '';
+        for (let position = 0; position < 4; position++) {
+          const score = Math.floor(rand() * 100);
+          const li = document.createElement('li');
+          const id = `${source}-${position}`;
+          li.id = `item-${id}`;
+          li.dataset.source = source;
+          li.dataset.position = String(position);
+          li.dataset.score = String(score);
+          li.textContent = `Result ${position + 1} (score ${score})`;
+          li.addEventListener('click', () => {
+            const state = window.__CHIJIE_FIXTURE_STATE__;
+            state.openedSource = source;
+            state.openedPosition = position;
+            state.openedItemId = id;
+          });
+          list.appendChild(li);
+        }
+      }
+      function init() {
+        buildList('list-a', 'a');
+        buildList('list-b', 'b');
+        window.__CHIJIE_FIXTURE_STATE__ = {
+          fixture: 'multi-source',
+          seed,
+          openedSource: null,
+          openedPosition: null,
+          openedItemId: null,
+          sources: ['a', 'b'],
+          itemsPerSource: 4,
+        };
+      }
+      window.__CHIJIE_FIXTURE_RESET__ = init;
+      init();
+    </script>
+  </body>
+</html>

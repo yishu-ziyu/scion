@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Duplicate Labels Fixture</title>
+  </head>
+  <body>
+    <h1>Two identical labels, two identities</h1>
+    <form id="shipping-form" data-testid="shipping-form">
+      <label for="ship-city">City</label>
+      <input id="ship-city" name="ship_city" data-field-id="shipping.city" autocomplete="off" />
+    </form>
+    <form id="billing-form" data-testid="billing-form">
+      <label for="bill-city">City</label>
+      <input id="bill-city" name="bill_city" data-field-id="billing.city" autocomplete="off" />
+    </form>
+    <button id="submit" data-testid="submit">Submit</button>
+    <div id="result" data-testid="result"></div>
+    <script>
+      // Text-based selectors ("City") are ambiguous by design; identity is
+      // data-field-id. The oracle records exactly which field received which value.
+      const params = new URLSearchParams(location.search);
+      const seed = params.get('seed') || '42';
+      function init() {
+        window.__CHIJIE_FIXTURE_STATE__ = {
+          fixture: 'duplicate-labels',
+          seed,
+          filled: {}, // { "shipping.city": "...", "billing.city": "..." }
+          submitted: false,
+        };
+        document.getElementById('ship-city').value = '';
+        document.getElementById('bill-city').value = '';
+        document.getElementById('result').textContent = '';
+      }
+      for (const input of document.querySelectorAll('input[data-field-id]')) {
+        input.addEventListener('input', () => {
+          window.__CHIJIE_FIXTURE_STATE__.filled[input.dataset.fieldId] = input.value;
+        });
+      }
+      document.getElementById('submit').addEventListener('click', () => {
+        const state = window.__CHIJIE_FIXTURE_STATE__;
+        state.submitted = true;
+        document.getElementById('result').textContent = 'saved';
+      });
+      window.__CHIJIE_FIXTURE_RESET__ = init;
+      init();
+    </script>
+  </body>
+</html>

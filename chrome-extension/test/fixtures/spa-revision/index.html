@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SPA Revision Fixture</title>
+  </head>
+  <body>
+    <h1>SPA revision counter</h1>
+    <button id="increment" data-testid="increment">Increment</button>
+    <div id="value" data-testid="value">0</div>
+    <script>
+      // Same seed => same initial value & revision history; DOM order fixed.
+      const params = new URLSearchParams(location.search);
+      const seed = params.get('seed') || '42';
+      function hashSeed(s) {
+        let h = 2166136261;
+        for (const c of String(s)) {
+          h ^= c.charCodeAt(0);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      }
+      function init() {
+        const initial = hashSeed(seed) % 100;
+        window.__CHIJIE_FIXTURE_STATE__ = {
+          fixture: 'spa-revision',
+          seed,
+          value: initial,
+          revision: 0,
+          history: [initial],
+        };
+        document.getElementById('value').textContent = String(initial);
+      }
+      document.getElementById('increment').addEventListener('click', () => {
+        const state = window.__CHIJIE_FIXTURE_STATE__;
+        state.value += 1;
+        state.revision += 1;
+        state.history.push(state.value);
+        document.getElementById('value').textContent = String(state.value);
+      });
+      window.__CHIJIE_FIXTURE_RESET__ = init;
+      init();
+    </script>
+  </body>
+</html>

@@ -39,7 +39,9 @@
     "prepare": "husky",
     "update-version": "bash update_version.sh",
     "reload:extension": "node scripts/reload-extension.mjs",
-    "e2e:sw-restart": "pnpm build && pnpm --filter chrome-extension e2e:sw-restart"
+    "e2e:sw-restart": "pnpm build && pnpm --filter chrome-extension e2e:sw-restart",
+    "baseline:env": "node scripts/print-runtime-environment.mjs",
+    "baseline:report": "node scripts/baseline-report.mjs"
   },
   "dependencies": {
     "eslint-plugin-tailwindcss": "^3.17.4",
