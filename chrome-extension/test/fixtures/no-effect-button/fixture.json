@@ -1,0 +1,12 @@
+{
+  "fixture": "no-effect-button",
+  "entry": "index.html",
+  "seedParam": "seed",
+  "defaultSeed": "42",
+  "oracle": {
+    "global": "window.__CHIJIE_FIXTURE_STATE__",
+    "fields": ["fixture", "seed", "clicks", "domUnchanged", "urlUnchanged", "baselineDom", "baselineUrl"]
+  },
+  "reset": "window.__CHIJIE_FIXTURE_RESET__()",
+  "notes": "Action no-effect detector: after clicking #dead, expect clicks>=1 while domUnchanged && urlUnchanged stay true. Proves candidate-complete-without-effect must not verify."
+}

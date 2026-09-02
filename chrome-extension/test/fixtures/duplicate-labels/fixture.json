@@ -1,0 +1,12 @@
+{
+  "fixture": "duplicate-labels",
+  "entry": "index.html",
+  "seedParam": "seed",
+  "defaultSeed": "42",
+  "oracle": {
+    "global": "window.__CHIJIE_FIXTURE_STATE__",
+    "fields": ["fixture", "seed", "filled", "submitted"]
+  },
+  "reset": "window.__CHIJIE_FIXTURE_RESET__()",
+  "notes": "Two inputs share visible label text 'City' but differ by id (ship-city/bill-city) and data-field-id (shipping.city/billing.city). filled map is the machine-readable proof that each value landed on the right identity."
+}

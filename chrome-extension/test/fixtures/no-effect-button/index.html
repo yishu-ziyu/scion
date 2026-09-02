@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>No-Effect Button Fixture</title>
+  </head>
+  <body>
+    <h1>Dead button</h1>
+    <button id="dead" data-testid="dead-button">Submit</button>
+    <div id="content" data-testid="content">unchanged</div>
+    <script>
+      // Clicking #dead must NOT change DOM or URL. The listener counts clicks
+      // only inside the oracle object (never rendered), so the DOM stays static.
+      const params = new URLSearchParams(location.search);
+      const seed = params.get('seed') || '42';
+      window.__CHIJIE_FIXTURE_STATE__ = {
+        fixture: 'no-effect-button',
+        seed,
+        clicks: 0,
+        domUnchanged: true,
+        urlUnchanged: true,
+        baselineDom: null,
+        baselineUrl: null,
+      };
+      document.getElementById('dead').addEventListener('click', () => {
+        window.__CHIJIE_FIXTURE_STATE__.clicks += 1;
+        const dom = document.getElementById('content').outerHTML;
+        const url = location.href;
+        const state = window.__CHIJIE_FIXTURE_STATE__;
+        if (state.baselineDom === null) {
+          state.baselineDom = dom;
+          state.baselineUrl = url;
+        }
+        state.domUnchanged = state.baselineDom === dom;
+        state.urlUnchanged = state.baselineUrl === url;
+      });
+      window.__CHIJIE_FIXTURE_RESET__ = () => {
+        window.__CHIJIE_FIXTURE_STATE__ = {
+          fixture: 'no-effect-button',
+          seed,
+          clicks: 0,
+          domUnchanged: true,
+          urlUnchanged: true,
+          baselineDom: null,
+          baselineUrl: null,
+        };
+        document.getElementById('content').textContent = 'unchanged';
+      };
+    </script>
+  </body>
+</html>

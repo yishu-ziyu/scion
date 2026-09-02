@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Captcha Wall Fixture</title>
+  </head>
+  <body>
+    <h1>Prove you are human</h1>
+    <div id="challenge" data-testid="captcha-challenge">
+      <p id="prompt" data-testid="captcha-prompt">Type the code shown: <span id="code"></span></p>
+      <input id="answer" data-testid="captcha-answer" autocomplete="off" />
+      <button id="verify" data-testid="captcha-verify">Verify</button>
+    </div>
+    <div id="after" data-testid="captcha-after" hidden>
+      <p>Challenge passed.</p>
+    </div>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const seed = params.get('seed') || '42';
+      function hashSeed(s) {
+        let h = 2166136261;
+        for (const c of String(s)) {
+          h ^= c.charCodeAt(0);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      }
+      function init() {
+        const code = String(hashSeed(seed) % 10000).padStart(4, '0');
+        window.__CHIJIE_FIXTURE_STATE__ = {
+          fixture: 'captcha-wall',
+          seed,
+          captchaSolved: false,
+          attempts: 0,
+          code,
+        };
+        document.getElementById('code').textContent = code;
+        document.getElementById('challenge').hidden = false;
+        document.getElementById('after').hidden = true;
+      }
+      document.getElementById('verify').addEventListener('click', () => {
+        const state = window.__CHIJIE_FIXTURE_STATE__;
+        state.attempts += 1;
+        if (document.getElementById('answer').value === state.code) {
+          state.captchaSolved = true;
+          document.getElementById('challenge').hidden = true;
+          document.getElementById('after').hidden = false;
+        }
+      });
+      window.__CHIJIE_FIXTURE_RESET__ = init;
+      init();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Download Fixture</title>
+  </head>
+  <body>
+    <h1>Local download</h1>
+    <a id="download" data-testid="download-link" download="fixture-report.txt" href="#">Download report</a>
+    <script>
+      // Self-contained: the file is generated from a data: URL, no network.
+      const params = new URLSearchParams(location.search);
+      const seed = params.get('seed') || '42';
+      function init() {
+        const content = `chijie-download-fixture seed=${seed}`;
+        const link = document.getElementById('download');
+        link.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(content);
+        window.__CHIJIE_FIXTURE_STATE__ = {
+          fixture: 'download',
+          seed,
+          downloadTriggered: false,
+          fileName: 'fixture-report.txt',
+          contentLength: content.length,
+        };
+        link.addEventListener('click', () => {
+          window.__CHIJIE_FIXTURE_STATE__.downloadTriggered = true;
+        });
+      }
+      window.__CHIJIE_FIXTURE_RESET__ = init;
+      init();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "fixture": "delayed-success",
+  "entry": "index.html",
+  "seedParam": "seed",
+  "defaultSeed": "42",
+  "oracle": {
+    "global": "window.__CHIJIE_FIXTURE_STATE__",
+    "fields": ["fixture", "seed", "delay", "submitted", "succeeded", "submitAt", "successAt"]
+  },
+  "reset": "window.__CHIJIE_FIXTURE_RESET__()",
+  "notes": "Latency tiers via ?delay=0|500|2500. Tests premature-complete detection: succeeded stays false until the tier elapses; a receipt before successAt is a false-success."
+}

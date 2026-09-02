@@ -1,0 +1,12 @@
+{
+  "fixture": "spa-revision",
+  "entry": "index.html",
+  "seedParam": "seed",
+  "defaultSeed": "42",
+  "oracle": {
+    "global": "window.__CHIJIE_FIXTURE_STATE__",
+    "fields": ["fixture", "seed", "value", "revision", "history"]
+  },
+  "reset": "window.__CHIJIE_FIXTURE_RESET__()",
+  "notes": "Same-page mutation (no navigation). revision counts applied mutations; history is machine-readable proof the agent observed the SPA change instead of a stale snapshot."
+}

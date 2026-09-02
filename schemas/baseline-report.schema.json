@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "chijie-baseline-report-v1",
+  "title": "Chijie quantified baseline report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "git_sha",
+    "environment",
+    "data_sources",
+    "metrics",
+    "cases",
+    "failures"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "chijie-baseline-report-v1" },
+    "generated_at": { "type": "string" },
+    "git_sha": { "type": "string" },
+    "environment": {
+      "type": "object",
+      "required": [
+        "gitSha",
+        "node",
+        "pnpm",
+        "packageVersion",
+        "manifestVersion",
+        "platform",
+        "chromePath",
+        "chromeVersion",
+        "protocolVersion"
+      ],
+      "properties": {
+        "gitSha": { "type": ["string", "null"] },
+        "node": { "type": ["string", "null"] },
+        "pnpm": { "type": ["string", "null"] },
+        "packageVersion": { "type": ["string", "null"] },
+        "manifestVersion": { "type": ["string", "null"] },
+        "platform": { "type": ["string", "null"] },
+        "chromePath": { "type": ["string", "null"] },
+        "chromeVersion": { "type": ["string", "null"] },
+        "protocolVersion": { "type": "string" }
+      }
+    },
+    "data_sources": {
+      "type": "object",
+      "required": ["evidence_dir", "trace_dir", "fixture_dir", "row_count", "notes"],
+      "properties": {
+        "evidence_dir": { "type": ["string", "null"] },
+        "trace_dir": { "type": ["string", "null"] },
+        "fixture_dir": { "type": "string" },
+        "row_count": { "type": "integer", "minimum": 0 },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "verified_success_rate",
+        "false_success_rate",
+        "avg_actions",
+        "avg_model_calls",
+        "avg_tokens",
+        "median_task_duration_ms",
+        "p95_task_duration_ms",
+        "stale_target_count",
+        "action_no_effect_count",
+        "sw_recovery_success_rate",
+        "provider_error_repeat_failure_count"
+      ],
+      "properties": {
+        "verified_success_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "false_success_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "avg_actions": { "type": "number", "minimum": 0 },
+        "avg_model_calls": { "type": "number", "minimum": 0 },
+        "avg_tokens": { "type": "number", "minimum": 0 },
+        "median_task_duration_ms": { "type": "number", "minimum": 0 },
+        "p95_task_duration_ms": { "type": "number", "minimum": 0 },
+        "stale_target_count": { "type": "integer", "minimum": 0 },
+        "action_no_effect_count": { "type": "integer", "minimum": 0 },
+        "sw_recovery_success_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "provider_error_repeat_failure_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["case_id", "trace_id", "kind", "outcome"],
+        "properties": {
+          "case_id": { "type": "string" },
+          "trace_id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["evidence", "trace", "fixture"] },
+          "outcome": { "type": "string" },
+          "latency_ms": { "type": ["number", "null"] },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["case_id", "trace_id", "reason"],
+        "properties": {
+          "case_id": { "type": "string" },
+          "trace_id": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "fixture": "unavailable-page",
+  "entry": "index.html",
+  "seedParam": "seed",
+  "defaultSeed": "42",
+  "oracle": {
+    "global": "window.__CHIJIE_FIXTURE_STATE__",
+    "fields": ["fixture", "seed", "available", "httpStatus"]
+  },
+  "reset": "window.__CHIJIE_FIXTURE_RESET__()",
+  "notes": "Page-unavailable oracle: available=false. allowsVerifiedComplete (chrome-extension/src/background/task/page-state.ts) must refuse completion on this page."
+}

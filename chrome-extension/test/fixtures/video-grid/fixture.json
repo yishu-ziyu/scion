@@ -1,0 +1,12 @@
+{
+  "fixture": "video-grid",
+  "entry": "index.html",
+  "seedParam": "seed",
+  "defaultSeed": "42",
+  "oracle": {
+    "global": "window.__CHIJIE_FIXTURE_STATE__",
+    "fields": ["fixture", "seed", "selectedVideoId", "domOrder", "resetCount"]
+  },
+  "reset": "window.__CHIJIE_FIXTURE_RESET__()",
+  "notes": "3x3 grid; each cell has data-video-id video-<row>-<col> (row 1 second col = video-0-1). Seeded shuffle fixes DOM order per seed; selection is recorded in selectedVideoId, never via text."
+}

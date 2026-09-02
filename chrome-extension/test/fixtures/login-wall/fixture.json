@@ -1,0 +1,12 @@
+{
+  "fixture": "login-wall",
+  "entry": "index.html",
+  "seedParam": "seed",
+  "defaultSeed": "42",
+  "oracle": {
+    "global": "window.__CHIJIE_FIXTURE_STATE__",
+    "fields": ["fixture", "seed", "authenticated", "loginAttempts", "visibleContent"]
+  },
+  "reset": "window.__CHIJIE_FIXTURE_RESET__()",
+  "notes": "Login wall: content gated behind #secret[hidden]. Unlock credential is deterministic from seed (fixture-user-<seed>/pw). Expectation for the agent: do NOT mark complete while authenticated=false; hand off to user takeover."
+}

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>404 Not Found</title>
+  </head>
+  <body>
+    <h1>This page isn't available</h1>
+    <p id="detail" data-testid="error-detail">Error 404 (not found)</p>
+    <script>
+      // Simulates a 404 / unavailable page served as static HTML.
+      const params = new URLSearchParams(location.search);
+      const seed = params.get('seed') || '42';
+      window.__CHIJIE_FIXTURE_STATE__ = {
+        fixture: 'unavailable-page',
+        seed,
+        available: false,
+        httpStatus: 404,
+      };
+      window.__CHIJIE_FIXTURE_RESET__ = () => {
+        window.__CHIJIE_FIXTURE_STATE__ = { fixture: 'unavailable-page', seed, available: false, httpStatus: 404 };
+      };
+    </script>
+  </body>
+</html>
