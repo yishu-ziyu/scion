@@ -363,6 +363,11 @@ export function buildEvalStoragePayload(cfg) {
       displayHighlights: false,
       minWaitPageLoad: 250,
       agentCoreBackend: 'control',
+      // C6 shadow-mode eval hook: CHIJIE_RUNTIME_MODE=v2-shadow flips the E2E
+      // run into shadow mode; unset/legacy keeps the default-off behavior.
+      ...(process.env.CHIJIE_RUNTIME_MODE
+        ? { runtimeMode: process.env.CHIJIE_RUNTIME_MODE }
+        : {}),
     },
     // Local fixture servers live on 127.0.0.1; the URL firewall denies private
     // hosts unless they are explicitly allowlisted. The eval harness
@@ -420,16 +425,42 @@ export function resolveEvalFeatureFlags() {
 /** Seed planner/navigator LLM settings into extension storage (eval only). */
 export async function seedEvalLlm(panel) {
   const cfg = resolveEvalProvider();
+  // ensurePersonalDefaults force-writes personal config at SW boot; if it lands
+  // between our set and readback the readback mismatches. The overwrite is
+  // one-shot per boot, so retrying the seed settles it (eval-infra hardening,
+  // pre-existing race observed on main).
+  let lastErrors = [];
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await seedOnce(panel, cfg);
+    const observed = await readbackEvalSeed(panel);
+    lastErrors = validateEvalSeedReadback(cfg, observed, cfg.featureFlags);
+    if (lastErrors.length === 0) {
+      cfg.observedIdentity = observed;
+      return cfg;
+    }
+    if (attempt < 3) {
+      console.log(`[eval-provider] seed readback mismatch (attempt ${attempt}): ${lastErrors.join(', ')} — reseeding`);
+      await new Promise(resolve => setTimeout(resolve, 800));
+    }
+  }
+  throw new Error(`eval provider storage readback mismatch: ${lastErrors.join(', ')}`);
+}
+
+async function seedOnce(panel, cfg) {
   const payload = buildEvalStoragePayload(cfg);
   payload['eval-settings'] = {
     traceEnabled: true,
     featureFlags: resolveEvalFeatureFlags(),
   };
+  cfg.featureFlags = payload['eval-settings'].featureFlags;
   console.log(
     `[eval-provider] seed kind=${cfg.kind} providerId=${cfg.providerId} model=${cfg.model} baseUrl=${cfg.baseUrl} keyLen=${cfg.apiKey.length} flags=${JSON.stringify(payload['eval-settings'].featureFlags)}`,
   );
   await panel.evaluate(async storagePayload => chrome.storage.local.set(storagePayload), payload);
-  const observed = await panel.evaluate(async () => {
+}
+
+async function readbackEvalSeed(panel) {
+  return panel.evaluate(async () => {
     const stored = await chrome.storage.local.get(['llm-api-keys', 'agent-models', 'eval-settings']);
     const planner = stored['agent-models']?.agents?.planner;
     const navigator = stored['agent-models']?.agents?.navigator;
@@ -444,10 +475,6 @@ export async function seedEvalLlm(panel) {
       feature_flags: stored['eval-settings']?.featureFlags || null,
     };
   });
-  const errors = validateEvalSeedReadback(cfg, observed, payload['eval-settings'].featureFlags);
-  if (errors.length > 0) throw new Error(`eval provider storage readback mismatch: ${errors.join(', ')}`);
-  cfg.observedIdentity = observed;
-  return cfg;
 }
 
 export function validateEvalSeedReadback(cfg, observed, expectedFeatureFlags = resolveEvalFeatureFlags()) {
