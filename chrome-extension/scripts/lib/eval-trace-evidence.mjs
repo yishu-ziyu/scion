@@ -1,4 +1,31 @@
 import { honestFailureStatus } from './eval-verification.mjs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+/**
+ * Dump raw per-task traces (eval-traces-v1) to dir so post-mortem tools
+ * (e.g. scripts/shadow-report-check.mjs) can audit runs whose scenarios
+ * failed before the per-scenario scoped trace was written. Storage dies with
+ * the temp browser profile, so this must run while the panel is still open.
+ */
+export async function dumpRawTraces(panel, dir) {
+  if (!dir || !panel) return 0;
+  try {
+    const raw = await panel.evaluate(async () => {
+      const stored = await chrome.storage.local.get(['eval-traces-v1']);
+      return stored['eval-traces-v1'] || {};
+    });
+    mkdirSync(dir, { recursive: true });
+    for (const [taskId, trace] of Object.entries(raw)) {
+      writeFileSync(join(dir, `${taskId}-trace.json`), JSON.stringify(trace, null, 2) + '\n');
+    }
+    console.log(`[e2e] raw traces dumped to ${dir} (${Object.keys(raw).length})`);
+    return Object.keys(raw).length;
+  } catch (error) {
+    console.error('[e2e] raw trace dump failed', error);
+    return 0;
+  }
+}
 
 function timestamp(value) {
   const parsed = typeof value === 'number' ? value : Date.parse(String(value || ''));
@@ -52,6 +79,7 @@ export function buildScopedTraceEvidence({
     throw new Error('trace identity missing or ambiguous');
   }
   const samples = Array.isArray(tabSamples) ? tabSamples : [];
+  const isShadowSpan = span => /^shadow\./.test(span?.name || '');
   const spans = (trace.spans || []).map(span => {
     const nearest = isObservedOrActionSpan(span) ? nearestSample(samples, span.startedAt, runtimeTaskId) : null;
     const targetIds = nearest?.sample?.target_tab_ids || [];
@@ -66,6 +94,8 @@ export function buildScopedTraceEvidence({
       status: span.status ?? null,
       tab_id: isObservedOrActionSpan(span) ? (Number.isInteger(tabId) ? tabId : null) : null,
       tab_sample_delta_ms: nearest?.delta ?? null,
+      // C6: shadow records carry the redacted axes breakdown through to the dump.
+      ...(isShadowSpan(span) ? { detail: span.detail ?? null, data: span.data ?? null } : {}),
     };
   });
   return {
@@ -93,6 +123,18 @@ export function buildScopedTraceEvidence({
     deliverable_required: resolvedDeliverableRequired,
     trace_terminal_status: trace.terminalStatus ?? null,
     spans,
+    // C6: top-level shadow records so the stability checker can audit
+    // match/divergence coverage without re-parsing span shapes.
+    shadow_events: (trace.spans || [])
+      .filter(isShadowSpan)
+      .map(span => ({
+        name: span.name,
+        at: span.startedAt,
+        task_id: span.taskId,
+        round_id: span.roundId ?? null,
+        detail: span.detail ?? null,
+        data: span.data ?? null,
+      })),
     tab_events: samples
       .filter(sample => sample?.task_id === runtimeTaskId)
       .map(sample => ({

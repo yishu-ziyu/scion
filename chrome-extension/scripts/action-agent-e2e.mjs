@@ -19,7 +19,7 @@ import {
   isAttributableActionFailure,
   selectUniqueNewRuntimeTask,
 } from './lib/action-run-evidence.mjs';
-import { buildScopedTraceEvidence } from './lib/eval-trace-evidence.mjs';
+import { buildScopedTraceEvidence, dumpRawTraces } from './lib/eval-trace-evidence.mjs';
 import {
   COMPLETION_RESULT_SELECTOR,
   FINAL_DELIVERABLE_SELECTOR,
@@ -678,6 +678,61 @@ async function seedMiniMax(panel) {
   assert.equal(config.model, model, 'seeded model differs from evaluator identity');
 }
 
+/* ---------------------------------------------------------------------- *
+ * SW console tap (SW_LOG=1): collect service-worker console output and
+ * exceptions over CDP so post-mortem runs (e.g. a loop that goes silent
+ * after an external commit) leave runtime evidence instead of guesswork.
+ * ---------------------------------------------------------------------- */
+const swLogs = [];
+
+function tapServiceWorkerConsole(browserInstance, extensionId) {
+  if (process.env.SW_LOG !== '1') return;
+  const attached = new WeakSet();
+  const timer = setInterval(() => {
+    for (const target of browserInstance.targets()) {
+      if (target.type() !== 'service_worker' || !target.url().startsWith(`chrome-extension://${extensionId}`)) continue;
+      if (attached.has(target)) continue;
+      attached.add(target);
+      target
+        .createCDPSession()
+        .then(session => {
+          session.on('Runtime.consoleAPICalled', event => {
+            const text = (event.args || [])
+              .map(arg => arg.value ?? arg.description ?? '')
+              .join(' ')
+              .slice(0, 500);
+            swLogs.push({ at: new Date().toISOString(), type: event.type, text });
+          });
+          session.on('Runtime.exceptionThrown', event => {
+            const detail = event.exceptionDetails;
+            const text = String(detail?.exception?.description || detail?.text || '').slice(0, 800);
+            swLogs.push({ at: new Date().toISOString(), type: 'exception', text });
+          });
+          session.send('Runtime.enable').catch(() => {});
+        })
+        .catch(() => {});
+    }
+  }, 1_000);
+  void timer;
+}
+
+function dumpSwLogs() {
+  if (process.env.SW_LOG !== '1' || swLogs.length === 0) return;
+  console.log(`[e2e] sw-console tail (${swLogs.length} entries):`);
+  for (const entry of swLogs.slice(-120)) {
+    console.log(`[sw ${entry.at}] ${entry.type}: ${entry.text}`);
+  }
+  if (traceDumpDir) {
+    try {
+      mkdirSync(traceDumpDir, { recursive: true });
+      writeFileSync(path.join(traceDumpDir, 'sw-console.json'), JSON.stringify(swLogs, null, 2) + '\n');
+      console.log(`[e2e] sw-console dumped to ${traceDumpDir}/sw-console.json`);
+    } catch (dumpError) {
+      console.error('[e2e] sw-console dump failed', dumpError);
+    }
+  }
+}
+
 async function readReceiptId(panel) {
   return panel.evaluate(() => {
     const meta = document.querySelector('[data-testid="completion-receipt-meta"]');
@@ -990,8 +1045,28 @@ async function assertNoNonChatSentinelLeak(panel, sentinels) {
       const nonChat = Object.fromEntries(
         Object.entries(all).filter(([key]) => !key.startsWith('chat_messages_') && !key.startsWith('chat_sessions_')),
       );
-      const encoded = JSON.stringify(nonChat);
-      return values.filter(value => encoded.includes(value));
+      const found = [];
+      for (const [key, payload] of Object.entries(nonChat)) {
+        const encoded = JSON.stringify(payload);
+        for (const value of values) {
+          if (encoded.includes(value)) {
+            // Report the storage key plus the shallow path so the leaking
+            // persistence boundary is identifiable without re-running.
+            const hits = [];
+            const walk = (obj, path) => {
+              if (hits.length >= 3 || obj === null || typeof obj !== 'object') return;
+              for (const [k, v] of Object.entries(obj)) {
+                const next = `${path}.${k}`;
+                if (typeof v === 'string' && v.includes(value)) hits.push(next);
+                else if (v && typeof v === 'object') walk(v, next);
+              }
+            };
+            walk(payload, '$');
+            found.push(`${value} @ ${key}${hits.length ? ` (${hits.join(', ')})` : ''}`);
+          }
+        }
+      }
+      return found;
     });
   }, sentinels);
   assert.deepEqual(leaks, [], `instruction sentinel leaked outside chat: ${leaks.join(',')}`);
@@ -1413,6 +1488,7 @@ try {
     throw error;
   }
   console.log('[e2e] extensionId=', extensionId);
+  tapServiceWorkerConsole(browser, extensionId);
   const identityPanel = await browser.newPage();
   await identityPanel.goto(`chrome-extension://${extensionId}/side-panel/index.html`, {
     waitUntil: 'domcontentloaded',
@@ -1436,6 +1512,8 @@ try {
   console.log(`action-agent-e2e PASS runs=${runs}`);
 } catch (error) {
   console.error('[e2e] FAIL', error);
+  dumpSwLogs();
+  await dumpRawTraces(lastPanel, traceDumpDir);
   if (!rowEmitted) {
     const errorText = String(error?.message || error);
     const boundTab = currentScenarioScope?.boundTab || lastBoundTab || null;

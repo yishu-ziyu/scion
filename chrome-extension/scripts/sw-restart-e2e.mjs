@@ -19,6 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launch } from 'puppeteer-core';
 import { resolveChromeForEval, seedEvalLlm } from './lib/eval-provider.mjs';
+import { dumpRawTraces } from './lib/eval-trace-evidence.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../dist');
@@ -32,6 +33,7 @@ let browser;
 let submissions = 0;
 let extensionId = '';
 let phase = 'bootstrap';
+let lastPanel;
 
 function failSnapshot(panel, label) {
   return panel.evaluate(async () => {
@@ -202,7 +204,9 @@ async function wipeTaskState(panel) {
   // Owned temp profile: safe to reset between runs.
   await panel.evaluate(async () => {
     const all = await chrome.storage.local.get(null);
-    const remove = Object.keys(all).filter(key => key === 'task-runtime-v1' || key.startsWith('chat_messages_'));
+    const remove = Object.keys(all).filter(
+      key => key === 'task-runtime-v1' || key === 'task-instructions-v1' || key.startsWith('chat_messages_'),
+    );
     if (remove.length) await chrome.storage.local.remove(remove);
     await chrome.storage.local.remove('chat_sessions_meta').catch(() => {});
   });
@@ -214,6 +218,7 @@ async function runSwRestartScenario(run) {
   const target = await browser.newPage();
   await target.goto(`${origin}/form?run=${run}`, { waitUntil: 'domcontentloaded' });
   let panel = await openPanel(target);
+  lastPanel = panel;
   await wipeTaskState(panel);
   await seedEvalLlm(panel);
   await panel.reload({ waitUntil: 'domcontentloaded' });
@@ -238,6 +243,7 @@ async function runSwRestartScenario(run) {
   phase = 'reopen';
   await panel.close();
   panel = await openPanel(target);
+  lastPanel = panel;
   await new Promise(resolve => setTimeout(resolve, 1_000));
 
   phase = 'recovered';
@@ -246,6 +252,7 @@ async function runSwRestartScenario(run) {
   // sitting on interrupted / resume.
   const recoveredStart = Date.now();
   let recovered = null;
+  let uncertainWait = false;
   while (Date.now() - recoveredStart < 30_000) {
     const probe = await readTaskProof(panel);
     if (['failed', 'cancelled'].includes(probe.status)) {
@@ -253,8 +260,12 @@ async function runSwRestartScenario(run) {
       throw new Error(`task ${probe.status} after SW restart: ${probe.cardText}`);
     }
     if (probe.waitReason === 'commit_outcome_uncertain') {
-      await failSnapshot(panel, 'recover-uncertain-commit');
-      throw new Error('reversible running work recovered as uncertain commit');
+      // Honest spec variant (D7/F6): an external commit in flight at kill time
+      // must surface as commit_outcome_uncertain — never auto-retried, never
+      // completed. The continue phase verifies no double submit below.
+      uncertainWait = true;
+      recovered = probe;
+      break;
     }
     if (
       probe.taskId === preKill.taskId &&
@@ -280,6 +291,24 @@ async function runSwRestartScenario(run) {
   assert.equal(recovered.hasResume, false, 'resume card must not be required after auto-continue');
   console.log(`[e2e] run${run} recovered: ${recovered.status}, attempts=${recovered.attempts.length} evidence=${recovered.evidenceCount}`);
 
+  if (uncertainWait) {
+    // Honest-uncertain variant: the commit landed at most once, no receipt may
+    // exist (nothing was verified), and quiescence must hold.
+    const uncertainCount = await submitCount();
+    assert.ok(uncertainCount <= 1, `uncertain commit variant requires at most one submit, got ${uncertainCount}`);
+    assert.equal(recovered.receiptIds.length, 0, 'uncertain commit must not expose a receipt');
+    for (let confirmations = 0; confirmations < 3; confirmations += 1) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      assert.equal(await submitCount(), uncertainCount, `submit count drifted during uncertain-wait quiescence`);
+      const stable = await readTaskProof(panel);
+      assert.equal(stable.waitReason, 'commit_outcome_uncertain', 'uncertain wait regressed to another state');
+      assert.equal(stable.receiptIds.length, 0, 'receipt appeared during uncertain-wait quiescence');
+    }
+    console.log(`[e2e] run${run} SW-restart PASS (honest uncertain-wait) submissions=${uncertainCount}`);
+    await Promise.all([target.close(), panel.close()]);
+    return;
+  }
+
   phase = 'continue';
   const start = Date.now();
   let done = recovered.status === 'completed' && (await submitCount()) === 1 && recovered.receiptIds.length === 1
@@ -290,8 +319,19 @@ async function runSwRestartScenario(run) {
     const count = await submitCount();
     if (count > 1) throw new Error(`duplicate external commit: submit count=${count}`);
     if (proof.waitReason === 'commit_outcome_uncertain') {
-      await failSnapshot(panel, 'continue-uncertain-commit');
-      throw new Error('in-flight external_commit recovered as wait; do not double-submit');
+      // Honest spec variant reached during auto-continue: at most one submit,
+      // no unverified receipt, stable wait. Never auto-retried.
+      assert.equal(proof.receiptIds.length, 0, 'uncertain commit must not expose a receipt');
+      for (let confirmations = 0; confirmations < 3; confirmations += 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        assert.equal(await submitCount(), count, 'submit count drifted during uncertain-wait quiescence');
+        const stable = await readTaskProof(panel);
+        assert.equal(stable.waitReason, 'commit_outcome_uncertain', 'uncertain wait regressed to another state');
+        assert.equal(stable.receiptIds.length, 0, 'receipt appeared during uncertain-wait quiescence');
+      }
+      console.log(`[e2e] run${run} SW-restart PASS (honest uncertain-wait) submissions=${count}`);
+      await Promise.all([target.close(), panel.close()]);
+      return;
     }
     if (proof.status === 'completed' && count === 1 && proof.receiptIds.length === 1) {
       done = { ...proof, count };
@@ -371,6 +411,7 @@ try {
   console.log(`sw-restart-e2e PASS runs=${runs}`);
 } catch (error) {
   console.error(`[e2e] FAIL phase=${phase}`, error);
+  await dumpRawTraces(lastPanel, process.env.TRACE_DUMP_DIR || '');
   process.exitCode = 1;
 } finally {
   if (browser) {
