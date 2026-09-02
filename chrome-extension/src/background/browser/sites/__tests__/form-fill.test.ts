@@ -19,6 +19,18 @@ describe('form-fill deterministic', () => {
     });
   });
 
+  it('extracts the bare success cue from a multi-line composed instruction', () => {
+    // Regression (018-O1 pre-existing timeout): fusing the composed
+    // instruction's lines made the greedy capture swallow the next planner
+    // line, so the needle never matched the page.
+    const composed = [
+      'Fill Name with FIELD_SENTINEL_8472 and submit; success is Saved successfully.',
+      'Fill the Name field with "FIELD_SENTINEL_8472".',
+      'Locate the Name field on the current page. Type or fill the value.',
+    ].join('\n');
+    expect(successCuesFromInstruction(composed)).toContain('Saved successfully');
+  });
+
   it('leaves English multi-field requests to the generic control loop', () => {
     expect(
       parseFormFillSubmitInstruction(

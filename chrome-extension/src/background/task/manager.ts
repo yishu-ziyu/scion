@@ -1,4 +1,5 @@
 import { getActiveTask, getSkillSaveMeta, getTask, putSkillSaveMeta, saveTask } from '@extension/storage/lib/task';
+import { recallTaskInstruction, rememberTaskInstruction } from './task-instructions';
 import favoritesStorage, {
   assertExactSkillInputs,
   compileSkillTemplate,
@@ -315,6 +316,18 @@ export function deriveInstructionDeliverableContract(instruction: string): Instr
 export function instructionRequestsReturnedDeliverable(instruction: string): boolean {
   void instruction;
   return true;
+}
+
+/**
+ * State-changing verbs that mark an instruction as a WRITE task. Bare
+ * click/点击 is deliberately excluded: read-only journeys say 点击查看 /
+ * "click to view" as often as write flows do.
+ */
+export const WRITE_INTENT_PATTERN =
+  /填|提交|上传|下载|发布|发送|登录|注册|下单|购买|删除|导入|收藏|点赞|关注|\b(?:fill|submit|upload|download|publish|send|login|log[ -]?in|sign[ -]?in|register|purchase|checkout|delete|import|follow|subscribe)\b/i;
+
+export function instructionHasWriteIntent(instruction: string): boolean {
+  return WRITE_INTENT_PATTERN.test(instruction);
 }
 
 function answerSegments(answer: string): string[] {
@@ -1089,6 +1102,11 @@ export class TaskManager {
   private async rehydrateInstruction(task: TaskSession, round: TaskRound): Promise<string | undefined> {
     const cached = this.instructions.get(task.id);
     if (cached) return cached;
+    // SW-restart recovery: the composed orchestrator instruction matches no
+    // chat message (instructionMessageId ''), so the recovery store comes
+    // before the chat-history lookup.
+    const stored = await recallTaskInstruction(task.id);
+    if (stored) return stored;
     const messageId = round.instructionMessageId ?? task.instructionMessageId;
     if (!task.chatSessionId || !messageId) return undefined;
     const { chatHistoryStore } = await import('@extension/storage/lib/chat');
@@ -2504,7 +2522,19 @@ export class TaskManager {
     let runRoundId = initialRoundId;
     let verificationRetries = 0;
     for (;;) {
-      const outcome = await driver.run(runRoundId);
+      let outcome = await driver.run(runRoundId);
+      // Privacy boundary (E4: receipts must not store form values): the model's
+      // candidate summary often echoes the instruction ("Fill the Name field
+      // with FIELD_SENTINEL..."), which would persist the raw field value
+      // outside chat storage. Redact instruction field values once, here, so
+      // every downstream consumer (receipt, deliverable, UI) sees the clean text.
+      if (outcome.kind === 'candidate_complete') {
+        const instruction = this.instructions.get(taskId) ?? '';
+        outcome = {
+          ...outcome,
+          summary: this.redactInstructionFieldValues(outcome.summary, instruction),
+        };
+      }
       let task = await getTask(taskId);
       if (!this.canApplyDriverOutcome(task, taskId, driver)) return;
       if (task.currentRoundId !== runRoundId) {
@@ -3152,6 +3182,12 @@ export class TaskManager {
   }
 
   private isReadOnlyCandidate(instruction: string): boolean {
+    // Write intent wins over read-only phrasing: a planner-authored success
+    // criterion ("check that the page shows Saved successfully") embeds
+    // read-only cues inside a WRITE task. Without this guard the task's
+    // page_text completion cues are dropped in freezeCriteria, criteria stay
+    // empty, and the task can never be verified complete.
+    if (instructionHasWriteIntent(instruction)) return false;
     return this.instructionRequestsReadOnlyPageDeliverable(instruction) || isUnderstandingOnlyInstruction(instruction);
   }
 
@@ -3950,6 +3986,21 @@ export class TaskManager {
     return values;
   }
 
+  /**
+   * Remove instruction field values (the raw text a task was told to type)
+   * from a model-authored candidate summary. Long values only: short tokens
+   * like a cue word would shred legitimate summary text.
+   */
+  private redactInstructionFieldValues(summary: string, instruction: string): string {
+    let redacted = summary;
+    for (const value of this.extractUserFieldValues(instruction)) {
+      if (value.length >= 8 && redacted.includes(value)) {
+        redacted = redacted.split(value).join('[已脱敏]');
+      }
+    }
+    return redacted;
+  }
+
   private async confirmCompletion(
     task: TaskSession,
     command: Extract<TaskCommand, { type: 'confirm_completion' }>,
@@ -4147,6 +4198,9 @@ export class TaskManager {
       asked.askedText = previous.askedText;
     }
     this.instructions.set(taskId, instruction);
+    // Persist for SW-restart recovery; empty strings must not clobber a
+    // previously stored instruction (rememberAcceptedTask('') callers).
+    if (instruction.trim()) void rememberTaskInstruction(taskId, instruction);
     this.accepted.set(taskId, asked);
     return asked;
   }

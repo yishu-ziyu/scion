@@ -60,44 +60,55 @@ function unwrapSuccessCue(raw: string): string {
  * On-page success sentences named in the instruction.
  * Stop at Chinese commas so 「成功标志是页上出现 Saved successfully，最后写纪要」
  * yields `Saved successfully`, not the rest of the brief.
+ *
+ * Matching runs PER LINE: the orchestrator composes the instruction from the
+ * user utterance plus planner-authored goal/instructions/success_criteria
+ * lines, and fusing those lines with space normalization made the greedy
+ * capture swallow the next planner line ("Saved successfully. Fill the Name
+ * field with..."), producing a needle that can never match the page — so the
+ * done gate rejected completion forever (018-O1 timeout, pre-existing).
  */
 export function successCuesFromInstruction(instruction: string): string[] {
-  const text = instruction.replace(/\s+/g, ' ').trim();
-  if (!text) return [];
+  const lines = instruction
+    .split(/\r?\n/)
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
   const cues: string[] = [];
-  const form = parseFormFillSubmitInstruction(instruction);
-  if (form?.successText) cues.push(form.successText.trim());
+  for (const text of lines) {
+    const form = parseFormFillSubmitInstruction(text);
+    if (form?.successText) cues.push(form.successText.trim());
 
-  const patterns: RegExp[] = [
-    new RegExp(String.raw`成功标志是\s*(?:页上出现\s*)?["'“]?(${SUCCESS_CUE_CAPTURE.source})`, 'g'),
-    new RegExp(String.raw`\bsuccess\s+is\s+(?:页上出现\s*)?["'“]?(${SUCCESS_CUE_CAPTURE.source})`, 'gi'),
-    new RegExp(String.raw`页上出现\s*["'“]?(${SUCCESS_CUE_CAPTURE.source})`, 'g'),
-    /看到\s*["'“「]?([^"'”」.;。\n]{2,80}?)(?=\s*["'”」]?\s*后)/g,
-  ];
-  for (const pattern of patterns) {
-    for (const match of text.matchAll(pattern)) {
-      const cue = unwrapSuccessCue(match[1] ?? '');
-      if (cue) cues.push(cue);
+    const patterns: RegExp[] = [
+      new RegExp(String.raw`成功标志是\s*(?:页上出现\s*)?["'“]?(${SUCCESS_CUE_CAPTURE.source})`, 'g'),
+      new RegExp(String.raw`\bsuccess\s+is\s+(?:页上出现\s*)?["'“]?(${SUCCESS_CUE_CAPTURE.source})`, 'gi'),
+      new RegExp(String.raw`页上出现\s*["'“]?(${SUCCESS_CUE_CAPTURE.source})`, 'g'),
+      /看到\s*["'“「]?([^"'”」.;。\n]{2,80}?)(?=\s*["'”」]?\s*后)/g,
+    ];
+    for (const pattern of patterns) {
+      for (const match of text.matchAll(pattern)) {
+        const cue = unwrapSuccessCue(match[1] ?? '');
+        if (cue) cues.push(cue);
+      }
     }
-  }
 
-  const lastClause = unwrapSuccessCue(
-    (
-      text
-        .split(/(?:。|\n)+/)
-        .filter(Boolean)
-        .at(-1) ?? ''
-    )
-      .replace(/^(?:成功标志是\s*)?(?:success\s+is\s+)?(?:页上出现\s*)?/iu, '')
-      .replace(/^(?:页上出现\s*)/u, ''),
-  );
-  if (
-    lastClause &&
-    lastClause.length <= 80 &&
-    /(?:success|saved|submitted|成功|已保存|已提交)/i.test(lastClause) &&
-    !/打开|填成|http|请按|整理|引用|success is|看到|点击|按钮|完成|Fill Name/i.test(lastClause)
-  ) {
-    cues.push(lastClause);
+    const lastClause = unwrapSuccessCue(
+      (
+        text
+          .split(/(?:。|\n)+/)
+          .filter(Boolean)
+          .at(-1) ?? ''
+      )
+        .replace(/^(?:成功标志是\s*)?(?:success\s+is\s+)?(?:页上出现\s*)?/iu, '')
+        .replace(/^(?:页上出现\s*)/u, ''),
+    );
+    if (
+      lastClause &&
+      lastClause.length <= 80 &&
+      /(?:success|saved|submitted|成功|已保存|已提交)/i.test(lastClause) &&
+      !/打开|填成|http|请按|整理|引用|success is|看到|点击|按钮|完成|Fill Name/i.test(lastClause)
+    ) {
+      cues.push(lastClause);
+    }
   }
 
   return [...new Set(cues.filter(Boolean))];
