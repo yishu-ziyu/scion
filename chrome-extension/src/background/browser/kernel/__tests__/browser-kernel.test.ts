@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createBrowserKernel } from '../browser-kernel';
-import type { Action } from '../../../agent/actions/builder';
+import type { KernelAction, KernelDispatchResult } from '../ports';
 import { runObserveActLoop } from '../../../agent/backends/observe-act-loop';
-import type { DispatchResult } from '../../../task/contracts';
-import { ActionResult } from '../../../agent/types';
 
 function makePageState(label: string) {
   return {
@@ -32,79 +30,44 @@ function stubCurrentPage() {
   };
 }
 
-function okDispatch(actionName: string): DispatchResult {
+function okDispatch(): KernelDispatchResult {
   return {
-    actionResult: new ActionResult({
-      error: undefined,
-      isDone: false,
-      extractedContent: 'ok',
-      includeInMemory: true,
-    }),
-    attempt: {
-      id: 'a1',
-      roundId: 'round-1',
-      actionName,
-      effect: 'reversible',
-      argsDigest: 'x',
-      state: 'observed',
-      proposedAt: 1,
-    },
-    evidence: [],
+    actionResult: { error: undefined, isDone: false, extractedContent: 'ok' },
     pageRevision: 'rev-dispatch',
   };
 }
 
-function kernelForActs(getStateImpl: () => unknown, dispatch?: (name: string) => DispatchResult) {
+function kernelForActs(getStateImpl: () => unknown, dispatch?: () => KernelDispatchResult) {
   const getState = vi.fn(async () => getStateImpl());
-  const dispatchAction = vi.fn(async (_round: string, action: Action) =>
-    dispatch ? dispatch(action.name()) : okDispatch(action.name()),
-  );
+  const dispatchAction = vi.fn(async () => (dispatch ? dispatch() : okDispatch()));
   const kernel = createBrowserKernel({
     browserContext: {
       getState,
       getCurrentPage: vi.fn(async () => stubCurrentPage()),
     } as never,
-    hooks: { dispatchAction },
-    resolveAction: name => ({ name: () => name, call: vi.fn() }) as unknown as Action,
+    dispatcher: { dispatch: dispatchAction },
+    resolveAction: name => ({ name: () => name }),
   });
   return { kernel, getState };
 }
 
 describe('BrowserKernel', () => {
   it('act routes through dispatchAction with bound page_revision', async () => {
-    const dispatchAction = vi.fn(async (...args: [string, Action, unknown]): Promise<DispatchResult> => {
+    const dispatchAction = vi.fn(async (...args: [string, KernelAction, unknown]): Promise<KernelDispatchResult> => {
       void args;
       return {
-        actionResult: new ActionResult({
-          error: undefined,
-          isDone: false,
-          extractedContent: 'ok',
-          includeInMemory: true,
-        }),
-        attempt: {
-          id: 'a1',
-          roundId: 'round-1',
-          actionName: 'click_element',
-          effect: 'reversible',
-          argsDigest: 'x',
-          state: 'observed',
-          proposedAt: 1,
-        },
-        evidence: [],
+        actionResult: { error: undefined, isDone: false, extractedContent: 'ok' },
         pageRevision: 'rev-1',
       };
     });
-    const action = {
-      name: () => 'click_element',
-      call: vi.fn(),
-    } as unknown as Action;
+    const action: KernelAction = { name: () => 'click_element' };
 
     const kernel = createBrowserKernel({
       browserContext: {
         getState: vi.fn(async () => makePageState('after')),
         getCurrentPage: vi.fn(async () => stubCurrentPage()),
       } as never,
-      hooks: { dispatchAction },
+      dispatcher: { dispatch: dispatchAction },
       resolveAction: name => (name === 'click_element' ? action : undefined),
     });
 
@@ -123,10 +86,10 @@ describe('BrowserKernel', () => {
     ['click_element', { index: 1, nested: { code: 'document.body.remove()' } }, 'dynamic_code_not_allowed'],
   ])('rejects rogue %s injection before dispatch', async (name, args, error) => {
     const dispatchAction = vi.fn();
-    const rogueAction = { name: () => name } as unknown as Action;
+    const rogueAction: KernelAction = { name: () => name };
     const kernel = createBrowserKernel({
       browserContext: {} as never,
-      hooks: { dispatchAction },
+      dispatcher: { dispatch: dispatchAction },
       resolveAction: () => rogueAction,
     });
 
@@ -138,7 +101,7 @@ describe('BrowserKernel', () => {
     const dispatchAction = vi.fn();
     const kernel = createBrowserKernel({
       browserContext: {} as never,
-      hooks: { dispatchAction },
+      dispatcher: { dispatch: dispatchAction },
       resolveAction: () => undefined,
     });
     const result = await kernel.act('r', 'nope', {});
@@ -150,13 +113,10 @@ describe('BrowserKernel', () => {
     const dispatchAction = vi.fn(async () => {
       throw new Error('Action target is no longer available');
     });
-    const action = {
-      name: () => 'click_element',
-      call: vi.fn(),
-    } as unknown as Action;
+    const action: KernelAction = { name: () => 'click_element' };
     const kernel = createBrowserKernel({
       browserContext: {} as never,
-      hooks: { dispatchAction },
+      dispatcher: { dispatch: dispatchAction },
       resolveAction: () => action,
     });
 
@@ -201,7 +161,7 @@ describe('BrowserKernel', () => {
           evaluate: async () => '',
         })),
       } as never,
-      hooks: { dispatchAction: vi.fn() },
+      dispatcher: { dispatch: vi.fn() },
       resolveAction: () => undefined,
     });
 
@@ -218,7 +178,7 @@ describe('BrowserKernel', () => {
           getContent: async () => '<div>hello</div>',
         })),
       } as never,
-      hooks: { dispatchAction: vi.fn() },
+      dispatcher: { dispatch: vi.fn() },
       resolveAction: () => undefined,
     });
     const result = await kernel.extract({
@@ -320,8 +280,8 @@ describe('BrowserKernel', () => {
     const { kernel, getState } = kernelForActs(
       () => makePageState('same'),
       () => ({
-        ...okDispatch('click_element'),
-        actionResult: new ActionResult({ error: 'Element: foo not found', includeInMemory: true }),
+        ...okDispatch(),
+        actionResult: { error: 'Element: foo not found', isDone: false, extractedContent: null },
       }),
     );
     const before = await kernel.observe();
