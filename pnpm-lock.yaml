@@ -127,6 +127,9 @@ importers:
       '@ai-sdk/openai-compatible':
         specifier: ^3.0.39
         version: 3.0.39(zod@3.25.76)
+      '@chijie/browser-protocol':
+        specifier: workspace:*
+        version: link:../packages/browser-protocol
       '@extension/agent-core':
         specifier: workspace:*
         version: link:../packages/agent-core
@@ -240,6 +243,22 @@ importers:
       '@extension/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+      vitest:
+        specifier: 2.1.9
+        version: 2.1.9(@types/node@22.19.1)(terser@5.44.1)
+
+  packages/browser-protocol:
+    dependencies:
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@extension/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      typescript:
+        specifier: 5.5.4
+        version: 5.5.4
       vitest:
         specifier: 2.1.9
         version: 2.1.9(@types/node@22.19.1)(terser@5.44.1)

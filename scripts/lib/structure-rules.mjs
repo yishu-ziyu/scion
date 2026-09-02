@@ -16,6 +16,7 @@ export const CRUISE_TARGETS = [
   'packages/ui/lib',
   'packages/wisebase-core',
   'packages/zipper',
+  'packages/browser-protocol',
 ];
 
 export const SOURCE_ROOTS = ['chrome-extension/src', 'pages', 'packages'];
@@ -107,7 +108,18 @@ export const forbidden = [
       pathNot: TASK_CONTRACT,
     },
   },
-];
+    {
+    name: 'browser-protocol-is-pure',
+    comment:
+      'The browser protocol package is model- and runtime-agnostic: types, zod schemas, serialization, versioning, pure functions only. No chrome-extension, pages, chrome module, AgentContext/ExecutorHooks homes, LangChain, AI SDK (ai / @ai-sdk/*), or storage implementation.',
+    severity: 'error',
+    from: { path: '^packages/browser-protocol/' },
+    to: {
+      path:
+        '(^|/)chrome-extension/|^pages/|^chrome($|/)|@langchain|(^|[/+])ai($|/)|(^|[/+])@ai-sdk/|(^|/)packages/storage/|(^|[/+])@extension/storage',
+    },
+  },
+  ];
 
 export const cruiseOptions = {
   doNotFollow: {

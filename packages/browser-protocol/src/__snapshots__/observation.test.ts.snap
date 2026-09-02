@@ -1,0 +1,69 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`BrowserObservation > locks the stable JSON shape (protocol changes must bump version) 1`] = `
+{
+  "inaccessibleFrames": [
+    {
+      "frameId": "frame-pay",
+      "reason": "Target closed",
+      "url": "https://pay.example",
+    },
+  ],
+  "interactiveElements": [
+    {
+      "identity": {
+        "backendNodeId": 111,
+      },
+      "index": 0,
+      "kind": "element",
+      "pageRevision": "rev-9",
+      "tagName": "a",
+      "text": "Home",
+    },
+    {
+      "identity": {
+        "backendNodeId": 222,
+        "frameId": "frame-embed",
+      },
+      "index": 1,
+      "kind": "element",
+      "pageRevision": "rev-9",
+      "tagName": "input",
+      "type": "password",
+      "valueRedacted": true,
+    },
+  ],
+  "media": {
+    "candidateCount": 1,
+    "kind": "bound",
+    "state": "playing",
+  },
+  "observationId": "obs-1",
+  "observedAt": 1735689600000,
+  "page": {
+    "kind": "page",
+    "pageRevision": "rev-9",
+    "tabId": 7,
+    "title": "Example Feed",
+    "url": "https://example.com/feed",
+  },
+  "pageRevision": "rev-9",
+  "protocolVersion": "2",
+  "signals": [
+    {
+      "kind": "material_change",
+    },
+    {
+      "detail": "feed page",
+      "kind": "enrichment",
+      "label": "site",
+    },
+  ],
+  "viewport": {
+    "documentHeight": 4000,
+    "scrollY": 120,
+    "viewportHeight": 800,
+  },
+  "visibleText": "Welcome to the example feed.",
+}
+`;
