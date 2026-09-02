@@ -130,6 +130,9 @@ importers:
       '@chijie/browser-protocol':
         specifier: workspace:*
         version: link:../packages/browser-protocol
+      '@chijie/browser-runtime':
+        specifier: workspace:*
+        version: link:../packages/browser-runtime
       '@extension/agent-core':
         specifier: workspace:*
         version: link:../packages/agent-core

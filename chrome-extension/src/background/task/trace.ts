@@ -21,7 +21,9 @@ export type TraceSpanKind =
   | 'kernel'
   | 'skill'
   | 'artifact'
-  | 'diff';
+  | 'diff'
+  /** Shadow Mode (C6): v2 plan-only comparison next to a legacy action. */
+  | 'shadow';
 
 export interface TraceSpan {
   id: string;

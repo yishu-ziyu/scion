@@ -10,6 +10,7 @@ import {
   generalSettingsStore,
   getApiKey,
   llmProviderStore,
+  type GeneralSettingsConfig,
   type ProviderConfig,
 } from '@extension/storage';
 import { t } from '@extension/i18n';
@@ -30,11 +31,12 @@ import type {
   ExecutorOutcome,
 } from '../../task/contracts';
 import { markSetupError } from '../../task/executor-start-error';
-import { createBrowserKernel } from '../../browser/kernel';
+import { createBrowserKernel, type ObservationFrame } from '../../browser/kernel';
 import { createCompatibleLanguageModel } from '../../orchestrator/model';
 import { pageShowsFormSuccess, successCuesFromInstruction } from '../../browser/sites/form-fill';
 import { TOOL_LOOP_CONTROL_INSTRUCTIONS } from './tool-loop-control-prompts';
 import { createToolLoopControlTools, type ToolLoopBrowser } from './tool-loop-control-tools';
+import { createShadowRecorder } from './shadow-recorder';
 
 const logger = createLogger('ToolLoopControl');
 
@@ -100,7 +102,7 @@ async function createKernelBrowser(
   hooks: ExecutorHooks,
   browserContext: BrowserContext,
   roundId: () => string,
-): Promise<ToolLoopBrowser> {
+): Promise<{ browser: ToolLoopBrowser; lastFrame: () => ObservationFrame | null }> {
   const providers = await llmProviderStore.getAllProviders();
   const configured = await agentModelStore.getModel();
   if (!configured || !providers[configured.provider]) throw markSetupError(t('bg_setup_noNavigatorModel'));
@@ -152,20 +154,23 @@ async function createKernelBrowser(
     attached = true;
   };
   return {
-    observe: async query => {
-      await attach();
-      const frame = await kernel.observe({ query, waitForLoad: false });
-      return {
-        text: frame.text,
-        visibleText: frame.visibleText,
-        url: frame.tab.url,
-        title: frame.tab.title,
-        pageRevision: frame.pageRevision,
-      };
-    },
-    act: async (name, args) => {
-      await attach();
-      return kernel.act(roundId(), name, args, kernel.lastFrame()?.pageRevision);
+    lastFrame: () => kernel.lastFrame(),
+    browser: {
+      observe: async query => {
+        await attach();
+        const frame = await kernel.observe({ query, waitForLoad: false });
+        return {
+          text: frame.text,
+          visibleText: frame.visibleText,
+          url: frame.tab.url,
+          title: frame.tab.title,
+          pageRevision: frame.pageRevision,
+        };
+      },
+      act: async (name, args) => {
+        await attach();
+        return kernel.act(roundId(), name, args, kernel.lastFrame()?.pageRevision);
+      },
     },
   };
 }
@@ -179,12 +184,34 @@ export async function createToolLoopControlDriver(
   await ensurePersonalDefaults();
   const model = options.model ?? (await resolveLoopModel());
   let activeRoundId = input.roundId;
-  const runBrowser =
-    options.runBrowser ?? (await createKernelBrowser(input, hooks, browserContext, () => activeRoundId));
   const generalSettings = await generalSettingsStore
     .getSettings()
-    .catch(() => ({ maxSteps: DEFAULT_AGENT_OPTIONS.maxSteps }));
+    .catch(() => ({ maxSteps: DEFAULT_AGENT_OPTIONS.maxSteps }) as GeneralSettingsConfig);
   const maxSteps = options.maxSteps ?? generalSettings.maxSteps ?? DEFAULT_AGENT_OPTIONS.maxSteps;
+  // Shadow Mode (C6): null unless runtimeMode is exactly 'v2-shadow' — the
+  // default legacy path constructs no comparator/hook and stays unchanged.
+  const shadow = createShadowRecorder({
+    runtimeMode: generalSettings.runtimeMode,
+    taskId: input.taskId,
+    roundId: () => activeRoundId,
+  });
+  const kernelBrowser = options.runBrowser
+    ? { browser: options.runBrowser, lastFrame: (): ObservationFrame | null => null }
+    : await createKernelBrowser(input, hooks, browserContext, () => activeRoundId);
+  const runBrowser: ToolLoopBrowser = shadow
+    ? {
+        observe: kernelBrowser.browser.observe,
+        act: async (name, args) => {
+          // Sole shadow trigger (C6): the decision-time frame captured here is
+          // what legacy indexes/queries refer to, so the v2 plan can resolve
+          // real identities. record() is failure-proof and never blocks legacy.
+          const frameBefore = kernelBrowser.lastFrame();
+          const result = await kernelBrowser.browser.act(name, args);
+          await shadow.record({ name, args, error: result.error ?? null, frame: frameBefore });
+          return result;
+        },
+      }
+    : kernelBrowser.browser;
 
   const followUps: string[] = [];
   let paused = false;

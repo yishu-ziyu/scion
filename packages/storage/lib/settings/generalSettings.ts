@@ -12,6 +12,13 @@ export interface GeneralSettingsConfig {
   planningInterval: number;
   displayHighlights: boolean;
   minWaitPageLoad: number;
+  /**
+   * EPIC C6 runtime mode switch ('legacy' | 'v2-shadow' | 'v2-active').
+   * Optional with no default: absent/invalid means legacy, so existing
+   * profiles need no migration. Parsed by resolveMode() in
+   * @chijie/browser-runtime — storage must not import that package.
+   */
+  runtimeMode?: string;
 }
 
 export type GeneralSettingsStorage = BaseStorage<GeneralSettingsConfig> & {
