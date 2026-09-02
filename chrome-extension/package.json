@@ -21,6 +21,7 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.39",
     "@chijie/browser-protocol": "workspace:*",
+    "@chijie/browser-runtime": "workspace:*",
     "@extension/agent-core": "workspace:*",
     "@extension/context-engine": "workspace:*",
     "@extension/contracts": "workspace:*",

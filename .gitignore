@@ -28,6 +28,9 @@ chrome-extension/src/personal/secrets.local.ts
 **/.turbo
 *.bak
 *.bak-*
+
+# local eval artifacts (baseline runs, trace dumps) — rebuildable, never commit
+artifacts/
 *~
 
 # compiled
