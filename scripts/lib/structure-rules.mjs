@@ -17,6 +17,7 @@ export const CRUISE_TARGETS = [
   'packages/wisebase-core',
   'packages/zipper',
   'packages/browser-protocol',
+  'packages/browser-runtime',
 ];
 
 export const SOURCE_ROOTS = ['chrome-extension/src', 'pages', 'packages'];
@@ -119,7 +120,18 @@ export const forbidden = [
         '(^|/)chrome-extension/|^pages/|^chrome($|/)|@langchain|(^|[/+])ai($|/)|(^|[/+])@ai-sdk/|(^|/)packages/storage/|(^|[/+])@extension/storage',
     },
   },
-  ];
+  {
+    name: 'browser-runtime-is-headless',
+    comment:
+      'The browser runtime talks to the world through ports only: no chrome-extension (incl. TaskManager), no pages, no chrome global, no LangChain / AI SDK. Allowed deps are @chijie/browser-protocol and zod.',
+    severity: 'error',
+    from: { path: '^packages/browser-runtime/' },
+    to: {
+      path:
+        '(^|/)chrome-extension/|^pages/|^chrome($|/)|@langchain|(^|[/+])ai($|/)|(^|[/+])@ai-sdk/|(^|/)packages/storage/|(^|[/+])@extension/',
+    },
+  },
+];
 
 export const cruiseOptions = {
   doNotFollow: {
