@@ -1,0 +1,37 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`version snapshots > locks the serialized observation and action shapes > action-shape 1`] = `
+{
+  "actionId": "snap-1",
+  "effect": "reversible_write",
+  "input": {},
+  "kind": "click",
+  "protocolVersion": "2",
+  "requestedAt": 1700000000000,
+  "target": {
+    "identity": {
+      "backendNodeId": 1,
+    },
+    "kind": "element",
+    "pageRevision": "r1",
+  },
+}
+`;
+
+exports[`version snapshots > locks the serialized observation and action shapes > observation-shape 1`] = `
+{
+  "interactiveElements": [],
+  "observationId": "obs-v",
+  "observedAt": 1700000000000,
+  "page": {
+    "kind": "page",
+    "pageRevision": "r1",
+    "tabId": 1,
+    "title": "t",
+    "url": "https://example.com",
+  },
+  "pageRevision": "r1",
+  "protocolVersion": "2",
+  "signals": [],
+}
+`;
