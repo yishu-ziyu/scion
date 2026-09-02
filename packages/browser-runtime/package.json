@@ -1,0 +1,25 @@
+{
+  "name": "@chijie/browser-runtime",
+  "version": "0.1.13",
+  "description": "Headless browser runtime ports (executor/snapshot/trace/clock/ids/logger) with fake implementations for Node testing",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "types": "index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "pnpm lint --fix",
+    "prettier": "prettier . --write --ignore-path ../../.prettierignore",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@chijie/browser-protocol": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@extension/tsconfig": "workspace:*",
+    "typescript": "5.5.4",
+    "vitest": "2.1.9"
+  }
+}

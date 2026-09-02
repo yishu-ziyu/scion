@@ -263,6 +263,25 @@ importers:
         specifier: 2.1.9
         version: 2.1.9(@types/node@22.19.1)(terser@5.44.1)
 
+  packages/browser-runtime:
+    dependencies:
+      '@chijie/browser-protocol':
+        specifier: workspace:*
+        version: link:../browser-protocol
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@extension/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      typescript:
+        specifier: 5.5.4
+        version: 5.5.4
+      vitest:
+        specifier: 2.1.9
+        version: 2.1.9(@types/node@22.19.1)(terser@5.44.1)
+
   packages/context-engine:
     devDependencies:
       '@extension/tsconfig':
