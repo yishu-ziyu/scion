@@ -109,7 +109,15 @@ export const forbidden = [
       pathNot: TASK_CONTRACT,
     },
   },
-    {
+  {
+    name: 'kernel-talks-through-ports',
+    comment:
+      'BrowserKernel (product/022 C3) depends on Agent/Task only through its own ports (browser/kernel/ports.ts): no AgentContext (agent/types) and no ExecutorHooks/DispatchResult (task/contracts). Shared pure helpers stay allowed: model-action-safety, agent text utils, and task/action-frame.',
+    severity: 'error',
+    from: { path: 'chrome-extension/src/background/browser/kernel/' },
+    to: { path: 'chrome-extension/src/background/(agent/types|task/contracts)\\.ts$' },
+  },
+  {
     name: 'browser-protocol-is-pure',
     comment:
       'The browser protocol package is model- and runtime-agnostic: types, zod schemas, serialization, versioning, pure functions only. No chrome-extension, pages, chrome module, AgentContext/ExecutorHooks homes, LangChain, AI SDK (ai / @ai-sdk/*), or storage implementation.',

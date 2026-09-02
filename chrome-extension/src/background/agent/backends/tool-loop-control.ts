@@ -16,8 +16,8 @@ import { t } from '@extension/i18n';
 import type BrowserContext from '../../browser/context';
 import { createLogger } from '../../log';
 import { ensurePersonalDefaults } from '../../../personal/bootstrap';
-import { ActionBuilder } from '../actions/builder';
-import { AgentContext, DEFAULT_AGENT_OPTIONS } from '../types';
+import { ActionBuilder, type Action } from '../actions/builder';
+import { AgentContext, DEFAULT_AGENT_OPTIONS, type ActionResult } from '../types';
 import MessageManager from '../messages/service';
 import { EventManager } from '../event/manager';
 import { createChatModel } from '../helper';
@@ -123,10 +123,25 @@ async function createKernelBrowser(
     planningInterval: generalSettings.planningInterval,
   });
   const registry = registryFromActions(new ActionBuilder(agentContext, extractor).buildDefaultActions());
+  // Thin adapters: the kernel only sees its ports, never AgentContext or ExecutorHooks.
   const kernel = createBrowserKernel({
     browserContext,
-    agentContext,
-    hooks,
+    dispatcher: {
+      dispatch: (roundId, action, rawArgs) => hooks.dispatchAction(roundId, action as Action, rawArgs),
+    },
+    actionResults: {
+      record: result => {
+        agentContext.actionResults.push(result as ActionResult);
+      },
+    },
+    defaults: {
+      get useVision() {
+        return agentContext.options.useVision;
+      },
+      get includeAttributes() {
+        return agentContext.options.includeAttributes;
+      },
+    },
     resolveAction: name => registry.get(name),
     defaultUseVision: generalSettings.useVision,
   });

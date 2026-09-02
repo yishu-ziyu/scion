@@ -1,14 +1,13 @@
 /**
  * Browser Kernel (product/022).
- * Thin façade over BrowserContext + ExecutorHooks.dispatchAction.
- * Does NOT re-implement browser control.
+ * Thin façade over BrowserContext + the kernel ports (see ./ports).
+ * Does NOT re-implement browser control, and must not import AgentContext
+ * or ExecutorHooks directly; callers adapt those through the ports.
  */
-import type { Action } from '../../agent/actions/builder';
 import { modelActionRejection } from '../../agent/actions/model-action-safety';
 import type BrowserContext from '../context';
-import type { AgentContext } from '../../agent/types';
-import type { ExecutorHooks } from '../../task/contracts';
 import { bindIndexedActionToFrame } from '../../task/action-frame';
+import type { ActionDispatcherPort, ActionResultSink, KernelAction, KernelDefaults } from './ports';
 import { createLogger } from '../../log';
 import { buildObservationFrame } from './observation';
 import { computeObservationDiff } from './diff';
@@ -45,11 +44,14 @@ function isStaleActionTargetError(error: unknown): boolean {
 
 export interface BrowserKernelDeps {
   browserContext: BrowserContext;
-  /** Optional AgentContext for includeAttributes / useVision defaults. */
-  agentContext?: AgentContext;
-  hooks: Pick<ExecutorHooks, 'dispatchAction'>;
+  /** Dispatch actions through the Task layer (production: ExecutorHooks.dispatchAction). */
+  dispatcher: ActionDispatcherPort;
+  /** Optional sink for completed action results (production: AgentContext.actionResults). */
+  actionResults?: ActionResultSink;
+  /** Optional observation defaults (production: AgentContext.options snapshot). */
+  defaults?: KernelDefaults;
   /** Resolve action instances by name (from ActionBuilder registry). */
-  resolveAction: (name: string) => Action | undefined;
+  resolveAction: (name: string) => KernelAction | undefined;
   defaultUseVision?: boolean;
   defaultIncludeAttributes?: string[] | null;
 }
@@ -61,12 +63,9 @@ export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
   let kernel!: BrowserKernel;
 
   async function observe(options?: ObserveOptions): Promise<ObservationFrame> {
-    const useVision = options?.useVision ?? deps.defaultUseVision ?? deps.agentContext?.options.useVision ?? false;
+    const useVision = options?.useVision ?? deps.defaultUseVision ?? deps.defaults?.useVision ?? false;
     const includeAttributes =
-      options?.includeAttributes ??
-      deps.defaultIncludeAttributes ??
-      deps.agentContext?.options.includeAttributes ??
-      null;
+      options?.includeAttributes ?? deps.defaultIncludeAttributes ?? deps.defaults?.includeAttributes ?? null;
 
     const browserState = await deps.browserContext.getState(useVision, false, {
       waitForLoad: options?.waitForLoad,
@@ -163,8 +162,8 @@ export function createBrowserKernel(deps: BrowserKernelDeps): BrowserKernel {
     const revision = frameRevision ?? last?.pageRevision ?? null;
     const boundArgs = bindIndexedActionToFrame(rawArgs, revision);
     try {
-      const result = await deps.hooks.dispatchAction(roundId, action, boundArgs);
-      deps.agentContext?.actionResults.push(result.actionResult);
+      const result = await deps.dispatcher.dispatch(roundId, action, boundArgs);
+      deps.actionResults?.record(result.actionResult);
       const outcome: KernelActionResult = {
         error: result.actionResult?.error ?? null,
         isDone: Boolean(result.actionResult?.isDone),

@@ -45,18 +45,15 @@ describe('022-KERNEL-01 BrowserKernel contract', () => {
         evaluate,
       })),
     };
-    const agentContext = {
-      browserContext,
-      options: { useVision: false, includeAttributes: [] as string[] },
-    };
-    const hooks = {
-      dispatchAction: vi.fn(async () => ({ ok: true, observed: true })),
+    const defaults = { useVision: false, includeAttributes: [] as string[] };
+    const dispatcher = {
+      dispatch: vi.fn(async () => ({ ok: true, observed: true })),
     };
 
     const kernel = createBrowserKernel({
       browserContext: browserContext as never,
-      agentContext: agentContext as never,
-      hooks: hooks as never,
+      dispatcher: dispatcher as never,
+      defaults,
       resolveAction: () => undefined,
       defaultUseVision: false,
     });
@@ -69,7 +66,7 @@ describe('022-KERNEL-01 BrowserKernel contract', () => {
     expect(frame.text).toContain('This domain is for use in documentation examples.');
     expect(frame.text).toContain('Interactive elements:');
     expect(getState).toHaveBeenCalled();
-    expect(hooks.dispatchAction).not.toHaveBeenCalled();
+    expect(dispatcher.dispatch).not.toHaveBeenCalled();
   });
 
   it('merges a[title] names that innerText truncated', async () => {
@@ -99,11 +96,8 @@ describe('022-KERNEL-01 BrowserKernel contract', () => {
           evaluate,
         })),
       } as never,
-      agentContext: {
-        browserContext: {},
-        options: { useVision: false, includeAttributes: [] as string[] },
-      } as never,
-      hooks: { dispatchAction: vi.fn(async () => ({ ok: true, observed: true })) } as never,
+      dispatcher: { dispatch: vi.fn(async () => ({ ok: true, observed: true })) } as never,
+      defaults: { useVision: false, includeAttributes: [] as string[] },
       resolveAction: () => undefined,
       defaultUseVision: false,
     });
@@ -128,7 +122,7 @@ describe('022-KERNEL-01 BrowserKernel contract', () => {
           evaluate: async () => '',
         })),
       } as never,
-      hooks: { dispatchAction: vi.fn() } as never,
+      dispatcher: { dispatch: vi.fn() } as never,
       resolveAction: () => undefined,
       defaultUseVision: false,
     });
