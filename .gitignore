@@ -8,6 +8,7 @@
 **/dist
 **/build
 **/dist-zip
+*.tgz
 
 # env
 **/.env.local
@@ -47,3 +48,7 @@ reports/
 
 # local architecture atlas (system-atlas scratch; do not commit generated HTML)
 .atlas/
+
+# local agent run state and HTML/PNG design prototypes
+.omo/
+.prototypes/
