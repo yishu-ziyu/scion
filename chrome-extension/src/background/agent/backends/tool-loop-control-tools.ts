@@ -3,8 +3,11 @@ import { z } from 'zod';
 import { ALL_ACTION_SCHEMAS } from '../actions/schemas';
 import { EVERYDAY_CONTROL_ACTION_NAMES } from './control-policy';
 import { DEFAULT_VISIBLE_TEXT_CHARS, normalizeVisiblePageText } from '../../browser/kernel/visible-text';
+import { createLogger } from '../../log';
 import { pageShowsFormSuccess } from '../../browser/sites/form-fill';
 import type { KernelActionResult } from '../../browser/kernel/types';
+
+const logger = createLogger('ToolLoopTools');
 
 export type ToolLoopPage = {
   text: string;
@@ -52,37 +55,52 @@ export function createToolLoopControlTools(
   const tools: Record<string, ReturnType<typeof tool>> = {};
   const successCues = (options.successCues ?? []).map(cue => cue.trim()).filter(Boolean);
   let seenNamedSuccess = false;
+  let matchedSuccessCue: string | null = null;
 
   const notePage = (page: ToolLoopPage) => {
     const visible = `${page.visibleText || ''} ${page.text || ''}`;
-    if (successCues.some(cue => pageShowsFormSuccess(visible, cue))) seenNamedSuccess = true;
+    const matched = successCues.find(cue => pageShowsFormSuccess(visible, cue));
+    if (matched) {
+      seenNamedSuccess = true;
+      matchedSuccessCue ??= matched;
+    }
     return page;
+  };
+
+  /** The model's explicit done call; rejected until the named cue is visible. */
+  const handleExplicitDone = async (args: Record<string, unknown>) => {
+    const summary = (typeof args.text === 'string' ? args.text.trim() : '') || 'Done.';
+    if (successCues.length > 0 && !seenNamedSuccess) {
+      const page = notePage(capPage(await browser.observe()));
+      if (!seenNamedSuccess) {
+        return {
+          error: 'Named on-page success is not visible yet. Continue the remaining unfinished steps. Do not call done.',
+          page,
+        };
+      }
+    }
+    state.setDone(summary);
+    return { ok: true, summary };
   };
 
   const runAct = async (name: string, args: Record<string, unknown>) => {
     await state.waitIfPaused();
     if (state.stopped()) return { error: 'stopped' };
-    if (name === 'done') {
-      const summary = (typeof args.text === 'string' ? args.text.trim() : '') || 'Done.';
-      if (successCues.length > 0 && !seenNamedSuccess) {
-        const page = notePage(capPage(await browser.observe()));
-        if (!seenNamedSuccess) {
-          return {
-            error:
-              'Named on-page success is not visible yet. Continue the remaining unfinished steps. Do not call done.',
-            page,
-          };
-        }
-      }
-      state.setDone(summary);
-      return { ok: true, summary };
-    }
+    if (name === 'done') return handleExplicitDone(args);
     if (name === 'observe' || name === 'read_page_text') {
       const query = typeof args.query === 'string' ? args.query : undefined;
       return notePage(capPage(await browser.observe(query)));
     }
     const result = await browser.act(name, args);
     const page = notePage(capPage(await browser.observe()));
+    // Named on-page success already visible after an action: propose done
+    // inline (4829bf8 semantics) instead of letting a wandering model outlive
+    // the cue. The verifier still independently gates completion.
+    if (seenNamedSuccess && successCues.length > 0) {
+      const summary = matchedSuccessCue ?? 'Named on-page success visible.';
+      state.setDone(summary);
+      return { error: result.error ?? null, isDone: true, summary, page };
+    }
     return { error: result.error ?? null, isDone: Boolean(result.isDone), summary: result.summary ?? null, page };
   };
 
