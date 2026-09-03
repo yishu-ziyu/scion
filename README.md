@@ -1,85 +1,115 @@
-# 持节 (Chijie) · Chrome extension
+# 持节 (Chijie)
 
-运行在用户 Chrome 中的 **长程任务 Agent**（Chrome MV3 侧栏）。
+**2026-09-03 起停止维护。** 这不是「暂缓、以后再做」，是这次实验结束了。
 
-本包基于 [nanobrowser/nanobrowser](https://github.com/nanobrowser/nanobrowser) 的个人嫁接，产品名为 **持节**。
-仓库：[yishu-ziyu/scion](https://github.com/yishu-ziyu/scion)。
+仓库：[yishu-ziyu/scion](https://github.com/yishu-ziyu/scion)。本机不再保留工作副本，GitHub 是唯一存档。
 
-| 层 | 值 |
-|----|-----|
-| 产品 | 持节 / Chijie |
-| 形态 | Long-horizon task Agent（Mission/Plan、任务级自主、可验证交付） |
-| 包名 | `chijie-browser` |
-| 版本 | 见 `package.json` |
-| Load unpacked | `pnpm build` 后加载 `./dist` |
+持节是跑在用户日常 Chrome 里的长程任务 Agent（MV3 侧栏）。用户给一句话，扩展去点、开、搜、填，并试图在页面上核对「做完没有」。它从 [nanobrowser/nanobrowser](https://github.com/nanobrowser/nanobrowser) 嫁接而来，产品名持节，仓库名 scion（接穗）。
 
-## 产品要点（当前）
+它没有做成产品。后面的工作会转到另一个同功能方向，不再在这个代码树上长。
 
-- **任务侧栏**：目标、计划阶段、活动步骤、完成回执与证据；对话区不被任务卡压扁。
-- **任务级自主**：用户给出目标即授权范围内行动；**不做**逐步“提交前审批”主流程。
-- **完成必须可核对**：仅有 URL 形态不够；**404 /「页面不可用」不会标绿完成**。
-- **长程能力**：Mission/Plan、上下文压缩、长程评估迷你集（`021-LH-*`）；正式分绑定 MiniMax-M3。
+---
 
-## 环境
+## 这是什么实验
 
-- Node `>=22.12.0`（`.nvmrc`）
-- 只用 **pnpm**（`package.json` 的 `packageManager`）
+时间：2026-07-13 到 2026-09-03，大约七周，约 290 个提交，版本停在 `0.1.13`。
 
-## 常用命令
+要验证的假设是：
+
+> 不必换浏览器。挂在用户已经登录的 Chrome 上，用编号 DOM + observe-act 循环，就能把一件真实任务做完，并且完成是可核对的，而不是聊天式「看起来做了」。
+
+形态选的是最难的那条路：用户日常 Chrome，不是自有 Chromium，也不是云端 Playwright。得到的是 cookie、书签、本机会话；付出去的是 MV3 service worker 寿命、`chrome.debugger` 黄条、跨源 iframe、扩展重启、Chrome 137 之后 `--load-extension` 失效。
+
+这是实验室，不是上架产品。加载方式始终是 `pnpm build` 后 Load unpacked `./dist`，密钥靠本机注入，没有 Chrome 网上应用店，没有外部用户。
+
+---
+
+## 为什么说失败
+
+循环是接通的。侧栏能发任务，后台能观察、决策、点页面，完成判定、接管、失败再派都写过。单测一度上千条全绿。这些都不能算做成。
+
+做成的标准只有一句：**用户派出去的任务，浏览器里做完了没有。** 按这个标准，持节经常做不完，做完了也经常对不上。它停留在「能演示、能修、能写下一份交接」的状态，没有跨过「可以交给别人用」的门槛。
+
+失败不是某一个 bug，是几件事叠在一起。
+
+### 1. 从别人的壳开始，而不是从一件能交出去的事开始
+
+第一笔提交是 `bootstrap oss-forks monorepo with nanobrowser second-dev`。后面七周大量工作是嫁接、清上游、补协议、做 0.2 迁移，而不是先锁死一个最小任务并把它做到稳。
+
+Nanobrowser 给的是 Planner / Navigator、编号 DOM、MV3 扩展骨架。持节把产品愿望（长程、可核对、任务级自主、不做逐步审批）贴到这副骨架上。骨架在，产品不在。0.2 迁到一半就停了：D4 做完，D5 只写了调查结论，D6 以后没开工。仓库里还有零生产引用的事件协议、前端不再调用的休眠端口、被冻成基线红的 33 个 type-check 错误和 13 个结构违规。
+
+二开的代价是：你一直在还别人的债，还以为自己在做产品。
+
+### 2. 形态选错了，选完还不肯换
+
+同期能用的东西——Tabbit、ChatGPT Atlas、Perplexity Comet——是整机浏览器。Agent 和浏览面是同一块。持节坚持挂在别人的 Chrome 上，用侧栏当「看这次工作的窗口」。
+
+仓库自己的调研已经把这条分叉写清楚了。MV3 扩展这条路换来本机会话，换不来产品完整控制，也换不来稳定的长任务运行时。service worker 会挂、会重启、会丢状态；真实站点的 E2E 被模型轨迹方差挡住；改了构建还要手动 reload，品牌版 Chrome 甚至不认命令行加载扩展。
+
+这些不是执行问题，是形态问题。形态错了，后面的完成判定、回执协议、keep-alive、shadow 模式全是在补洞。洞补得越认真，越像还在做产品。
+
+### 3. 测试绿了，任务没做完
+
+开发日志里反复出现同一类事故：完成误判、步骤空白几十秒、研究任务分错、飞书 wiki 冻成维基百科、证据协议和真实提交对不上、live E2E 随模型心情偶发失败。
+
+质量门很完整：单元、结构门、eval 矩阵、shadow 审计、fixture 表单。它们证明的是「协议字段齐了」「快照能合并」「本地 HTML 能提交」。用户要的是 B 站第二行第一个视频被打开，而且打开的就是那个。
+
+测试在测工厂。用户在测活。工厂越来越大，活还是不稳。最后停的现场也符合这个形状：迁移纪律、事件层、评估基建都比「再把一件真任务做稳」更完整。
+
+### 4. 产品身份靠对照，不靠自己的一句
+
+持节的交互和结构，很大一块是对着别人改出来的：对照 Tabbit 的思考 / 步骤 / 结果，对照 ego-lite 的一次脚本多步，对照《Agentic Design Patterns》的 21 章打分，对照 nanobrowser 的循环。书审的结论其实已经写过——不要为凑章开第二套协议，成功标准就是任务做完。做的时候仍在加栏目、加记忆、加技能、加验证引擎、加 0.2 架构。
+
+「长程可核对 Agent」是研究目标，不是第一个可交付产品。第一个产品应该是一件事：比如「把这张表填完并提交，错了自己能看出来」。持节同时想要任务级自主、Mission/Plan、用户记忆、媒体控制、下载、登录墙、验证码等待、多标签、可核对回执。范围没有收敛过。
+
+没有一句稳定的「我们只做这个」。对照对象一换，产品就跟着晃。
+
+### 5. 实验室被当成产品来养
+
+没有用户，没有分发，没有「明天必须能用」的外部压力。有的是 agent 写代码的速度、越来越厚的 spec、越来越细的门禁。七周足够做一个窄的、能用的东西，也足够把一个嫁接实验养成一座只有作者能进去的工厂。
+
+持节属于后者。它失败，是因为它把探索的过程误认成了产品的进度。
+
+---
+
+## 实验仍然值
+
+失败的是产品，不是「浏览器里把事做完」这件事。这件事还成立，只是不会再以持节这棵树的方式做。
+
+如果以后有人翻这个仓库，值得带走的不是代码规模，是这几条已经付过学费的判断：
+
+- 日常 Chrome 扩展和「自有浏览器里的 Agent」是两类产品。前者适合轻辅助，后者才适合长程任务。不要用侧栏去模拟整机浏览器。
+- 完成必须看页面，不能看模型有没有说「我做完了」。URL 不够，404 不能标绿。这条是对的，也是持节少数站得住的产品约束。
+- 单测绿不等于任务成。没有真实站点上的硬门槛，eval 只会把协议堆厚。
+- 二开能让你很快有画面，也会让你很晚才发现自己在还债。
+- 对照竞品是为了决定不做什么。拿来当迭代输入，产品会碎成别人的边角。
+
+代码、评估脚本、调研笔记、0.2 中断记录都还在这个仓库里。它们是现场，不是路线图。
+
+---
+
+## 考古（不维护）
+
+如果你只是把仓库 clone 下来看一眼：
 
 ```bash
 pnpm install
-pnpm build                 # 注入个人密钥 → 清 dist → turbo build
-pnpm dev                   # inject + turbo watch
-pnpm type-check
-pnpm lint
-pnpm -F chrome-extension test
-pnpm zip                   # build + zip → dist-zip/
+pnpm build                 # 注入密钥 → 清 dist → turbo build
+# Chrome 加载 ./dist（Load unpacked）
 ```
 
-### 端到端（需 Chrome for Testing / 配置的 CHROME_PATH）
+密钥不要提交。`chrome-extension/src/personal/secrets.local.example.ts` 是模板。
 
-```bash
-# fixture 表单 + skill 重跑 + 媒体播停 + 隐私检查
-pnpm e2e:action-agent
-# 或
-pnpm -F chrome-extension e2e:action-agent
+更细的命令、目录、当时的迁移现场，见提交历史，以及：
 
-# R1 列表 → CSV 成果
-pnpm e2e:r1-extract
-# 或
-pnpm -F chrome-extension e2e:r1-extract
-```
+- `docs/DEVLOG.md`
+- `docs/architecture/chijie-0.2-third-batch-findings.md`
+- `docs/research/2026-08-18-x-browser-agent-implementations.md`
 
-## 目录
+不要基于这个仓库继续做功能。它停在 2026-09-03 的现场：D4 完成，D5 未开工，D6 以后未开工。
 
-```text
-chrome-extension/     # MV3 service worker、agent、浏览器控制
-  src/background/     # 任务循环、observe-act、DOM/标签
-  src/personal/       # MiniMax bootstrap + secrets.local.ts（gitignore）
-  scripts/            # action-agent-e2e、r1-extract-e2e 等
-  test/fixtures/      # form / media / products 本地页
-pages/
-  side-panel/         # 主任务 UI
-  options/            # 设置
-  content/            # 内容脚本（页内「正在替你操作」等）
-packages/             # i18n、storage、ui、schema-utils…
-dist/                 # 构建产物 — Load unpacked 指向这里
-```
-
-## 密钥
-
-不要提交密钥。
-
-```bash
-cp chrome-extension/src/personal/secrets.local.example.ts \
-   chrome-extension/src/personal/secrets.local.ts
-# 填值，或使用 `pnpm inject:personal` / 环境源
-```
-
-分析类 env 示例：[`.env.example`](./.env.example)。
-Agent 规则：[AGENTS.md](./AGENTS.md)。
+---
 
 ## License
 
-见 [LICENSE](./LICENSE)（嫁接保留上游 Nanobrowser 许可）。
+见 [LICENSE](./LICENSE)。嫁接保留上游 Nanobrowser 许可（Apache-2.0）。
